@@ -1,0 +1,37 @@
+// Stage 1: Total Authentication Attempts & 30d Baseline
+stage stage1_extract {
+    metadata.event_type = "USER_LOGIN"
+    $event_type = metadata.event_type
+    target.user.userid = $user
+    $user != ""
+
+  match:
+    $user by 1d
+
+  outcome:
+    $observed_val = count(metadata.id)
+    $failed_logins = sum(if(security_result.action != "ALLOW", 1, 0))
+    $distinct_source_ips = count_distinct(principal.ip)
+    $distinct_user_agents = count_distinct(network.http.user_agent)
+
+    $historical_avg = max(metrics.auth_attempts_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+        target.user.userid: $user
+    ))
+    $historical_stddev = max(metrics.auth_attempts_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+        target.user.userid: $user
+    ))
+    $historical_active_days = max(metrics.auth_attempts_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+        target.user.userid: $user
+    ))
+    $historical_max = max(metrics.auth_attempts_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: max,
+        target.user.userid: $user
+    ))
+    $historical_sum = max(metrics.auth_attempts_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: sum,
+        target.user.userid: $user
+    ))
+}

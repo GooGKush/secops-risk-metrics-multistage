@@ -1,0 +1,35 @@
+// Stage 1: DNS Query Volume & 30d Baseline
+stage stage1_extract {
+    metadata.event_type = "NETWORK_DNS"
+    $event_type = metadata.event_type
+    principal.asset.hostname = $entity
+    $entity != ""
+
+  match:
+    $entity by 1d
+
+  outcome:
+    $observed_val = count(metadata.id)
+    $distinct_domains = count_distinct(network.dns_domain)
+
+    $historical_avg = max(metrics.dns_queries_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+        principal.asset.hostname: $entity
+    ))
+    $historical_stddev = max(metrics.dns_queries_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+        principal.asset.hostname: $entity
+    ))
+    $historical_active_days = max(metrics.dns_queries_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+        principal.asset.hostname: $entity
+    ))
+    $historical_max = max(metrics.dns_queries_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: max,
+        principal.asset.hostname: $entity
+    ))
+    $historical_sum = max(metrics.dns_queries_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: sum,
+        principal.asset.hostname: $entity
+    ))
+}

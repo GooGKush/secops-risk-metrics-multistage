@@ -1,0 +1,18 @@
+// Root Stage: Discrete Poisson Rarity Z-Score (Preserving Daily Timeline)
+$entity = $stage1_extract.entity
+$ws = $stage1_extract.window_start
+
+match:
+  $entity, $ws by 1d
+
+outcome:
+  $k = max($stage1_extract.observed_val)
+  $lambda = max($stage1_extract.historical_avg)
+  $active_days = max($stage1_extract.historical_active_days)
+
+  // Discrete Poisson Rarity Z-Score: (k - lambda) / math.sqrt(lambda + 1.0)
+  $diff = $k - $lambda
+  $poisson_z = $diff / math.sqrt($lambda + 1.0)
+
+order:
+  $poisson_z desc

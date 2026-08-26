@@ -1,0 +1,69 @@
+// ============================================================================
+// ARCHITECTURE: 3-STAGE DUAL-BASELINE POPULATION NORMALIZATION (DELTA-Z)
+// Skill: secops-risk-metrics-multistage
+// Purpose: Isolates targeted endpoint anomalies from company-wide surges (Patch Tuesday immunity)
+// Math: Delta-Z = Z_Personal - Z_Fleet_Today
+// ============================================================================
+
+// Stage 1: Individual Host Daily Metric Extraction + 30-Day Historical Baseline
+stage host_extract {
+    metadata.event_type = "{{event_type}}"
+    principal.asset.hostname = $host
+    $host != ""
+
+  match:
+    $host by 1d
+
+  outcome:
+    $observed_24h = count(metadata.id)
+    $hist_avg = max({{target_metric_func_avg}})
+    $hist_stddev = max({{target_metric_func_stddev}})
+    $hist_active_days = max({{target_metric_func_active_days}})
+}
+
+// Stage 2: Concurrent Fleet-Wide Macro Baseline across all active endpoints today
+stage fleet_stats {
+    $host = $host_extract.host
+    $ws = $host_extract.window_start
+
+  match:
+    $ws by 1d
+
+  outcome:
+    $fleet_today_avg = avg($host_extract.observed_24h)
+    $fleet_today_stddev = stddev($host_extract.observed_24h)
+    $active_fleet_hosts = count_distinct($host_extract.host)
+}
+
+// Stage 3 (Root Stage): Dual-Baseline Delta-Z Evaluation
+$host = $host_extract.host
+$ws = $host_extract.window_start
+$ws = $fleet_stats.ws
+
+match:
+  $host, $ws by 1d
+
+outcome:
+  $obs = max($host_extract.observed_24h)
+  $personal_avg = max($host_extract.hist_avg)
+  $personal_stddev = max($host_extract.hist_stddev)
+  $active_days = max($host_extract.hist_active_days)
+  
+  $fleet_avg = max($fleet_stats.fleet_today_avg)
+  $fleet_stddev = max($fleet_stats.fleet_today_stddev)
+  $fleet_size = max($fleet_stats.active_fleet_hosts)
+
+  // 1. Personal Historical Z-Score
+  $personal_diff = $obs - $personal_avg
+  $personal_z = $personal_diff / $personal_stddev
+
+  // 2. Fleet Today Cross-Sectional Z-Score
+  $fleet_diff = $obs - $fleet_avg
+  $fleet_z = $fleet_diff / $fleet_stddev
+
+  // 3. Delta-Z Anomaly Isolation (Targeted anomaly score)
+  $delta_z = $personal_z - $fleet_z
+
+order:
+  $delta_z desc
+

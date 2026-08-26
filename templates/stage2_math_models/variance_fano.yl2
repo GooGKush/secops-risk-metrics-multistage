@@ -1,0 +1,21 @@
+// Root Stage: Fano Factor (Variance-to-Mean Ratio) (Preserving Daily Timeline)
+$entity = $stage1_extract.entity
+$ws = $stage1_extract.window_start
+
+match:
+  $entity, $ws by 1d
+
+outcome:
+  $observed = max($stage1_extract.observed_val)
+  $lambda = max($stage1_extract.historical_avg)
+  $stddev = max($stage1_extract.historical_stddev)
+  $active_days = max($stage1_extract.historical_active_days)
+
+  // Personal Historical Variance: sigma^2
+  $variance = $stddev * $stddev
+
+  // Fano Factor (Index of Dispersion): sigma^2 / (mu + 1.0)
+  $fano_factor = $variance / ($lambda + 1.0)
+
+order:
+  $fano_factor desc

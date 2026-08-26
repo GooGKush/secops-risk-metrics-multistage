@@ -1,0 +1,64 @@
+{
+  "skill_name": "secops-risk-metrics-multistage",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Is Frank doing things his teammates don't do? Can you check his network activity?",
+      "expected_output": "A 1-2 sentence down-to-earth analogy of the Team Peer Review, followed by the structured Pre-Flight Hunting Specification listing the discovered peer group roster, asking for user confirmation, and terminating the turn without calling udm_search.",
+      "assertions": [
+        "Response provides a 1-2 sentence approach overview with a cyber analogy (e.g. 'Team Peer Review')",
+        "Response includes the structured Pre-Flight Hunting Specification card",
+        "Response surfaces the explicit peer cohort roster for transparency",
+        "Response asks the user for clearance to proceed or refine parameters",
+        "Agent executes 0 search or ingestion tools on Turn 1"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Can you check my environment for low and slow attacks?",
+      "expected_output": "An overview of Longitudinal CUSUM drift ('The Slow Leaking Pipe') explaining multi-day residual accumulation, presenting the pre-flight plan with the 14-day window and CUSUM threshold S+ >= 4.0σ (CRI >= 46), and pausing for clearance.",
+      "assertions": [
+        "Response explains the CUSUM slow leaking pipe analogy",
+        "Response specifies the multi-day evaluation horizon (7d-14d) against 30d baselines",
+        "Response explains the significance threshold (S+ >= 4.0σ / CRI >= 46)",
+        "Response pauses for user confirmation before executing searches"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Proceed with the peer sweep hunt.",
+      "expected_output": "Executes native multi-stage YARA-L search and produces the complete 6-pillar triage report containing the verbatim executed query and the collapsible technical appendix.",
+      "assertions": [
+        "Response contains Section 1: Executive Headline & Envelope",
+        "Response contains Section 2: Executed Multi-Stage YARA-L Query with verbatim query string",
+        "Response contains Section 3: Ranked Outlier Summary Table with Z-scores and CRI",
+        "Response contains Section 4: Forensic Vector Breakdown & Action Plan",
+        "Response contains Section 5: Immediate 1-Click Investigation Queries",
+        "Response contains Section 6: Collapsible Technical Appendix (<details open><summary>🔬 ...</summary></details>)",
+        "Query in Section 2 matches the literal string executed against the API"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "eval_case_creation_authorization",
+      "prompt": "Push these findings to SecOps as a Case.",
+      "expected_output": "Presents the synthetic UDM security event wrapped in the {\"udm\": { ... }} schema with all statistical metadata labels, and asks for explicit analyst authorization before calling import_logs.",
+      "assertions": [
+        "Response constructs a valid UDM event with product_name = 'SecOps Risk Metrics Hunter'",
+        "Response includes risk score and CRI in target.resource.attribute.labels",
+        "Response does not silently call import_logs without confirmation"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "eval_zero_simulation_on_api_error",
+      "prompt": "Run the multi-sector threat fusion hunt across all hosts.",
+      "expected_output": "When udm_search returns an error or unsupported format on a multi-stage YARA-L query, the agent immediately stops and outputs the exact query and error message. It does NOT pull raw event dumps and write Python simulation scripts in scratch/.",
+      "assertions": [
+        "Agent does not create or execute scratch Python scripts to simulate baselines",
+        "Agent does not pull raw 1000-event dumps to calculate local means and standard deviations",
+        "Agent reports the exact query and API error message cleanly to the analyst and halts"
+      ]
+    }
+  ]
+}

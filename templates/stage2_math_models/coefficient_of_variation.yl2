@@ -1,0 +1,19 @@
+// Root Stage: Predictability Stability Filter via CV (Preserving Daily Timeline)
+$entity = $stage1_extract.entity
+$ws = $stage1_extract.window_start
+
+match:
+  $entity, $ws by 1d
+
+outcome:
+  $observed = max($stage1_extract.observed_val)
+  $hist_avg = max($stage1_extract.historical_avg)
+  $hist_stddev = max($stage1_extract.historical_stddev)
+  $active_days = max($stage1_extract.historical_active_days)
+
+  // Coefficient of Variation: sigma / (mu + 1.0)
+  $cv = $hist_stddev / ($hist_avg + 1.0)
+  $surge_ratio = $observed / ($hist_avg + 1.0)
+
+order:
+  $surge_ratio desc

@@ -1,0 +1,37 @@
+// Root Stage: Poisson-Gamma Bayesian Conjugate Updating & Credibility Shrinkage
+$entity = $stage1_extract.entity
+$ws = $stage1_extract.window_start
+
+match:
+  $entity, $ws by 1d
+
+outcome:
+  $observed_24h = max($stage1_extract.observed_val)
+  $avg_30d = max($stage1_extract.historical_avg)
+  $stddev_30d = max($stage1_extract.historical_stddev)
+  $active_days = max($stage1_extract.historical_active_days)
+  $max_30d = max($stage1_extract.historical_max)
+
+  // 1. Method of Moments: Gamma Prior Hyperparameters (alpha_0, beta_0)
+  $variance_30d = ($stddev_30d * $stddev_30d) + 1.0
+  $beta_prior = $avg_30d / $variance_30d
+  $alpha_prior = $avg_30d * $beta_prior
+
+  // 2. Conjugate Posterior Updating with 24h Evidence (k = observed_24h, t = 1)
+  $alpha_post = $alpha_prior + $observed_24h
+  $beta_post = $beta_prior + 1.0
+
+  // 3. Posterior Expected Arrival Rate (Bayesian Shrinkage Mean)
+  $posterior_mean = $alpha_post / $beta_post
+
+  // 4. Credibility & Evidence Weighting
+  $prior_weight = $beta_prior / $beta_post
+  $evidence_weight = 1.0 / $beta_post
+
+  // 5. Standard Parametric Z-Score & Bayesian Belief Shift Ratio
+  $diff = $observed_24h - $avg_30d
+  $z_score = $diff / ($stddev_30d + 1.0)
+  $bayes_shift_ratio = $posterior_mean / ($avg_30d + 1.0)
+
+order:
+  $bayes_shift_ratio desc

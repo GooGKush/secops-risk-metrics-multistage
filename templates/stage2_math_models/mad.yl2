@@ -1,0 +1,18 @@
+// Root Stage: Non-Parametric Anomaly Ratio (Preserving Daily Timeline)
+$entity = $stage1_extract.entity
+$ws = $stage1_extract.window_start
+
+match:
+  $entity, $ws by 1d
+
+outcome:
+  $observed = max($stage1_extract.observed_val)
+  $hist_avg = max($stage1_extract.historical_avg)
+  $hist_stddev = max($stage1_extract.historical_stddev)
+  $active_days = max($stage1_extract.historical_active_days)
+
+  $dev = $observed - $hist_avg
+  $ratio = $dev / ($hist_avg + 1.0)
+
+order:
+  $ratio desc

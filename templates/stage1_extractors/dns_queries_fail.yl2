@@ -1,0 +1,29 @@
+// Stage 1: DNS Failed / NXDOMAIN Resolution Extractor
+stage stage1_extract {
+    metadata.event_type = "NETWORK_DNS"
+    network.dns.response_code != 0
+    principal.asset.hostname = $entity
+    $entity != ""
+
+  match:
+    $entity by 1d
+
+  outcome:
+    $observed_val = count(metadata.id)
+    $historical_avg = max(metrics.dns_queries_fail(
+        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+        principal.asset.hostname: $entity
+    ))
+    $historical_stddev = max(metrics.dns_queries_fail(
+        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+        principal.asset.hostname: $entity
+    ))
+    $historical_active_days = max(metrics.dns_queries_fail(
+        period: 1d, window: 30d, metric: event_count_sum, agg: num_days,
+        principal.asset.hostname: $entity
+    ))
+    $historical_max = max(metrics.dns_queries_fail(
+        period: 1d, window: 30d, metric: event_count_sum, agg: max,
+        principal.asset.hostname: $entity
+    ))
+}

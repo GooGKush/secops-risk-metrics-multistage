@@ -1,0 +1,20 @@
+// Root Stage: Parametric Historical Z-Score Evaluation (Preserving Daily Timeline)
+$entity = $stage1_extract.entity
+$ws = $stage1_extract.window_start
+
+match:
+  $entity, $ws by 1d
+
+outcome:
+  $observed = max($stage1_extract.observed_val)
+  $hist_avg = max($stage1_extract.historical_avg)
+  $hist_stddev = max($stage1_extract.historical_stddev)
+  $active_days = max($stage1_extract.historical_active_days)
+  $hist_max = max($stage1_extract.historical_max)
+
+  // 1. Personal Historical Z-Score: (Observed - 30d Mean) / (30d StdDev + 1.0)
+  $personal_diff = $observed - $hist_avg
+  $personal_z = $personal_diff / ($hist_stddev + 1.0)
+
+order:
+  $personal_z desc

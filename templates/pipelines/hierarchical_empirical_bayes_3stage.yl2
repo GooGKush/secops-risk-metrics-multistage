@@ -1,0 +1,73 @@
+// ============================================================================
+// ARCHITECTURE: 3-STAGE HIERARCHICAL EMPIRICAL BAYES (PEER-GROUP SHRINKAGE)
+// Skill: secops-risk-metrics-multistage
+// Purpose: Pools organizational peer-group variance to regularize sparse/new hosts
+// Math: Hyper-Prior Pooling (Fleet Alpha/Beta) + Host Bayesian Updating
+// ============================================================================
+
+// Stage 1: Individual Host Daily Telemetry + 30d Historical Metric Baselines
+stage host_extract {
+    metadata.event_type = "{{event_type}}"
+    principal.asset.hostname = $host
+    $host != ""
+
+  match:
+    $host by 1d
+
+  outcome:
+    $observed_24h = count(metadata.id)
+    $hist_avg = max({{target_metric_func_avg}})
+    $hist_stddev = max({{target_metric_func_stddev}})
+    $hist_active_days = max({{target_metric_func_active_days}})
+}
+
+// Stage 2: Peer-Group Hyperprior Estimation across the entire active fleet
+stage fleet_hyperpriors {
+    $host = $host_extract.host
+    $ws = $host_extract.window_start
+
+  match:
+    $ws by 1d
+
+  outcome:
+    $fleet_mean = avg($host_extract.hist_avg)
+    $fleet_var = variance($host_extract.hist_avg)
+    $active_hosts = count_distinct($host_extract.host)
+}
+
+// Stage 3 (Root Stage): Hierarchical Empirical Bayes Posterior Shrinkage
+$host = $host_extract.host
+$ws = $host_extract.window_start
+$ws = $fleet_hyperpriors.ws
+
+match:
+  $host, $ws by 1d
+
+outcome:
+  $obs_24h = max($host_extract.observed_24h)
+  $host_avg = max($host_extract.hist_avg)
+  $host_std = max($host_extract.hist_stddev)
+  $host_active_days = max($host_extract.hist_active_days)
+
+  $fleet_mu = max($fleet_hyperpriors.fleet_mean)
+  $fleet_sigma_sq = max($fleet_hyperpriors.fleet_var)
+
+  // 1. Empirical Bayes Peer-Group Prior Parameterization
+  $beta_fleet = $fleet_mu / $fleet_sigma_sq
+  $alpha_fleet = $fleet_mu * $beta_fleet
+
+  // 2. Personal Variance and Hyper-Weighted Prior Synthesis
+  $host_var = $host_std * $host_std
+  $beta_host = $host_avg / $host_var
+  $alpha_host = $host_avg * $beta_host
+
+  // 3. Hierarchical Posterior Blending
+  $alpha_post = $alpha_host + $obs_24h
+  $beta_post = $beta_host + 1.0
+  $posterior_rate = $alpha_post / $beta_post
+
+  // 4. Shrinkage Shift Ratio
+  $empirical_shift = $posterior_rate / $fleet_mu
+
+order:
+  $posterior_rate desc

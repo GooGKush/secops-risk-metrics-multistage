@@ -1,0 +1,359 @@
+# Multi-Stage Risk Metrics Implementation Guide
+
+This guide details how to construct multi-stage YARA-L DAG queries that use pre-computed risk metrics as Stage 1 and execute statistical calculations in Stage 2+.
+
+---
+
+## 1. The Universal 6-Point Stage 1 Outcome Contract
+
+To guarantee that any Stage 2+ mathematical model (Z-Score, MAD, Variance, Poisson, CV) can execute without variable mismatches, every Stage 1 `.yl2` template must emit this exact 6-variable outcome tuple:
+
+```yara
+outcome:
+  // 1. Current 24h observed activity
+  $observed_val = count(metadata.id) // or sum(network.sent_bytes)
+
+  // 2. Pre-computed 30d historical mean
+  $historical_avg = max(metrics.metric_name(
+      period: 1d, window: 30d, metric: event_count_sum, agg: avg, ...
+  ))
+
+  // 3. Pre-computed 30d historical standard deviation
+  $historical_stddev = max(metrics.metric_name(
+      period: 1d, window: 30d, metric: event_count_sum, agg: stddev, ...
+  ))
+
+  // 4. Pre-computed 30d active baseline days (Confidence Floor)
+  $historical_active_days = max(metrics.metric_name(
+      period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, ...
+  ))
+
+  // 5. Pre-computed 30d maximum peak observation
+  $historical_max = max(metrics.metric_name(
+      period: 1d, window: 30d, metric: event_count_sum, agg: max, ...
+  ))
+
+  // 6. Pre-computed 30d cumulative volume
+  $historical_sum = max(metrics.metric_name(
+      period: 1d, window: 30d, metric: event_count_sum, agg: sum, ...
+  ))
+```
+
+---
+
+## 2. Temporal Windowing: Intra-Day vs. 30-Day Baselines
+
+Multi-stage DAG queries support two distinct temporal evaluation modes:
+
+### Mode A: Cross-Sectional Fleet Outlier (24h Daily Bucket)
+* **Stage 1:** `match: $entity by 1d` -> Evaluates the full 24-hour total per entity.
+* **Stage 2:** `match: ` (empty group-by) -> Aggregates across the entire fleet population.
+* **Root Stage:** `match: $entity, $window_start by 1d` -> Compares each entity against both its 30-day baseline and the fleet distribution.
+
+### Mode B: Intra-Day Temporal Surge (1h Hourly Bucket)
+* **Stage 1:** `match: $entity by 1h` -> Yields 24 distinct hourly observations per entity.
+* **Stage 2:** `match: $entity` -> Aggregates intra-day statistics (`avg`, `stddev`, `window.median`) across all 24 hours for that entity.
+* **Root Stage:** `match: $entity, $window_start by 1h` -> Pinpoints the specific anomalous hour within the 24-hour timeline.
+
+---
+
+## 3. Hourly Metrics Compiler Constraints (`period: 1h`)
+
+1. **Window Lock:** When using `period: 1h`, the `window` parameter **must be `today`**.
+2. **Mandatory Daily Metric Join:** Any query utilizing `period: 1h, window: today` **must also bind a daily metric (`period: 1d, window: 30d`)** for that entity in the same query.
+
+---
+
+## 4. Multi-Stage DAG Anti-Patterns to Avoid
+
+| ❌ Anti-Pattern | ✓ Correct Practice | Why |
+| :--- | :--- | :--- |
+| `events:` header inside `stage` blocks | Declare predicates directly inside `stage name { ... }` | Stage blocks in Multi-Stage YARA-L do not use `events:`. |
+| Wrapping the final stage in `stage name { ... }` | Unwrapped root level | The final stage must be at the root level of the query file. |
+| Stage search window > 24h (e.g. 7d) | Clamp Stage 1 search window to exactly 24h / 1d | Daily metrics already embed 30 days of data; expanding search window causes metric duplicate joins. |
+| `graph.entity.metrics.*` in predicates | Use `metrics.*()` in `outcome:` | `metrics` is a built-in function, not an Entity Graph protobuf field. |
+
+---
+
+## 5. Mandatory Non-Entity Dimension Filters
+
+Certain pre-computed Risk Metrics require specific auxiliary UDM fields as dimension filters in addition to entity identifiers and values:
+
+### File Executions (`metrics.file_executions_*`)
+* **Mandatory Argument:** `metadata.event_type` **must** be passed as a filter in every `metrics.file_executions_*` call.
+* **Syntax Example:**
+  ```yara
+  stage stage1_extract {
+      $event_type = metadata.event_type
+      $event_type = "PROCESS_LAUNCH"
+      principal.asset.hostname = $host
+      principal.process.file.sha256 = $sha256
+
+    match:
+      $host, $sha256 by 1d
+
+    outcome:
+      $hist_avg = max(metrics.file_executions_total(
+          period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+          metadata.event_type: $event_type,
+          principal.asset.hostname: $host,
+          principal.process.file.sha256: $sha256
+      ))
+  }
+  ```
+
+---
+
+## 6. Standard 3-Tier Tuning Pattern in Condition Blocks
+
+Every multi-stage query generated for threat hunting should embed this standard tuning structure in its root `condition:` block:
+
+```yara
+condition:
+  // --- TIER 0: Smoke Test Floor (Default) ---
+  $observed_vol > 0
+
+  // --- TIER 1: Strict / High Confidence Alerting (Uncomment to apply) ---
+  // $observed_vol >= 10
+  // and $active_days >= 7
+  // and $sigma > 0
+  // and $z_score >= 3.0
+
+  // --- TIER 2: Balanced Threat Hunting (Uncomment to apply) ---
+  // $observed_vol >= 5
+  // and $active_days >= 5
+  // and $sigma > 0
+  // and $z_score >= 2.0
+
+  // --- TIER 3: Broad Exploratory Discovery (Uncomment to apply) ---
+  // $observed_vol >= 1
+  // and $active_days >= 3
+  // and ($z_score >= 1.5 or $surge_multiplier >= 2.0)
+```
+
+---
+
+## 6. Inline Condition Tuning Pattern
+
+For early iterations or broad requests, construct the `condition:` section with a permissive test floor and commented production parameters:
+
+```yara
+condition:
+  // Permissive condition for smoke testing (returns all active results)
+  $observed_val > 0
+
+  // For a Strict/Production Hunt, replace the condition above with:
+  // $observed_val >= 10
+  // and $active_days >= 7
+  // and $sigma > 0
+  // and $z_score >= 3.0
+```
+
+---
+
+## 7. How the UI Search Window & Root Match Keys Control Search Results
+
+Understanding the interaction between the **UI Search Time Picker**, **Stage 1 Event Matching**, and **Root Stage Rollups** is essential to avoid query misinterpretation:
+
+### 1. The UI Search Window Bounds Stage 1
+* Stage 1 scans the raw UDM event log **strictly within the time boundaries selected in the UI time picker** (e.g. Last 48 Hours vs Last 30 Days).
+* If your search window is 2 days, Stage 1 can only emit up to 2 daily buckets per entity.
+
+### 2. YARA-L is Event-Driven (No Rows for Silent Days)
+* Stage 1 (`match: $entity by 1d`) creates a row **only for calendar days where at least 1 raw event occurred**.
+* If an endpoint generated events on Day 1 of a 30-day search and was turned off for the remaining 29 days, Stage 1 emits **exactly 1 row**, not 30 rows.
+
+### 3. Root Stage Match Mode: Timeline Breakdown vs Fleet Rollup
+
+| Objective | Root Stage Match Clause | Output Behavior |
+| :--- | :--- | :--- |
+| **Daily Timeline Breakdown** | `match: $entity by 1d`<br>*(Root stage: `$ws = $stage1.window_start`, `match: $entity, $ws by 1d`)* | **1 row per active calendar day**.<br>Preserves the chronological progression for charting and daily $Z$-score tracking. |
+| **Fleet Rollup Summary** | `match: $entity` | **1 row per entity** across the entire search window.<br>Collapses all days to calculate overall summaries (e.g. `sum($stage1.is_burst_day)`, `max($stage1.daily_z)`). |
+
+### 4. Metrics Functions are Baseline Decorators, Not Time-Series Generators
+* Calling `metrics.*(period: 1d, window: 30d)` does **not** generate 30 rows of historical data.
+* It returns **single pre-computed numbers** (the 30-day mean $\mu$, standard deviation $\sigma$, and active days count) that decorate the active day's observation.
+
+---
+
+## 8. User Intent & Downstream Matching Framework
+
+When generating multi-stage search queries, determine the analyst's analytical intent to select the appropriate Root Stage match structure and recommend optimal UI search time ranges:
+
+### 1. Intent Classification & Root Match Selection
+
+| Analyst Intent | Trigger Keywords | Root Stage Match Clause | Visual / UI Destination |
+| :--- | :--- | :--- | :--- |
+| **📈 Timeline / Charting Mode** | *"Show trend", "Plot over time", "Break out by day", "When did the spike occur?", "Timeline"* | `match: $entity by 1d`<br>*(or `match: $entity by day`)* | **Line Charts, Time-Series Bar Graphs** (1 row per calendar day). |
+| **🏆 Rollup / Leaderboard Mode** | *"Top 10 bursty hosts", "Which machines spiked?", "Fleet summary", "Rank by anomalies"* | `match: $entity`<br>*(unwindowed)* | **Tabular Leaderboards, Summary Ranking Cards** (1 row per host across the full month). |
+
+### 2. Recommended Search Time Ranges by Query Archetype
+
+* **📅 Multi-Day Baseline Trend Analysis**: **30 Days** *(e.g., Full Month, July 1 - July 31)* with `by 1d`.
+  * *Why:* Provides enough daily data points to visually see the calm baseline vs the sudden surge day.
+* **⏱️ Intra-Day Hourly Volatility Hunting**: **24 to 72 Hours** with `by 1h`.
+  * *Why:* Captures granular hourly shifts without overloading the query engine with thousands of time buckets.
+* **🔍 Fleet Outlier Discovery / Rollup**: **7 to 30 Days** with unwindowed `match: $entity`.
+  * *Why:* Gathers sufficient multi-day evidence to count how many distinct days breached thresholds.
+
+---
+
+## 9. Platform Time Range Constraint: 14-Day Limit for Multi-Stage Searches
+
+> [!IMPORTANT]
+> **Hard Engine Constraint: Maximum 14 Days for Multi-Stage / Join Queries**
+> In Google SecOps, interactive Multi-Stage DAG and Join queries are enforced with a hard maximum search duration of **14 Days (`336 hours`)**.
+> * Attempting to run a multi-stage search with a time picker range > 14 days (e.g. 30 days) triggers: `The request time range is greater than maximum duration of 14 days allowed for multistage queries.`
+> * **Recommended Operational Range:** Set UI search time picker to **14 Days** (e.g. 2-week block like `2026-07-01` to `2026-07-14`).
+> * **Underlying 30-Day Baselines are Unaffected:** Even within a 14-day search window, `metrics.*(window: 30d)` still evaluates against the full 30-day trailing baseline for every active day!
+
+---
+
+## 10. Common Compiler Grammar for Multi-Stage Search
+
+Google SecOps's **Common Compiler** (SIEM Search Engine) governs Multi-Stage UDM Search execution:
+
+1. **Named Stages (`stage <name> { ... }`)**:
+   * Each stage defines its own event scope, match group-by (`match: ... by 1d`), and outcomes (`outcome:`).
+2. **Mandatory Root Stage `match:` and `outcome:` Sections**:
+   * The Root Stage must bind upstream stage variables and contain **both a `match:` and `outcome:` section** (e.g. `match: $entity, $ws by 1d` and `outcome: ...`):
+     ```yara
+     $user = $stage_1.user
+     $user = $stage_2.user
+     $ws = $stage_1.window_start
+     $ws = $stage_2.window_start
+
+     match:
+       $user, $ws by 1d
+
+     outcome:
+       $fusion_threat_score = ...
+     ```
+3. **Zero `condition:` Block in Multi-Stage Search**:
+   * The `condition:` keyword is strictly reserved for streaming detection rules. Multi-stage search queries execute their scalar transformations inside the Root Stage `outcome:` section and order results via `order:`.
+
+---
+
+## 11. Architectural Assurance: Background 30-Day Rolling Pre-Computation
+
+A common question analysts ask is:  
+*"If our search query is only running across 1 day or 14 days, how does Chronicle know the 30-day baseline?"*
+
+### The Underlying Mechanism:
+1. **Background Analytics Aggregation**:
+   * Google SecOps continuously runs a scheduled analytical pipeline that aggregates daily telemetry into pre-computed BigQuery summary tables for every entity (User, Asset, Resource, Email).
+   * For every entity and day, Chronicle pre-calculates the historical rolling mean ($\mu$), standard deviation ($\sigma$), sum, count, min, and max across 30 trailing days.
+2. **Constant-Time $O(1)$ Function Calls**:
+   * When YARA-L 2.0 invokes `metrics.metric_name(period: 1d, window: 30d, ...)`, it is **not** running an ad-hoc 30-day scan of raw petabytes of event logs.
+   * Instead, it performs an immediate index lookup against the pre-aggregated summary tables for that specific calendar day.
+3. **Statistical Independence Guaranteed**:
+   * Because the 30-day baseline is pre-aggregated, an entity evaluated on `2026-08-25` is measured against their established behavioral profile from the preceding 30 calendar days—ensuring today's burst does not contaminate or inflate the baseline mean.
+
+---
+
+## 12. Entity Graph Prevalence & Domain/Hash Rarity Hunting
+
+In Google SecOps, the **Entity Graph** pre-computes trailing prevalence context for domains, file hashes, and IP addresses.
+
+### 1. Canonical Entity Graph Prevalence Fields
+| Entity Type | Join Field | Day Count Field | Rolling Max Field |
+| :--- | :--- | :--- | :--- |
+| **Domain** | `$graph.graph.entity.hostname = $domain` | `$graph.graph.entity.domain.prevalence.day_count = 10` | `$graph.graph.entity.domain.prevalence.rolling_max <= 3` |
+| **File (Hash)** | `$graph.graph.entity.file.sha256 = $sha256` | `$graph.graph.entity.file.prevalence.day_count = 10` | `$graph.graph.entity.file.prevalence.rolling_max <= 3` |
+| **IP Address** | `$graph.graph.entity.ip = $ip` | `$graph.graph.entity.artifact.prevalence.day_count = 10` | `$graph.graph.entity.artifact.prevalence.rolling_max <= 3` |
+
+### 2. Mandatory Rules for Prevalence Joins:
+1. **Source Type Filter**: Always set `$graph.graph.metadata.source_type = "DERIVED_CONTEXT"`.
+2. **Day Count Anchor**: Always set `$graph.graph.entity.<type>.prevalence.day_count = 10` to distinguish Prevalence from First/Last Seen records.
+3. **Non-Zero Bound**: Always include `rolling_max > 0` alongside `rolling_max <= 3` to avoid false positives on unpopulated entity stubs.
+
+### 3. Hard Platform Limitation: 10-Day Period Invariant (`day_count = 10`):
+* **Platform Invariant**: In Google SecOps Entity Graph, prevalence tables are indexed strictly on a **fixed 10-day rolling window**.
+* **Syntactic Enforcement**: The anchor `$graph.graph.entity.<type>.prevalence.day_count = 10` is an invariant required by Chronicle's engine. Attempting to change `day_count` to other values (e.g. `30`, `7`, `14`) will fail or return no data.
+* **Consultative Response Protocol (When Analyst Requests a Change)**:
+  If an analyst asks to change the prevalence timeframe (e.g. "Can we look at 30-day prevalence?"), explain:
+  > *"Google SecOps Entity Graph prevalence is hard-anchored to a 10-day rolling window by the platform backend (`day_count = 10`). While the 10-day window cannot be changed, we can adjust the asset count threshold (`rolling_max <= N`, e.g. strict single-host $\le 1$ vs $\le 5$) or combine it with 30/60/90-day First-Seen novelty (`first_seen_time < 30d`) for longer-term rarity hunting."*
+
+
+---
+
+## 13. Entity Graph First-Seen & Last-Seen Novelty Matrix
+
+Google SecOps continuously calculates and stores `first_seen_time` and `last_seen_time` across 5 primary entity types to support tenant-wide novelty hunting:
+
+### 1. Enriched Fields Matrix Across Entity Types
+| Entity Type | Entity Graph Metadata Type | First-Seen Field | Last-Seen Field | Prevalence Field |
+| :--- | :--- | :--- | :--- | :--- |
+| **💻 Asset** | `metadata.entity_type = "ASSET"` | `entity.asset.first_seen_time` | *(N/A)* | *(N/A)* |
+| **👤 User** | `metadata.entity_type = "USER"` | `entity.user.first_seen_time` | *(N/A)* | *(N/A)* |
+| **🌍 IP Address** | `metadata.entity_type = "IP_ADDRESS"` | `entity.artifact.first_seen_time` | `entity.artifact.last_seen_time` | `entity.artifact.prevalence.*` |
+| **🌐 Domain** | `metadata.entity_type = "DOMAIN_NAME"` | `entity.domain.first_seen_time` | `entity.domain.last_seen_time` | `entity.domain.prevalence.*` |
+| **📁 File (Hash)** | `metadata.entity_type = "FILE"` | `entity.file.first_seen_time` | `entity.file.last_seen_time` | `entity.file.prevalence.*` |
+
+### 2. Operational Use Cases:
+* **Brand New User / Dormant Account Activation**:
+  * Filter for users first observed in the tenant within the past 24–48 hours:
+    `$e.graph.entity.user.first_seen_time.seconds > timestamp.current_seconds() - (2 * 86400)`
+* **Infant Device / Rogue Asset Discovery**:
+  * Filter for new MAC/hostnames connecting to internal subnets:
+    `$e.graph.entity.asset.first_seen_time.seconds > timestamp.current_seconds() - (7 * 86400)`
+* **Stale / Abandoned C2 Re-activation via Last-Seen**:
+  * Detect when a file hash or domain not seen in >180 days suddenly re-appears:
+    `$e.graph.entity.domain.last_seen_time.seconds < timestamp.current_seconds() - (180 * 86400)`
+
+---
+
+## 14. Avoiding the Part-of-the-Whole Antipattern & Decoupled Context Fusion
+
+### The Part-of-the-Whole Fallacy (Subset vs. Universe):
+When evaluating statistical baselines (`metrics.*`), never filter the stage on external threat attributes (e.g. WHOIS NRD domains, GCTI Tor IPs, or Safe Browsing hashes):
+* **Why it fails**: The `metrics.*` table represents the entity's **Universal Total History** across all destinations.
+* Filtering Stage 1 to a threat subset reduces the observed volume ($X_{\text{threat}}$), causing $Z = (X_{\text{threat}} - \mu_{\text{total}}) / \sigma_{\text{total}}$ to produce a **false negative or large negative $Z$-score**.
+
+### The Decoupled 3-Stage Architectural Pattern:
+1. **Stage 1 (Universal Anomaly Baseline)**:
+   * Match general event telemetry without subset filters against `metrics.*` to obtain true $Z_{\text{total}}$.
+2. **Stage 2 (Isolated Context Threat Match)**:
+   * Match specific `GLOBAL_CONTEXT` or `DERIVED_CONTEXT` attributes (maximum **1 ECG lookup per stage**) to count threat hits ($N_{\text{threat}}$).
+3. **Root Fusion Stage**:
+   * Join `$entity` and compute the composite threat score: $\text{Threat} = Z_{\text{total}} \times (N_{\text{threat}} + 1)$.
+
+---
+
+## 15. Refinement Dimensions in Threat Triage ("What You Can Do Next")
+
+When presenting initial baseline findings to analysts, suggest refining the hunt by layering these 4 orthogonal dimensions:
+
+1. **🌐 Fleet Rarity**: Layer Entity Graph Domain/Hash Prevalence (`rolling_max <= 3`, `day_count = 10`).
+2. **⏳ Infrastructure Novelty**: Layer Entity Graph First-Seen age (`first_seen_time < 30/60/90 days`).
+3. **🎯 Threat Intel Matches**: Layer GCTI feeds (`Tor Exit Nodes`, `Remote Access Tools`, `Google Safe Browsing`).
+4. **📅 WHOIS Domain Lifecycle**: Layer WHOIS domain registration age (`< 30 days`) or expiration status.
+
+---
+
+## 16. Inner-Join Semantic Warning & "Including But Not Limited To" Pattern
+
+### The Inner-Join Semantic Trap:
+* In Google SecOps YARA-L 2.0, binding common entity variables across stages (`$host = $s1.host` and `$host = $s2.host`) operates strictly as an **INNER JOIN**.
+* If Stage 2 filters on an attribute (e.g. `GLOBAL_CONTEXT` IOC matches, Safe Browsing, or specific external domains), any host that has 0 events matching Stage 2 will have **zero records in Stage 2 and will be completely dropped from the root stage output**.
+* If the analyst asks for *"all network connections / hosts including (but not limited to) known bad domains"*, creating an isolated Stage 2 with an IOC filter will drop all benign/novel high-volume anomalous hosts!
+
+### The Syntactic Solution (Full Population Preservation):
+To preserve 100% of the fleet while still profiling domains and threat flags:
+1. **Single-Stage Fleet Population Sweep (Mode A Snapshot)**:
+   * Evaluate all network connections per host against `metrics.network_bytes_outbound`.
+   * Capture contacted domains and IPs using `$contacted_domains = array_distinct(target.hostname)` and `$contacted_ips = array_distinct(target.ip)`.
+   * Extract security verdicts and threat labels directly via `$threat_categories = array_distinct(security_result.category_details)`.
+   * Score statistical deviation ($Z$-Score / CRI) across the full population without dropping non-threat entities.
+
+### Consultative Protocol (Setting Analyst Expectations on IOC Demarcation):
+When an analyst asks whether a baseline hunt can "include but not be limited to IOCs", set clear expectations upfront:
+* **Truth in Baseline Scope**: The statistical baseline query evaluates 100% of hosts and surfaces all contacted external destinations uniformly. However, the baseline table itself does **not** dynamically separate, label, or badge IOCs vs. novel/benign domains in the output.
+* **Triage via Follow-Up Drilldowns**: Domain threat triage (evaluating specific contacted domains against IOC lists, WHOIS age, or Safe Browsing) is provided as actionable, 1-click investigation queries in Section 5 of the report.
+
+
+
+
+
+
+
