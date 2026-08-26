@@ -1,0 +1,51 @@
+# secops-risk-metrics-multistage
+
+Agentic skill for Google SecOps UEBA multi-stage statistical outlier hunting using 30-day pre-computed behavioral risk metrics (`metrics.*`).
+
+Key instructions for agents:
+1. MANDATORY STEP 1 PRE-FLIGHT BOUNDARY (ZERO TOOL EXECUTION ON TURN 1):
+   - When an analyst initiates a hunt or refines parameters, execute 0 search or ingestion tools on Turn 1.
+   - Deliver a 1-2 sentence plain-English cyber analogy (e.g. The Seasoned SOC Detective, The Patch Tuesday Earthquake Shield, Combined Arms Threat Radar).
+   - Render the structured ASCII Pre-Flight Hunting Specification Card (including Target Scope, Baseline Horizon, Peer Cohort Roster, and Entity Graph Dimension).
+   - Render the complete literal multi-stage YARA-L 2.0 query preview in markdown.
+   - Present both execution modes and ask: "Would you like to run Mode A (24-Hour Snapshot fleet ranking) or Mode B (14-Day Longitudinal Timeline with inception chart)?" and yield the turn immediately.
+
+2. UNIVERSAL 6-POINT STAGE 1 OUTCOME CONTRACT:
+   - Every Stage 1 extractor template MUST emit this exact 6-variable outcome tuple:
+     $observed_val, $historical_avg, $historical_stddev, $historical_active_days, $historical_max, $historical_sum.
+   - Guarantees seamless mathematical composability across all Stage 2+ mathematical models.
+
+3. STRICT TEMPLATE ROUTING (ZERO FROM-SCRATCH GENERATION):
+   - The agent is strictly prohibited from generating YARA-L multi-stage queries from scratch.
+   - Acts solely as an intent and parameterization router, binding metrics and statistical models to pre-validated templates in `templates/stage1_extractors/`, `templates/stage2_math_models/`, and `templates/pipelines/`.
+
+4. UNIVERSAL DISPERSION FLOOR (+ 1.0):
+   - Always apply a dispersion floor (+ 1.0) to all Z-score denominators: $Z = (X - \mu) / (\sigma + 1.0)$.
+   - Prevents division-by-zero on quiet service accounts and suppresses infinite false positives.
+
+5. INTERACTIVE ENTITY GRAPH DISCOVERY & 10-DAY INVARIANT:
+   - Never ignore qualitative modifiers ("rare domains", "uncommon binaries", "first seen").
+   - Actively map to Entity Graph Derived Context: Domain/File/IP Prevalence (`rolling_max <= 3`, `day_count = 10`) or First-Seen Novelty (`first_seen_time < 30d`).
+   - Platform Invariant: Prevalence lookback is immutable at 10 days (`day_count = 10`). Adjust asset count thresholds (`rolling_max <= N`) or combine with First-Seen novelty when analysts request custom time horizons.
+
+6. FULL POPULATION PRESERVATION (ZERO INNER-JOIN DROPS):
+   - When evaluating fleet traffic, never filter Stage 1 on external threat feeds (e.g. IOCs or specific domains) as this drops non-matching hosts.
+   - Preserve 100% of the fleet and capture all contacted destinations using `$contacted_domains = array_distinct(target.hostname)` and `$threat_categories = array_distinct(security_result.category_details)`.
+
+7. MANDATORY 6-SECTION REPORT PRESENTATION:
+   - When clearance is granted, the report MUST contain all 6 numbered pillars:
+     1. Plain-English Strategic Overview & Cyber Impact
+     2. Executed Multi-Stage YARA-L Query (Literal executed code)
+     3. Ranked Outlier Summary Table (with Z-Scores and Calibrated Risk Index CRI [0-100])
+     4. Forensic Vector Breakdown & Action Plan
+     5. Immediate 1-Click Investigation Queries
+     6. Collapsible Technical Appendix (<details open><summary>🔬 ...</summary></details>)
+
+8. LOSSLESS CLEAN HAND-OFF & 1:1 SYNTHETIC UDM INGESTION:
+   - Ingestion Cardinality: Exactly 1 synthetic UDM event per outlier entity ($Z \ge 3.0\sigma$, $\text{CRI} \ge 50$), sharing a common `Hunt Campaign ID`.
+   - 9 Canonical Schemas: Select from `VOLUMETRIC_BASELINE_ANOMALY`, `BURST_CLUSTER_ANOMALY`, `DISCRETE_RARITY_ANOMALY`, `BAYESIAN_SHRINKAGE_ANOMALY`, `PEER_COHORT_BREAKOUT_ANOMALY`, `FLEET_NORMALIZED_DELTA_Z`, `MULTI_SECTOR_THREAT_FUSION`, `LONGITUDINAL_CUSUM_DRIFT`, `ENTITY_GRAPH_RARITY_OUTLIER`.
+   - Zero Silent Ingestion: NEVER call `import_logs` without explicit analyst authorization.
+
+9. HARD STOP ON API ERROR & ZERO PYTHON SIMULATION:
+   - If `udm_search` returns an API error or unsupported format, immediately halt and report the exact query and error message.
+   - Strictly prohibited from downloading raw 1000-event dumps to scratch/ and writing Python scripts to simulate baselines.
