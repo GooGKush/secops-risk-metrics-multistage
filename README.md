@@ -85,6 +85,8 @@ secops-risk-metrics-multistage/
    * Ingests discrete synthetic UDM security events per outlier ($Z \ge 3.0\sigma$, $\text{CRI} \ge 50$) across **9 specialized `product_event_type` schemas**, automatically promoted into Chronicle SOAR cases via tenant catch-all rules.
 6. **Declarative Web UI Visualizations**:
    * Generates strictly-typed Vega-Lite (v5) and Chart.js specs for 30-day behavioral envelope charts ($\mu \pm 3\sigma$) and dual-axis volume vs. outlier score charts.
+7. **Variable Role Classification & Threat Decomposition Engine (v1.1.0)**:
+   * Categorizes intermediate variables into `[JOIN_KEY]`, `[SCORING_DIMENSION]`, `[ACTIVE_FILTER]`, and `[TRIAGE_DECORATION]`. Prevents qualitative threats (command lines, script droppers, LOLBins) from acting solely as passive output strings by actively mapping them to Cross-Sectional Fleet Rarity DAGs ($N_{\text{hosts}} \le 2$).
 
 ---
 
@@ -111,8 +113,9 @@ Run the automated test suite to verify mathematical safety and YARA-L template s
 ```bash
 python3 -m unittest discover -s tests -p "test_*.py"
 ```
-* **Status**: 63/63 passing unit tests in $\le 0.2\text{s}$.
+* **Status**: 66/66 passing unit tests in $\le 0.2\text{s}$.
 * **Live SIEM Validation**: Validated on Google SecOps customer instances (`gus-sdl`).
+
 
 ---
 

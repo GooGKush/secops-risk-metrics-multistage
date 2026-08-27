@@ -1,10 +1,23 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.0.0)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.1.0)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Release Date**: August 2026  
+**Latest Version**: v1.1.0 (Point Release) — August 2026  
+
+---
+
+## 📢 What's New in v1.1.0 (Point Release)
+
+* **Variable Role Classification Engine**: Implements a strict 4-tier variable classification rule (`[JOIN_KEY]`, `[SCORING_DIMENSION]`, `[ACTIVE_FILTER]`, `[TRIAGE_DECORATION]`) to prevent primary threat behaviors from acting solely as passive reporting strings.
+* **Anti-Passive-Decoration Guardrail**: Mandates that qualitative threat indicators (command lines, script droppers, LOLBin arguments, rare domains) are actively bound to **Cross-Sectional Fleet Rarity DAGs** (`count_distinct(hosts) <= 2`) or **Entity Graph Prevalence constraints** (`rolling_max <= 3`).
+* **Threat-to-Telemetry Decomposition Matrix**: Equips headless and automated agents with an autonomous mapping framework:
+  * *Volumetric Surges* $\to O(1)$ 30d `metrics.*` baselines + Parametric $Z$ / Delta-$Z$.
+  * *Unbounded Qualitative Strings / LOLBins* $\to$ Cross-Sectional Fleet Rarity DAG ($N_{\text{hosts}} \le 2$).
+  * *High-Churn Infrastructure* $\to$ Entity Graph Prevalence (`rolling_max <= 3`) & First-Seen Novelty.
+  * *Multi-Step Killchains* $\to$ Causal Cross-Stage Joins (`$host, $ws by 1d`).
+* **Enhanced Guardrail Test Suite**: Expanded automated unit test suite from 63 to 66 tests (100% passing).
 
 ---
 

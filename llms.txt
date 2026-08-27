@@ -49,3 +49,7 @@ Key instructions for agents:
 9. HARD STOP ON API ERROR & ZERO PYTHON SIMULATION:
    - If `udm_search` returns an API error or unsupported format, immediately halt and report the exact query and error message.
    - Strictly prohibited from downloading raw 1000-event dumps to scratch/ and writing Python scripts to simulate baselines.
+
+10. VARIABLE ROLE CLASSIFICATION & ANTI-PASSIVE-DECORATION:
+   - Every variable extracted in intermediate stages must serve an explicit role: `[JOIN_KEY]` (stage/root match), `[SCORING_DIMENSION]` (in math formula), `[ACTIVE_FILTER]` (in `condition:` / prevalence filter), or `[TRIAGE_DECORATION]` (in outcome array).
+   - Qualitative primary threat vectors (command lines, LOLBins, script arguments, rare binaries) MUST NEVER act solely as `[TRIAGE_DECORATION]`. They must be bound to an active Cross-Sectional Fleet Rarity DAG (`count_distinct(principal.asset.hostname) <= 2`) or Entity Graph Derived Context constraint.

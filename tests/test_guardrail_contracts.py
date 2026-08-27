@@ -273,6 +273,45 @@ class TestGuardrailContracts(unittest.TestCase):
     self.assertIn("One Event Per Outlier Entity", ch_content)
     self.assertIn("Hunt Campaign ID", ch_content)
 
+  def test_variable_role_classification_contract(self):
+    """SKILL.md and multi-stage guide must define the 4 Variable Functional Roles."""
+    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    skill_path = os.path.join(skill_dir, 'SKILL.md')
+    guide_path = os.path.join(skill_dir, 'references', 'multi-stage-metrics-guide.md')
+    with open(skill_path, 'r', encoding='utf-8') as f:
+      s_content = f.read()
+    with open(guide_path, 'r', encoding='utf-8') as f:
+      g_content = f.read()
+
+    roles = ['[JOIN_KEY]', '[SCORING_DIMENSION]', '[ACTIVE_FILTER]', '[TRIAGE_DECORATION]']
+    for role in roles:
+      self.assertIn(role, s_content)
+      self.assertIn(role, g_content)
+
+  def test_anti_passive_decoration_guardrail_contract(self):
+    """SKILL.md must explicitly prohibit primary threat indicators from acting solely as triage decorations."""
+    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    skill_path = os.path.join(skill_dir, 'SKILL.md')
+    with open(skill_path, 'r', encoding='utf-8') as f:
+      s_content = f.read()
+
+    self.assertIn("Variable Role Classification & Anti-Passive-Decoration Mandate", s_content)
+    self.assertIn("MUST NEVER act solely as `[TRIAGE_DECORATION]`", s_content)
+
+  def test_threat_to_telemetry_decomposition_matrix_contract(self):
+    """SKILL.md and guide must document the Threat-to-Telemetry Decomposition Matrix."""
+    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    skill_path = os.path.join(skill_dir, 'SKILL.md')
+    guide_path = os.path.join(skill_dir, 'references', 'multi-stage-metrics-guide.md')
+    with open(skill_path, 'r', encoding='utf-8') as f:
+      s_content = f.read()
+    with open(guide_path, 'r', encoding='utf-8') as f:
+      g_content = f.read()
+
+    self.assertIn("Threat-to-Telemetry Decomposition Matrix", s_content)
+    self.assertIn("Threat-to-Telemetry Decomposition Matrix", g_content)
+    self.assertIn("Cross-Sectional Fleet Rarity DAG", s_content)
+
 
 if __name__ == '__main__':
   unittest.main()

@@ -5,28 +5,12 @@ aliases:
   - Chronicle Baseline Hunter
   - Behavioral Outlier Engine
   - Agentic UEBA Core
-  - Multi-Vector Statistical Hunter
-  - 360° Entity Risk Radar
-  - Non-Deterministic Threat Hunter
 description: |
   Constructs, validates, and executes multi-stage statistical outlier hunting in Google SecOps
-  using pre-computed Risk Analytics behavioral metrics (metrics.*) as the Stage 1 data foundation.
-  Supports generalized mathematical models across Stage 2+ (Standard Z-Score, MAD/Modified Z-Score,
-  Poisson Dispersion/Fano Factor, Discrete Poisson Rarity, Coefficient of Variation, Poisson-Gamma Bayesian
-  Conjugate Updating, Beta-Binomial Bayesian Updating, 3-Stage Dual-Baseline Delta-Z, 3-Stage Hierarchical
-  Empirical Bayes, 4-Stage Multi-Sector Threat Fusion, 360° Omnibus Entity Radar, and Longitudinal CUSUM Drift).
-  Enforces strict 24-hour current-day search window clamping, pre-flight telemetry ingestion audits,
-  rigid .yl2 template routing, down-to-earth pre-flight consultative explanations, and CommonMark
-  Cyber-First 6-Section Structured Triage Reports with plain-English cyber impact statements and collapsible technical appendices.
-  Triggers: "hunt with risk metrics", "multi-stage metrics outlier", "MAD on network bytes metric",
-  "z-score on auth attempts metric", "risk analytics statistical hunt", "fleet outlier on process metrics",
-  "poisson burst on failed logins", "fano factor on authentication metric", "bayesian gamma prior updating",
-  "beta-binomial failure rate shrinkage", "dual-baseline delta-z", "patch tuesday immunity",
-  "multi-sector threat fusion", "4-stage killchain hunter", "360 health check", "360 degree risk profile",
-  "is user acting weird", "unusual baseline activity", "out of character", "compare to team", "compare against peers",
-  "slow and low exfiltration", "slow leaking pipe", "quiet behavioral drift", "asymmetry inversion",
-  "outbound data siphon", "multi-metric sweep", "2-sigma sweep", "top statistical outliers",
-  "who are our riskiest users", "baseline hunter", "behavioral outlier engine".
+  using pre-computed Risk Analytics behavioral metrics (metrics.*) chained into 2-stage, 3-stage, and 4-stage DAGs.
+  Supports 14 statistical models (Z-Score, MAD, Fano, Discrete Poisson, Bayesian Conjugacy, Delta-Z, Multi-Sector Fusion).
+  Enforces Step 1 Pre-Flight Gate, 6-Section Triage Reports, Variable Role Classification, and 1:1 synthetic UDM hand-off.
+  Triggers: "hunt with risk metrics", "multi-stage metrics outlier", "MAD on network bytes", "z-score on auth", "risk analytics statistical hunt", "fleet outlier on process metrics", "poisson burst", "fano factor", "bayesian updating", "dual-baseline delta-z", "patch tuesday immunity", "multi-sector threat fusion", "360 health check", "compare to team", "slow and low exfiltration", "behavioral drift", "outbound data siphon", "top statistical outliers".
 compatibility: Requires access to a Google SecOps instance with Risk Analytics metrics enabled and the SecOps GUS MCP server (udm_search, get_operation).
 ---
 
@@ -107,12 +91,6 @@ Whenever an analyst initiates a hunt, selects an archetype, or refines parameter
 4. **Explicit Clearance Question & Turn Termination**: Explicitly present **both execution modes** and ask:
    > *"Would you like to run **Mode A (24-Hour Snapshot fleet ranking)** or **Mode B (14-Day Longitudinal Timeline with inception chart)**?"*
    **STOP CALLING TOOLS IMMEDIATELY AND YIELD THE TURN.**
-
-
-
-
-
-
 
 ---
 
@@ -202,12 +180,17 @@ When clearance is granted and native queries execute, the report **MUST STRICTLY
 * **Post-Flight Audit & Auto-Correction**: If execution is deformed, present the auto-corrected query and ask: *"Would you like me to execute this auto-corrected query now, or exit this hunt?"*
 
 ### 2. Compiler & Architectural Invariants
+* **Variable Role Classification & Anti-Passive-Decoration Mandate**: Every variable in an intermediate stage must fulfill an explicit role: `[JOIN_KEY]` (binds stages), `[SCORING_DIMENSION]` (in math formula), `[ACTIVE_FILTER]` (in `condition:` / prevalence threshold), or `[TRIAGE_DECORATION]` (in outcome array). **Qualitative primary threat vectors (command lines, LOLBin script args, rare binaries, unique URLs) MUST NEVER act solely as `[TRIAGE_DECORATION]`**; they must be bound to an active Cross-Sectional Fleet Rarity Stage (`count_distinct(principal.asset.hostname) <= 2`) or Entity Graph Derived Context constraint.
+* **Threat-to-Telemetry Decomposition Matrix**:
+  - *Volumetric Surges* $\to O(1)$ 30d `metrics.*` baselines + Parametric $Z$ / Delta-$Z$.
+  - *Unbounded Qualitative / LOLBins* (wscript, cmdlines) $\to$ Cross-Sectional Fleet Rarity DAG ($N_{\text{hosts}} \le 2$).
+  - *High-Churn Infrastructure* $\to$ Entity Graph Prevalence (`rolling_max <= 3`) / First-Seen Novelty.
+  - *Multi-Step Killchains* $\to$ Causal Cross-Stage Joins (`$host, $ws by 1d`).
 * **Anti-Pattern 5 (Zero Raw Stats Stand-In for UEBA)**: The query MUST strictly use `metrics.*` with pre-computed 30-day baseline tables (`period: 1d, window: 30d`).
 * **Anti-Pattern 6 (Single-Stage Multi-Vector Cramming Prohibition)**: Cramming multiple `metadata.event_type` expressions into a single `events:` block with `OR` is **STRICTLY PROHIBITED**. Use independent DAG extractor stages.
 * **Anti-Pattern 7 (Non-Existent Metric Functions)**: The agent must ONLY invoke valid metric tables from `METRIC_CATALOG`.
 * **Single-ECG Limit & Decoupled Context Fusion**: Max 1 Entity Context Graph (ECG) lookup per stage (`Number of ECG events exceeded max limit: 2 > 1`). Never evaluate `metrics.*` inside stages filtered by `GLOBAL_CONTEXT` or `DERIVED_CONTEXT` (Part-of-the-Whole Fallacy). Decouple baseline into Stage 1 and threat context into Stage 2.
 * **Inner-Join Drop Prevention Standard (PRESERVING FULL POPULATION)**: In YARA-L, multi-stage joins operate strictly as inner joins. When an analyst requests "all connections including but not limited to threat domains", do NOT place the threat domain filter in a separate stage (which drops all non-threat entities). Instead, evaluate the full population baseline in Stage 1 and profile destinations/threat stamps via `array_distinct(target.hostname)` and `security_result.category_details`.
-
 
 ### 3. Scope, Steering & Parsimony
 * **Pure Threat Hunting Scope (SEARCH-ONLY — ZERO RULE CREATION / DEPLOYMENT)**: `create_rule`, `validate_rule`, and parser activation tools are **STRICTLY PROHIBITED** during threat hunts.

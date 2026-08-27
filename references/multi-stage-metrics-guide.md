@@ -351,6 +351,36 @@ When an analyst asks whether a baseline hunt can "include but not be limited to 
 * **Truth in Baseline Scope**: The statistical baseline query evaluates 100% of hosts and surfaces all contacted external destinations uniformly. However, the baseline table itself does **not** dynamically separate, label, or badge IOCs vs. novel/benign domains in the output.
 * **Triage via Follow-Up Drilldowns**: Domain threat triage (evaluating specific contacted domains against IOC lists, WHOIS age, or Safe Browsing) is provided as actionable, 1-click investigation queries in Section 5 of the report.
 
+---
+
+## 17. Variable Role Classification & Threat-to-Telemetry Decomposition Matrix
+
+For automated threat hunting and headless pipeline execution, the agent and query compiler must ensure that threat indicators are actively modeled in mathematical calculations or data pruning rather than acting solely as passive reporting strings.
+
+### 1. The 4 Variable Functional Roles:
+| Variable Role | Definition | Validation Rule |
+| :--- | :--- | :--- |
+| **`[JOIN_KEY]`** | Binds intermediate stages to the root stage (`$host`, `$user`, `$ws`). | Must appear in stage and root `match:` blocks. |
+| **`[SCORING_DIMENSION]`** | Directly computes an anomaly score ($Z$, $D$, $\Delta Z$, Bayes). | Must be part of the root mathematical formula. |
+| **`[ACTIVE_FILTER]`** | Constrains data volume (e.g. `rolling_max <= 3`, `$fleet_hosts <= 2`). | Must appear in stage filters or root `condition:`. |
+| **`[TRIAGE_DECORATION]`** | Informational context only (`array_distinct(command_line)`). | Cannot be the *sole* representation of a primary threat vector. |
+
+### 2. The Anti-Passive-Decoration Invariant:
+* **The Problem**: In YARA-L, extracting `$cmds = array_distinct(principal.process.command_line)` in `outcome:` renders the strings in the results table, creating an illusion of detection. However, without an active rarity filter or baseline metric, single-execution droppers ($\Delta \text{count} = 1$) are lost in high-volume background noise.
+* **The Mandatory Rule**: If a threat intelligence narrative or analyst prompt specifies a qualitative behavior (e.g. `wscript.exe` running `.js` droppers, LOLBins, rare PowerShell arguments, or unusual staging domains), that telemetry field **MUST NEVER act solely as a `[TRIAGE_DECORATION]`**.
+* **Syntactic Enforcement**: The query must bind the qualitative indicator to an **Active Cross-Sectional Fleet Rarity Stage** (`count_distinct(principal.asset.hostname) <= 2`) or an **Entity Graph Derived Context constraint** (`rolling_max <= 3`).
+
+### 3. The Threat-to-Telemetry Decomposition Matrix:
+| Attack Characteristic | Telemetry Scope | Mandatory Analytical DAG Pattern |
+| :--- | :--- | :--- |
+| **Volumetric Surges** (Auth sprays, data egress bursts, DNS flooding) | `metadata.event_type` + Entity ID | **Stage 1: $O(1)$ Pre-Computed Metrics** (`metrics.*`) $\to$ Parametric $Z$-Score / Delta-$Z$. |
+| **Unbounded Qualitative / LOLBins** (Command lines, script args, unique paths) | `principal.process.command_line` | **Stage 2: Cross-Sectional Fleet Rarity DAG** (`match: $cmd by 1d` $\to$ `$fleet_hosts <= 2`). |
+| **High-Churn Infrastructure** (TDS landing pages, rotating subdomains) | `target.hostname`, `sha256` | **Stage 2: Entity Graph Derived Context** (`prevalence.rolling_max <= 3`, `day_count = 10`, `first_seen < 30d`). |
+| **Multi-Step Killchains** (Web Lure $\to$ ZIP Download $\to$ Script Dropper) | Multi-Event Telemetry | **Root Stage: Causal Cross-Stage Fusion** (`$host = $s1.host = $s2.host`, `$ws = $s1.ws = $s2.ws by 1d`). |
+
+---
+*Created and maintained by Greg Kushmerek for Google SecOps Chronicle SIEM threat hunting workflows.*
+
 
 
 
