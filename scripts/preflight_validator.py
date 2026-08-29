@@ -611,6 +611,34 @@ class MalachiteASTValidator:
 
 
 
+  @staticmethod
+  def validate_model_concordance(query_text: str, model: StatisticalModel) -> List[str]:
+    errors = []
+    stage_blocks = re.findall(r"(?:stage\s+([a-zA-Z0-9_]+)\s*\{)", query_text)
+    named_stages = [s for s in stage_blocks if s]
+
+    # Stage count & topology validation
+    if model in [StatisticalModel.STANDARD_Z_SCORE, StatisticalModel.MAD, StatisticalModel.POISSON,
+                 StatisticalModel.VARIANCE, StatisticalModel.COEFFICIENT_OF_VARIATION]:
+      if len(named_stages) != 1:
+        errors.append(f"STAGE_TOPOLOGY_MISMATCH: Model {model.value} requires a 2-stage DAG (1 named extractor + root stage). Found {len(named_stages)} named stage(s).")
+    elif "3STAGE" in model.value or model in [StatisticalModel.BAYESIAN_GAMMA, StatisticalModel.BAYESIAN_BETA_BINOMIAL]:
+      pass
+
+    # Mathematical formulation signature validation
+    if model == StatisticalModel.MAD:
+      if "0.6745" not in query_text and "mad" not in query_text.lower():
+        errors.append("MODEL_FORMULA_MISMATCH: MAD model must include the 0.6745 median scaling factor and robust dispersion floor.")
+    elif model == StatisticalModel.POISSON:
+      if "sqrt" not in query_text.lower() and "poisson" not in query_text.lower():
+        errors.append("MODEL_FORMULA_MISMATCH: Discrete Poisson model must calculate standard Poisson residual using sqrt(lambda).")
+    elif model == StatisticalModel.STANDARD_Z_SCORE:
+      if "+ 1.0" not in query_text and "stddev" not in query_text.lower():
+        errors.append("MODEL_FORMULA_MISMATCH: Standard Z-Score must apply dispersion floor (+ 1.0) to denominator.")
+
+    return errors
+
+
 class AuditStatus(str, Enum):
   PASSED = "PASSED"
   RETRY_REQUIRED = "RETRY_REQUIRED"
@@ -655,6 +683,10 @@ class PostFlightExecutionAuditor:
             "NO_METRICS_FUNCTION: Query did not invoke native Google SecOps Risk Analytics (metrics.*). "
             "Raw UDM search filters cannot be used as a stand-in for 30-day UEBA baselines."
         )
+
+      if statistical_model:
+        model_errors = MalachiteASTValidator.validate_model_concordance(executed_query, statistical_model)
+        errors.extend(model_errors)
 
     # 2. API Response Data Structure Verification
     if "events" in api_response and "stats" not in api_response and not api_response.get("results"):

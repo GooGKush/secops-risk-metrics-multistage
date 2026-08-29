@@ -308,17 +308,72 @@ class TestGuardrailContracts(unittest.TestCase):
     with open(guide_path, 'r', encoding='utf-8') as f:
       g_content = f.read()
 
-    self.assertIn("Threat-to-Telemetry Decomposition Matrix", s_content)
-    self.assertIn("Threat-to-Telemetry Decomposition Matrix", g_content)
-    self.assertIn("Cross-Sectional Fleet Rarity DAG", s_content)
+  def test_precomposed_pipeline_templates_exist(self):
+    """All essential analytical models must have pre-composed pipeline templates in templates/pipelines/."""
+    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    pipelines_dir = os.path.join(skill_dir, 'templates', 'pipelines')
+    
+    expected_pipelines = [
+        'mad_modified_z_2stage.yl2',
+        'standard_z_score_2stage.yl2',
+        'poisson_rarity_2stage.yl2',
+        'longitudinal_cusum_2stage.yl2',
+        'dual_baseline_delta_z_3stage.yl2',
+        'hierarchical_empirical_bayes_3stage.yl2',
+        'multi_sector_fusion_4stage.yl2'
+    ]
+    for pipeline_file in expected_pipelines:
+      full_path = os.path.join(pipelines_dir, pipeline_file)
+      self.assertTrue(
+          os.path.exists(full_path),
+          f"Pre-composed pipeline template '{pipeline_file}' must exist in templates/pipelines/."
+      )
+
+
+  def test_consultative_vector_and_scope_discovery_protocol_contract(self):
+    """SKILL.md and multi-stage guide must document the Consultative Vector & Scope Discovery Protocol."""
+    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    skill_path = os.path.join(skill_dir, 'SKILL.md')
+    guide_path = os.path.join(skill_dir, 'references', 'multi-stage-metrics-guide.md')
+    with open(skill_path, 'r', encoding='utf-8') as f:
+      s_content = f.read()
+    with open(guide_path, 'r', encoding='utf-8') as f:
+      g_content = f.read()
+
+    self.assertIn("Consultative Vector & Scope Discovery", s_content)
+    self.assertIn("Consultative Scope & Vector Discovery", g_content)
+    self.assertIn("Cloud CRUD", s_content)
+    self.assertIn("Workspace", s_content)
+    self.assertIn("Multi-Sector Fusion", s_content)
+
+  def test_anti_auth_defaulting_guardrail_contract(self):
+    """SKILL.md must explicitly prohibit defaulting to auth on open-ended inquiries."""
+    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    skill_path = os.path.join(skill_dir, 'SKILL.md')
+    with open(skill_path, 'r', encoding='utf-8') as f:
+      s_content = f.read()
+
+    self.assertIn("Anti-Auth-Defaulting Guardrail", s_content)
+    self.assertIn("MUST NOT DEFAULT TO `metrics.auth_attempts_*`", s_content)
+
+  def test_conversational_break_mandate_contract(self):
+    """SKILL.md and multi-stage guide must mandate a conversational break on Turn 1 of broad inquiries."""
+    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    skill_path = os.path.join(skill_dir, 'SKILL.md')
+    guide_path = os.path.join(skill_dir, 'references', 'multi-stage-metrics-guide.md')
+    with open(skill_path, 'r', encoding='utf-8') as f:
+      s_content = f.read()
+    with open(guide_path, 'r', encoding='utf-8') as f:
+      g_content = f.read()
+
+    self.assertIn("CONVERSATIONAL BREAK", s_content)
+    self.assertIn("The 2-Turn Staging Mandate", g_content)
+    self.assertIn("Phase 1A", s_content)
+    self.assertIn("Phase 1B", s_content)
 
 
 if __name__ == '__main__':
   unittest.main()
-
-
-
-
 
 
 

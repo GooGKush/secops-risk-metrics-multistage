@@ -1,0 +1,64 @@
+// ============================================================================
+// ARCHITECTURE: 2-STAGE DISCRETE POISSON RARITY OUTLIER PIPELINE
+// Skill: secops-risk-metrics-multistage
+// Purpose: Detects sudden execution of historically near-zero rare events
+// Formula: Z_P = (k - lambda) / sqrt(lambda + 1.0)
+// ============================================================================
+
+// Stage 1: Rare Telemetry Extraction & 30d Historical Lambda Lookup
+stage stage1_extract {
+    metadata.event_type = "{{event_type}}"
+    {{entity_field}} = $entity
+    $entity != ""
+    {{value_filter}}
+
+  match:
+    $entity by 1d
+
+  outcome:
+    $observed_val = {{observed_aggregation}}
+    $observed_events = count(metadata.id)
+
+    $historical_avg = max(metrics.{{target_metric_name}}(
+        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+        {{dimension_key}}: $entity {{extra_dimensions}}
+    ))
+    $historical_stddev = max(metrics.{{target_metric_name}}(
+        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+        {{dimension_key}}: $entity {{extra_dimensions}}
+    ))
+    $historical_active_days = max(metrics.{{target_metric_name}}(
+        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+        {{dimension_key}}: $entity {{extra_dimensions}}
+    ))
+    $historical_max = max(metrics.{{target_metric_name}}(
+        period: 1d, window: 30d, metric: event_count_sum, agg: max,
+        {{dimension_key}}: $entity {{extra_dimensions}}
+    ))
+    $historical_sum = max(metrics.{{target_metric_name}}(
+        period: 1d, window: 30d, metric: event_count_sum, agg: sum,
+        {{dimension_key}}: $entity {{extra_dimensions}}
+    ))
+}
+
+// Stage 2 (Root Stage): Poisson Rarity Z-Score Evaluation
+$entity = $stage1_extract.entity
+$ws = $stage1_extract.window_start
+
+match:
+  $entity, $ws by 1d
+
+outcome:
+  $k = max($stage1_extract.observed_val)
+  $lambda = max($stage1_extract.historical_avg)
+  $active_days = max($stage1_extract.historical_active_days)
+
+  // Discrete Poisson Rarity Z-Score
+  $diff = $k - $lambda
+  $poisson_z = $diff / math.sqrt($lambda + 1.0)
+
+  // Calibrated Risk Index (CRI)
+  $calibrated_risk_index = round(100.0 / (1.0 + math.exp(-0.6 * ($poisson_z - 3.0))))
+
+order:
+  $poisson_z desc

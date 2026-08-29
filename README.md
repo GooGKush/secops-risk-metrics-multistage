@@ -1,5 +1,7 @@
 # Google SecOps Multi-Stage Risk Metrics Threat Hunter (`secops-risk-metrics-multistage`)
 
+[![Version](https://img.shields.io/badge/version-v1.2.1-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Tests](https://img.shields.io/badge/tests-70%2F70%20passing-brightgreen.svg)](tests/)
+
 A specialized, production-grade AI agent skill package for **Google Security Operations (SecOps / Chronicle SIEM & SOAR)** that constructs, validates, and executes **Multi-Stage YARA-L 2.0 Directed Acyclic Graph (DAG) statistical threat hunting pipelines**.
 
 The skill utilizes Google SecOps pre-computed behavioral risk analytics (`metrics.*`) as the Stage 1 baseline foundation ($O(1)$ constant-time lookup) and executes advanced mathematical outlier evaluation across subsequent stages.
@@ -29,10 +31,14 @@ secops-risk-metrics-multistage/
 │   ├── multi-stage-metrics-guide.md      # Multi-stage YARA-L DAG contracts & Entity Graph rules
 │   └── statistical-models-taxonomy.md    # Mathematical taxonomy of all 14 statistical models
 ├── templates/                            # Composable YARA-L 2.0 template library
-│   ├── pipelines/                        # Pre-validated 3-stage and 4-stage DAG pipelines
+│   ├── pipelines/                        # Pre-composed 2-stage, 3-stage, and 4-stage DAG pipelines
 │   │   ├── dual_baseline_delta_z_3stage.yl2
 │   │   ├── hierarchical_empirical_bayes_3stage.yl2
-│   │   └── multi_sector_fusion_4stage.yl2
+│   │   ├── longitudinal_cusum_2stage.yl2
+│   │   ├── mad_modified_z_2stage.yl2
+│   │   ├── multi_sector_fusion_4stage.yl2
+│   │   ├── poisson_rarity_2stage.yl2
+│   │   └── standard_z_score_2stage.yl2
 │   ├── stage1_extractors/                # Standardized Stage 1 telemetry baseline extractors
 │   │   ├── auth_attempts_fail.yl2
 │   │   ├── auth_attempts_total.yl2
@@ -56,7 +62,7 @@ secops-risk-metrics-multistage/
 │   ├── preflight_validator.py            # Pre-flight syntax and outcome contract validator
 │   ├── template_router.py                # Maps natural language intent to .yl2 templates
 │   └── triage_formatter.py               # Generates 6-section triage reports & CRI scores
-└── tests/                                # Automated unit test suite (63 unit tests)
+└── tests/                                # Automated unit test suite (70 unit tests)
     ├── test_chart_specifications.py
     ├── test_complex_multistage_syntax.py
     ├── test_cri_and_math.py
@@ -113,7 +119,7 @@ Run the automated test suite to verify mathematical safety and YARA-L template s
 ```bash
 python3 -m unittest discover -s tests -p "test_*.py"
 ```
-* **Status**: 66/66 passing unit tests in $\le 0.2\text{s}$.
+* **Status**: 70/70 passing unit tests in $\le 0.2\text{s}$.
 * **Live SIEM Validation**: Validated on Google SecOps customer instances (`gus-sdl`).
 
 

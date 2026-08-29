@@ -379,6 +379,50 @@ For automated threat hunting and headless pipeline execution, the agent and quer
 | **Multi-Step Killchains** (Web Lure $\to$ ZIP Download $\to$ Script Dropper) | Multi-Event Telemetry | **Root Stage: Causal Cross-Stage Fusion** (`$host = $s1.host = $s2.host`, `$ws = $s1.ws = $s2.ws by 1d`). |
 
 ---
+
+## 18. Pre-Composed Multi-Stage Pipeline Library
+
+To prevent runtime syntactic improvisation and avoid streaming rule syntax confusion, the skill maintains complete composite pipeline templates in `templates/pipelines/`:
+
+| Pipeline Template File | Stages | Analytical Model | Primary Use Case |
+| :--- | :--- | :--- | :--- |
+| **`mad_modified_z_2stage.yl2`** | 2 Stages | Robust MAD / Modified $Z$-Score ($M_Z$) | Heavy-tailed egress network bytes, skewed volume. |
+| **`standard_z_score_2stage.yl2`** | 2 Stages | Parametric Standard $Z$-Score ($Z$) | Volumetric bursts, auth attempts, process counts. |
+| **`poisson_rarity_2stage.yl2`** | 2 Stages | Discrete Poisson Rarity ($Z_P$) | Rare administrative binary launches, low $\lambda$. |
+| **`longitudinal_cusum_2stage.yl2`** | 2 Stages | Longitudinal CUSUM Drift ($S^+$) | Multi-day low-and-slow exfiltration and behavioral drift. |
+| **`dual_baseline_delta_z_3stage.yl2`** | 3 Stages | Dual-Baseline Delta-$Z$ ($\Delta Z$) | Patch Tuesday fleet suppression, enterprise-wide spikes. |
+| **`hierarchical_empirical_bayes_3stage.yl2`** | 3 Stages | Hierarchical Empirical Bayes | Peer group shrinkage, regularizing inactive accounts. |
+| **`multi_sector_fusion_4stage.yl2`** | 4 Stages | Multi-Sector Fusion ($D \sim \chi_3$) | Full-killchain cross-vector correlation (IAM + Proc + Net). |
+
+---
+
+## 19. Consultative Scope & Vector Discovery Framework
+
+When an analyst's inquiry is open-ended (e.g. *"find privilege abuse"*, *"look for insider threats"*, *"deviations from peers"*), the agent must not prematurely converge on a single vector (like logins) or unilaterally assume an enterprise-wide scope.
+
+### 1. The 3 Cohort Granularity Tiers:
+| Scope Tier | When to Recommend | Analytical Rationale |
+| :--- | :--- | :--- |
+| **1. Specific Suspect User** | Analyst has an identity in mind (`user@domain.com`). | Compares the individual directly against their department or historical baseline. |
+| **2. Role / Department Cohort** | High-privilege teams (DevOps, DBAs, Cloud Ops, Finance). | **Prevents Heterogeneous Population Noise**: Comparing a Cloud Admin to an HR recruiter yields false positives; pooling within role peers ensures true baselining. |
+| **3. Enterprise-Wide Leaderboard** | Open fleet-wide anomaly audit. | Evaluates all active identities and ranks top statistical outliers via Delta-$Z$ or CRI. |
+
+### 2. The 6 Operational Behavioral Vector Families:
+1. ☁️ **Cloud Infrastructure CRUD**: `metrics.resource_creation_*`, `metrics.resource_deletion_*`, `metrics.resource_written_*` (GCP CloudAudit, AWS CloudTrail, Azure Activity).
+2. 📁 **Workspace Data Hoarding & Exfiltration**: `metrics.workspace_total_download_actions`, `metrics.workspace_total_change_actions` (Google Drive mass exports, permission sharing changes).
+3. ⚙️ **Endpoint Administrative Execution**: `PROCESS_LAUNCH` (LOLBins, script interpreters, administrative shells).
+4. 🌐 **Outbound Data Egress**: `metrics.network_bytes_outbound` (data siphoning and egress volume surges).
+5. 🔑 **Authentication & Credential Access**: `metrics.auth_attempts_*` (off-hours logins, brute force, spray).
+6. 🔀 **Multi-Sector Threat Fusion**: Cross-correlating orthogonal vectors (e.g. Auth Surge + Resource Deletions + Outbound Egress) into a single composite distance $D$.
+
+### 3. Anti-Auth-Defaulting Guardrail:
+* **The Principle**: Authentication is only 1 of 6 vectors. When investigating privilege abuse or insider deviations, the agent MUST present the full vector canvas and proactively recommend multi-sector cross-correlation rather than defaulting to login counts.
+
+### 4. The 2-Turn Staging Mandate (Conversational Break):
+* **Phase 1A (Turn 1)**: For broad or open-ended inquiries, the agent is **STRICTLY PROHIBITED** from emitting a Pre-Flight Hunting Specification Card or YARA-L query preview on Turn 1. The agent must present the 6 vector options, inquire about the user/team scope, and **yield the turn immediately**.
+* **Phase 1B (Turn 2)**: Only after the analyst confirms their chosen vector(s) and scope does the agent generate the Pre-Flight Card, the tailored YARA-L query preview, and the Mode A vs Mode B clearance prompt.
+
+---
 *Created and maintained by Greg Kushmerek for Google SecOps Chronicle SIEM threat hunting workflows.*
 
 

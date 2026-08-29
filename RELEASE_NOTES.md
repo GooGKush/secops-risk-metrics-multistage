@@ -1,23 +1,22 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.1.0)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.2.1)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v1.1.0 (Point Release) — August 2026  
+**Latest Version**: v1.2.1 — August 2026  
 
 ---
 
-## 📢 What's New in v1.1.0 (Point Release)
+## 📢 What's New in v1.2.1
 
-* **Variable Role Classification Engine**: Implements a strict 4-tier variable classification rule (`[JOIN_KEY]`, `[SCORING_DIMENSION]`, `[ACTIVE_FILTER]`, `[TRIAGE_DECORATION]`) to prevent primary threat behaviors from acting solely as passive reporting strings.
-* **Anti-Passive-Decoration Guardrail**: Mandates that qualitative threat indicators (command lines, script droppers, LOLBin arguments, rare domains) are actively bound to **Cross-Sectional Fleet Rarity DAGs** (`count_distinct(hosts) <= 2`) or **Entity Graph Prevalence constraints** (`rolling_max <= 3`).
-* **Threat-to-Telemetry Decomposition Matrix**: Equips headless and automated agents with an autonomous mapping framework:
-  * *Volumetric Surges* $\to O(1)$ 30d `metrics.*` baselines + Parametric $Z$ / Delta-$Z$.
-  * *Unbounded Qualitative Strings / LOLBins* $\to$ Cross-Sectional Fleet Rarity DAG ($N_{\text{hosts}} \le 2$).
-  * *High-Churn Infrastructure* $\to$ Entity Graph Prevalence (`rolling_max <= 3`) & First-Seen Novelty.
-  * *Multi-Step Killchains* $\to$ Causal Cross-Stage Joins (`$host, $ws by 1d`).
-* **Enhanced Guardrail Test Suite**: Expanded automated unit test suite from 63 to 66 tests (100% passing).
+* **Phase 1A / Phase 1B Conversational Staging & Consultative Discovery Gate**: Introduces an explicit conversational break for broad or open-ended threat inquiries (e.g. *"privilege abuse"*, *"insider threat"*, *"deviations from peers"*). The agent is strictly prohibited from emitting a Pre-Flight Card or YARA-L code on Turn 1, and must first clarify cohort scope (Individual vs. Role/Department vs. Enterprise Leaderboard) and present the 6 behavioral vector families.
+* **Anti-Auth-Defaulting Guardrail**: Prohibits reflexively collapsing multi-dimensional threat goals into single-vector login counts (`metrics.auth_attempts_*`) or assuming unwieldy heterogeneous enterprise-wide scopes.
+* **Pre-Composed 2-Stage Pipeline Library**: Added ready-to-use composite pipeline templates (`mad_modified_z_2stage.yl2`, `standard_z_score_2stage.yl2`, `poisson_rarity_2stage.yl2`, `longitudinal_cusum_2stage.yl2`) in `templates/pipelines/` to eliminate runtime syntactic improvisation.
+* **Exact Time Window Arithmetic**: Standardized $\text{startTime} = \text{endTime} - N\text{ days}$ duration calculation to prevent off-by-one calendar-span breaches of Chronicle's 14-day multi-stage limit.
+* **Mathematical Model Concordance Validator**: Enhanced `PostFlightExecutionAuditor` to verify mathematical formulation signatures and stage topology matches.
+* **Streamlined Control Plane Architecture**: Refactored `SKILL.md` down by 33% (151 lines / 15.27 KB), eliminating reference bloat while preserving 100% of core directives and invariants.
+* **Expanded Automated Guardrail Suite**: Expanded automated unit test suite from 66 to 70 tests (100% passing).
 
 ---
 

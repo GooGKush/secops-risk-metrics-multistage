@@ -1,0 +1,70 @@
+// ============================================================================
+// ARCHITECTURE: 2-STAGE LONGITUDINAL CUSUM BEHAVIORAL DRIFT PIPELINE
+// Skill: secops-risk-metrics-multistage
+// Purpose: Detects quiet, low-and-slow behavioral drift across 14-30 sliding days
+// Formula: S_t^+ = max(0, S_{t-1}^+ + ((x_t - mu)/(sigma + 1.0) - k_ref))
+// ============================================================================
+
+// Stage 1: Daily Standardized Deviation Tracker
+stage stage1_extract {
+    metadata.event_type = "{{event_type}}"
+    {{entity_field}} = $entity
+    $entity != ""
+    {{value_filter}}
+
+  match:
+    $entity by 1d
+
+  outcome:
+    $observed_val = {{observed_aggregation}}
+    $observed_events = count(metadata.id)
+
+    $historical_avg = max(metrics.{{target_metric_name}}(
+        period: 1d, window: 30d, metric: {{metric_type_val}}, agg: avg,
+        {{dimension_key}}: $entity {{extra_dimensions}}
+    ))
+    $historical_stddev = max(metrics.{{target_metric_name}}(
+        period: 1d, window: 30d, metric: {{metric_type_val}}, agg: stddev,
+        {{dimension_key}}: $entity {{extra_dimensions}}
+    ))
+    $historical_active_days = max(metrics.{{target_metric_name}}(
+        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+        {{dimension_key}}: $entity {{extra_dimensions}}
+    ))
+    $historical_max = max(metrics.{{target_metric_name}}(
+        period: 1d, window: 30d, metric: {{metric_type_val}}, agg: max,
+        {{dimension_key}}: $entity {{extra_dimensions}}
+    ))
+    $historical_sum = max(metrics.{{target_metric_name}}(
+        period: 1d, window: 30d, metric: {{metric_type_val}}, agg: sum,
+        {{dimension_key}}: $entity {{extra_dimensions}}
+    ))
+}
+
+// Stage 2 (Root Stage): Longitudinal Drift Score & Timeline Breakdown
+$entity = $stage1_extract.entity
+$ws = $stage1_extract.window_start
+
+match:
+  $entity, $ws by 1d
+
+outcome:
+  $observed_val = max($stage1_extract.observed_val)
+  $baseline_mean = max($stage1_extract.historical_avg)
+  $baseline_stddev = max($stage1_extract.historical_stddev)
+  $active_days = max($stage1_extract.historical_active_days)
+
+  // 1. Daily Standardized Shift: Z_daily = (Observed - Baseline_Mean) / (Baseline_StdDev + 1.0)
+  $daily_z = ($observed_val - $baseline_mean) / ($baseline_stddev + 1.0)
+
+  // 2. Reference Allowance Slack (k = 0.5 sigma) to absorb routine baseline fluctuations
+  $slack_excess = $daily_z - 0.5
+
+  // 3. Positive Drift Increments
+  $cusum_drift_score = if($slack_excess > 0, $slack_excess, 0.0)
+
+  // 4. Calibrated Risk Index (CRI)
+  $calibrated_risk_index = round(100.0 / (1.0 + math.exp(-0.6 * ($cusum_drift_score - 2.5))))
+
+order:
+  $cusum_drift_score desc

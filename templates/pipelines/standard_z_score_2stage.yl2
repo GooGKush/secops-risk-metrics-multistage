@@ -1,0 +1,66 @@
+// ============================================================================
+// ARCHITECTURE: 2-STAGE PARAMETRIC STANDARD Z-SCORE OUTLIER PIPELINE
+// Skill: secops-risk-metrics-multistage
+// Purpose: Standard volumetric anomaly detection against personal 30-day baseline
+// Formula: Z = (Observed - Baseline_Mean) / (Baseline_StdDev + 1.0)
+// ============================================================================
+
+// Stage 1: Telemetry Extraction & Pre-Computed 30-Day Behavioral Baseline Lookup
+stage stage1_extract {
+    metadata.event_type = "{{event_type}}"
+    {{entity_field}} = $entity
+    $entity != ""
+    {{value_filter}}
+
+  match:
+    $entity by 1d
+
+  outcome:
+    $observed_val = {{observed_aggregation}}
+    $observed_events = count(metadata.id)
+
+    $historical_avg = max(metrics.{{target_metric_name}}(
+        period: 1d, window: 30d, metric: {{metric_type_val}}, agg: avg,
+        {{dimension_key}}: $entity {{extra_dimensions}}
+    ))
+    $historical_stddev = max(metrics.{{target_metric_name}}(
+        period: 1d, window: 30d, metric: {{metric_type_val}}, agg: stddev,
+        {{dimension_key}}: $entity {{extra_dimensions}}
+    ))
+    $historical_active_days = max(metrics.{{target_metric_name}}(
+        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+        {{dimension_key}}: $entity {{extra_dimensions}}
+    ))
+    $historical_max = max(metrics.{{target_metric_name}}(
+        period: 1d, window: 30d, metric: {{metric_type_val}}, agg: max,
+        {{dimension_key}}: $entity {{extra_dimensions}}
+    ))
+    $historical_sum = max(metrics.{{target_metric_name}}(
+        period: 1d, window: 30d, metric: {{metric_type_val}}, agg: sum,
+        {{dimension_key}}: $entity {{extra_dimensions}}
+    ))
+}
+
+// Stage 2 (Root Stage): Standard Z-Score & Sigmoid Calibrated Risk Index
+$entity = $stage1_extract.entity
+$ws = $stage1_extract.window_start
+
+match:
+  $entity, $ws by 1d
+
+outcome:
+  $observed_val = max($stage1_extract.observed_val)
+  $baseline_mean = max($stage1_extract.historical_avg)
+  $baseline_stddev = max($stage1_extract.historical_stddev)
+  $active_days = max($stage1_extract.historical_active_days)
+  $events_count = max($stage1_extract.observed_events)
+
+  // 1. Parametric Standard Z-Score with Universal Dispersion Floor (+ 1.0)
+  $deviation = $observed_val - $baseline_mean
+  $personal_z = $deviation / ($baseline_stddev + 1.0)
+
+  // 2. Calibrated Risk Index (CRI: 0–100 Logistic Sigmoid Mapping)
+  $calibrated_risk_index = round(100.0 / (1.0 + math.exp(-0.6 * ($personal_z - 3.0))))
+
+order:
+  $personal_z desc
