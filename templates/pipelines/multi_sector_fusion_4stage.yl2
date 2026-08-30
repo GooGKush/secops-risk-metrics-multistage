@@ -1,108 +1,138 @@
 // ============================================================================
-// ARCHITECTURE: 4-STAGE MULTI-SECTOR THREAT FUSION (AUTH + PROCESS + NETWORK)
+// ARCHITECTURE: 4-STAGE MULTI-SECTOR THREAT FUSION (AUTH + CLOUD + PROC + NET)
 // Skill: secops-risk-metrics-multistage
-// Purpose: Fuses orthogonal anomaly signals across IAM, Endpoint, and Network into a single composite threat vector norm
-// Math: Composite Threat Norm D = sqrt(Z_auth^2 + Z_proc^2 + Z_net^2)
+// Purpose: Fuses orthogonal anomaly signals across IAM, Cloud, Endpoint, and Network into a single composite threat vector norm
+// Math: Composite Threat Norm D^2 = Z_auth^2 + Z_cloud^2 + Z_proc^2 + Z_net^2
 // ============================================================================
 
 // --- STAGE 1: Sector 1 - Authentication / Credential Access ---
 stage auth_sector {
     metadata.event_type = "USER_LOGIN"
-    security_result.action = "BLOCK"
-    principal.asset.hostname = $host
-    $host != ""
+    principal.user.userid = $user
+    $user != ""
 
   match:
-    $host by 1d
+    $user by 1d
 
   outcome:
     $auth_obs = count(metadata.id)
-    $auth_avg = max(metrics.auth_attempts_fail(
+    $auth_avg = max(metrics.auth_attempts_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: avg,
-        principal.asset.hostname: $host
+        principal.user.userid: $user
     ))
-    $auth_std = max(metrics.auth_attempts_fail(
+    $auth_std = max(metrics.auth_attempts_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
-        principal.asset.hostname: $host
+        principal.user.userid: $user
     ))
 }
 
-// --- STAGE 2: Sector 2 - Endpoint / Suspicious Process Execution ---
-stage proc_sector {
-    metadata.event_type = "PROCESS_LAUNCH"
-    principal.asset.hostname = $host
-    $host != ""
+// --- STAGE 2: Sector 2 - Cloud Infrastructure CRUD ---
+stage cloud_sector {
+    metadata.event_type = "RESOURCE_WRITTEN"
+    principal.user.userid = $user
+    metadata.vendor_name = $c_vendor
+    metadata.product_name = $c_product
+    $user != ""
 
   match:
-    $host by 1d
+    $user, $c_vendor, $c_product by 1d
+
+  outcome:
+    $cloud_obs = count(metadata.id)
+    $cloud_avg = max(metrics.resource_written_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+        principal.user.userid: $user,
+        metadata.vendor_name: $c_vendor,
+        metadata.product_name: $c_product
+    ))
+    $cloud_std = max(metrics.resource_written_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+        principal.user.userid: $user,
+        metadata.vendor_name: $c_vendor,
+        metadata.product_name: $c_product
+    ))
+}
+
+// --- STAGE 3: Sector 3 - Endpoint Administrative Tools / LOLBins ---
+stage proc_sector {
+    metadata.event_type = "PROCESS_LAUNCH"
+    principal.user.userid = $user
+    principal.process.file.sha256 = $p_hash
+    metadata.event_type = $p_event
+    $user != ""
+
+  match:
+    $user, $p_hash, $p_event by 1d
 
   outcome:
     $proc_obs = count(metadata.id)
     $proc_avg = max(metrics.file_executions_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: avg,
-        principal.asset.hostname: $host
+        principal.user.userid: $user,
+        principal.process.file.sha256: $p_hash,
+        metadata.event_type: $p_event
     ))
     $proc_std = max(metrics.file_executions_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
-        principal.asset.hostname: $host
+        principal.user.userid: $user,
+        principal.process.file.sha256: $p_hash,
+        metadata.event_type: $p_event
     ))
 }
 
-// --- STAGE 3: Sector 3 - Network / Egress Data Volume ---
+// --- STAGE 4: Sector 4 - Network Egress Data Volume ---
 stage net_sector {
     metadata.event_type = "NETWORK_CONNECTION"
-    principal.asset.hostname = $host
-    $host != ""
+    principal.user.userid = $user
+    $user != ""
 
   match:
-    $host by 1d
+    $user by 1d
 
   outcome:
     $net_bytes_obs = sum(network.sent_bytes)
     $net_bytes_avg = max(metrics.network_bytes_outbound(
         period: 1d, window: 30d, metric: value_sum, agg: avg,
-        principal.asset.hostname: $host
+        principal.user.userid: $user
     ))
     $net_bytes_std = max(metrics.network_bytes_outbound(
         period: 1d, window: 30d, metric: value_sum, agg: stddev,
-        principal.asset.hostname: $host
+        principal.user.userid: $user
     ))
 }
 
-// --- STAGE 4 (ROOT STAGE): Multi-Sector Threat Fusion & Distance Scoring ---
-$host = $auth_sector.host
-$host = $proc_sector.host
-$host = $net_sector.host
-
-$ws = $auth_sector.window_start
-$ws = $proc_sector.window_start
-$ws = $net_sector.window_start
+// --- ROOT STAGE: Multi-Sector Threat Fusion & Distance Scoring ---
+$user = $auth_sector.user
+$user = $cloud_sector.user
+$user = $proc_sector.user
+$user = $net_sector.user
 
 match:
-  $host, $ws by 1d
+  $user by 1d
 
 outcome:
-  $a_obs = max($auth_sector.auth_obs)
-  $p_obs = max($proc_sector.proc_obs)
-  $n_obs = max($net_sector.net_bytes_obs)
-
   // Sector 1: Auth Z-Score
-  $a_diff = $a_obs - max($auth_sector.auth_avg)
-  $z_auth = $a_diff / max($auth_sector.auth_std)
+  $a_diff = max($auth_sector.auth_obs) - max($auth_sector.auth_avg)
+  $z_auth = $a_diff / (max($auth_sector.auth_std) + 1.0)
 
-  // Sector 2: Process Z-Score
-  $p_diff = $p_obs - max($proc_sector.proc_avg)
-  $z_proc = $p_diff / max($proc_sector.proc_std)
+  // Sector 2: Cloud CRUD Z-Score
+  $c_diff = max($cloud_sector.cloud_obs) - max($cloud_sector.cloud_avg)
+  $z_cloud = $c_diff / (max($cloud_sector.cloud_std) + 1.0)
 
-  // Sector 3: Network Z-Score
-  $n_diff = $n_obs - max($net_sector.net_bytes_avg)
-  $z_net = $n_diff / max($net_sector.net_bytes_std)
+  // Sector 3: Process Z-Score
+  $p_diff = max($proc_sector.proc_obs) - max($proc_sector.proc_avg)
+  $z_proc = $p_diff / (max($proc_sector.proc_std) + 1.0)
 
-  // Euclidean Vector Threat Norm D^2 = Z_auth^2 + Z_proc^2 + Z_net^2
+  // Sector 4: Network Z-Score
+  $n_diff = max($net_sector.net_bytes_obs) - max($net_sector.net_bytes_avg)
+  $z_net = $n_diff / (max($net_sector.net_bytes_std) + 1.0)
+
+  // Euclidean Vector Threat Norm D^2 = Z_auth^2 + Z_cloud^2 + Z_proc^2 + Z_net^2
   $z_auth_sq = $z_auth * $z_auth
+  $z_cloud_sq = $z_cloud * $z_cloud
   $z_proc_sq = $z_proc * $z_proc
   $z_net_sq = $z_net * $z_net
-  $composite_threat_norm_sq = $z_auth_sq + $z_proc_sq + $z_net_sq
+  $composite_threat_norm_sq = $z_auth_sq + $z_cloud_sq + $z_proc_sq + $z_net_sq
 
 order:
   $composite_threat_norm_sq desc

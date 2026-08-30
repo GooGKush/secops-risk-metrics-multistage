@@ -422,6 +422,36 @@ When an analyst's inquiry is open-ended (e.g. *"find privilege abuse"*, *"look f
 * **Phase 1A (Turn 1)**: For broad or open-ended inquiries, the agent is **STRICTLY PROHIBITED** from emitting a Pre-Flight Hunting Specification Card or YARA-L query preview on Turn 1. The agent must present the 6 vector options, inquire about the user/team scope, and **yield the turn immediately**.
 * **Phase 1B (Turn 2)**: Only after the analyst confirms their chosen vector(s) and scope does the agent generate the Pre-Flight Card, the tailored YARA-L query preview, and the Mode A vs Mode B clearance prompt.
 
+### 5. CTI & Threat Intel Report Mapping Protocol:
+* **The Principle**: When an analyst provides an external threat report (e.g. DFIR advisory, CVE list, threat actor campaign, or blog URL), the report itself supplies the specific attack vectors and threat context.
+* **Direct Transition to Phase 1B**: Instead of forcing the analyst through generic Phase 1A vector polling, the agent:
+  1. Extracts the attack lifecycle stages from the report.
+  2. Maps them directly to the corresponding `metrics.*` tables and statistical models.
+  3. Proposes the primary recommended behavioral hunt.
+  4. Renders the structured **Pre-Flight Hunting Specification Card** and literal YARA-L query preview, asking only the operational workload scoping question (e.g. enterprise fleet vs. target server cluster) before yielding the turn (0 tools called).
+
+---
+
+## 20. Compiler Grammar Invariants & Query vs. Rule Nomenclature Mandate
+
+### 1. The Query vs. Rule Nomenclature Standard:
+* **Ad-Hoc & Dashboard Logic is a Query**: Multi-stage YARA-L logic executed in UDM search, threat hunts, or dashboards MUST ALWAYS be labeled as **"Multi-Stage YARA-L Query"** or **"Executed Multi-Stage YARA-L Query"**.
+* **The Term 'Rule' is Strictly Reserved**: The word **"Rule"** or **"Hunting Rule"** must **NEVER** be used to describe ad-hoc search logic. In Google SecOps, a Rule is an active continuous detection rule running inside the rules engine (`rule <name> { ... }`). Referring to ad-hoc query logic as a "Rule" is a **Critical Nomenclature Violation**.
+
+### 2. Zero-Hallucination Compiler Grammar Rules:
+1. **Strict Reference-List Only `in` Operator**: In YARA-L, `field in ("A", "B")` with literal tuples is **INVALID SYNTAX**. The `in` operator is strictly for reference lists (`field in %ref_list`). Multiple literal strings MUST be written as `(field = "A" or field = "B")` or regex `field = /A|B/`.
+2. **Strict Function-Call Metric Syntax**: Metric functions are NEVER object properties (e.g. `metrics.auth_attempts_24h.mean` is **INVALID SYNTAX**). All metric baselines MUST use canonical function calls: `max(metrics.<name>(period: 1d, window: 30d, metric: <field>, agg: <agg>, ...))`.
+3. **Daily Match Window Syntax**: Daily match windows MUST use `by 1d` (e.g. `match: $entity by 1d`). Using `by 24h` is **INVALID SYNTAX**.
+4. **Linear Outcome Arithmetic**: YARA-L outcome expressions do not support nested `max(0, ...)` or inline `sqrt(...)` inside arithmetic. Compute squared terms `$z_sq = $z * $z`, sum them `$d_sq = $z1_sq + $z2_sq`, and order by `$d_sq desc`.
+5. **The Chronicle 4-Join Limit & UEBA Join Accounting Formula**:
+   In Chronicle Common Compiler (`compiler.go`), queries are strictly limited to `maxJoinCount = 4`.
+   $$\text{Total Joins} = \sum_{\text{stages}} \text{UEBA Joins} + (\text{Named Stages} - 1) \le 4$$
+   - Each `metrics.*` function inside a named stage is an internal JOIN with the pre-computed UEBA table ($1\text{ join}$).
+   - The Root Stage joining $K$ named stages consumes $K - 1$ joins.
+   - **Maximum Supported UEBA Multi-Stage DAG**: **2 Named UEBA Stages + Root Stage** (Total joins = $1 + 1 + 1 = \mathbf{3\text{ joins}} \le 4$, e.g. `dual_sector_fusion_3stage.yl2`).
+   - Attempting to chain 3 or 4 independent named stages with UEBA metrics in a single search query yields 5 to 7 joins and triggers `compilation error maximum number of joins exceeded. limit query to at most 4 joins`.
+   - For 4-sector simultaneous correlation across Auth + Cloud + Endpoint + Network, deploy a **Single-Stage Multi-Event Detection Rule** in the continuous rules engine (0 stage table joins).
+
 ---
 *Created and maintained by Greg Kushmerek for Google SecOps Chronicle SIEM threat hunting workflows.*
 

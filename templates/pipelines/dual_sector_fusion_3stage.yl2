@@ -1,0 +1,73 @@
+// ============================================================================
+// ARCHITECTURE: 3-STAGE DUAL-SECTOR THREAT FUSION (AUTH + NETWORK EGRESS)
+// Skill: secops-risk-metrics-multistage
+// Purpose: Fuses orthogonal anomaly signals across IAM and Network into a composite threat norm
+// Join Accounting: 1 Auth UEBA Join + 1 Net UEBA Join + 1 Root Join = 3 Joins (Limit: <= 4)
+// Math: Composite Threat Norm D^2 = Z_auth^2 + Z_net^2
+// ============================================================================
+
+// --- STAGE 1: Sector 1 - Authentication / Credential Access ---
+stage auth_sector {
+    metadata.event_type = "USER_LOGIN"
+    principal.user.userid = $user
+    $user != ""
+
+  match:
+    $user by 1d
+
+  outcome:
+    $auth_obs = count(metadata.id)
+    $auth_avg = max(metrics.auth_attempts_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+        principal.user.userid: $user
+    ))
+    $auth_std = max(metrics.auth_attempts_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+        principal.user.userid: $user
+    ))
+}
+
+// --- STAGE 2: Sector 2 - Network Egress Data Volume ---
+stage net_sector {
+    metadata.event_type = "NETWORK_CONNECTION"
+    principal.user.userid = $user
+    $user != ""
+
+  match:
+    $user by 1d
+
+  outcome:
+    $net_bytes_obs = sum(network.sent_bytes)
+    $net_bytes_avg = max(metrics.network_bytes_outbound(
+        period: 1d, window: 30d, metric: value_sum, agg: avg,
+        principal.user.userid: $user
+    ))
+    $net_bytes_std = max(metrics.network_bytes_outbound(
+        period: 1d, window: 30d, metric: value_sum, agg: stddev,
+        principal.user.userid: $user
+    ))
+}
+
+// --- ROOT STAGE: Dual-Sector Threat Fusion & Distance Scoring (3 Joins Total) ---
+$user = $auth_sector.user
+$user = $net_sector.user
+
+match:
+  $user by 1d
+
+outcome:
+  // Sector 1: Auth Z-Score
+  $a_diff = max($auth_sector.auth_obs) - max($auth_sector.auth_avg)
+  $z_auth = $a_diff / (max($auth_sector.auth_std) + 1.0)
+
+  // Sector 2: Network Z-Score
+  $n_diff = max($net_sector.net_bytes_obs) - max($net_sector.net_bytes_avg)
+  $z_net = $n_diff / (max($net_sector.net_bytes_std) + 1.0)
+
+  // Euclidean Vector Threat Norm D^2 = Z_auth^2 + Z_net^2
+  $z_auth_sq = $z_auth * $z_auth
+  $z_net_sq = $z_net * $z_net
+  $composite_threat_norm_sq = $z_auth_sq + $z_net_sq
+
+order:
+  $composite_threat_norm_sq desc

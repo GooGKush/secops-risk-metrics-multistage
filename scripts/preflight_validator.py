@@ -564,9 +564,25 @@ class MalachiteASTValidator:
         if len(outcomes) > 20:
           errors.append(f"OUTCOME_LIMIT_EXCEEDED in stage '{stage_name}': {len(outcomes)} variables (compiler limit is 20).")
 
-      # Check window keyword: 'by 1d' not 'over 1d'
-      if re.search(r"match:.*?over\s+1[dh]", stage_body):
+      # Check window keyword: 'by 1d' not 'over 1d' or 'by 24h'
+      if re.search(r"match:.*?over\s+1[dh]", stage_body, re.DOTALL):
         errors.append(f"WINDOW_SYNTAX_ERROR in stage '{stage_name}': Match window must use 'by 1d' or 'by 1h' (not 'over').")
+      if re.search(r"match:.*?by\s+24h", stage_body, re.DOTALL):
+        errors.append(f"INVALID_WINDOW_SYNTAX in stage '{stage_name}': 'by 24h' is invalid in YARA-L. Use 'by 1d' for daily matching.")
+
+      # Check for invalid 'in ("A", "B")' literal tuple syntax
+      if re.search(r"\bin\s*\([\"']", stage_body):
+        errors.append(
+            f"INVALID_IN_SYNTAX in stage '{stage_name}': 'in (...)' with literal string tuples is invalid in YARA-L. "
+            "Use '(field = \"A\" or field = \"B\")' or regex."
+        )
+
+      # Check for invalid dot-notation metric properties (e.g. metrics.foo.mean)
+      if re.search(r"metrics\.[a-zA-Z0-9_]+\.(?:mean|stddev|avg|sum|max|min|count)", stage_body):
+        errors.append(
+            f"INVALID_METRIC_DOT_NOTATION in stage '{stage_name}': Metric properties like 'metrics.foo.mean' are invalid. "
+            "Use canonical function calls: 'max(metrics.foo(period: 1d, window: 30d, ...))'."
+        )
 
       # Anti-Pattern 6: Single-stage multi-vector cramming
       distinct_event_types = set(re.findall(r"metadata\.event_type\s*==?\s*[\"']([A-Z_]+)[\"']", stage_body))

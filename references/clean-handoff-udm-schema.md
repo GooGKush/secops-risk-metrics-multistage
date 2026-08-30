@@ -20,6 +20,11 @@ flowchart LR
 * **Zero Noise on Nominal Fleet**: Non-outlier entities ($Z < 2.0\sigma$) are never ingested.
 * **Shared Campaign Binding**: When multiple outliers are flagged in a single hunt sweep, each event shares a common `target.resource.attribute.labels: [{"key": "Hunt Campaign ID", "value": "<campaign_id>"}]`.
 
+### 🚫 Strict Anti-Case-Comment Pollution Prohibition (With Active Case Exception):
+* **No Arbitrary Case Hijacking**: When an analyst requests general escalation (*"Send a report about this to Google SecOps"*, *"Escalate to SecOps"*, or *"Log in Chronicle"*), the agent is **STRICTLY PROHIBITED** from calling `create_case_comment` or `list_cases` to attach hunt summaries to arbitrary open cases (such as unrelated `SCC_ETD_Alert` cases).
+* **Carved-Out Active Case Exception**: If the analyst is actively reviewing a specific case and explicitly instructs the agent to attach the findings to that specific case (e.g. *"Attach this finding to Case 11075"*, *"Add this report to the case wall of Case 11075"*), the agent is authorized to call `create_case_comment(case_id="<ID>", comment=...)` targeting that explicitly designated case.
+* **Mandatory Default Path**: When no specific Case ID is requested, the agent MUST generate the synthetic UDM event JSON, preview it to the user, and ingest it via `import_logs` upon authorization.
+
 ---
 
 ## 2. 🛡️ The Chronicle Catch-All Case Promotion Rule

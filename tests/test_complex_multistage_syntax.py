@@ -43,31 +43,47 @@ class ComplexMultiStageSyntaxTest(unittest.TestCase):
     with open(template_path, "r", encoding="utf-8") as f:
       content = f.read()
 
-    # 1. Must define 3 independent sector stages
+    # 1. Must define 4 independent sector stages
     self.assertIn("stage auth_sector", content)
+    self.assertIn("stage cloud_sector", content)
     self.assertIn("stage proc_sector", content)
     self.assertIn("stage net_sector", content)
 
     # 2. Each sector must have an isolated event type and match clause
     self.assertIn('metadata.event_type = "USER_LOGIN"', content)
+    self.assertIn('metadata.event_type = "RESOURCE_WRITTEN"', content)
     self.assertIn('metadata.event_type = "PROCESS_LAUNCH"', content)
     self.assertIn('metadata.event_type = "NETWORK_CONNECTION"', content)
 
-    # 3. Must synchronize entity variables and window_start in root stage
-    self.assertIn("$host = $auth_sector.host", content)
-    self.assertIn("$host = $proc_sector.host", content)
-    self.assertIn("$host = $net_sector.host", content)
-    self.assertIn("$ws = $auth_sector.window_start", content)
-    self.assertIn("$ws = $proc_sector.window_start", content)
-    self.assertIn("$ws = $net_sector.window_start", content)
+    # 3. Must synchronize entity variable in root stage (staying within 4-join compiler limit)
+    self.assertIn("$user = $auth_sector.user", content)
+    self.assertIn("$user = $cloud_sector.user", content)
+    self.assertIn("$user = $proc_sector.user", content)
+    self.assertIn("$user = $net_sector.user", content)
+    self.assertIn("match:\n  $user by 1d", content)
 
-    # 4. Outcome must compute 3-vector Euclidean threat norm
+    # 4. Outcome must compute 4-vector Euclidean threat norm
     self.assertIn("$composite_threat_norm_sq", content)
-    self.assertIn("$z_auth_sq + $z_proc_sq + $z_net_sq", content)
+    self.assertIn("$z_auth_sq + $z_cloud_sq + $z_proc_sq + $z_net_sq", content)
 
     # 5. Must order by composite threat norm
     self.assertIn("order:", content)
     self.assertIn("$composite_threat_norm_sq desc", content)
+
+  def test_dual_sector_fusion_3stage_template_syntax(self):
+    """Verifies the 3-Stage Dual-Sector Threat Fusion template conforms to the 4-join compiler limit."""
+    template_path = os.path.join(self.templates_dir, "dual_sector_fusion_3stage.yl2")
+    self.assertTrue(os.path.exists(template_path), f"Missing template: {template_path}")
+
+    with open(template_path, "r", encoding="utf-8") as f:
+      content = f.read()
+
+    self.assertIn("stage auth_sector", content)
+    self.assertIn("stage net_sector", content)
+    self.assertIn("$user = $auth_sector.user", content)
+    self.assertIn("$user = $net_sector.user", content)
+    self.assertIn("match:\n  $user by 1d", content)
+    self.assertIn("$composite_threat_norm_sq = $z_auth_sq + $z_net_sq", content)
 
   def test_dual_baseline_delta_z_3stage_template_syntax(self):
     """Verifies the 3-Stage Dual-Baseline (Delta-Z) template conforms to Common Compiler grammar."""

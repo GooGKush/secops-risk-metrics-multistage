@@ -1,10 +1,22 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.2.1)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.3.0)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v1.2.1 — August 2026  
+**Latest Version**: v1.3.0 — August 2026  
+
+---
+
+## 📢 What's New in v1.3.0
+
+* **Chronicle 4-Join Ceiling & Invariant Codification**: Diagnosed and codified Google SecOps Chronicle Common Compiler's `maxJoinCount = 4` platform invariant and exact UEBA join accounting formula ($\sum \text{UEBA Joins} + (K-1) \le 4$). Added `dual_sector_fusion_3stage.yl2` as the verified 3-join multi-sector search DAG template.
+* **Zero-Hallucination Compiler Grammar Engine**: Fixed tuple `in ("A", "B")` syntax, eliminated invalid metric dot-notation (`metrics.foo.mean`), corrected match windows (`by 1d`), and enforced mandatory grouping dimensions (`vendor_name`/`product_name` for Cloud CRUD; `sha256`/`event_type` for Process Execution).
+* **Strict Query vs. Rule Nomenclature Mandate**: Standardized Section 2 in 6-pillar triage reports to `#### 💻 Executed Multi-Stage YARA-L Query`, strictly prohibiting the term "Rule" or "Hunting Rule" for ad-hoc search logic.
+* **CTI & Threat Intel Report Mapping Protocol**: Added dedicated pathway for external threat intelligence (URLs, DFIR advisories, CVE lists, threat actors) that extracts attack chains, maps TTPs directly to `metrics.*` tables, and proposes tailored Pre-Flight Spec Cards and query previews without generic vector polling.
+* **Mandatory Clean Hand-Off Protocol & Anti-Case Pollution Invariant**: Enforced strict routing between Path A (General Escalation & Ingestion via Synthetic UDM event) and Path B (Carved-out exception for explicit Case Wall comment attachment on designated `case_id`).
+* **Educational 3-Step Overview & Execution Framework Summary**: Added direct 3-step response for educational inquiries covering the Execution Framework Summary across all 7 behavioral anomaly archetypes.
+* **Expanded Automated Guardrail Suite**: Expanded automated unit test suite from 70 to **76 tests (100% passing)**.
 
 ---
 

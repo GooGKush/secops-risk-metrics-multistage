@@ -4,6 +4,25 @@ This reference defines the mathematical formulations, operational threat transla
 
 ---
 
+## 🗺️ Execution Framework Summary: Built-in Anomaly Models & Security Use Cases
+
+The Google SecOps Multi-Stage Risk Analytics Engine provides 7 distinct categories of behavioral anomaly models designed to detect malicious patterns without generating false positives on legitimate baseline shifts:
+
+| Anomaly Archetype | Built-In Mathematical Models | Target Telemetry Vectors | Primary Security Use Cases |
+| :--- | :--- | :--- | :--- |
+| **1. 📈 Volumetric Surges** | Standard $Z$-Score, Robust Modified $Z$-Score (`MAD`) | Network Egress, File Touches, HTTP Queries | Data exfiltration surges, ransomware staging, massive download spikes. |
+| **2. ⚡ Automated Script Bursts** | Poisson Dispersion ($F = \sigma^2/\mu$, Fano Factor) | Authentication Attempts, API Calls | Distinguishing automated credential sprays & brute force from human typos. |
+| **3. 🎯 Rare & Discrete Inceptions** | Discrete Poisson Rarity ($Z_P = (k-\lambda)/\sqrt{\lambda}$) | Process Launches, LOLBins, Script Interpreters | Executions of rare tools (`powershell`, `vssadmin`) on quiet, baseline-zero servers. |
+| **4. 🧠 Sparse Activity Regularization** | Bayesian Conjugacy (Poisson-Gamma, Beta-Binomial) | Low-Volume Service Accounts, Auth Ratios | Regularizing sparse observations to eliminate false alarms on quiet accounts. |
+| **5. 🛡️ Fleet-Normalized Surges** | 3-Stage Dual-Baseline Delta-$Z$ ($\Delta Z = Z_{\text{host}} - Z_{\text{fleet}}$) | Network Downloads, Endpoint Admin Tools | Isolating targeted host compromise during fleet-wide events (Patch Tuesday). |
+| **6. 🔀 Multi-Sector Threat Fusion** | 4-Stage Chi-Square Distance ($D = \sqrt{\sum Z_i^2}$) | IAM + Endpoint + Network Egress | Correlating multi-vector, low-and-slow killchain steps into a single unified incident score. |
+| **7. 📉 Longitudinal Behavioral Drift** | Longitudinal CUSUM ($S_t^+ = \max(0, S_{t-1}^+ + Z_t - k)$) | Network Bytes, Cloud Resource CRUD | Catching subtle, sub-threshold data siphoning accumulating across 14–30 days. |
+
+> [!TIP]
+> **Ask for more information** if you would like a deep dive on how any of these specific models help expose behavioral outliers for your security use cases.
+
+---
+
 ## 🧭 Pre-Flight "Down-to-Earth" Guide: How to Explain Multi-Stage Statistical Analysis
 
 Before running a multi-stage statistical hunt, explain the approach to the security practitioner using these intuitive physical analogies:

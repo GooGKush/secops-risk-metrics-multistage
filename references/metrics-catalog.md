@@ -83,12 +83,12 @@ This catalog details all 38 active pre-computed behavioral risk metrics availabl
 * **Log Scope:** `metadata.event_type = "RESOURCE_CREATION" | "RESOURCE_DELETION" | "RESOURCE_READ" | "RESOURCE_WRITTEN"`
 * **Backing Log Types:** `GCP_CLOUDAUDIT`, `AWS_CLOUDTRAIL`, `AZURE_ACTIVITY`
 
-| Metric Function Family | Operations Covered | Supported Dimensions |
+| Metric Function Family | Operations Covered | Supported Dimensions (Entity Types & Required Attributes) |
 | :--- | :--- | :--- |
-| `metrics.resource_creation_*` | `total`, `success`, `fail` | `principal.user.userid`, `target.resource.name`, `target.resource.resource_type` |
-| `metrics.resource_deletion_*` | `total`, `success`, `fail` | `principal.user.userid`, `target.resource.name`, `target.resource.resource_type` |
-| `metrics.resource_read_*` | `total`, `success`, `fail` | `principal.user.userid`, `target.resource.name`, `target.resource.resource_type` |
-| `metrics.resource_written_*` | `total`, `success`, `fail` | `principal.user.userid`, `target.resource.name`, `target.resource.resource_type` |
+| `metrics.resource_creation_*` | `total`, `success`, `fail` | `principal.user.userid` (or `target.user.userid`) + `metadata.vendor_name` + `metadata.product_name` (+ optional `target.resource.name`) |
+| `metrics.resource_deletion_*` | `total`, `success`, `fail` | `principal.user.userid` (or `target.user.userid`) + `metadata.vendor_name` + `metadata.product_name` (+ optional `target.resource.name`) |
+| `metrics.resource_read_*` | `total`, `success`, `fail` | `principal.user.userid` (or `target.user.userid`) + `metadata.vendor_name` + `metadata.product_name` (+ optional `target.resource.name`) |
+| `metrics.resource_written_*` | `total`, `success`, `fail` | `principal.user.userid` (or `target.user.userid`) + `metadata.vendor_name` + `metadata.product_name` (+ optional `target.resource.name`) |
 
 ---
 

@@ -346,6 +346,17 @@ class TestGuardrailContracts(unittest.TestCase):
     self.assertIn("Workspace", s_content)
     self.assertIn("Multi-Sector Fusion", s_content)
 
+  def test_cti_threat_report_mapping_contract(self):
+    """SKILL.md must document the direct CTI Threat Report Mapping pathway to Phase 1B."""
+    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    skill_path = os.path.join(skill_dir, 'SKILL.md')
+    with open(skill_path, 'r', encoding='utf-8') as f:
+      s_content = f.read()
+
+    self.assertIn("CTI & Threat Report Mapping", s_content)
+    self.assertIn("Transition Directly to Phase 1B", s_content)
+    self.assertIn("Map to UEBA Metric Tables", s_content)
+
   def test_anti_auth_defaulting_guardrail_contract(self):
     """SKILL.md must explicitly prohibit defaulting to auth on open-ended inquiries."""
     skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -370,6 +381,88 @@ class TestGuardrailContracts(unittest.TestCase):
     self.assertIn("The 2-Turn Staging Mandate", g_content)
     self.assertIn("Phase 1A", s_content)
     self.assertIn("Phase 1B", s_content)
+
+  def test_educational_execution_framework_summary_contract(self):
+    """SKILL.md and statistical taxonomy must define the 3-step educational overview and Execution Framework Summary."""
+    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    skill_path = os.path.join(skill_dir, 'SKILL.md')
+    tax_path = os.path.join(skill_dir, 'references', 'statistical-models-taxonomy.md')
+    with open(skill_path, 'r', encoding='utf-8') as f:
+      s_content = f.read()
+    with open(tax_path, 'r', encoding='utf-8') as f:
+      t_content = f.read()
+
+    self.assertIn("How Risk Metrics Multi-Stage Analytics Work", s_content)
+    self.assertIn("Execution Framework Summary", s_content)
+    self.assertIn("Execution Framework Summary", t_content)
+    self.assertIn("Ask for more information", s_content)
+    self.assertIn("Ask for more information", t_content)
+
+  def test_clean_handoff_and_anti_case_pollution_contract(self):
+    """SKILL.md and clean-handoff guide must mandate synthetic UDM event preview and prohibit case comment pollution."""
+    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    skill_path = os.path.join(skill_dir, 'SKILL.md')
+    ch_path = os.path.join(skill_dir, 'references', 'clean-handoff-udm-schema.md')
+    with open(skill_path, 'r', encoding='utf-8') as f:
+      s_content = f.read()
+    with open(ch_path, 'r', encoding='utf-8') as f:
+      c_content = f.read()
+
+    self.assertIn("MANDATORY CLEAN HAND-OFF & ESCALATION PROTOCOL", s_content)
+    self.assertIn("CRITICAL PROCESS POLLUTION VIOLATION", s_content)
+    self.assertIn("Explicit Case Wall Attachment", s_content)
+    self.assertIn("Strict Anti-Case-Comment Pollution Prohibition", c_content)
+    self.assertIn("No Arbitrary Case Hijacking", c_content)
+    self.assertIn("Carved-Out Active Case Exception", c_content)
+
+  def test_query_vs_rule_nomenclature_contract(self):
+    """SKILL.md and multi-stage guide must strictly prohibit calling ad-hoc query logic a 'Rule'."""
+    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    skill_path = os.path.join(skill_dir, 'SKILL.md')
+    guide_path = os.path.join(skill_dir, 'references', 'multi-stage-metrics-guide.md')
+    with open(skill_path, 'r', encoding='utf-8') as f:
+      s_content = f.read()
+    with open(guide_path, 'r', encoding='utf-8') as f:
+      g_content = f.read()
+
+    self.assertIn("CRITICAL NOMENCLATURE VIOLATION", s_content)
+    self.assertIn("Strict Nomenclature Mandate", s_content)
+    self.assertIn("Query vs. Rule Nomenclature", g_content)
+    self.assertIn("Ad-Hoc & Dashboard Logic is a Query", g_content)
+
+  def test_compiler_syntax_guardrails_contract(self):
+    """SKILL.md, guide, and validator must enforce zero-hallucination compiler rules."""
+    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    skill_path = os.path.join(skill_dir, 'SKILL.md')
+    guide_path = os.path.join(skill_dir, 'references', 'multi-stage-metrics-guide.md')
+    with open(skill_path, 'r', encoding='utf-8') as f:
+      s_content = f.read()
+    with open(guide_path, 'r', encoding='utf-8') as f:
+      g_content = f.read()
+
+    self.assertIn("Zero-Hallucination Compiler Grammar Contract", s_content)
+    self.assertIn("Max 4 Joins Invariant", s_content)
+    self.assertIn("Strict Reference-List Only `in` Operator", g_content)
+    self.assertIn("Strict Function-Call Metric Syntax", g_content)
+
+    # Validate that MalachiteASTValidator catches the compiler errors from the user's report
+    from scripts.preflight_validator import MalachiteASTValidator
+    bad_stage = """
+    stage stage_cloud {
+        metadata.log_type = "GCP_CLOUDAUDIT"
+        metadata.event_type in ("RESOURCE_WRITTEN", "RESOURCE_DELETION")
+        principal.user.userid = $user
+      match:
+        $user by 24h
+      outcome:
+        $cloud_count = count(metadata.id)
+        $cloud_mean = avg(metrics.resource_changes_24h.mean)
+    }
+    """
+    errors = MalachiteASTValidator.validate_query(bad_stage)
+    self.assertTrue(any("INVALID_IN_SYNTAX" in e for e in errors))
+    self.assertTrue(any("INVALID_METRIC_DOT_NOTATION" in e for e in errors))
+    self.assertTrue(any("INVALID_WINDOW_SYNTAX" in e for e in errors))
 
 
 if __name__ == '__main__':
