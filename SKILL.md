@@ -37,15 +37,15 @@ Executes **multi-sector statistical outlier hunting** in Google SecOps using **3
 
 ---
 
-## 💡 How Risk Metrics Multi-Stage Analytics Work (Educational & Overview Inquiries)
+## 💡 How Risk Metrics Multi-Stage Analytics Work (Overview Inquiries)
 
 When asked how multi-stage analytics work, present this **3-Step Overview**:
-1. **Step 1: 30-Day Pre-Computed Baselines ($O(1)$ Stage 1 Engine)**: SecOps aggregates rolling 30-day activity across 38 metric tables (`metrics.*`), performing instant $O(1)$ baseline lookups ($\mu$, $\sigma$, $N_{\text{days}}$) without scanning raw logs.
-2. **Step 2: Multi-Stage YARA-L DAG Analytics (Zero-Hop Staging)**: Chains Stage 1 baselines into downstream stages (Stage 2+) to compute statistical deviations, join Entity Graph context, or correlate orthogonal telemetry silos.
-3. **Step 3: Execution Framework Summary**: Evaluates Z-Score, Robust MAD, Poisson Rarity, Fano Factor, Delta-$Z$, CUSUM Drift ($S^+$), and Multi-Sector Fusion ($D$) directly inside Chronicle.
+1. **Step 1: 30-Day Pre-Computed Baselines**: SecOps aggregates rolling 30-day activity across 38 metric tables (`metrics.*`), performing instant $O(1)$ baseline lookups ($\mu$, $\sigma$) without scanning raw logs.
+2. **Step 2: Multi-Stage DAG Analytics**: Chains Stage 1 baselines into downstream stages to compute deviations or join Entity Graph context.
+3. **Step 3: Execution Framework Summary**: Evaluates Z-Score, Robust MAD, Poisson, Delta-$Z$, CUSUM Drift, and Multi-Sector Fusion ($D$) natively in Chronicle.
 
 > [!TIP]
-> **Ask for more information** if you would like a deep dive on how any of these models help expose behavioral outliers for your security use cases. *(See `references/statistical-models-taxonomy.md`)*
+> **Ask for more information** if you would like a deep dive on how any of these models expose behavioral outliers. *(See `references/statistical-models-taxonomy.md`)*
 
 ---
 
@@ -111,7 +111,7 @@ When an analyst provides a threat report (URL, CVEs, or threat actor):
 
 ### 🔍 Phase 1B: Pre-Flight Spec & Query Preview (Once Scope & Vectors are Established)
 Once the analyst specifies or confirms vectors and scope (or via CTI threat report mapping, or for specific prompts like *"MAD on network outbound bytes"*):
-1. **ZERO Tool Execution**: 0 tool calls to `udm_search`, `import_logs`, `run_command`, or local python scripts.
+1. **ZERO Tool Execution**: 0 calls to `udm_search`, `import_logs`, `run_command`, or scripts.
 2. **Plain-English Cyber Analogy (1–2 Sentences)**: Explain statistical approach using a physical concept. *(See `references/statistical-models-taxonomy.md`)*.
 3. **Structured PRE-FLIGHT HUNTING SPECIFICATION Card & Mandatory Query Preview**:
    *Render using high-contrast bold key-value formatting:*
@@ -132,7 +132,7 @@ Once the analyst specifies or confirms vectors and scope (or via CTI threat repo
    * *Interactive Entity Graph Dimension Mandate*: Express Entity Graph joins in card under `• Entity Graph Dimension: [Exact Filter]`.
    * *Interactive Entity Graph Rarity & Context Discovery*: Domain Rarity (Fleet Prevalence `graph.entity.domain.prevalence.rolling_max <= 3`), Binary Rarity (`graph.entity.file.prevalence.rolling_max <= 3`), IP Rarity (`graph.entity.artifact.prevalence.rolling_max <= 3`).
    * *10-Day Prevalence Platform Invariant*: Prevalence is hard-anchored to a 10-day lookback (`day_count = 10`).
-   * *Canonical 2-Stage Preview Invariant*: Named stages MUST NOT use `events:` headers or `$e.` prefixes. Variables in `match:` MUST be bound to a UDM field (`target.user.userid = $user` and `$user = "james.holden"`). NEVER write `target.user.userid = "james.holden"` without `$user` (causes compiler crash: *placeholder variable in match section must be defined in event section*). Decouple baseline into `stage stage1_extract` and outcome arithmetic into Root Stage with `+ 1.0` dispersion floor.
+   * *Canonical 2-Stage Preview Invariant*: Named stages MUST NOT use `events:` headers or `$e.` prefixes. Variables in `match:` MUST be bound to a UDM field (`target.user.userid = $user` and `$user = "james.holden"`). Decouple baseline into `stage stage1_extract` and outcome arithmetic into Root Stage with `+ 1.0` dispersion floor.
 4. **Explicit Clearance Question & Turn Termination**: Explicitly ask:
    > *"Would you like to run **Mode A (24-Hour Snapshot fleet ranking)** or **Mode B (14-Day Longitudinal Timeline with inception chart)**?"*
    **STOP CALLING TOOLS IMMEDIATELY AND YIELD THE TURN.**
@@ -167,7 +167,7 @@ When clearance is granted and native queries execute, the report **MUST STRICTLY
 ### 2. Compiler & Architectural Invariants
 * **Pre-Composed Pipeline Template Routing**: Route hunts directly to composite pipeline templates in `templates/pipelines/` (e.g. `mad_modified_z_2stage.yl2`, `standard_z_score_2stage.yl2`, `poisson_rarity_2stage.yl2`, `dual_sector_fusion_3stage.yl2`).
 * **Zero-Hallucination Compiler Grammar Contract**:
-  - *Match Variable Binding Invariant*: Variables in `match:` MUST be bound in event predicates (`target.user.userid = $user` and `$user = "entity"`). Direct literal assignment without `$user` crashes compiler with *placeholder variable in match section must be defined in event section*.
+  - *Match Variable Binding Invariant*: Variables in `match:` MUST be bound in event predicates (`target.user.userid = $user` and `$user = "entity"`). Literal assignment without `$user` crashes compiler.
   - *No `in ("A", "B")`*: `in` is strictly reserved for reference lists (`field in %list`). Multiple literals MUST use `(field = "A" or field = "B")` or regex.
   - *No Dot-Notation Metric Properties*: `metrics.foo.mean` is INVALID. Always use canonical function calls `max(metrics.foo(period: 1d, window: 30d, ...))`.
   - *No `by 24h`*: Daily match windows MUST use `by 1d`.
@@ -181,6 +181,7 @@ When clearance is granted and native queries execute, the report **MUST STRICTLY
 
 ### 3. Scope, Steering & Parsimony
 * **Pure Threat Hunting Scope (SEARCH-ONLY — ZERO RULE CREATION / DEPLOYMENT)**: `create_rule` and `validate_rule` are STRICTLY PROHIBITED during threat hunts.
+* **Zero Streaming Detection Rule Syntax (SEARCH-ONLY YARA-L DAG MANDATE)**: When designing, proposing, or executing queries, the agent MUST ONLY output ad-hoc Multi-Stage YARA-L Search syntax (`stage name { ... }` + unwrapped Root Stage) for Chronicle UDM Search (`udm_search`). Outputting continuous detection rules (`rule <name> { ... }`), `meta:`, or `condition:` blocks is a **CRITICAL NOMENCLATURE & ARCHITECTURAL VIOLATION**. If an inquiry targets non-metrics telemetry (e.g. inter-arrival timing jitter CV), steer to `secops-statistical-hunter`—NEVER improvise detection rules.
 * **Non-Metrics Telemetry Steering Mandate (HANDOFF TO STATISTICAL HUNTER)**: If an analyst targets non-baselined telemetry, emit the **Skill Handoff Card** and steer to `secops-statistical-hunter`.
 * **Zero Gratuitous Entity Graph Injection (ON-DEMAND / ALGORITHMIC GROUNDING ONLY)**: Entity Graph constructs must NEVER be injected gratuitously or speculatively. Include ONLY upon **Direct Customer Request (On-Demand)** or explicit **Algorithmic Grounding**.
 

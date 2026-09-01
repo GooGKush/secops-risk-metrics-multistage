@@ -13,10 +13,10 @@ from scripts.preflight_validator import MalachiteASTValidator
 class TestGuardrailContracts(unittest.TestCase):
 
   def setUp(self):
-    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    repo_skill = os.path.join(repo_root, 'SKILL.md')
-    if os.path.exists(repo_skill):
-      self.skill_md_path = repo_skill
+    repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    repo_skill_md = os.path.join(repo_dir, 'SKILL.md')
+    if os.path.exists(repo_skill_md):
+      self.skill_md_path = repo_skill_md
     else:
       self.skill_md_path = '/usr/local/google/home/kushmerek/.gemini/skills/secops-risk-metrics-multistage/SKILL.md'
     self.assertTrue(os.path.exists(self.skill_md_path), "SKILL.md must exist")
@@ -497,6 +497,20 @@ class TestGuardrailContracts(unittest.TestCase):
     errors_stage_var = MalachiteASTValidator.validate_query(bad_stage_var)
     self.assertTrue(any("INVALID_STAGE_VARIABLE_SYNTAX" in e for e in errors_stage_var))
 
+    bad_detection_rule = """
+    // Goal: Test detection rule rejection
+    rule SuspiciousExfil {
+      meta:
+        author = "Detection Team"
+      events:
+        $net.metadata.event_type = "NETWORK_CONNECTION"
+      condition:
+        $net
+    }
+    """
+    errors_rule = MalachiteASTValidator.validate_query(bad_detection_rule)
+    self.assertTrue(any("INVALID_DETECTION_RULE_SYNTAX" in e for e in errors_rule))
+
   def test_malachite_ast_validator_catches_unbound_match_variable(self):
     """MalachiteASTValidator must detect unbound match variables in stage and root sections."""
     bad_query = """
@@ -545,6 +559,11 @@ class TestGuardrailContracts(unittest.TestCase):
     self.assertIn("Zero Generative Simulation & Strict Data Grounding Contract", s_content)
     self.assertIn("CRITICAL TRUTH-IN-REPORTING FAILURE", s_content)
     self.assertIn("0 observed events", s_content)
+
+  def test_zero_streaming_detection_rule_syntax_mandate(self):
+    """SKILL.md must strictly forbid outputting streaming detection rules or rule blocks."""
+    self.assertIn("Zero Streaming Detection Rule Syntax", self.skill_content)
+    self.assertIn("CRITICAL NOMENCLATURE & ARCHITECTURAL VIOLATION", self.skill_content)
 
 
 if __name__ == '__main__':

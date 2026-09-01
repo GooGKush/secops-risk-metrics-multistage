@@ -453,7 +453,7 @@ When an analyst's inquiry is open-ended (e.g. *"find privilege abuse"*, *"look f
    - The Root Stage joining $K$ named stages consumes $K - 1$ joins.
    - **Maximum Supported UEBA Multi-Stage DAG**: **2 Named UEBA Stages + Root Stage** (Total joins = $1 + 1 + 1 = \mathbf{3\text{ joins}} \le 4$, e.g. `dual_sector_fusion_3stage.yl2`).
    - Attempting to chain 3 or 4 independent named stages with UEBA metrics in a single search query yields 5 to 7 joins and triggers `compilation error maximum number of joins exceeded. limit query to at most 4 joins`.
-   - For 4-sector simultaneous correlation across Auth + Cloud + Endpoint + Network, deploy a **Single-Stage Multi-Event Detection Rule** in the continuous rules engine (0 stage table joins).
+   - For 4-sector cross-vector profiling (e.g. Auth + Cloud + Workspace + Network + Endpoint), execute decoupled parallel 2-stage micro-queries (the 360° behavioral radar pattern) or route raw non-metrics correlation to `secops-statistical-hunter`. Do NOT abandon search mode to improvise continuous detection rules.
 
 ---
 *Created and maintained by Greg Kushmerek for Google SecOps Chronicle SIEM threat hunting workflows.*
