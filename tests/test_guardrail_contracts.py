@@ -531,6 +531,94 @@ class TestGuardrailContracts(unittest.TestCase):
     errors = MalachiteASTValidator.validate_query(bad_query)
     self.assertTrue(any("UNBOUND_MATCH_VARIABLE" in e for e in errors))
 
+  def test_malachite_ast_validator_catches_invalid_metric_filters(self):
+    """MalachiteASTValidator must detect unsupported metric filter fields like principal.ip on network_bytes_outbound."""
+    from scripts.preflight_validator import MalachiteASTValidator
+
+    # Query using illegal 'principal.ip' on network_bytes_outbound (the exact bug from screenshots)
+    bad_filter_query = """
+    // Goal: Test invalid metric filter detection
+    stage stage1_egress_baseline {
+      metadata.event_type = "NETWORK_CONNECTION"
+      $src_ip = principal.ip
+      $dst_ip = target.ip
+      match: $src_ip, $dst_ip by 1d
+      outcome:
+        $observed_bytes = sum(network.sent_bytes)
+        $baseline_mean = max(metrics.network_bytes_outbound(
+          period: 1d,
+          window: 30d,
+          metric: value_sum,
+          agg: avg,
+          principal.ip: $src_ip
+        ))
+    }
+    $src_ip = $stage1_egress_baseline.src_ip
+    $dst_ip = $stage1_egress_baseline.dst_ip
+    match: $src_ip, $dst_ip by 1d
+    outcome:
+      $vol_z = 3.0
+    """
+    errors = MalachiteASTValidator.validate_query(bad_filter_query)
+    self.assertTrue(any("INVALID_METRIC_FILTER" in e for e in errors))
+    self.assertTrue(any("principal.ip" in e and "principal.asset.ip" in e for e in errors))
+
+    # Query using valid 'principal.asset.hostname' on network_bytes_outbound
+    valid_filter_query = """
+    // Goal: Test valid metric filter acceptance
+    stage stage1_egress_baseline {
+      metadata.event_type = "NETWORK_CONNECTION"
+      $host = principal.asset.hostname
+      match: $host by 1d
+      outcome:
+        $observed_bytes = sum(network.sent_bytes)
+        $baseline_mean = max(metrics.network_bytes_outbound(
+          period: 1d,
+          window: 30d,
+          metric: value_sum,
+          agg: avg,
+          principal.asset.hostname: $host
+        ))
+    }
+    $host = $stage1_egress_baseline.host
+    match: $host by 1d
+    outcome:
+      $vol_z = 3.0
+    """
+    valid_errors = MalachiteASTValidator.validate_query(valid_filter_query)
+    self.assertFalse(any("INVALID_METRIC_FILTER" in e for e in valid_errors))
+
+    # Query using 'principal.ip' on Cloud CRUD (which IS supported in Malachite)
+    cloud_crud_query = """
+    // Goal: Test valid principal.ip filter on resource_creation_total
+    stage stage1_crud {
+      metadata.event_type = "RESOURCE_CREATION"
+      $user = principal.user.userid
+      $ip = principal.ip
+      $vendor = metadata.vendor_name
+      $product = metadata.product_name
+      match: $user, $ip by 1d
+      outcome:
+        $baseline = max(metrics.resource_creation_total(
+          period: 1d,
+          window: 30d,
+          metric: event_count_sum,
+          agg: avg,
+          principal.user.userid: $user,
+          principal.ip: $ip,
+          metadata.vendor_name: $vendor,
+          metadata.product_name: $product
+        ))
+    }
+    $user = $stage1_crud.user
+    $ip = $stage1_crud.ip
+    match: $user, $ip by 1d
+    outcome:
+      $z = 2.0
+    """
+    cloud_errors = MalachiteASTValidator.validate_query(cloud_crud_query)
+    self.assertFalse(any("INVALID_METRIC_FILTER" in e for e in cloud_errors))
+
   def test_skill_size_budget(self):
     """SKILL.md must remain strictly under the 20 KB efficiency budget (20,480 bytes)."""
     skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
