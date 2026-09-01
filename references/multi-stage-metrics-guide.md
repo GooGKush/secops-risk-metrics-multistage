@@ -74,6 +74,7 @@ Multi-stage DAG queries support two distinct temporal evaluation modes:
 | `stage_name.$variable` or `stage_name.variable` | `$stage_name.variable` | In YARA-L, stage references require the leading `$` on the stage identifier (e.g. `$stage1_extract.actual`). Placing `$` after the dot causes an ANTLR syntax crash (`no viable alternative at input 'stage.$'`). |
 | Cross-sector joins in 360° profiling (e.g. Auth + Egress) | Decoupled parallel micro-queries | Multi-stage queries are inner joins; joining orthogonal sectors silently drops entities with zero events in either sector. |
 | `graph.entity.metrics.*` in predicates | Use `metrics.*()` in `outcome:` | `metrics` is a built-in function, not an Entity Graph protobuf field. |
+| Direct literal filter without match variable (`target.user.userid = "name"` with `match: $user`) | `target.user.userid = $user`<br>`$user = "name"` | Any placeholder variable in `match:` must be bound to a UDM field in the stage's event predicates. Omitting `$user` causes: `placeholder variable in match section must be defined in event section`. |
 
 ---
 

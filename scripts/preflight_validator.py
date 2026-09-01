@@ -652,6 +652,22 @@ class MalachiteASTValidator:
             "(Universal Anomaly) and threat context into Stage 2 (Threat Hits)."
         )
 
+    # Check that placeholder variables in root stage match section are defined
+    last_stage_end = 0
+    for match in re.finditer(r"stage\s+[a-zA-Z0-9_]+\s*\{[^}]*\}", query_text, re.DOTALL):
+      last_stage_end = max(last_stage_end, match.end())
+    root_body = query_text[last_stage_end:]
+    root_match = re.search(r"match:\s*(.*?)(?=\n\s*(?:outcome|condition|$))", root_body, re.DOTALL)
+    if root_match:
+      root_event_part = root_body[:root_match.start()]
+      root_match_vars = re.findall(r"\$([a-zA-Z0-9_]+)", root_match.group(1))
+      for mv in root_match_vars:
+        if not re.search(rf"\${mv}\b", root_event_part):
+          errors.append(
+              f"UNBOUND_MATCH_VARIABLE in root stage: Placeholder variable '${mv}' in match section "
+              "must be defined in event section."
+          )
+
     # 4. Multi-Sector Fusion Architecture Validation
     if "MULTI_SECTOR" in query_text.upper() or "MULTI-SECTOR" in query_text.upper():
       if len(named_stages) < 3:

@@ -132,7 +132,7 @@ Once the analyst specifies or confirms vectors and scope (or via CTI threat repo
    * *Interactive Entity Graph Dimension Mandate*: Express Entity Graph joins in card under `• Entity Graph Dimension: [Exact Filter]`.
    * *Interactive Entity Graph Rarity & Context Discovery*: Domain Rarity (Fleet Prevalence `graph.entity.domain.prevalence.rolling_max <= 3`), Binary Rarity (`graph.entity.file.prevalence.rolling_max <= 3`), IP Rarity (`graph.entity.artifact.prevalence.rolling_max <= 3`).
    * *10-Day Prevalence Platform Invariant*: Prevalence is hard-anchored to a 10-day lookback (`day_count = 10`).
-   * *Canonical 2-Stage Preview Invariant*: Named stages MUST NOT use `events:` headers or `$e.` prefixes. Always decouple baseline extraction into `stage stage1_extract` and outcome arithmetic into the Root Stage with `+ 1.0` dispersion floor.
+   * *Canonical 2-Stage Preview Invariant*: Named stages MUST NOT use `events:` headers or `$e.` prefixes. Variables in `match:` MUST be bound to a UDM field (`target.user.userid = $user` and `$user = "james.holden"`). NEVER write `target.user.userid = "james.holden"` without `$user` (causes compiler crash: *placeholder variable in match section must be defined in event section*). Decouple baseline into `stage stage1_extract` and outcome arithmetic into Root Stage with `+ 1.0` dispersion floor.
 4. **Explicit Clearance Question & Turn Termination**: Explicitly ask:
    > *"Would you like to run **Mode A (24-Hour Snapshot fleet ranking)** or **Mode B (14-Day Longitudinal Timeline with inception chart)**?"*
    **STOP CALLING TOOLS IMMEDIATELY AND YIELD THE TURN.**
@@ -167,6 +167,7 @@ When clearance is granted and native queries execute, the report **MUST STRICTLY
 ### 2. Compiler & Architectural Invariants
 * **Pre-Composed Pipeline Template Routing**: Route hunts directly to composite pipeline templates in `templates/pipelines/` (e.g. `mad_modified_z_2stage.yl2`, `standard_z_score_2stage.yl2`, `poisson_rarity_2stage.yl2`, `dual_sector_fusion_3stage.yl2`).
 * **Zero-Hallucination Compiler Grammar Contract**:
+  - *Match Variable Binding Invariant*: Variables in `match:` MUST be bound in event predicates (`target.user.userid = $user` and `$user = "entity"`). Direct literal assignment without `$user` crashes compiler with *placeholder variable in match section must be defined in event section*.
   - *No `in ("A", "B")`*: `in` is strictly reserved for reference lists (`field in %list`). Multiple literals MUST use `(field = "A" or field = "B")` or regex.
   - *No Dot-Notation Metric Properties*: `metrics.foo.mean` is INVALID. Always use canonical function calls `max(metrics.foo(period: 1d, window: 30d, ...))`.
   - *No `by 24h`*: Daily match windows MUST use `by 1d`.
@@ -208,16 +209,8 @@ When clearance is granted and native queries execute, the report **MUST STRICTLY
 
 ## 📂 Modular References & Template Architecture
 
-* **Metric Catalog (38 Metrics)**: `references/metrics-catalog.md`
-* **Statistical Models Taxonomy (14 Models)**: `references/statistical-models-taxonomy.md`
-* **Calibrated Risk Index Guide (CRI [0–100])**: `references/calibrated-risk-index-guide.md`
-* **Multi-Stage DAG Guide & Contracts**: `references/multi-stage-metrics-guide.md`
-* **SOAR Playbook Radar Integration**: `references/soar-playbook-radar-integration.md`
-* **YARA-L 2.0 Templates**: `templates/pipelines/`, `templates/stage1_extractors/`, `templates/stage2_math_models/`
-* **Chart Specifications Guide**: `references/chart-specifications-guide.md`
-* **Radar Collector**: `scripts/radar_collector.py`
-* **Pre-Flight Validator**: `scripts/preflight_validator.py`
-* **Chart Generator**: `scripts/chart_generator.py`
+* **Documentation (`references/`)**: `metrics-catalog.md`, `statistical-models-taxonomy.md`, `calibrated-risk-index-guide.md`, `multi-stage-metrics-guide.md`, `soar-playbook-radar-integration.md`, `chart-specifications-guide.md`
+* **Automation & Pipelines**: `templates/` (`pipelines/`, `stage1_extractors/`, `stage2_math_models/`), `scripts/` (`radar_collector.py`, `preflight_validator.py`, `chart_generator.py`)
 
 ---
 *Created and maintained by Greg Kushmerek for Google SecOps Chronicle SIEM threat hunting workflows.*

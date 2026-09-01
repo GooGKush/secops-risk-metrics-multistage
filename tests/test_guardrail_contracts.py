@@ -7,6 +7,7 @@ Author: Greg Kushmerek
 import json
 import os
 import unittest
+from scripts.preflight_validator import MalachiteASTValidator
 
 
 class TestGuardrailContracts(unittest.TestCase):
@@ -495,6 +496,26 @@ class TestGuardrailContracts(unittest.TestCase):
     """
     errors_stage_var = MalachiteASTValidator.validate_query(bad_stage_var)
     self.assertTrue(any("INVALID_STAGE_VARIABLE_SYNTAX" in e for e in errors_stage_var))
+
+  def test_malachite_ast_validator_catches_unbound_match_variable(self):
+    """MalachiteASTValidator must detect unbound match variables in stage and root sections."""
+    bad_query = """
+    // Goal: Test unbound match variable
+    stage stage1_extract {
+      metadata.event_type = "USER_LOGIN"
+      target.user.userid = "james.holden"
+    match:
+      $user by 1d
+    outcome:
+      $obs = count(metadata.id)
+    }
+    $user = $stage1_extract.user
+    match: $user by 1d
+    outcome:
+      $z = max($stage1_extract.obs)
+    """
+    errors = MalachiteASTValidator.validate_query(bad_query)
+    self.assertTrue(any("UNBOUND_MATCH_VARIABLE" in e for e in errors))
 
   def test_skill_size_budget(self):
     """SKILL.md must remain strictly under the 20 KB efficiency budget (20,480 bytes)."""
