@@ -129,15 +129,41 @@ class TestRadarCollector(unittest.TestCase):
     self.assertIn("<svg", svg)
     self.assertIn("</svg>", svg)
     self.assertIn("<polygon", svg)
-    self.assertIn("+3σ", svg)
-    self.assertIn("+1σ", svg)
+    self.assertIn("+3.0σ", svg)
+    self.assertIn("+1.0σ", svg)
     self.assertIn("tim.smith@altostrat.com", svg)
     self.assertIn("Cloud Deletions", svg)
     self.assertIn("<title>", svg)
     self.assertIn("24h Observed: 640.0", svg)
 
+  def test_generate_self_contained_svg_cri_mode(self):
+    """SVG in CRI mode must display 0-100 concentric rings and map 50 to 3.0-sigma threshold."""
+    svg = EntityRadarCollector.generate_self_contained_svg(
+        entity_id="tim.smith@altostrat.com",
+        spokes=self.sample_spokes,
+        composite_d=5.06,
+        cri=78,
+        scale_mode="cri",
+    )
+    self.assertIn("50 (3.0σ Threshold)", svg)
+    self.assertIn("CRI 25", svg)
+    self.assertIn("CRI 100", svg)
+
+  def test_extreme_outlier_perimeter_pinning(self):
+    """Extreme outliers (e.g. Z=300) must pin to outer perimeter with badge without compressing other spokes."""
+    extreme_spokes = [
+        MetricSpoke("Cloud", "Deletions", "tbl1", 10000.0, 2.0, 1.0, 300.0),
+        MetricSpoke("IAM", "Logins", "tbl2", 2.0, 1.0, 0.5, 2.0),
+    ]
+    payload = self.collector.build_radar_payload("extreme.user@corp", "USER", extreme_spokes)
+    self.assertAlmostEqual(payload["composite_distance_d"], 300.01, places=1)
+    self.assertEqual(payload["calibrated_risk_index"], 100)
+    self.assertIn("+300.0σ 🚨", payload["svg_widget"])
+    self.assertIn("Spoke CRI", payload["markdown_table"])
+    self.assertIn("100/100", payload["markdown_table"])
+
   def test_generate_markdown_summary(self):
-    """Markdown summary must include formatted table and visual magnitude bars."""
+    """Markdown summary must include formatted table, Spoke CRI column, visual magnitude bars, and Math Appendix."""
     md = EntityRadarCollector.generate_markdown_summary(
         entity_id="tim.smith@altostrat.com",
         spokes=self.sample_spokes,
@@ -146,10 +172,14 @@ class TestRadarCollector(unittest.TestCase):
     )
     self.assertIn("### 🚨 360° Entity Behavioral Risk Radar", md)
     self.assertIn("| Telemetry Sector Spoke |", md)
+    self.assertIn("Spoke CRI", md)
     self.assertIn("Cloud Deletions", md)
     self.assertIn("▰", md)
     self.assertIn("+3.80σ", md)
     self.assertIn("🚨 **Anomaly**", md)
+    self.assertIn("Statistical & Mathematical Appendix", md)
+    self.assertIn(r"$$Z_i = \frac{\text{Obs}_i - \mu_{i, 30\text{d}}}{\sigma_{i, 30\text{d}} + 1.0}$$", md)
+    self.assertIn(r"$$D = \sqrt{\sum_{i=1}^{K} \max(0, Z_i)^2}", md)
 
   def test_generate_chartjs_spec(self):
     """Chart.js spec must define radar type, spoke labels, and +3.0σ boundary."""

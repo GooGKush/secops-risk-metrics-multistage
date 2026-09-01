@@ -8,12 +8,12 @@ aliases:
 description: |
   Constructs and executes multi-stage statistical outlier hunting in Google SecOps using pre-computed Risk Analytics metrics (`metrics.*`) chained into 2-stage, 3-stage, and 4-stage DAGs across 14 models (Z-Score, MAD, Poisson, Delta-Z, Multi-Sector Fusion).
   Triggers: "hunt with risk metrics", "multi-stage metrics outlier", "MAD on network bytes", "z-score on auth", "risk analytics statistical hunt", "fleet outlier", "poisson burst", "fano factor", "bayesian updating", "dual-baseline delta-z", "patch tuesday immunity", "multi-sector threat fusion", "360 health check", "360 risk radar", "radial chart", "all risk vectors", "behavioral fingerprint", "compare to team", "behavioral drift", "top statistical outliers".
-compatibility: Requires access to a Google SecOps instance with Risk Analytics metrics enabled and the SecOps GUS MCP server (udm_search, get_operation).
+compatibility: Requires Google SecOps with Risk Analytics metrics enabled and the SecOps GUS MCP server (udm_search, get_operation).
 ---
 
 # SecOps Risk Metrics Multi-Stage Statistical Hunter (`secops-risk-metrics-multistage`)
 
-Executes **fleet-wide and multi-sector statistical outlier hunting** in Google SecOps using **30-day pre-computed Risk Analytics metrics (`metrics.*`)** chained into **2-stage, 3-stage, and 4-stage mathematical DAG pipelines**.
+Executes **multi-sector statistical outlier hunting** in Google SecOps using **30-day pre-computed Risk Analytics metrics (`metrics.*`)** chained into **2-stage, 3-stage, and 4-stage DAG pipelines**.
 
 ---
 
@@ -79,10 +79,11 @@ Phase 1B (Query Preview & Spec Card) is **ONLY UNLOCKED** when **BOTH** requirem
 > **STOP IMMEDIATELY AND YIELD TURN (CONVERSATIONAL BREAK).** Do NOT render query preview until user responds.
 
 ### 🕸️ 360° Entity Behavioral Risk Radar (All-Vectors / Radial Profiling)
-When an analyst asks to profile an entity across all behavioral vectors (*"visualize all risk vectors"*, *"radial/spider chart"*, *"full spectrum profile"*, *"360 health check"*, *"behavioral fingerprint"*):
-1. **Zero Monolithic Search Trap**: Do NOT attempt a single monolithic 4+ stage YARA-L search query (which violates Chronicle's 4-join limit).
-2. **Execute Fan-Out Collector**: Aggregate standardized Z-scores across all orthogonal telemetry sectors (IAM, Cloud, Workspace, Egress, DNS) via concurrent 2-stage micro-queries (`scripts.radar_collector`).
-3. **Render 360° Output**: Present the **Composite Threat Distance $D = \sqrt{\sum Z_i^2}$**, the **Ranked Spoke Magnitude Table**, and the **Self-Contained SVG Radar Chart**.
+When an analyst asks to profile an entity across all vectors (*"visualize all risk vectors"*, *"radial/spider chart"*, *"full spectrum profile"*, *"360 health check"*, *"behavioral fingerprint"*):
+1. **Zero Cross-Sector Join Trap**: Do NOT join orthogonal sectors (e.g. Auth + Egress) in a single YARA-L query. In Chronicle, multi-stage queries are inner joins; cross-sector joins drop entities with zero activity in either sector.
+2. **Decoupled Fan-Out Architecture**: Pre-Flight preview must show the **Universal 2-Stage Micro-Query Template** and the 5-sector parallel roster (IAM, Cloud CRUD, Workspace, Network, Endpoint).
+3. **Mandatory Radial Spider Graph**: The primary visualization is **ALWAYS the Radial Spider Graph** (polar coordinates with metric spokes and $+3.0\sigma$ / CRI 50 threshold perimeter), supporting both raw Z-score and CRI scales.
+4. **Step-by-Step Math Appendix**: Section 6 must show explicit numerical substitutions for every spoke $Z_i$, $D = \sqrt{\sum Z_i^2}$, and $\text{CRI}$.
 
 ### 🎯 CTI & Threat Report Mapping (Reports, URLs, CVEs, Threat Actors)
 When an analyst provides a threat report (URL, CVEs, or threat actor):
@@ -95,7 +96,7 @@ Once the analyst specifies or confirms vectors and scope (or via CTI threat repo
 1. **ZERO Tool Execution**: 0 tool calls to `udm_search`, `import_logs`, `run_command`, or local python scripts.
 2. **Plain-English Cyber Analogy (1–2 Sentences)**: Explain statistical approach using a physical concept. *(See `references/statistical-models-taxonomy.md`)*.
 3. **Structured PRE-FLIGHT HUNTING SPECIFICATION Card & Mandatory Query Preview**:
-   *Render using high-contrast bold markdown key-value formatting for high visibility in dark CLI themes:*
+   *Render using high-contrast bold key-value formatting:*
    ```markdown
    ┌───────────────────────────────────────────────────────────────────────────────────┐
    │                     PRE-FLIGHT HUNTING SPECIFICATION                              │
@@ -111,10 +112,7 @@ Once the analyst specifies or confirms vectors and scope (or via CTI threat repo
    * *Mandatory Upfront Query Preview Protocol*: Display literal multi-stage YARA-L query in markdown prior to clearance.
    * *Peer Cohort Roster Requirement*: Resolve and list cohort entities and count in card (`• Peer Cohort & Roster: ...`).
    * *Interactive Entity Graph Dimension Mandate*: Express Entity Graph joins in card under `• Entity Graph Dimension: [Exact Filter]`.
-   * *Interactive Entity Graph Rarity & Context Discovery*: Map qualitative modifiers:
-     - **Domain Rarity**: Fleet Prevalence (`graph.entity.domain.prevalence.rolling_max <= 3`).
-     - **Binary Rarity**: SHA256 Prevalence (`graph.entity.file.prevalence.rolling_max <= 3`).
-     - **IP Rarity**: IP Prevalence (`graph.entity.artifact.prevalence.rolling_max <= 3`).
+   * *Interactive Entity Graph Rarity & Context Discovery*: Domain Rarity (Fleet Prevalence `graph.entity.domain.prevalence.rolling_max <= 3`), Binary Rarity (`graph.entity.file.prevalence.rolling_max <= 3`), IP Rarity (`graph.entity.artifact.prevalence.rolling_max <= 3`).
    * *10-Day Prevalence Platform Invariant*: Prevalence is hard-anchored to a 10-day lookback (`day_count = 10`).
    * *Canonical 2-Stage Preview Invariant*: Named stages MUST NOT use `events:` headers or `$e.` prefixes. Always decouple baseline extraction into `stage stage1_extract` and outcome arithmetic into the Root Stage with `+ 1.0` dispersion floor.
 4. **Explicit Clearance Question & Turn Termination**: Explicitly ask:
@@ -197,7 +195,7 @@ When clearance is granted and native queries execute, the report **MUST STRICTLY
 * **Statistical Models Taxonomy (14 Models)**: [`references/statistical-models-taxonomy.md`](references/statistical-models-taxonomy.md)
 * **Calibrated Risk Index Guide (CRI [0–100])**: [`references/calibrated-risk-index-guide.md`](references/calibrated-risk-index-guide.md)
 * **Multi-Stage DAG Guide & Contracts**: [`references/multi-stage-metrics-guide.md`](references/multi-stage-metrics-guide.md)
-* **SOAR Playbook Radar Integration**: [`references/soar-playbook-radar-integration.md`](references/soar-playbook-radar-integration.md) [`references/multi-stage-metrics-guide.md`](references/multi-stage-metrics-guide.md)
+* **SOAR Playbook Radar Integration**: [`references/soar-playbook-radar-integration.md`](references/soar-playbook-radar-integration.md)
 * **YARA-L 2.0 Templates**: [`templates/stage1_extractors/`](templates/stage1_extractors/), [`templates/stage2_math_models/`](templates/stage2_math_models/), [`templates/pipelines/`](templates/pipelines/)
 * **Chart Specifications Guide**: [`references/chart-specifications-guide.md`](references/chart-specifications-guide.md)
 * **Radar Collector**: [`scripts/radar_collector.py`](scripts/radar_collector.py)

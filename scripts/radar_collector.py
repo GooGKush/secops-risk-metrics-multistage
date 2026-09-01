@@ -22,6 +22,11 @@ class MetricSpoke:
   baseline_stddev: float
   z_score: float
   unit: str = "events"
+  cri_score: int = 0
+
+  def __post_init__(self):
+    if self.cri_score == 0 and self.z_score is not None:
+      self.cri_score = round(100.0 / (1.0 + math.exp(-0.6 * (max(0.0, self.z_score) - 3.0))))
 
   def to_dict(self) -> Dict[str, Any]:
     return asdict(self)
@@ -248,8 +253,9 @@ outcome:
       spokes: List[MetricSpoke],
       composite_d: float,
       cri: int,
-      width: int = 540,
-      height: int = 440,
+      width: int = 560,
+      height: int = 460,
+      scale_mode: str = "zscore",
   ) -> str:
     """Renders a self-contained, crisp SVG radar chart with hover tooltips and 3-sigma perimeter."""
     if not spokes:
@@ -258,8 +264,9 @@ outcome:
     cx, cy = width / 2.0, height / 2.0 + 15
     max_radius = min(width, height) / 2.0 - 65
 
-    max_z = max(4.0, max(max(0.0, s.z_score) for s in spokes))
     n = len(spokes)
+    is_cri_mode = (scale_mode.lower() == "cri")
+    display_cap = 100.0 if is_cri_mode else 4.0
 
     if composite_d >= 3.0:
       poly_fill, poly_stroke = "rgba(217, 48, 37, 0.25)", "#d93025"
@@ -283,17 +290,20 @@ outcome:
         f'  <text x="{width - 32}" y="38" font-size="13" font-weight="bold" text-anchor="end" fill="{status_badge_fg}">D = {composite_d:.2f}σ  |  CRI {cri}/100 ({status_text})</text>',
     ]
 
-    ring_sigmas = [1.0, 2.0, 3.0, 4.0]
-    for sigma in ring_sigmas:
-      r = (sigma / max_z) * max_radius
-      is_threshold = (sigma == 3.0)
+    if is_cri_mode:
+      ring_values = [(25, False, "CRI 25"), (50, True, "50 (3.0σ Threshold)"), (75, False, "CRI 75"), (100, False, "CRI 100")]
+    else:
+      ring_values = [(1.0, False, "+1.0σ"), (2.0, False, "+2.0σ"), (3.0, True, "+3.0σ (Threshold)"), (4.0, False, "+4.0σ")]
+
+    for val, is_threshold, ring_label in ring_values:
+      r = (val / display_cap) * max_radius
       stroke_color = "#d93025" if is_threshold else "#e0e0e0"
       stroke_dash = 'stroke-dasharray="4,4"' if is_threshold else ""
       stroke_width = "1.5" if is_threshold else "1"
 
       svg_parts.append(f'  <circle cx="{cx}" cy="{cy}" r="{r:.1f}" fill="none" stroke="{stroke_color}" stroke-width="{stroke_width}" {stroke_dash}/>')
       label_color = "#d93025" if is_threshold else "#9e9e9e"
-      svg_parts.append(f'  <text x="{cx + 4}" y="{cy - r + 10}" font-size="9" font-weight="bold" fill="{label_color}">+{int(sigma)}σ</text>')
+      svg_parts.append(f'  <text x="{cx + 4}" y="{cy - r + 10}" font-size="9" font-weight="bold" fill="{label_color}">{ring_label}</text>')
 
     spoke_coords = []
     polygon_points = []
@@ -304,14 +314,20 @@ outcome:
       ay = cy + max_radius * math.sin(angle)
       svg_parts.append(f'  <line x1="{cx}" y1="{cy}" x2="{ax:.1f}" y2="{ay:.1f}" stroke="#eeeeee" stroke-width="1"/>')
 
-      z_clamped = max(0.0, s.z_score)
-      dr = (min(z_clamped, max_z) / max_z) * max_radius
+      if is_cri_mode:
+        val_for_radius = min(max(0.0, float(s.cri_score)), 100.0)
+        dr = (val_for_radius / 100.0) * max_radius
+      else:
+        raw_z = max(0.0, s.z_score)
+        # Perimeter pinning: Clamp visual distance to display_cap (4.0σ), avoiding scale compression
+        dr = (min(raw_z, display_cap) / display_cap) * max_radius
+
       px = cx + dr * math.cos(angle)
       py = cy + dr * math.sin(angle)
       polygon_points.append(f"{px:.1f},{py:.1f}")
       spoke_coords.append((px, py, s))
 
-      label_r = max_radius + 22
+      label_r = max_radius + 24
       lx = cx + label_r * math.cos(angle)
       ly = cy + label_r * math.sin(angle)
 
@@ -323,9 +339,15 @@ outcome:
         text_anchor = "end"
 
       spoke_highlight = "#c5221f" if s.z_score >= 3.0 else "#3c4043"
+      outlier_tag = " 🚨" if s.z_score >= 4.0 else ""
+      if is_cri_mode:
+        label_text = f"{s.spoke_name} (CRI {s.cri_score} | +{s.z_score:.1f}σ{outlier_tag})"
+      else:
+        label_text = f"{s.spoke_name} (+{s.z_score:.1f}σ{outlier_tag})"
+
       svg_parts.append(
           f'  <text x="{lx:.1f}" y="{ly:.1f}" font-size="10" font-weight="bold" text-anchor="{text_anchor}" fill="{spoke_highlight}">'
-          f'{s.spoke_name} (+{s.z_score:.1f}σ)'
+          f'{label_text}'
           f'</text>'
       )
 
@@ -359,8 +381,8 @@ outcome:
         f"### {status_icon} 360° Entity Behavioral Risk Radar: `{entity_id}`",
         f"**Composite Threat Distance**: `D = {composite_d:.2f}σ` | **Calibrated Risk Index**: `CRI = {cri}/100` (`{status_text}`)",
         "",
-        "| Telemetry Sector Spoke | 24h Observed | 30d Baseline (μ ± σ) | Z-Score | Visual Spoke Magnitude | Status |",
-        "| :--- | :--- | :--- | :--- | :--- | :--- |",
+        "| Telemetry Sector Spoke | 24h Observed | 30d Baseline (μ ± σ) | Z-Score | Spoke CRI | Visual Spoke Magnitude | Status |",
+        "| :--- | :--- | :--- | :--- | :--- | :--- | :--- |",
     ]
 
     for s in spokes:
@@ -370,12 +392,26 @@ outcome:
 
       status = "🚨 **Anomaly**" if s.z_score >= 3.0 else ("⚠️ Elevated" if s.z_score >= 2.0 else "🟢 Nominal")
       lines.append(
-          f"| **{s.spoke_name}** ({s.sector}) | `{s.observed:,.0f} {s.unit}` | `{s.baseline_mean:,.1f} ± {s.baseline_stddev:,.1f}` | **`+{s.z_score:.2f}σ`** | `{bar_str}` | {status} |"
+          f"| **{s.spoke_name}** ({s.sector}) | `{s.observed:,.0f} {s.unit}` | `{s.baseline_mean:,.1f} ± {s.baseline_stddev:,.1f}` | **`+{s.z_score:.2f}σ`** | `{s.cri_score}/100` | `{bar_str}` | {status} |"
       )
 
     lines.append("")
     lines.append("> [!NOTE]")
     lines.append(f"> Evaluated across **{len(spokes)} orthogonal telemetry sectors** using 30-day continuous Risk Analytics baselines (`period: 1d, window: 30d`).")
+    lines.append("")
+    lines.append("### 📐 Statistical & Mathematical Appendix (Step-by-Step Derivation)")
+    lines.append("1. **Individual Spoke Z-Scores (Observed vs. 30-Day Historical Mean $\\pm$ StdDev)**:")
+    lines.append("   $$Z_i = \\frac{\\text{Obs}_i - \\mu_{i, 30\\text{d}}}{\\sigma_{i, 30\\text{d}} + 1.0}$$")
+    lines.append("   *Universal dispersion floor ($+1.0$) prevents division-by-zero on quiet accounts while bounding variance.*")
+    lines.append("")
+    lines.append("2. **Euclidean Composite Threat Distance ($D$) Across All Orthogonal Spokes**:")
+    sq_terms = [f"({max(0.0, s.z_score):.2f})^2" for s in spokes]
+    sq_str = " + ".join(sq_terms)
+    lines.append(f"   $$D = \\sqrt{{\\sum_{{i=1}}^{{K}} \\max(0, Z_i)^2}} = \\sqrt{{{sq_str}}} = \\mathbf{{{composite_d:.2f}\\sigma}}$$")
+    lines.append("")
+    lines.append("3. **Calibrated Risk Index (CRI: 0–100 Logistic Sigmoid Mapping)**:")
+    lines.append("   $$\\text{CRI} = \\text{round}\\left(\\frac{100}{1 + \\exp(-0.6 \\cdot (D - 3.0))}\\right)$$")
+    lines.append(f"   $$\\text{{CRI}}({composite_d:.2f}) = \\mathbf{{{cri} / 100}} \\quad ({status_text})$$")
     return "\n".join(lines)
 
   @staticmethod
