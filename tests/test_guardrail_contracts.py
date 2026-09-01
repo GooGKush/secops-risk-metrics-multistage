@@ -483,6 +483,14 @@ class TestGuardrailContracts(unittest.TestCase):
     self.assertTrue(any("INVALID_STAGE_IN_SYNTAX" in e for e in errors))
     self.assertTrue(any("INVALID_EVENTS_SECTION_IN_STAGE" in e for e in errors))
 
+    bad_stage_var = """
+    // Goal: Test stage variable syntax
+    outcome:
+      $diff_auth = stage1_extract.$actual_auth - stage1_extract.$mu_auth
+    """
+    errors_stage_var = MalachiteASTValidator.validate_query(bad_stage_var)
+    self.assertTrue(any("INVALID_STAGE_VARIABLE_SYNTAX" in e for e in errors_stage_var))
+
   def test_skill_size_budget(self):
     """SKILL.md must remain strictly under the 20 KB efficiency budget (20,480 bytes)."""
     skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

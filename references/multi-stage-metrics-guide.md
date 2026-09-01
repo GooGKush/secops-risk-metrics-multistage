@@ -71,6 +71,8 @@ Multi-stage DAG queries support two distinct temporal evaluation modes:
 | `events:` header inside `stage` blocks | Declare predicates directly inside `stage name { ... }` | Stage blocks in Multi-Stage YARA-L do not use `events:`. |
 | Wrapping the final stage in `stage name { ... }` | Unwrapped root level | The final stage must be at the root level of the query file. |
 | Stage search window > 24h (e.g. 7d) | Clamp Stage 1 search window to exactly 24h / 1d | Daily metrics already embed 30 days of data; expanding search window causes metric duplicate joins. |
+| `stage_name.$variable` or `stage_name.variable` | `$stage_name.variable` | In YARA-L, stage references require the leading `$` on the stage identifier (e.g. `$stage1_extract.actual`). Placing `$` after the dot causes an ANTLR syntax crash (`no viable alternative at input 'stage.$'`). |
+| Cross-sector joins in 360° profiling (e.g. Auth + Egress) | Decoupled parallel micro-queries | Multi-stage queries are inner joins; joining orthogonal sectors silently drops entities with zero events in either sector. |
 | `graph.entity.metrics.*` in predicates | Use `metrics.*()` in `outcome:` | `metrics` is a built-in function, not an Entity Graph protobuf field. |
 
 ---

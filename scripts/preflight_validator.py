@@ -550,6 +550,8 @@ class MalachiteASTValidator:
       errors.append("INVALID_IF_CONDITIONAL: 'if(...)' is invalid in YARA-L outcome expressions.")
     if re.search(r"\bsqrt\s*\(", query_text):
       errors.append("INVALID_SQRT_FUNCTION: 'sqrt(...)' is invalid in YARA-L outcome expressions. Compute squared norm and order by '$norm_sq desc'.")
+    if re.search(r"\b[a-zA-Z0-9_]+\.\$[a-zA-Z0-9_]+", query_text):
+      errors.append("INVALID_STAGE_VARIABLE_SYNTAX: Multi-stage variable references must use '$stage.var', not 'stage.$var' (placing '$' after the dot causes an ANTLR syntax crash).")
 
     # 2. Stage count & naming rules
     stage_blocks = re.findall(r"(?:stage\s+([a-zA-Z0-9_]+)\s*\{|\$(\w+)\s*=)", query_text)
