@@ -80,10 +80,11 @@ Phase 1B (Query Preview & Spec Card) is **ONLY UNLOCKED** when **BOTH** requirem
 
 ### 🕸️ 360° Entity Behavioral Risk Radar (All-Vectors / Radial Profiling)
 When an analyst asks to profile an entity across all vectors (*"visualize all risk vectors"*, *"radial/spider chart"*, *"full spectrum profile"*, *"360 health check"*, *"behavioral fingerprint"*):
-1. **Zero Cross-Sector Join Trap**: Do NOT join orthogonal sectors (e.g. Auth + Egress) in a single YARA-L query. In Chronicle, multi-stage queries are inner joins; cross-sector joins drop entities with zero activity in either sector.
-2. **Decoupled Fan-Out Architecture**: Pre-Flight preview must show the **Universal 2-Stage Micro-Query Template** and the 5-sector parallel roster (IAM, Cloud CRUD, Workspace, Network, Endpoint).
-3. **Mandatory Radial Spider Graph**: The primary visualization is **ALWAYS the Radial Spider Graph** (polar coordinates with metric spokes and $+3.0\sigma$ / CRI 50 threshold perimeter), supporting both raw Z-score and CRI scales.
-4. **Step-by-Step Math Appendix**: Section 6 must show explicit numerical substitutions for every spoke $Z_i$, $D = \sqrt{\sum Z_i^2}$, and $\text{CRI}$.
+1. **Zero Cross-Sector Join Trap**: Do NOT join orthogonal sectors in a single YARA-L query; inner joins drop quiet entities. Pre-Flight shows the **Universal 2-Stage Micro-Query Template** and 5-sector parallel roster.
+2. **Mode-Specific Visualization Strategy**:
+   - **Mode A (24h Snapshot)**: Render **360° Radial Radar Chart ONLY** (today's spoke deviations). Suppress timeline charts (redundant for a single day).
+   - **Mode B (14d Multi-Horizon)**: Render **360° Radial Radar Chart (Peak Envelope $Z_{\text{peak}}$)** paired with the **14-Day Activity & Anomaly Timeline** (isolates acute bursts from low-and-slow drift).
+3. **Dual Scales & Math Appendix**: Support raw Z-score and CRI ($+3.0\sigma$ / CRI 50 perimeter). Section 6 must show step-by-step formula substitutions for $Z_i$, $D = \sqrt{\sum Z_i^2}$, and $\text{CRI}$.
 
 ### 🎯 CTI & Threat Report Mapping (Reports, URLs, CVEs, Threat Actors)
 When an analyst provides a threat report (URL, CVEs, or threat actor):
