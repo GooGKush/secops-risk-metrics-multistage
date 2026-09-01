@@ -1,10 +1,21 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.3.0)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.3.1)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v1.3.0 — August 2026  
+**Latest Version**: v1.3.1 — September 2026  
+
+---
+
+## 📢 What's New in v1.3.1
+
+* **Compiler AST Grammar & Anti-Hallucination Gate**: Enhanced `MalachiteASTValidator` to strictly intercept and reject invalid pseudo-syntax before execution or preview:
+  - **Exponentiation Rejection (`INVALID_EXPONENT_OPERATOR`)**: Flags `^` and enforces canonical multiplication (`$var * $var`).
+  - **Outcome Conditional Rejection (`INVALID_IF_CONDITIONAL`)**: Flags `if(...)` in arithmetic expressions and enforces linear regularization (`($obs - $avg) / ($std + 1.0)`).
+  - **Non-Existent Math Functions (`INVALID_SQRT_FUNCTION`)**: Flags `sqrt(...)` and enforces squared norm calculations (`$norm_sq desc`).
+  - **Stage Structure Enforcement (`INVALID_EVENTS_SECTION_IN_STAGE` & `INVALID_STAGE_IN_SYNTAX`)**: Prohibits `events:` headers inside named search stages and flags `$var in stage_name` pseudo-references.
+* **Expanded Automated Guardrail Suite**: Expanded automated unit test suite from 76 to **77 tests (100% passing)**.
 
 ---
 

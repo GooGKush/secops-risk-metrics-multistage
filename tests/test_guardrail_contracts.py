@@ -464,6 +464,25 @@ class TestGuardrailContracts(unittest.TestCase):
     self.assertTrue(any("INVALID_METRIC_DOT_NOTATION" in e for e in errors))
     self.assertTrue(any("INVALID_WINDOW_SYNTAX" in e for e in errors))
 
+  def test_malachite_ast_validator_catches_hallucinated_constructs(self):
+    """MalachiteASTValidator must detect ^, if(), sqrt(), and $var in stage_name."""
+    from scripts.preflight_validator import MalachiteASTValidator
+    bad_syntax = """
+    stage multi_sector_fusion_outlier {
+      events:
+        $c in baseline_iam_creation_30d
+      outcome:
+        $z_create = if($c.creation_stddev > 0, ($c.daily_creations - $c.creation_mean) / $c.creation_stddev, 0)
+        $composite_distance_d = sqrt(($z_create ^ 2) + 1.0)
+    }
+    """
+    errors = MalachiteASTValidator.validate_query(bad_syntax)
+    self.assertTrue(any("INVALID_EXPONENT_OPERATOR" in e for e in errors))
+    self.assertTrue(any("INVALID_IF_CONDITIONAL" in e for e in errors))
+    self.assertTrue(any("INVALID_SQRT_FUNCTION" in e for e in errors))
+    self.assertTrue(any("INVALID_STAGE_IN_SYNTAX" in e for e in errors))
+    self.assertTrue(any("INVALID_EVENTS_SECTION_IN_STAGE" in e for e in errors))
+
 
 if __name__ == '__main__':
   unittest.main()

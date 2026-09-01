@@ -543,6 +543,14 @@ class MalachiteASTValidator:
     if not re.search(r"//\s*(?:Goal:|ARCHITECTURE:)", query_text, re.IGNORECASE):
       errors.append("MISSING_GOAL_HEADER: Query must start with a '// Goal:' or '// ARCHITECTURE:' methodology comment.")
 
+    # 1B. Global Invalid Tokens & Math Functions
+    if "^" in query_text:
+      errors.append("INVALID_EXPONENT_OPERATOR: '^' is invalid in YARA-L. Use '$var * $var' for squared terms.")
+    if re.search(r"\bif\s*\(", query_text):
+      errors.append("INVALID_IF_CONDITIONAL: 'if(...)' is invalid in YARA-L outcome expressions.")
+    if re.search(r"\bsqrt\s*\(", query_text):
+      errors.append("INVALID_SQRT_FUNCTION: 'sqrt(...)' is invalid in YARA-L outcome expressions. Compute squared norm and order by '$norm_sq desc'.")
+
     # 2. Stage count & naming rules
     stage_blocks = re.findall(r"(?:stage\s+([a-zA-Z0-9_]+)\s*\{|\$(\w+)\s*=)", query_text)
     named_stages = [s[0] for s in stage_blocks if s[0]]
@@ -582,6 +590,19 @@ class MalachiteASTValidator:
         errors.append(
             f"INVALID_METRIC_DOT_NOTATION in stage '{stage_name}': Metric properties like 'metrics.foo.mean' are invalid. "
             "Use canonical function calls: 'max(metrics.foo(period: 1d, window: 30d, ...))'."
+        )
+
+      # Check for events: header inside stage
+      if re.search(r"\bevents:\s*", stage_body):
+        errors.append(
+            f"INVALID_EVENTS_SECTION_IN_STAGE in stage '{stage_name}': Named stages must not contain an 'events:' header block."
+        )
+
+      # Check for stage in syntax ($var in stage_name)
+      if re.search(r"\$[a-zA-Z0-9_]+\s+in\s+[a-zA-Z0-9_]+", stage_body):
+        errors.append(
+            f"INVALID_STAGE_IN_SYNTAX in stage '{stage_name}': '$var in stage_name' is invalid. "
+            "Root stages join via '$user = $stage1.user' and '$stage1.outcome_var'."
         )
 
       # Anti-Pattern 6: Single-stage multi-vector cramming
