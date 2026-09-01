@@ -12,7 +12,12 @@ import unittest
 class TestGuardrailContracts(unittest.TestCase):
 
   def setUp(self):
-    self.skill_md_path = '/usr/local/google/home/kushmerek/.gemini/skills/secops-risk-metrics-multistage/SKILL.md'
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    repo_skill = os.path.join(repo_root, 'SKILL.md')
+    if os.path.exists(repo_skill):
+      self.skill_md_path = repo_skill
+    else:
+      self.skill_md_path = '/usr/local/google/home/kushmerek/.gemini/skills/secops-risk-metrics-multistage/SKILL.md'
     self.assertTrue(os.path.exists(self.skill_md_path), "SKILL.md must exist")
     with open(self.skill_md_path, 'r', encoding='utf-8') as f:
       self.skill_content = f.read()

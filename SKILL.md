@@ -6,11 +6,8 @@ aliases:
   - Behavioral Outlier Engine
   - Agentic UEBA Core
 description: |
-  Constructs, validates, and executes multi-stage statistical outlier hunting in Google SecOps
-  using pre-computed Risk Analytics behavioral metrics (metrics.*) chained into 2-stage, 3-stage, and 4-stage DAGs.
-  Supports 14 statistical models (Z-Score, MAD, Fano, Discrete Poisson, Bayesian Conjugacy, Delta-Z, Multi-Sector Fusion).
-  Enforces Step 1 Pre-Flight Gate, 6-Section Triage Reports, Variable Role Classification, and 1:1 synthetic UDM hand-off.
-  Triggers: "hunt with risk metrics", "multi-stage metrics outlier", "MAD on network bytes", "z-score on auth", "risk analytics statistical hunt", "fleet outlier", "poisson burst", "fano factor", "bayesian updating", "dual-baseline delta-z", "patch tuesday immunity", "multi-sector threat fusion", "360 health check", "compare to team", "behavioral drift", "top statistical outliers".
+  Constructs and executes multi-stage statistical outlier hunting in Google SecOps using pre-computed Risk Analytics metrics (`metrics.*`) chained into 2-stage, 3-stage, and 4-stage DAGs across 14 models (Z-Score, MAD, Poisson, Delta-Z, Multi-Sector Fusion).
+  Triggers: "hunt with risk metrics", "multi-stage metrics outlier", "MAD on network bytes", "z-score on auth", "risk analytics statistical hunt", "fleet outlier", "poisson burst", "fano factor", "bayesian updating", "dual-baseline delta-z", "patch tuesday immunity", "multi-sector threat fusion", "360 health check", "360 risk radar", "radial chart", "all risk vectors", "behavioral fingerprint", "compare to team", "behavioral drift", "top statistical outliers".
 compatibility: Requires access to a Google SecOps instance with Risk Analytics metrics enabled and the SecOps GUS MCP server (udm_search, get_operation).
 ---
 
@@ -24,7 +21,7 @@ Executes **fleet-wide and multi-sector statistical outlier hunting** in Google S
 
 | If hunt targets... | Activate... | Operational Action |
 | :--- | :--- | :--- |
-| • **30-Day Behavioral Baselines** (`metrics.*`)<br>• **Peer / Team Cohort Outliers**<br>• **Multi-Sector Threat Fusion** | 📊 **`secops-risk-metrics-multistage`** *(This Skill)* | Execute native multi-stage `metrics.*` pipeline. |
+| • **30-Day Baselines** (`metrics.*`)<br>• **Peer Cohorts**<br>• **Multi-Sector Fusion** | 📊 **`secops-risk-metrics-multistage`** *(This Skill)* | Execute native multi-stage `metrics.*` pipeline. |
 | • **Ad-Hoc Raw Telemetry Sensors** (C2 jitter CV)<br>• **Non-Metrics Telemetry** | ⚡ **`secops-statistical-hunter`** | Emit **Skill Handoff Card** and Non-Metrics Telemetry Steering Mandate to `secops-statistical-hunter`. |
 
 > [!TIP]
@@ -42,17 +39,17 @@ Executes **fleet-wide and multi-sector statistical outlier hunting** in Google S
 
 ## 💡 How Risk Metrics Multi-Stage Analytics Work (Educational & Overview Inquiries)
 
-When an analyst asks how multi-stage analytics work or requests an explanation, present this **3-Step Overview**:
-1. **Step 1: 30-Day Pre-Computed Baselines ($O(1)$ Stage 1 Engine)**: Google SecOps continuously aggregates rolling 30-day historical activity across 38 metric tables (`metrics.*`), performing instant $O(1)$ baseline lookups ($\mu$, $\sigma$, $N_{\text{days}}$) without scanning raw logs.
+When an analyst asks how multi-stage analytics work, present this **3-Step Overview**:
+1. **Step 1: 30-Day Pre-Computed Baselines ($O(1)$ Stage 1 Engine)**: SecOps aggregates rolling 30-day activity across 38 metric tables (`metrics.*`), performing instant $O(1)$ baseline lookups ($\mu$, $\sigma$, $N_{\text{days}}$) without scanning raw logs.
 2. **Step 2: Multi-Stage YARA-L DAG Analytics (Zero-Hop Staging)**: Chains Stage 1 baselines into downstream mathematical stages (Stage 2+) to compute statistical deviations, join Entity Graph context (prevalence, novelty), or correlate orthogonal telemetry silos.
 3. **Step 3: Execution Framework Summary (Built-In Behavioral Models & Use Cases)**:
-   • 📈 **Volumetric Surges** (*Standard Z-Score / Robust MAD*): High-volume explosions in egress, files, or auth.
-   • ⚡ **Automated Bursts** (*Poisson Dispersion / Fano Factor*): Synchronized sprays vs random typos.
+   • 📈 **Volumetric Surges** (*Standard Z-Score / Robust MAD*): Explosions in egress, files, or auth.
+   • ⚡ **Automated Bursts** (*Poisson Dispersion / Fano Factor*): Sprays vs typos.
    • 🎯 **Rare Inceptions** (*Discrete Poisson Rarity*): Rare LOLBin/admin execution on quiet assets.
    • 🧠 **Sparse Regularization** (*Bayesian Shrinkage*): Regularizes low-activity accounts to eliminate false alarms.
-   • 🛡️ **Fleet-Normalized Surges** (*3-Stage Dual-Baseline Delta-$Z$*): Isolates targeted attacks during fleet surges (e.g. Patch Tuesday).
+   • 🛡️ **Fleet Surges** (*3-Stage Dual-Baseline Delta-$Z$*): Isolates attacks during fleet surges (Patch Tuesday).
    • 🔀 **Multi-Sector Fusion** (*4-Stage Chi-Square Distance $D$*): Cross-correlates spikes across IAM, Process, and Egress.
-   • 📉 **Longitudinal Drift** (*CUSUM $S^+$*): Detects low-and-slow exfiltration or privilege drift over 14–30d.
+   • 📉 **Longitudinal Drift** (*CUSUM $S^+$*): Low-and-slow exfiltration over 14–30d.
 
 > [!TIP]
 > **Ask for more information** if you would like a deep dive on how any of these models help expose behavioral outliers for your security use cases. *(See `references/statistical-models-taxonomy.md`)*
@@ -81,11 +78,17 @@ Phase 1B (Query Preview & Spec Card) is **ONLY UNLOCKED** when **BOTH** requirem
 > • 🔀 **Multi-Sector Fusion**: Cross-correlating multiple vectors into a composite score ($D$).
 > **STOP IMMEDIATELY AND YIELD TURN (CONVERSATIONAL BREAK).** Do NOT render query preview until user responds.
 
+### 🕸️ 360° Entity Behavioral Risk Radar (All-Vectors / Radial Profiling)
+When an analyst asks to profile an entity across all behavioral vectors (*"visualize all risk vectors"*, *"radial/spider chart"*, *"full spectrum profile"*, *"360 health check"*, *"behavioral fingerprint"*):
+1. **Zero Monolithic Search Trap**: Do NOT attempt a single monolithic 4+ stage YARA-L search query (which violates Chronicle's 4-join limit).
+2. **Execute Fan-Out Collector**: Aggregate standardized Z-scores across all orthogonal telemetry sectors (IAM, Cloud, Workspace, Egress, DNS) via concurrent 2-stage micro-queries (`scripts.radar_collector`).
+3. **Render 360° Output**: Present the **Composite Threat Distance $D = \sqrt{\sum Z_i^2}$**, the **Ranked Spoke Magnitude Table**, and the **Self-Contained SVG Radar Chart**.
+
 ### 🎯 CTI & Threat Report Mapping (Reports, URLs, CVEs, Threat Actors)
-When an analyst provides a threat report (URL, DFIR advisory, CVEs, or threat actor):
-1. **Extract Attack Chain**: Analyze the report to identify core attack stages (initial access, staging, egress, credential abuse).
-2. **Map to UEBA Metric Tables**: Map each attack stage directly to corresponding pre-computed metric tables (`metrics.*`) and statistical models.
-3. **Transition Directly to Phase 1B**: Emit the structured **Pre-Flight Hunting Specification Card** and **Literal Query Preview** for primary threat vector on Turn 1. Ask for target workload scoping (fleet vs. cluster) and **YIELD THE TURN (0 tools called)**.
+When an analyst provides a threat report (URL, CVEs, or threat actor):
+1. **Extract Attack Chain**: Identify core attack stages (initial access, staging, egress, credential abuse).
+2. **Map to UEBA Metric Tables**: Map attack stages to corresponding pre-computed metric tables (`metrics.*`).
+3. **Transition Directly to Phase 1B**: Emit **Pre-Flight Hunting Specification Card** and **Literal Query Preview** on Turn 1. Ask for target workload scoping and **YIELD THE TURN (0 tools called)**.
 
 ### 🔍 Phase 1B: Pre-Flight Spec & Query Preview (Once Scope & Vectors are Established)
 Once the analyst specifies or confirms vectors and scope (or via CTI threat report mapping, or for specific prompts like *"MAD on network outbound bytes"*):
@@ -123,12 +126,12 @@ Once the analyst specifies or confirms vectors and scope (or via CTI threat repo
 ## 📊 MANDATORY STEP 2: PRESENT FULL 6-SECTION REPORT (AFTER CLEARANCE)
 
 When clearance is granted and native queries execute, the report **MUST STRICTLY CONTAIN ALL 6 NUMBERED PILLARS**:
-1. **Statistical Outlier Report**: `[Target Metric]` ([Statistical Model]) with 30-day baseline context (`window: 30d`).
+1. **Statistical Outlier Report**: `[Target Metric]` ([Statistical Model]) with 30-day baseline (`window: 30d`).
 2. **Executed Multi-Stage YARA-L Query**: Literal executed multi-stage YARA-L query string passed into `secops-gus:udm_search(query=...)`. **Strict Nomenclature Mandate**: MUST be labeled 'Executed Multi-Stage YARA-L Query'. Calling ad-hoc query logic a 'Rule' or 'Hunting Rule' is a **CRITICAL NOMENCLATURE VIOLATION**.
-3. **Ranked Outlier Summary**: Table with columns: `Entity`, `24h Observed`, `Baseline Mean`, `StdDev`, `Z-Score`, `CRI Score`, `Visual Magnitude`.
-4. **Forensic Vector Breakdown**: Threat translation, significance, attack scenarios, false positives, SOC playbook.
+3. **Ranked Outlier Summary**: Columns: `Entity`, `24h Observed`, `Baseline Mean`, `StdDev`, `Z-Score`, `CRI Score`, `Visual Magnitude`.
+4. **Forensic Vector Breakdown**: Threat translation, significance, attack scenarios, SOC playbook.
 5. **Immediate 1-Click Investigation Queries**: Raw UDM filter query for analyst drilldown.
-6. **Statistical & Mathematical Appendix**: Formal model formulation ($N = 30d$), Calibrated Risk Index $\text{CRI} = \text{round}\left(\frac{100}{1 + \exp(-0.6 \cdot (Z - 3.0))}\right)$.
+6. **Statistical & Mathematical Appendix**: Model formulation ($N = 30d$), Calibrated Risk Index $\text{CRI} = \text{round}\left(\frac{100}{1 + \exp(-0.6 \cdot (Z - 3.0))}\right)$.
 
 ---
 
@@ -136,17 +139,17 @@ When clearance is granted and native queries execute, the report **MUST STRICTLY
 
 ### 1. Native Execution & Truth in Reporting
 * **Zero Generative Simulation & Strict Data Grounding Contract**: Every metric number in Sections 1, 3, and 4 ($\text{Obs}$, $\mu$, $\sigma$, $Z$, $\text{CRI}$) MUST be a direct extraction from the raw output of `secops-gus:udm_search`. If `udm_search` returns `{}` or empty events, the agent MUST report `0 observed events`, `Z = 0.00σ`, and `🟢 Nominal Baseline`. Fabricating synthetic baseline numbers without tool execution is a **CRITICAL TRUTH-IN-REPORTING FAILURE**.
-* **Hard Stop on API Error (MANDATORY STOP — ZERO SILENT FALLBACK)**: If an API query fails, STOP IMMEDIATELY and report the error. Simulating baselines locally in scratch scripts is strictly prohibited.
-* **Native Execution Guarantee (ZERO PYTHON SIMULATION SCRIPTING)**: Multi-stage statistical anomaly detection MUST run inside Chronicle. Zero baseline calculation in Python.
+* **Hard Stop on API Error (MANDATORY STOP — ZERO SILENT FALLBACK)**: If an API query fails, STOP IMMEDIATELY and report the error. Simulating baselines locally in scratch scripts is a **CRITICAL COMPLIANCE VIOLATION**.
+* **Native Execution Guarantee (ZERO PYTHON SIMULATION SCRIPTING)**: Multi-stage anomaly detection MUST run inside Chronicle. Zero baseline calculation in Python.
 * **Zero Local Script Invocations During Hunting (ZERO RUN_COMMAND VALIDATION)**: MUST NOT call `run_command` or execute local Python scripts in terminal during chat. Never prompt for terminal permissions.
 * **Hermetic Skill Boundary (ZERO CROSS-SKILL DRIFT)**: Once active, the agent MUST NOT read, import, or search other skills. This skill is 100% self-contained.
-* **Atomic Pipeline Execution Mandate (ZERO PIECEMEAL FRACTURING & DRIFT)**: Dispatch complete multi-stage DAG in a single atomic YARA-L query passed to `udm_search`. It is **STRICTLY PROHIBITED** to break into isolated 1-metric queries or chase raw log regexes (`target.hostname = /.../`).
+* **Atomic Pipeline Execution Mandate (ZERO PIECEMEAL FRACTURING & DRIFT)**: Dispatch complete multi-stage DAG in a single atomic YARA-L query passed to `udm_search`. Breaking into isolated 1-metric queries is STRICTLY PROHIBITED.
 * **Literal Query Display Mandate (ZERO FAKED YARA-L QUERIES)**: Section 2 MUST contain the literal, exact query string passed into `secops-gus:udm_search(query=...)`.
 * **Zero Unsolicited Ingestion**: Zero unsolicited ingestion via `import_logs` or `generate_synthetic_events`.
 * **Post-Flight Audit & Auto-Correction**: If execution is deformed, present auto-corrected query and ask: *"Would you like me to execute this auto-corrected query now, or exit this hunt?"*
 
 ### 2. Compiler & Architectural Invariants
-* **Pre-Composed Pipeline Template Routing**: Route hunts directly to complete composite pipeline templates in `templates/pipelines/` (e.g. `mad_modified_z_2stage.yl2`, `standard_z_score_2stage.yl2`, `poisson_rarity_2stage.yl2`, `dual_sector_fusion_3stage.yl2`). Perform 1:1 parameter slot-filling rather than dynamic syntax stitching.
+* **Pre-Composed Pipeline Template Routing**: Route hunts directly to composite pipeline templates in `templates/pipelines/` (e.g. `mad_modified_z_2stage.yl2`, `standard_z_score_2stage.yl2`, `poisson_rarity_2stage.yl2`, `dual_sector_fusion_3stage.yl2`).
 * **Zero-Hallucination Compiler Grammar Contract**:
   - *No `in ("A", "B")`*: `in` is strictly reserved for reference lists (`field in %list`). Multiple literals MUST use `(field = "A" or field = "B")` or regex.
   - *No Dot-Notation Metric Properties*: `metrics.foo.mean` is INVALID. Always use canonical function calls `max(metrics.foo(period: 1d, window: 30d, ...))`.
@@ -154,10 +157,10 @@ When clearance is granted and native queries execute, the report **MUST STRICTLY
   - *Linear Outcome Arithmetic*: Nested `max(0, ...)` or inline `sqrt(...)` in arithmetic expressions are INVALID. Compute squared norms and order by `$norm_sq desc`.
   - *Max 4 Joins Invariant*: YARA-L 2.0 strictly limits queries to $\le 4$ joins (`maxJoinCount = 4`). In multi-stage DAGs, each UEBA stage consumes 1 join, and root joins consume $K-1$ joins. Stay within $\le 4$ joins. *(See `references/multi-stage-metrics-guide.md`)*.
 * **Exact Time Window Arithmetic**: Compute $\text{startTime} = \text{endTime} - N \times 86400\text{s}$ with exact precision matching the user requested horizon (e.g. 14 days ending Aug 29 starts Aug 16 at 00:00:00Z).
-* **Variable Role Classification & Anti-Passive-Decoration Mandate**: Every variable must fulfill: `[JOIN_KEY]`, `[SCORING_DIMENSION]`, `[ACTIVE_FILTER]`, or `[TRIAGE_DECORATION]`. Qualitative primary threat vectors MUST NEVER act solely as `[TRIAGE_DECORATION]`; bind them to an active Cross-Sectional Fleet Rarity Stage (`count_distinct(principal.asset.hostname) <= 2`) or Entity Graph constraint. *(See `references/multi-stage-metrics-guide.md`)*.
-* **Threat-to-Telemetry Decomposition Matrix**: Decompose unstructured threat descriptions into orthogonal behavioral vectors. *(See `references/multi-stage-metrics-guide.md`)*.
+* **Variable Role Classification & Anti-Passive-Decoration Mandate**: Every variable must fulfill: `[JOIN_KEY]`, `[SCORING_DIMENSION]`, `[ACTIVE_FILTER]`, or `[TRIAGE_DECORATION]`. Qualitative primary threat vectors MUST NEVER act solely as `[TRIAGE_DECORATION]`; bind them to active fleet rarity or Entity Graph constraints. *(See `references/multi-stage-metrics-guide.md`)*.
+* **Threat-to-Telemetry Decomposition Matrix**: Decompose threat descriptions into orthogonal behavioral vectors.
 * **Single-ECG Limit & Decoupled Context Fusion**: Max 1 ECG lookup per stage. Never evaluate `metrics.*` inside stages filtered by `GLOBAL_CONTEXT` or `DERIVED_CONTEXT`. Decouple baseline into Stage 1 and threat context into Stage 2.
-* **Inner-Join Drop Prevention Standard (PRESERVING FULL POPULATION)**: In YARA-L, multi-stage joins are inner joins. When evaluating all entities including threat domains, do NOT place threat filter in a separate stage. Evaluate full baseline in Stage 1 and profile destinations via `array_distinct(target.hostname)`.
+* **Inner-Join Drop Prevention Standard (PRESERVING FULL POPULATION)**: In YARA-L, multi-stage joins are inner joins. Evaluate full baseline in Stage 1 and profile destinations via `array_distinct(target.hostname)`.
 
 ### 3. Scope, Steering & Parsimony
 * **Pure Threat Hunting Scope (SEARCH-ONLY — ZERO RULE CREATION / DEPLOYMENT)**: `create_rule` and `validate_rule` are STRICTLY PROHIBITED during threat hunts.
@@ -194,8 +197,10 @@ When clearance is granted and native queries execute, the report **MUST STRICTLY
 * **Statistical Models Taxonomy (14 Models)**: [`references/statistical-models-taxonomy.md`](references/statistical-models-taxonomy.md)
 * **Calibrated Risk Index Guide (CRI [0–100])**: [`references/calibrated-risk-index-guide.md`](references/calibrated-risk-index-guide.md)
 * **Multi-Stage DAG Guide & Contracts**: [`references/multi-stage-metrics-guide.md`](references/multi-stage-metrics-guide.md)
+* **SOAR Playbook Radar Integration**: [`references/soar-playbook-radar-integration.md`](references/soar-playbook-radar-integration.md) [`references/multi-stage-metrics-guide.md`](references/multi-stage-metrics-guide.md)
 * **YARA-L 2.0 Templates**: [`templates/stage1_extractors/`](templates/stage1_extractors/), [`templates/stage2_math_models/`](templates/stage2_math_models/), [`templates/pipelines/`](templates/pipelines/)
 * **Chart Specifications Guide**: [`references/chart-specifications-guide.md`](references/chart-specifications-guide.md)
+* **Radar Collector**: [`scripts/radar_collector.py`](scripts/radar_collector.py)
 * **Pre-Flight Validator**: [`scripts/preflight_validator.py`](scripts/preflight_validator.py)
 * **Chart Generator**: [`scripts/chart_generator.py`](scripts/chart_generator.py)
 
