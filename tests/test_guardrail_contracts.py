@@ -483,9 +483,39 @@ class TestGuardrailContracts(unittest.TestCase):
     self.assertTrue(any("INVALID_STAGE_IN_SYNTAX" in e for e in errors))
     self.assertTrue(any("INVALID_EVENTS_SECTION_IN_STAGE" in e for e in errors))
 
+  def test_skill_size_budget(self):
+    """SKILL.md must remain strictly under the 20 KB efficiency budget (20,480 bytes)."""
+    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    skill_path = os.path.join(skill_dir, 'SKILL.md')
+    with open(skill_path, 'rb') as f:
+      raw = f.read()
+    self.assertLessEqual(len(raw), 20480, f"SKILL.md exceeds 20KB budget: {len(raw)} bytes")
+
+  def test_dual_requirement_gate_contract(self):
+    """SKILL.md must enforce that Phase 1B requires BOTH Entity Scope AND Telemetry Vector."""
+    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    skill_path = os.path.join(skill_dir, 'SKILL.md')
+    with open(skill_path, 'r', encoding='utf-8') as f:
+      s_content = f.read()
+    self.assertIn("Dual-Requirement Gate", s_content)
+    self.assertIn("ONLY UNLOCKED", s_content)
+    self.assertIn("Telemetry Vector", s_content)
+    self.assertIn("MUST NOT DEFAULT TO `metrics.auth_attempts_*`", s_content)
+
+  def test_zero_generative_simulation_contract(self):
+    """SKILL.md must enforce zero generative simulation and strict tool grounding."""
+    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    skill_path = os.path.join(skill_dir, 'SKILL.md')
+    with open(skill_path, 'r', encoding='utf-8') as f:
+      s_content = f.read()
+    self.assertIn("Zero Generative Simulation & Strict Data Grounding Contract", s_content)
+    self.assertIn("CRITICAL TRUTH-IN-REPORTING FAILURE", s_content)
+    self.assertIn("0 observed events", s_content)
+
 
 if __name__ == '__main__':
   unittest.main()
+
 
 
 
