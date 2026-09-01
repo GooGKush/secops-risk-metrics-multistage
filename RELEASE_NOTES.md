@@ -1,10 +1,32 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.3.1)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.3.3)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v1.3.1 — September 2026  
+**Latest Version**: v1.3.3 — September 2026  
+
+---
+
+## 📢 What's New in v1.3.3
+
+* **Dual Multi-Stage Architecture & Boundary Disambiguation**:
+  - Added Section 21 to `references/multi-stage-metrics-guide.md` documenting the explicit data plane boundary between pre-computed 30-day UEBA baseline analytics (`metrics.*`) and raw telemetry statistical hunting (`secops-statistical-hunter`).
+  - Disambiguated shared mathematical models executing over multi-stage DAGs:
+    - **Dual-Baseline Delta-$Z$**: 30-day individual baseline vs. peer department cohort baseline (in this skill) vs. concurrent enterprise fleet shift suppression / Patch Tuesday Shield (in `secops-statistical-hunter`).
+    - **Multi-Sector Threat Fusion**: Multi-vector 30-day baseline deviation norms ($D = \sqrt{\sum Z_i^2}$) across UEBA tables (Auth, Cloud, Workspace, Network, Endpoint) using decoupled 2-stage micro-queries vs. raw cross-silo orthogonal event counting (Combined Arms Radar) in `secops-statistical-hunter`.
+  - Formalized exclusive capabilities: sub-second timing jitter ($\text{CV} \le 0.20$) and connection inter-arrival intervals ($\Delta t$) strictly require raw telemetry, while 30-day rolling behavioral baselines and peer cohorts strictly belong to `secops-risk-metrics-multistage`.
+* **Zero Streaming Detection Rule Syntax Enforcement**:
+  - Codified search-only YARA-L DAG mandate in Section 3 of `SKILL.md` and added `INVALID_DETECTION_RULE_SYNTAX` AST validation check in `scripts/preflight_validator.py`.
+* **Expanded Automated Guardrail Suite**: Expanded automated unit test suite to **81 tests (100% passing)**.
+
+---
+
+## 📢 What's New in v1.3.2
+
+* **Dual-Requirement Clearance Gate & Zero Generative Simulation Contract**:
+  - Enforces mandatory analyst clearance prior to executing native UDM search queries.
+  - Strictly prohibits generating synthetic, speculative, or hallucinated search results or case findings.
 
 ---
 
