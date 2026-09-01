@@ -12,7 +12,12 @@ import unittest
 class TestGuardrailContracts(unittest.TestCase):
 
   def setUp(self):
-    self.skill_md_path = '/usr/local/google/home/kushmerek/.gemini/skills/secops-risk-metrics-multistage/SKILL.md'
+    repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    repo_skill_md = os.path.join(repo_dir, 'SKILL.md')
+    if os.path.exists(repo_skill_md):
+      self.skill_md_path = repo_skill_md
+    else:
+      self.skill_md_path = '/usr/local/google/home/kushmerek/.gemini/skills/secops-risk-metrics-multistage/SKILL.md'
     self.assertTrue(os.path.exists(self.skill_md_path), "SKILL.md must exist")
     with open(self.skill_md_path, 'r', encoding='utf-8') as f:
       self.skill_content = f.read()
@@ -491,6 +496,20 @@ class TestGuardrailContracts(unittest.TestCase):
     errors_stage_var = MalachiteASTValidator.validate_query(bad_stage_var)
     self.assertTrue(any("INVALID_STAGE_VARIABLE_SYNTAX" in e for e in errors_stage_var))
 
+    bad_detection_rule = """
+    // Goal: Test detection rule rejection
+    rule SuspiciousExfil {
+      meta:
+        author = "Detection Team"
+      events:
+        $net.metadata.event_type = "NETWORK_CONNECTION"
+      condition:
+        $net
+    }
+    """
+    errors_rule = MalachiteASTValidator.validate_query(bad_detection_rule)
+    self.assertTrue(any("INVALID_DETECTION_RULE_SYNTAX" in e for e in errors_rule))
+
   def test_skill_size_budget(self):
     """SKILL.md must remain strictly under the 20 KB efficiency budget (20,480 bytes)."""
     skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -519,6 +538,11 @@ class TestGuardrailContracts(unittest.TestCase):
     self.assertIn("Zero Generative Simulation & Strict Data Grounding Contract", s_content)
     self.assertIn("CRITICAL TRUTH-IN-REPORTING FAILURE", s_content)
     self.assertIn("0 observed events", s_content)
+
+  def test_zero_streaming_detection_rule_syntax_mandate(self):
+    """SKILL.md must strictly forbid outputting streaming detection rules or rule blocks."""
+    self.assertIn("Zero Streaming Detection Rule Syntax", self.skill_content)
+    self.assertIn("CRITICAL NOMENCLATURE & ARCHITECTURAL VIOLATION", self.skill_content)
 
 
 if __name__ == '__main__':
