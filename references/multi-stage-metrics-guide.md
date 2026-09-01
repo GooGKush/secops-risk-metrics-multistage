@@ -455,6 +455,43 @@ When an analyst's inquiry is open-ended (e.g. *"find privilege abuse"*, *"look f
    - For 4-sector cross-vector profiling (e.g. Auth + Cloud + Workspace + Network + Endpoint), execute decoupled parallel 2-stage micro-queries (the 360° behavioral radar pattern) or route raw non-metrics correlation to `secops-statistical-hunter`. Do NOT abandon search mode to improvise continuous detection rules.
 
 ---
+
+## 21. Dual Multi-Stage Architecture & Boundary with `secops-statistical-hunter`
+
+A critical architectural boundary exists between Google SecOps skills that emit multi-stage YARA-L search queries (`stage ... { }` + unwrapped Root Stage) for Chronicle UDM Search (`udm_search`). Understanding the underlying data plane prevents syntax errors, compilation failures, and domain drift.
+
+### 1. Data Plane Demarcation
+
+| Architectural Dimension | `secops-risk-metrics-multistage` (This Skill) | `secops-statistical-hunter` (Ad-Hoc Hunter) |
+| :--- | :--- | :--- |
+| **Underlying Data Plane** | Pre-computed daily/hourly summary tables (`metrics.*`) | Raw telemetry logs (`UDM_EVENTS`) & detections (`RULE_DETECTIONS`) |
+| **Lookback Horizon** | **Fixed Rolling 30-Day Windows** (`window: 30d`, `period: 1d`) with $O(1)$ pre-aggregated lookups | **Arbitrary Time Slices**: Any custom timestamp range (e.g., 2h, 7d, 14d, 30d) |
+| **Join Model & Limits** | Subject to Chronicle `maxJoinCount = 4` (each `metrics.*` function consumes 1 join) | Join-free single-event or multi-stage event correlation without UEBA table joins |
+| **Primary Use Case** | 30-day baseline deviations, team/peer department cohorts, 360° health checks, longitudinal CUSUM drift | Ad-hoc threat hunting across un-baselined TTPs (C2 timing jitter, DGA, raw volume bursts, Tukey fences) |
+
+### 2. Shared Multi-Stage Model Disambiguation
+
+Both skills support multi-stage YARA-L execution and share similar mathematical terminology. When an analyst inquiry references these models, apply this routing and disambiguation matrix:
+
+1. **Dual-Baseline Delta-$Z$**:
+   * **In `secops-risk-metrics-multistage` (This Skill)**: Evaluates an individual's 30-day behavioral baseline (`metrics.auth_attempts_*`) against a pre-computed peer department/cohort baseline. Suppresses false positives caused by team-wide operational changes (e.g., DevOps sprint migrations).
+   * **In `secops-statistical-hunter`**: The *Patch Tuesday Shield*—compares an entity's raw log surge today against the concurrent enterprise fleet shift ($\Delta Z = Z_{\text{personal}} - Z_{\text{fleet}}$) over raw events to suppress company-wide software updates.
+2. **Multi-Sector Threat Fusion**:
+   * **In `secops-risk-metrics-multistage` (This Skill)**: Fuses decoupled 30-day baseline deviations ($D = \sqrt{\sum Z_i^2}$) across UEBA tables (Auth, Cloud CRUD, Workspace Exfil, Network Egress, Endpoint Tools) using the 360° radar micro-query pattern (respecting the 4-join limit).
+   * **In `secops-statistical-hunter`**: The *Combined Arms Radar*—fuses raw event counts across orthogonal silos (Auth + Process + Network) in a single historical search window.
+3. **Timing Jitter ($CV \le 0.20$) & Inter-Arrival Analysis ($\Delta t$)**:
+   * **Exclusive to `secops-statistical-hunter`**: Pre-computed UEBA tables aggregate daily event sums and cannot compute packet/connection inter-arrival intervals ($\Delta t_i = t_i - t_{i-1}$). Timing regularity, sleep-delay analysis, and robotic beaconing MUST be evaluated over raw UDM telemetry.
+4. **30-Day Pre-Computed Baselines, Peer Cohorts & 360° Health Checks**:
+   * **Exclusive to `secops-risk-metrics-multistage`**: Requires pre-computed behavioral baselines. Route all requests targeting `metrics.*` or 30-day UEBA envelopes to this skill.
+
+### 3. Prescriptive Skill Handoff Protocol
+
+If an analyst inquiry targets ad-hoc telemetry without pre-computed baselines, requests sub-second timing regularity (inter-arrival jitter CV), or requires arbitrary short-horizon time slices:
+1. Do **NOT** attempt to write streaming detection rules (`rule <name> { ... }`).
+2. Do **NOT** force `metrics.*` functions onto raw log types that lack pre-computed tables.
+3. Render the **Skill Handoff Card** and hand off execution cleanly to `secops-statistical-hunter`.
+
+---
 *Created and maintained by Greg Kushmerek for Google SecOps Chronicle SIEM threat hunting workflows.*
 
 
