@@ -1,10 +1,24 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.3.3)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.3.4)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v1.3.3 — September 2026  
+**Latest Version**: v1.3.4 — September 2026  
+
+---
+
+## 📢 What's New in v1.3.4
+
+* **Malachite Ground-Truth Metric Filter & Dimension Validation**:
+  - Extracted and codified Google SecOps Malachite Common Compiler ground truth (`ueba_validator.go`, `dimension_field_mapping.textproto`, `config.textproto`) for all 38 risk metrics.
+  - Added canonical `MALACHITE_SUPPORTED_FILTERS` catalog to `scripts/preflight_validator.py` mapping every analytical metric to its valid UDM filter fields.
+  - Implemented `INVALID_METRIC_FILTER` AST validation in `MalachiteASTValidator` across both intermediate stages and the root stage, providing intelligent developer hints when invalid dimensions are used (e.g., suggesting `principal.asset.ip` or `principal.asset.hostname` when `principal.ip` is attempted).
+* **Device IP vs. IP Dimension Disambiguation**:
+  - Codified the platform invariant that device IP filtering on network, authentication, DNS, HTTP, and process execution metrics strictly requires `principal.asset.ip` or `principal.asset.hostname` (which map to `PRINCIPAL_DEVICE`).
+  - Clarified that `principal.ip` (which maps to `PRINCIPAL_IP`) is only supported on Cloud Resource CRUD (`resource_*`) and Google Workspace metrics, preventing runtime Malachite compilation errors (`compilation error: validating ueba functions: unsupported filters for metric ...`).
+  - Documented explicit `[!IMPORTANT]` Device IP Filtering Invariants in `references/metrics-catalog.md`.
+* **Expanded Automated Guardrail Suite**: Expanded automated unit test suite from 81 to **82 tests (100% passing)**.
 
 ---
 

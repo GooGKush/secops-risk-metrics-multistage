@@ -6,7 +6,7 @@ Author: Greg Kushmerek
 from dataclasses import dataclass
 from enum import Enum
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 
 class EntityType(str, Enum):
@@ -532,6 +532,266 @@ class PreFlightValidator:
     }
 
 
+# Canonical UDM Filter Fields per Metric from Malachite compiler source
+# (googlex/security/malachite/analytics/configs/config.textproto & dimension_field_mapping.textproto)
+MALACHITE_SUPPORTED_FILTERS: Dict[str, Set[str]] = {
+    "alert_event_name_count": {
+        "principal.asset.asset_id", "principal.asset.hostname", "principal.asset.ip",
+        "principal.asset.mac", "principal.asset.product_object_id", "principal.process.file.full_path",
+        "principal.process.file.sha256", "principal.user.email_addresses", "principal.user.employee_id",
+        "principal.user.product_object_id", "principal.user.userid", "principal.user.windows_sid",
+        "security_result.rule_name"
+    },
+    "auth_attempts_fail": {
+        "metadata.event_type", "network.http.user_agent", "network.tls.client.certificate.sha256",
+        "principal.asset.asset_id", "principal.asset.hostname", "principal.asset.ip", "principal.asset.mac",
+        "principal.asset.product_object_id", "principal.ip_geo_artifact.location.country_or_region",
+        "principal.ip_geo_artifact.network.organization_name", "principal.user.email_addresses",
+        "principal.user.employee_id", "principal.user.product_object_id", "principal.user.userid",
+        "principal.user.windows_sid", "target.application", "target.asset.asset_id", "target.asset.hostname",
+        "target.asset.ip", "target.asset.mac", "target.asset.product_object_id", "target.user.email_addresses",
+        "target.user.employee_id", "target.user.product_object_id", "target.user.userid", "target.user.windows_sid"
+    },
+    "auth_attempts_success": {
+        "metadata.event_type", "network.http.user_agent", "network.tls.client.certificate.sha256",
+        "principal.asset.asset_id", "principal.asset.hostname", "principal.asset.ip", "principal.asset.mac",
+        "principal.asset.product_object_id", "principal.ip_geo_artifact.location.country_or_region",
+        "principal.ip_geo_artifact.network.organization_name", "principal.user.email_addresses",
+        "principal.user.employee_id", "principal.user.product_object_id", "principal.user.userid",
+        "principal.user.windows_sid", "target.application", "target.asset.asset_id", "target.asset.hostname",
+        "target.asset.ip", "target.asset.mac", "target.asset.product_object_id", "target.user.email_addresses",
+        "target.user.employee_id", "target.user.product_object_id", "target.user.userid", "target.user.windows_sid"
+    },
+    "auth_attempts_total": {
+        "metadata.event_type", "network.http.user_agent", "network.tls.client.certificate.sha256",
+        "principal.asset.asset_id", "principal.asset.hostname", "principal.asset.ip", "principal.asset.mac",
+        "principal.asset.product_object_id", "principal.ip_geo_artifact.location.country_or_region",
+        "principal.ip_geo_artifact.network.organization_name", "principal.user.email_addresses",
+        "principal.user.employee_id", "principal.user.product_object_id", "principal.user.userid",
+        "principal.user.windows_sid", "target.application", "target.asset.asset_id", "target.asset.hostname",
+        "target.asset.ip", "target.asset.mac", "target.asset.product_object_id", "target.user.email_addresses",
+        "target.user.employee_id", "target.user.product_object_id", "target.user.userid", "target.user.windows_sid"
+    },
+    "dns_bytes_outbound": {
+        "principal.asset.asset_id", "principal.asset.hostname", "principal.asset.ip", "principal.asset.mac",
+        "principal.asset.product_object_id", "principal.user.email_addresses", "principal.user.employee_id",
+        "principal.user.product_object_id", "principal.user.userid", "principal.user.windows_sid", "target.ip"
+    },
+    "dns_queries_fail": {
+        "network.dns.questions.type", "network.dns_domain", "principal.asset.asset_id",
+        "principal.asset.hostname", "principal.asset.ip", "principal.asset.mac", "principal.asset.product_object_id",
+        "principal.user.email_addresses", "principal.user.employee_id", "principal.user.product_object_id",
+        "principal.user.userid", "principal.user.windows_sid"
+    },
+    "dns_queries_success": {
+        "network.dns.questions.type", "network.dns_domain", "principal.asset.asset_id",
+        "principal.asset.hostname", "principal.asset.ip", "principal.asset.mac", "principal.asset.product_object_id",
+        "principal.user.email_addresses", "principal.user.employee_id", "principal.user.product_object_id",
+        "principal.user.userid", "principal.user.windows_sid"
+    },
+    "dns_queries_total": {
+        "network.dns.questions.type", "network.dns_domain", "principal.asset.asset_id",
+        "principal.asset.hostname", "principal.asset.ip", "principal.asset.mac", "principal.asset.product_object_id",
+        "principal.user.email_addresses", "principal.user.employee_id", "principal.user.product_object_id",
+        "principal.user.userid", "principal.user.windows_sid"
+    },
+    "file_executions_fail": {
+        "metadata.event_type", "principal.asset.asset_id", "principal.asset.hostname", "principal.asset.ip",
+        "principal.asset.mac", "principal.asset.product_object_id", "principal.process.file.sha256",
+        "principal.user.email_addresses", "principal.user.employee_id", "principal.user.product_object_id",
+        "principal.user.userid", "principal.user.windows_sid"
+    },
+    "file_executions_success": {
+        "metadata.event_type", "principal.asset.asset_id", "principal.asset.hostname", "principal.asset.ip",
+        "principal.asset.mac", "principal.asset.product_object_id", "principal.process.file.sha256",
+        "principal.user.email_addresses", "principal.user.employee_id", "principal.user.product_object_id",
+        "principal.user.userid", "principal.user.windows_sid"
+    },
+    "file_executions_total": {
+        "metadata.event_type", "principal.asset.asset_id", "principal.asset.hostname", "principal.asset.ip",
+        "principal.asset.mac", "principal.asset.product_object_id", "principal.process.file.sha256",
+        "principal.user.email_addresses", "principal.user.employee_id", "principal.user.product_object_id",
+        "principal.user.userid", "principal.user.windows_sid"
+    },
+    "http_queries_fail": {
+        "network.http.user_agent", "principal.asset.asset_id", "principal.asset.hostname",
+        "principal.asset.ip", "principal.asset.mac", "principal.asset.product_object_id",
+        "principal.user.email_addresses", "principal.user.employee_id", "principal.user.product_object_id",
+        "principal.user.userid", "principal.user.windows_sid", "target.hostname"
+    },
+    "http_queries_success": {
+        "network.http.user_agent", "principal.asset.asset_id", "principal.asset.hostname",
+        "principal.asset.ip", "principal.asset.mac", "principal.asset.product_object_id",
+        "principal.user.email_addresses", "principal.user.employee_id", "principal.user.product_object_id",
+        "principal.user.userid", "principal.user.windows_sid", "target.hostname"
+    },
+    "http_queries_total": {
+        "network.http.user_agent", "principal.asset.asset_id", "principal.asset.hostname",
+        "principal.asset.ip", "principal.asset.mac", "principal.asset.product_object_id",
+        "principal.user.email_addresses", "principal.user.employee_id", "principal.user.product_object_id",
+        "principal.user.userid", "principal.user.windows_sid", "target.hostname"
+    },
+    "network_bytes_inbound": {
+        "principal.asset.asset_id", "principal.asset.hostname", "principal.asset.ip", "principal.asset.mac",
+        "principal.asset.product_object_id", "principal.ip_geo_artifact.location.country_or_region",
+        "principal.user.email_addresses", "principal.user.employee_id", "principal.user.product_object_id",
+        "principal.user.userid", "principal.user.windows_sid", "security_result.category",
+        "target.asset.asset_id", "target.asset.hostname", "target.asset.ip", "target.asset.mac",
+        "target.asset.product_object_id", "target.ip_geo_artifact.network.organization_name"
+    },
+    "network_bytes_outbound": {
+        "principal.asset.asset_id", "principal.asset.hostname", "principal.asset.ip", "principal.asset.mac",
+        "principal.asset.product_object_id", "principal.ip_geo_artifact.location.country_or_region",
+        "principal.user.email_addresses", "principal.user.employee_id", "principal.user.product_object_id",
+        "principal.user.userid", "principal.user.windows_sid", "security_result.category",
+        "target.asset.asset_id", "target.asset.hostname", "target.asset.ip", "target.asset.mac",
+        "target.asset.product_object_id", "target.ip_geo_artifact.network.organization_name"
+    },
+    "network_bytes_total": {
+        "principal.asset.asset_id", "principal.asset.hostname", "principal.asset.ip", "principal.asset.mac",
+        "principal.asset.product_object_id", "principal.ip_geo_artifact.location.country_or_region",
+        "principal.user.email_addresses", "principal.user.employee_id", "principal.user.product_object_id",
+        "principal.user.userid", "principal.user.windows_sid", "security_result.category",
+        "target.asset.asset_id", "target.asset.hostname", "target.asset.ip", "target.asset.mac",
+        "target.asset.product_object_id", "target.ip_geo_artifact.network.organization_name"
+    },
+    "network_flows_inbound": {
+        "principal.asset.asset_id", "principal.asset.hostname", "principal.asset.ip", "principal.asset.mac",
+        "principal.asset.product_object_id", "principal.user.email_addresses", "principal.user.employee_id",
+        "principal.user.product_object_id", "principal.user.userid", "principal.user.windows_sid"
+    },
+    "network_flows_outbound": {
+        "principal.asset.asset_id", "principal.asset.hostname", "principal.asset.ip", "principal.asset.mac",
+        "principal.asset.product_object_id", "principal.user.email_addresses", "principal.user.employee_id",
+        "principal.user.product_object_id", "principal.user.userid", "principal.user.windows_sid"
+    },
+    "network_flows_total": {
+        "principal.asset.asset_id", "principal.asset.hostname", "principal.asset.ip", "principal.asset.mac",
+        "principal.asset.product_object_id", "principal.user.email_addresses", "principal.user.employee_id",
+        "principal.user.product_object_id", "principal.user.userid", "principal.user.windows_sid"
+    },
+    "resource_creation_fail": {
+        "metadata.product_name", "metadata.vendor_name", "principal.ip", "principal.user.email_addresses",
+        "principal.user.employee_id", "principal.user.product_object_id", "principal.user.userid",
+        "principal.user.windows_sid", "target.application", "target.location.name", "target.resource.name",
+        "target.resource.resource_type", "target.user.email_addresses", "target.user.employee_id",
+        "target.user.product_object_id", "target.user.userid", "target.user.windows_sid"
+    },
+    "resource_creation_success": {
+        "metadata.product_name", "metadata.vendor_name", "principal.ip", "principal.user.email_addresses",
+        "principal.user.employee_id", "principal.user.product_object_id", "principal.user.userid",
+        "principal.user.windows_sid", "target.application", "target.location.name", "target.resource.name",
+        "target.resource.resource_type", "target.user.email_addresses", "target.user.employee_id",
+        "target.user.product_object_id", "target.user.userid", "target.user.windows_sid"
+    },
+    "resource_creation_total": {
+        "metadata.product_name", "metadata.vendor_name", "principal.ip", "principal.user.email_addresses",
+        "principal.user.employee_id", "principal.user.product_object_id", "principal.user.userid",
+        "principal.user.windows_sid", "target.application", "target.location.name", "target.resource.name",
+        "target.resource.resource_type", "target.user.email_addresses", "target.user.employee_id",
+        "target.user.product_object_id", "target.user.userid", "target.user.windows_sid"
+    },
+    "resource_deletion_fail": {
+        "metadata.product_name", "metadata.vendor_name", "principal.ip", "principal.user.email_addresses",
+        "principal.user.employee_id", "principal.user.product_object_id", "principal.user.userid",
+        "principal.user.windows_sid", "target.application", "target.location.name", "target.resource.name",
+        "target.resource.resource_type", "target.user.email_addresses", "target.user.employee_id",
+        "target.user.product_object_id", "target.user.userid", "target.user.windows_sid"
+    },
+    "resource_deletion_success": {
+        "metadata.product_name", "metadata.vendor_name", "principal.ip", "principal.user.email_addresses",
+        "principal.user.employee_id", "principal.user.product_object_id", "principal.user.userid",
+        "principal.user.windows_sid", "target.application", "target.location.name", "target.resource.name",
+        "target.resource.resource_type", "target.user.email_addresses", "target.user.employee_id",
+        "target.user.product_object_id", "target.user.userid", "target.user.windows_sid"
+    },
+    "resource_deletion_total": {
+        "metadata.product_name", "metadata.vendor_name", "principal.ip", "principal.user.email_addresses",
+        "principal.user.employee_id", "principal.user.product_object_id", "principal.user.userid",
+        "principal.user.windows_sid", "target.application", "target.location.name", "target.resource.name",
+        "target.resource.resource_type", "target.user.email_addresses", "target.user.employee_id",
+        "target.user.product_object_id", "target.user.userid", "target.user.windows_sid"
+    },
+    "resource_read_fail": {
+        "metadata.product_name", "metadata.vendor_name", "principal.ip", "principal.user.email_addresses",
+        "principal.user.employee_id", "principal.user.product_object_id", "principal.user.userid",
+        "principal.user.windows_sid", "target.application", "target.location.name", "target.resource.name",
+        "target.resource.resource_type", "target.user.email_addresses", "target.user.employee_id",
+        "target.user.product_object_id", "target.user.userid", "target.user.windows_sid"
+    },
+    "resource_read_success": {
+        "metadata.product_name", "metadata.vendor_name", "principal.ip", "principal.user.email_addresses",
+        "principal.user.employee_id", "principal.user.product_object_id", "principal.user.userid",
+        "principal.user.windows_sid", "target.application", "target.location.name", "target.resource.name",
+        "target.resource.resource_type", "target.user.email_addresses", "target.user.employee_id",
+        "target.user.product_object_id", "target.user.userid", "target.user.windows_sid"
+    },
+    "resource_read_total": {
+        "metadata.product_name", "metadata.vendor_name", "principal.ip", "principal.user.email_addresses",
+        "principal.user.employee_id", "principal.user.product_object_id", "principal.user.userid",
+        "principal.user.windows_sid", "target.application", "target.location.name", "target.resource.name",
+        "target.resource.resource_type", "target.user.email_addresses", "target.user.employee_id",
+        "target.user.product_object_id", "target.user.userid", "target.user.windows_sid"
+    },
+    "resource_written_fail": {
+        "metadata.product_name", "metadata.vendor_name", "principal.ip", "principal.user.email_addresses",
+        "principal.user.employee_id", "principal.user.product_object_id", "principal.user.userid",
+        "principal.user.windows_sid", "target.application", "target.location.name", "target.resource.name",
+        "target.resource.resource_type", "target.user.email_addresses", "target.user.employee_id",
+        "target.user.product_object_id", "target.user.userid", "target.user.windows_sid"
+    },
+    "resource_written_success": {
+        "metadata.product_name", "metadata.vendor_name", "principal.ip", "principal.user.email_addresses",
+        "principal.user.employee_id", "principal.user.product_object_id", "principal.user.userid",
+        "principal.user.windows_sid", "target.application", "target.location.name", "target.resource.name",
+        "target.resource.resource_type", "target.user.email_addresses", "target.user.employee_id",
+        "target.user.product_object_id", "target.user.userid", "target.user.windows_sid"
+    },
+    "resource_written_total": {
+        "metadata.product_name", "metadata.vendor_name", "principal.ip", "principal.user.email_addresses",
+        "principal.user.employee_id", "principal.user.product_object_id", "principal.user.userid",
+        "principal.user.windows_sid", "target.application", "target.location.name", "target.resource.name",
+        "target.resource.resource_type", "target.user.email_addresses", "target.user.employee_id",
+        "target.user.product_object_id", "target.user.userid", "target.user.windows_sid"
+    },
+    "workspace_auth_attempts_total": {
+        "metadata.product_event_type", "principal.ip", "principal.ip_geo_artifact.location.country_or_region",
+        "principal.user.email_addresses", "principal.user.employee_id", "principal.user.product_object_id",
+        "principal.user.userid", "principal.user.windows_sid", "security_result.action", "target.application",
+        "target.user.email_addresses", "target.user.employee_id", "target.user.product_object_id",
+        "target.user.userid", "target.user.windows_sid"
+    },
+    "workspace_emails_sent_total": {
+        "network.email.from", "network.email.mail_id", "network.email.to", "principal.application",
+        "principal.ip", "principal.user.email_addresses", "principal.user.employee_id",
+        "principal.user.product_object_id", "principal.user.userid", "principal.user.windows_sid",
+        "security_result.rule_id", "target.ip"
+    },
+    "workspace_network_bytes_outbound": {
+        "principal.ip_geo_artifact.location.country_or_region", "principal.user.email_addresses",
+        "principal.user.employee_id", "principal.user.product_object_id", "principal.user.userid",
+        "principal.user.windows_sid"
+    },
+    "workspace_network_bytes_total": {
+        "principal.ip_geo_artifact.location.country_or_region", "principal.user.email_addresses",
+        "principal.user.employee_id", "principal.user.product_object_id", "principal.user.userid",
+        "principal.user.windows_sid"
+    },
+    "workspace_total_change_actions": {
+        "metadata.product_event_type", "metadata.product_name", "principal.ip", "principal.user.email_addresses",
+        "principal.user.employee_id", "principal.user.product_object_id", "principal.user.userid",
+        "principal.user.windows_sid", "security_result.action", "target.resource.name",
+        "target.user.email_addresses", "target.user.employee_id", "target.user.product_object_id",
+        "target.user.userid", "target.user.windows_sid"
+    },
+    "workspace_total_download_actions": {
+        "metadata.product_name", "principal.ip", "principal.user.email_addresses", "principal.user.employee_id",
+        "principal.user.product_object_id", "principal.user.userid", "principal.user.windows_sid",
+        "target.resource.name"
+    },
+}
+
+
 class MalachiteASTValidator:
   """Enforces Google SecOps compiler rules and mathematical AST constraints on YARA-L 2.0 queries."""
 
@@ -627,6 +887,25 @@ class MalachiteASTValidator:
               f"ANTI-PATTERN 7 (Non-Existent Metric Function in stage '{stage_name}'): 'metrics.{metric_name}' does not exist in METRIC_CATALOG."
           )
 
+      # Metric Filter Validation against Malachite source definitions
+      standard_params = {"period", "window", "metric", "agg", "filter"}
+      metric_call_matches = re.findall(r"metrics\.([a-zA-Z0-9_]+)\s*\(([^)]+)\)", stage_body, re.DOTALL)
+      for m_name, args_body in metric_call_matches:
+        m_lower = m_name.lower()
+        if m_lower in MALACHITE_SUPPORTED_FILTERS:
+          valid_filters = MALACHITE_SUPPORTED_FILTERS[m_lower]
+          called_params = re.findall(r"([a-zA-Z0-9_.]+)\s*:", args_body)
+          for param in called_params:
+            if param not in standard_params and param not in valid_filters:
+              hint = ""
+              if param == "principal.ip" and "principal.asset.ip" in valid_filters:
+                hint = " (In Chronicle, device IP filtering requires 'principal.asset.ip' or 'principal.asset.hostname')"
+              elif param == "target.ip" and "target.asset.ip" in valid_filters:
+                hint = " (In Chronicle, device IP filtering requires 'target.asset.ip' or 'target.asset.hostname')"
+              errors.append(
+                  f"INVALID_METRIC_FILTER in stage '{stage_name}': '{param}' is not a supported filter for 'metrics.{m_name}'.{hint}"
+              )
+
       # Invariant: Maximum 1 ECG (Entity Context Graph) lookup per stage
       graph_aliases = set(re.findall(r"\$([a-zA-Z0-9_]+)\.graph\.", stage_body))
       if len(graph_aliases) > 1:
@@ -643,6 +922,28 @@ class MalachiteASTValidator:
             "on external threat context (GLOBAL_CONTEXT / DERIVED_CONTEXT) skews Z-scores. Decouple baseline into Stage 1 "
             "(Universal Anomaly) and threat context into Stage 2 (Threat Hits)."
         )
+
+    # Check root stage metric filter fields
+    last_stage_end = 0
+    for match in re.finditer(r"stage\s+[a-zA-Z0-9_]+\s*\{[^}]*\}", query_text, re.DOTALL):
+      last_stage_end = max(last_stage_end, match.end())
+    root_body = query_text[last_stage_end:]
+    root_metric_calls = re.findall(r"metrics\.([a-zA-Z0-9_]+)\s*\(([^)]+)\)", root_body, re.DOTALL)
+    for m_name, args_body in root_metric_calls:
+      m_lower = m_name.lower()
+      if m_lower in MALACHITE_SUPPORTED_FILTERS:
+        valid_filters = MALACHITE_SUPPORTED_FILTERS[m_lower]
+        called_params = re.findall(r"([a-zA-Z0-9_.]+)\s*:", args_body)
+        for param in called_params:
+          if param not in standard_params and param not in valid_filters:
+            hint = ""
+            if param == "principal.ip" and "principal.asset.ip" in valid_filters:
+              hint = " (In Chronicle, device IP filtering requires 'principal.asset.ip' or 'principal.asset.hostname')"
+            elif param == "target.ip" and "target.asset.ip" in valid_filters:
+              hint = " (In Chronicle, device IP filtering requires 'target.asset.ip' or 'target.asset.hostname')"
+            errors.append(
+                f"INVALID_METRIC_FILTER in root stage: '{param}' is not a supported filter for 'metrics.{m_name}'.{hint}"
+            )
 
     # 4. Multi-Sector Fusion Architecture Validation
     if "MULTI_SECTOR" in query_text.upper() or "MULTI-SECTOR" in query_text.upper():

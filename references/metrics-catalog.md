@@ -1,12 +1,20 @@
 # Google SecOps Risk Metrics Reference Catalog (38 Metrics)
 
-This catalog details all 38 active pre-computed behavioral risk metrics available in Google SecOps UEBA &amp; Risk Analytics.
+This catalog details all 38 active pre-computed behavioral risk metrics available in Google SecOps UEBA & Risk Analytics.
+
+> [!IMPORTANT]
+> **Device IP Filtering Invariant (`principal.asset.ip` vs. `principal.ip`)**:
+> In Google SecOps Chronicle Malachite, device IP filtering requires `principal.asset.ip` (mapping to the `PRINCIPAL_DEVICE` dimension) or `target.asset.ip` (mapping to `TARGET_DEVICE`).
+> Passing `principal.ip` (which maps to the `PRINCIPAL_IP` dimension) to network, authentication, DNS, HTTP, or process execution metrics causes a fatal compile-time failure:  
+> `compilation error: validating ueba functions: unsupported filters for metric ...`  
+> The `principal.ip` filter is strictly supported **only** on Cloud Resource CRUD (`resource_*`) and Google Workspace metrics. For all network connections, firewalls, logins, and endpoint telemetry, always filter by `principal.asset.ip` or `principal.asset.hostname`.
 
 ---
 
 ## 1. Authentication Attempts
 * **Log Scope:** `metadata.event_type = "USER_LOGIN"`
 * **Backing Log Types:** `OKTA`, `AZURE_AD`, `WINEVTLOG_SECURITY`, `WORKSPACE`, `PING_IDENTITY`, `DUO`
+* **Device IP Filter Note:** Use `principal.asset.ip` (not `principal.ip`) for source device IP filtering.
 
 | Metric Function | Description | Supported Dimensions (Entity Types) |
 | :--- | :--- | :--- |
@@ -20,6 +28,7 @@ This catalog details all 38 active pre-computed behavioral risk metrics availabl
 ## 2. Network Bytes & Volume
 * **Log Scope:** `metadata.event_type = "NETWORK_CONNECTION"`
 * **Backing Log Types:** `PALO_ALTO_FIREWALL`, `ZEEK`, `ZSCALER`, `NETFLOW`, `FORTINET_FIREWALL`, `CHECKPOINT_FIREWALL`
+* **Device IP Filter Note:** Use `principal.asset.ip` (not `principal.ip`) for source device IP filtering.
 
 | Metric Function | Value Measured (`value_sum`) | Supported Dimensions (Entity Types) |
 | :--- | :--- | :--- |
