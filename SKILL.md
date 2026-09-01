@@ -7,7 +7,7 @@ aliases:
   - Agentic UEBA Core
 description: |
   Constructs and executes multi-stage statistical outlier hunting in Google SecOps using pre-computed Risk Analytics metrics (`metrics.*`) chained into 2-stage, 3-stage, and 4-stage DAGs across 14 models (Z-Score, MAD, Poisson, Delta-Z, Multi-Sector Fusion).
-  Triggers: "hunt with risk metrics", "multi-stage metrics outlier", "MAD on network bytes", "z-score on auth", "risk analytics statistical hunt", "fleet outlier", "poisson burst", "fano factor", "bayesian updating", "dual-baseline delta-z", "patch tuesday immunity", "multi-sector threat fusion", "360 health check", "360 risk radar", "radial chart", "all risk vectors", "behavioral fingerprint", "compare to team", "behavioral drift", "top statistical outliers".
+  Triggers: "hunt with risk metrics", "multi-stage metrics outlier", "MAD on network bytes", "z-score on auth", "fleet outlier", "poisson burst", "fano factor", "dual-baseline delta-z", "multi-sector threat fusion", "360 health check", "360 risk radar", "radial chart", "all risk vectors", "behavioral fingerprint", "compare to team", "behavioral drift", "top statistical outliers".
 compatibility: Requires Google SecOps with Risk Analytics metrics enabled and the SecOps GUS MCP server (udm_search, get_operation).
 ---
 
@@ -39,17 +39,10 @@ Executes **multi-sector statistical outlier hunting** in Google SecOps using **3
 
 ## 💡 How Risk Metrics Multi-Stage Analytics Work (Educational & Overview Inquiries)
 
-When an analyst asks how multi-stage analytics work, present this **3-Step Overview**:
+When asked how multi-stage analytics work, present this **3-Step Overview**:
 1. **Step 1: 30-Day Pre-Computed Baselines ($O(1)$ Stage 1 Engine)**: SecOps aggregates rolling 30-day activity across 38 metric tables (`metrics.*`), performing instant $O(1)$ baseline lookups ($\mu$, $\sigma$, $N_{\text{days}}$) without scanning raw logs.
-2. **Step 2: Multi-Stage YARA-L DAG Analytics (Zero-Hop Staging)**: Chains Stage 1 baselines into downstream mathematical stages (Stage 2+) to compute statistical deviations, join Entity Graph context (prevalence, novelty), or correlate orthogonal telemetry silos.
-3. **Step 3: Execution Framework Summary (Built-In Behavioral Models & Use Cases)**:
-   • 📈 **Volumetric Surges** (*Standard Z-Score / Robust MAD*): Explosions in egress, files, or auth.
-   • ⚡ **Automated Bursts** (*Poisson Dispersion / Fano Factor*): Sprays vs typos.
-   • 🎯 **Rare Inceptions** (*Discrete Poisson Rarity*): Rare LOLBin/admin execution on quiet assets.
-   • 🧠 **Sparse Regularization** (*Bayesian Shrinkage*): Regularizes low-activity accounts to eliminate false alarms.
-   • 🛡️ **Fleet Surges** (*3-Stage Dual-Baseline Delta-$Z$*): Isolates attacks during fleet surges (Patch Tuesday).
-   • 🔀 **Multi-Sector Fusion** (*4-Stage Chi-Square Distance $D$*): Cross-correlates spikes across IAM, Process, and Egress.
-   • 📉 **Longitudinal Drift** (*CUSUM $S^+$*): Low-and-slow exfiltration over 14–30d.
+2. **Step 2: Multi-Stage YARA-L DAG Analytics (Zero-Hop Staging)**: Chains Stage 1 baselines into downstream stages (Stage 2+) to compute statistical deviations, join Entity Graph context, or correlate orthogonal telemetry silos.
+3. **Step 3: Execution Framework Summary**: Evaluates Z-Score, Robust MAD, Poisson Rarity, Fano Factor, Delta-$Z$, CUSUM Drift ($S^+$), and Multi-Sector Fusion ($D$) directly inside Chronicle.
 
 > [!TIP]
 > **Ask for more information** if you would like a deep dive on how any of these models help expose behavioral outliers for your security use cases. *(See `references/statistical-models-taxonomy.md`)*
@@ -80,11 +73,35 @@ Phase 1B (Query Preview & Spec Card) is **ONLY UNLOCKED** when **BOTH** requirem
 
 ### 🕸️ 360° Entity Behavioral Risk Radar (All-Vectors / Radial Profiling)
 When an analyst asks to profile an entity across all vectors (*"visualize all risk vectors"*, *"radial/spider chart"*, *"full spectrum profile"*, *"360 health check"*, *"behavioral fingerprint"*):
-1. **Zero Cross-Sector Join Trap**: Do NOT join orthogonal sectors in a single YARA-L query; inner joins drop quiet entities. Pre-Flight shows the **Universal 2-Stage Micro-Query Template** and 5-sector parallel roster.
-2. **Mode-Specific Visualization Strategy**:
-   - **Mode A (24h Snapshot)**: Render **360° Radial Radar Chart ONLY** (today's spoke deviations). Suppress timeline charts (redundant for a single day).
-   - **Mode B (14d Multi-Horizon)**: Render **360° Radial Radar Chart (Peak Envelope $Z_{\text{peak}}$)** paired with the **14-Day Activity & Anomaly Timeline** (isolates acute bursts from low-and-slow drift).
-3. **Dual Scales & Math Appendix**: Support raw Z-score and CRI ($+3.0\sigma$ / CRI 50 perimeter). Section 6 must show step-by-step formula substitutions for $Z_i$, $D = \sqrt{\sum Z_i^2}$, and $\text{CRI}$.
+1. **Mandatory 5-Sector Roster**: Above the Pre-Flight Card, present the explicit 5-point enumerated list:
+   - 🔑 **Authentication & Access** (`metrics.auth_attempts_*`)
+   - ☁️ **Cloud Resource CRUD** (`metrics.resource_creation_*`, `metrics.resource_deletion_*`)
+   - 📁 **Workspace & SaaS Exfiltration** (`metrics.workspace_*`)
+   - 🌐 **Network Egress** (`metrics.network_bytes_outbound`)
+   - ⚙️ **Endpoint Process Activity** (`PROCESS_LAUNCH`)
+2. **Compilable Micro-Query Template (ZERO CROSS-SECTOR JOINS)**:
+   - Inner joins across sectors drop quiet accounts. Display the canonical decoupled micro-query:
+   ```yara
+   stage stage1_extract {
+       metadata.event_type = "USER_LOGIN"
+       $user = target.user.userid
+       $user = "%(entity_id)s"
+     match: $user by 1d
+     outcome:
+       $obs = count(metadata.id)
+       $mu = max(metrics.auth_attempts_success(period: 1d, window: 30d, metric: event_count_sum, agg: avg, target.user.userid: $user))
+       $sigma = max(metrics.auth_attempts_success(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, target.user.userid: $user))
+   }
+   // Root Stage (UNWRAPPED — NEVER WRAP IN STAGE BLOCK)
+   $user = $stage1_extract.user
+   match: $user by 1d
+   outcome:
+     $z_score = (max($stage1_extract.obs) - max($stage1_extract.mu)) / (max($stage1_extract.sigma) + 1.0)
+   ```
+3. **Mode-Specific Visualization Strategy**:
+   - **Mode A (24h Snapshot)**: Render **360° Radial Radar SVG ONLY** (today's spoke deviations). Suppress timeline charts.
+   - **Mode B (14d Multi-Horizon)**: Render **360° Radial Radar SVG (Peak Envelope $Z_{\text{peak}}$)** paired with the **14-Day Activity & Anomaly Timeline**.
+4. **Dual Scales & Math Appendix**: Support raw Z-score and CRI ($+3.0\sigma$ / CRI 50 perimeter). Section 6 must show formula substitutions for $Z_i$, $D = \sqrt{\sum Z_i^2}$, and $\text{CRI}$.
 
 ### 🎯 CTI & Threat Report Mapping (Reports, URLs, CVEs, Threat Actors)
 When an analyst provides a threat report (URL, CVEs, or threat actor):
@@ -142,8 +159,8 @@ When clearance is granted and native queries execute, the report **MUST STRICTLY
 * **Native Execution Guarantee (ZERO PYTHON SIMULATION SCRIPTING)**: Multi-stage anomaly detection MUST run inside Chronicle. Zero baseline calculation in Python.
 * **Zero Local Script Invocations During Hunting (ZERO RUN_COMMAND VALIDATION)**: MUST NOT call `run_command` or execute local Python scripts in terminal during chat. Never prompt for terminal permissions.
 * **Hermetic Skill Boundary (ZERO CROSS-SKILL DRIFT)**: Once active, the agent MUST NOT read, import, or search other skills. This skill is 100% self-contained.
-* **Atomic Pipeline Execution Mandate (ZERO PIECEMEAL FRACTURING & DRIFT)**: Dispatch complete multi-stage DAG in a single atomic YARA-L query passed to `udm_search`. Breaking into isolated 1-metric queries is STRICTLY PROHIBITED.
-* **Literal Query Display Mandate (ZERO FAKED YARA-L QUERIES)**: Section 2 MUST contain the literal, exact query string passed into `secops-gus:udm_search(query=...)`.
+* **Atomic Pipeline Execution Mandate (ZERO PIECEMEAL FRACTURING & DRIFT)**: Dispatch complete multi-stage DAG in a single atomic YARA-L query to `udm_search`. Breaking into isolated 1-metric queries is STRICTLY PROHIBITED.
+* **Literal Query Display Mandate (ZERO FAKED YARA-L QUERIES)**: Section 2 MUST contain the literal exact query string passed into `secops-gus:udm_search(query=...)`.
 * **Zero Unsolicited Ingestion**: Zero unsolicited ingestion via `import_logs` or `generate_synthetic_events`.
 * **Post-Flight Audit & Auto-Correction**: If execution is deformed, present auto-corrected query and ask: *"Would you like me to execute this auto-corrected query now, or exit this hunt?"*
 
@@ -177,31 +194,30 @@ When clearance is granted and native queries execute, the report **MUST STRICTLY
   - *Anti-Pollution Invariant*: The agent MUST NEVER arbitrarily pick an existing case via `list_cases` to attach comments. Doing so is a **CRITICAL PROCESS POLLUTION VIOLATION**.
 * **Path B: Explicit Case Wall Attachment (Carved-Out Exception for Active Case Work)**:
   - *Trigger Wording*: The analyst explicitly specifies a target case (e.g. *"Attach this finding to Case 11075"*, *"Add this report to the case wall of Case 11075"*).
-  - *Action*: Format a concise Markdown triage summary and call `secops-gus:create_case_comment(case_id="<ID>", comment=...)` on that **explicitly designated Case ID**.
+  - *Action*: Call `secops-gus:create_case_comment(case_id="<ID>", comment=...)` on that **explicitly designated Case ID**.
 
 ### 2. Mandatory Workflow per Path:
 * **For Path A (Synthetic UDM Event Ingestion)**:
-  1. *Preview*: Construct and render canonical synthetic UDM event JSON from [`references/clean-handoff-udm-schema.md`](references/clean-handoff-udm-schema.md).
+  1. *Preview*: Construct canonical synthetic UDM event JSON from [`references/clean-handoff-udm-schema.md`](references/clean-handoff-udm-schema.md).
   2. *Gate*: Ask *"Would you like me to ingest this event into Chronicle SIEM now to trigger automated case promotion?"* and **STOP CALLING TOOLS AND YIELD THE TURN**.
-  3. *Execute*: Upon explicit confirmation, execute `secops-gus:import_logs` with `product_name: "SecOps Risk Metrics Hunter"`.
+  3. *Execute*: Upon confirmation, execute `secops-gus:import_logs` with `product_name: "SecOps Risk Metrics Hunter"`.
 * **For Path B (Explicit Case Wall Comment)**:
-  1. Format statistical findings into a clear triage comment.
-  2. Call `secops-gus:create_case_comment` with user-provided `case_id` and confirm attachment to case wall.
+  1. Call `secops-gus:create_case_comment(case_id="<ID>", comment=...)` with user-provided `case_id` and confirm attachment.
 
 ---
 
 ## 📂 Modular References & Template Architecture
 
-* **Metric Catalog (38 Metrics)**: [`references/metrics-catalog.md`](references/metrics-catalog.md)
-* **Statistical Models Taxonomy (14 Models)**: [`references/statistical-models-taxonomy.md`](references/statistical-models-taxonomy.md)
-* **Calibrated Risk Index Guide (CRI [0–100])**: [`references/calibrated-risk-index-guide.md`](references/calibrated-risk-index-guide.md)
-* **Multi-Stage DAG Guide & Contracts**: [`references/multi-stage-metrics-guide.md`](references/multi-stage-metrics-guide.md)
-* **SOAR Playbook Radar Integration**: [`references/soar-playbook-radar-integration.md`](references/soar-playbook-radar-integration.md)
-* **YARA-L 2.0 Templates**: [`templates/stage1_extractors/`](templates/stage1_extractors/), [`templates/stage2_math_models/`](templates/stage2_math_models/), [`templates/pipelines/`](templates/pipelines/)
-* **Chart Specifications Guide**: [`references/chart-specifications-guide.md`](references/chart-specifications-guide.md)
-* **Radar Collector**: [`scripts/radar_collector.py`](scripts/radar_collector.py)
-* **Pre-Flight Validator**: [`scripts/preflight_validator.py`](scripts/preflight_validator.py)
-* **Chart Generator**: [`scripts/chart_generator.py`](scripts/chart_generator.py)
+* **Metric Catalog (38 Metrics)**: `references/metrics-catalog.md`
+* **Statistical Models Taxonomy (14 Models)**: `references/statistical-models-taxonomy.md`
+* **Calibrated Risk Index Guide (CRI [0–100])**: `references/calibrated-risk-index-guide.md`
+* **Multi-Stage DAG Guide & Contracts**: `references/multi-stage-metrics-guide.md`
+* **SOAR Playbook Radar Integration**: `references/soar-playbook-radar-integration.md`
+* **YARA-L 2.0 Templates**: `templates/pipelines/`, `templates/stage1_extractors/`, `templates/stage2_math_models/`
+* **Chart Specifications Guide**: `references/chart-specifications-guide.md`
+* **Radar Collector**: `scripts/radar_collector.py`
+* **Pre-Flight Validator**: `scripts/preflight_validator.py`
+* **Chart Generator**: `scripts/chart_generator.py`
 
 ---
 *Created and maintained by Greg Kushmerek for Google SecOps Chronicle SIEM threat hunting workflows.*

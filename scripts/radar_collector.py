@@ -41,7 +41,8 @@ class EntityRadarCollector:
 stage s1 {
     metadata.event_type = "USER_LOGIN"
     security_result.action = "BLOCK"
-    target.user.userid = "%(entity_id)s"
+    target.user.userid = $user
+    $user = "%(entity_id)s"
   match:
     $user by 1d
   outcome:
@@ -52,7 +53,8 @@ stage s1 {
 stage s2 {
     metadata.event_type = "USER_LOGIN"
     security_result.action = "ALLOW"
-    target.user.userid = "%(entity_id)s"
+    target.user.userid = $user
+    $user = "%(entity_id)s"
   match:
     $user by 1d
   outcome:
@@ -71,7 +73,8 @@ outcome:
 // Sector: Cloud Infrastructure CRUD
 stage s1 {
     metadata.event_type = "RESOURCE_CREATION"
-    principal.user.userid = "%(entity_id)s"
+    principal.user.userid = $user
+    $user = "%(entity_id)s"
     metadata.vendor_name = $v
     metadata.product_name = $p
   match:
@@ -83,7 +86,8 @@ stage s1 {
 }
 stage s2 {
     metadata.event_type = "RESOURCE_DELETION"
-    principal.user.userid = "%(entity_id)s"
+    principal.user.userid = $user
+    $user = "%(entity_id)s"
     metadata.vendor_name = $v
     metadata.product_name = $p
   match:
@@ -104,7 +108,8 @@ outcome:
 // Sector: Workspace & Drive Data
 stage s1 {
     metadata.event_type = "USER_RESOURCE_ACCESS"
-    principal.user.userid = "%(entity_id)s"
+    principal.user.userid = $user
+    $user = "%(entity_id)s"
   match:
     $user by 1d
   outcome:
@@ -124,7 +129,8 @@ outcome:
 // Sector: Network Egress Volume
 stage s1 {
     metadata.event_type = "NETWORK_CONNECTION"
-    principal.user.userid = "%(entity_id)s"
+    principal.user.userid = $user
+    $user = "%(entity_id)s"
   match:
     $user by 1d
   outcome:
@@ -145,7 +151,8 @@ outcome:
 stage s1 {
     metadata.event_type = "USER_LOGIN"
     security_result.action = "BLOCK"
-    principal.asset.hostname = "%(entity_id)s"
+    principal.asset.hostname = $asset
+    $asset = "%(entity_id)s"
   match:
     $asset by 1d
   outcome:
@@ -162,7 +169,8 @@ outcome:
 // Sector: Network Inbound & Outbound
 stage s1 {
     metadata.event_type = "NETWORK_CONNECTION"
-    principal.asset.hostname = "%(entity_id)s"
+    principal.asset.hostname = $asset
+    $asset = "%(entity_id)s"
   match:
     $asset by 1d
   outcome:
@@ -184,7 +192,8 @@ outcome:
 stage s1 {
     metadata.event_type = "NETWORK_DNS"
     network.dns.response_code != 0
-    principal.asset.hostname = "%(entity_id)s"
+    principal.asset.hostname = $asset
+    $asset = "%(entity_id)s"
   match:
     $asset by 1d
   outcome:

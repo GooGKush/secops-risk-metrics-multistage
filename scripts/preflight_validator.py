@@ -607,6 +607,18 @@ class MalachiteASTValidator:
             "Root stages join via '$user = $stage1.user' and '$stage1.outcome_var'."
         )
 
+      # Check that placeholder variables in match section are defined in event section
+      match_block = re.search(r"match:\s*(.*?)(?=\n\s*(?:outcome|condition|\}|$))", stage_body, re.DOTALL)
+      if match_block:
+        event_part = stage_body[:match_block.start()]
+        match_vars = re.findall(r"\$([a-zA-Z0-9_]+)", match_block.group(1))
+        for mv in match_vars:
+          if not re.search(rf"\${mv}\b", event_part):
+            errors.append(
+                f"UNBOUND_MATCH_VARIABLE in stage '{stage_name}': Placeholder variable '${mv}' in match section "
+                "must be defined in event section."
+            )
+
       # Anti-Pattern 6: Single-stage multi-vector cramming
       distinct_event_types = set(re.findall(r"metadata\.event_type\s*==?\s*[\"']([A-Z_]+)[\"']", stage_body))
       metrics_calls = re.findall(r"metrics\.([a-zA-Z0-9_]+)\s*\(", stage_body)
