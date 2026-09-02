@@ -9,6 +9,21 @@ This catalog details all 38 active pre-computed behavioral risk metrics availabl
 > `compilation error: validating ueba functions: unsupported filters for metric ...`  
 > The `principal.ip` filter is strictly supported **only** on Cloud Resource CRUD (`resource_*`) and Google Workspace metrics. For all network connections, firewalls, logins, and endpoint telemetry, always filter by `principal.asset.ip` or `principal.asset.hostname`.
 
+> [!IMPORTANT]
+> **Entity Dimension Roles: Principal vs. Target Semantics (`principal.user.userid` vs. `target.user.userid`)**:
+> Chronicle UDM explicitly separates the actor initiating an action (`principal`) from the object being acted upon (`target`):
+> 1. **User as Target (`target.user.userid`)**:
+>    - **Authentication (`USER_LOGIN`)**: The user account being accessed is the target of the authentication attempt. In IdP logs (Okta, Azure AD, Windows 4624/4625), the account identity resides in `target.user.userid`. When profiling logins for a user, the event filter is `target.user.userid = "<id>"` and the metric filter is `target.user.userid: "<id>"` (or `$user`).
+> 2. **User as Principal (`principal.user.userid`)**:
+>    - **Cloud Resource CRUD (`RESOURCE_CREATION` / `DELETION`)**: The IAM identity or service account creating or deleting cloud infrastructure.
+>    - **Google Workspace & SaaS (`USER_RESOURCE_ACCESS`)**: The user downloading, sharing, or editing Drive files.
+>    - **Network Traffic (`NETWORK_CONNECTION`)**: The user initiating outbound flows.
+>    - **Process Executions (`PROCESS_LAUNCH`)**: The user executing binaries or administrative tools.
+>    - In all these sectors, the event filter is `principal.user.userid = "<id>"` and the metric filter is `principal.user.userid: "<id>"` (or `$user`). Passing `target.user.userid` to these metrics causes compiler rejection (`unsupported filters for metric`) or zero matches.
+> 3. **Assets (`principal.asset.hostname` / `principal.asset.ip`)**:
+>    - For asset profiling, host is `principal.asset.hostname` across network, endpoint, DNS, and login events.
+>    - Device IP filtering strictly requires `principal.asset.ip` (mapping to `PRINCIPAL_DEVICE`), whereas `principal.ip` is rejected on network, auth, DNS, and endpoint metrics.
+
 ---
 
 ## 1. Authentication Attempts

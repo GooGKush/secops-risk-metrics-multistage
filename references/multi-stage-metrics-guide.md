@@ -73,8 +73,9 @@ Multi-stage DAG queries support two distinct temporal evaluation modes:
 | Stage search window > 24h (e.g. 7d) | Clamp Stage 1 search window to exactly 24h / 1d | Daily metrics already embed 30 days of data; expanding search window causes metric duplicate joins. |
 | `stage_name.$variable` or `stage_name.variable` | `$stage_name.variable` | In YARA-L, stage references require the leading `$` on the stage identifier (e.g. `$stage1_extract.actual`). Placing `$` after the dot causes an ANTLR syntax crash (`no viable alternative at input 'stage.$'`). |
 | Cross-sector joins in 360° profiling (e.g. Auth + Egress) | Decoupled parallel micro-queries | Multi-stage queries are inner joins; joining orthogonal sectors silently drops entities with zero events in either sector. |
+| Inverting `principal` vs `target` for User profiling | Use `target.user.userid` for `USER_LOGIN`; use `principal.user.userid` for Cloud CRUD, Workspace, Network, Endpoint | Login events target an account (`target.user.userid`); operational events are initiated by an actor (`principal.user.userid`). Metrics filters must match these dimensions. |
 | `graph.entity.metrics.*` in predicates | Use `metrics.*()` in `outcome:` | `metrics` is a built-in function, not an Entity Graph protobuf field. |
-| Direct literal filter without match variable (`target.user.userid = "name"` with `match: $user`) | `target.user.userid = $user`<br>`$user = "name"` | Any placeholder variable in `match:` must be bound to a UDM field in the stage's event predicates. Omitting `$user` causes: `placeholder variable in match section must be defined in event section`. |
+| Direct literal filter without match variable (`target.user.userid = "name"` with `match: $user`) | `target.user.userid = "name"`<br>`$user = target.user.userid` | Any placeholder variable in `match:` must be explicitly assigned to a UDM field in that stage's event predicates (`$user = target.user.userid`). |
 
 ---
 

@@ -24,10 +24,6 @@ Executes **multi-sector statistical outlier hunting** in Google SecOps using **3
 | • **30-Day Baselines** (`metrics.*`)<br>• **Peer Cohorts**<br>• **Multi-Sector Fusion** | 📊 **`secops-risk-metrics-multistage`** *(This Skill)* | Execute native multi-stage `metrics.*` pipeline. |
 | • **Ad-Hoc Raw Telemetry Sensors** (C2 jitter CV)<br>• **Non-Metrics Telemetry** | ⚡ **`secops-statistical-hunter`** | Emit **Skill Handoff Card** and Non-Metrics Telemetry Steering Mandate to `secops-statistical-hunter`. |
 
-> [!TIP]
-> **🔀 Skill Routing Notice: `secops-statistical-hunter` Recommended**
-> Request targets raw telemetry without 30-day UEBA pre-computed tables (`metrics.*`). Routing to **`secops-statistical-hunter`**.
-
 ---
 
 ## ⏱️ Evaluation Modes: Snapshot vs. 30-Day Longitudinal Sliding Timeline
@@ -84,13 +80,13 @@ When an analyst asks to profile an entity across all vectors (*"visualize all ri
    ```yara
    stage stage1_extract {
        metadata.event_type = "USER_LOGIN"
+       target.user.userid = "%(entity_id)s"
        $user = target.user.userid
-       $user = "%(entity_id)s"
      match: $user by 1d
      outcome:
        $obs = count(metadata.id)
-       $mu = max(metrics.auth_attempts_success(period: 1d, window: 30d, metric: event_count_sum, agg: avg, target.user.userid: $user))
-       $sigma = max(metrics.auth_attempts_success(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, target.user.userid: $user))
+       $mu = max(metrics.auth_attempts_success(period: 1d, window: 30d, metric: event_count_sum, agg: avg, target.user.userid: "%(entity_id)s"))
+       $sigma = max(metrics.auth_attempts_success(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, target.user.userid: "%(entity_id)s"))
    }
    // Root Stage (UNWRAPPED — NEVER WRAP IN STAGE BLOCK)
    $user = $stage1_extract.user
@@ -131,7 +127,7 @@ Once the analyst specifies or confirms vectors and scope (or via CTI threat repo
    * *Interactive Entity Graph Dimension Mandate*: Express Entity Graph joins in card under `• Entity Graph Dimension: [Exact Filter]`.
    * *Interactive Entity Graph Rarity & Context Discovery*: Domain Rarity (`graph.entity.domain.prevalence.rolling_max <= 3`), Fleet Prevalence (`day_count = 10`), Binary Rarity (`graph.entity.file.prevalence.rolling_max <= 3`), IP Rarity (`graph.entity.artifact.prevalence.rolling_max <= 3`).
    * *10-Day Prevalence Platform Invariant*: Prevalence is hard-anchored to a 10-day lookback (`day_count = 10`).
-   * *Canonical 2-Stage Preview Invariant*: Named stages MUST NOT use `events:` headers or `$e.` prefixes. Match variables MUST bind to UDM fields (`target.user.userid = $user` and `$user = "entity"`). Decouple baseline into `stage stage1_extract` and root arithmetic with `+ 1.0` floor.
+   * *Canonical 2-Stage Preview Invariant*: Named stages MUST NOT use `events:` headers or `$e.` prefixes. Match variables bind to active UDM fields: `target.user.userid` for auth, `principal.user.userid` for cloud/SaaS/network/process (`principal.asset.hostname` for assets). Decouple baseline into `stage stage1_extract` and root math with `+ 1.0` floor.
 4. **Explicit Clearance Question & Turn Termination**: Explicitly ask:
    > *"Would you like to run **Mode A (24-Hour Snapshot fleet ranking)** or **Mode B (14-Day Longitudinal Timeline with inception chart)**?"*
    **STOP CALLING TOOLS IMMEDIATELY AND YIELD THE TURN.**
@@ -140,7 +136,8 @@ Once the analyst specifies or confirms vectors and scope (or via CTI threat repo
 
 ## 📊 MANDATORY STEP 2: PRESENT FULL 6-SECTION REPORT (AFTER CLEARANCE)
 
-When clearance is granted and native queries execute, the report **MUST STRICTLY CONTAIN ALL 6 NUMBERED PILLARS**:
+*Pre-Output Tool Execution Guard*: On clearance, execute `udm_search` or run `scripts/radar_collector.py` FIRST. NEVER output markdown, SVG, or report pillars until tool execution completes.
+The report **MUST STRICTLY CONTAIN ALL 6 NUMBERED PILLARS**:
 1. **Statistical Outlier Report**: `[Target Metric]` ([Statistical Model]) with 30-day baseline (`window: 30d`). (For 360° Radar: Embed visual radar via SVG).
 2. **Executed Multi-Stage YARA-L Query**: Literal executed multi-stage YARA-L query string passed into `secops-gus:udm_search(query=...)`. **Strict Nomenclature Mandate**: MUST be labeled 'Executed Multi-Stage YARA-L Query'. Calling ad-hoc query logic a 'Rule' or 'Hunting Rule' is a **CRITICAL NOMENCLATURE VIOLATION**.
 3. **Ranked Outlier Summary**: Columns: `Entity`, `24h Observed`, `Baseline Mean`, `StdDev`, `Z-Score`, `CRI Score`, `Visual Magnitude`.
@@ -154,7 +151,7 @@ When clearance is granted and native queries execute, the report **MUST STRICTLY
 
 ### 1. Native Execution & Truth in Reporting
 * **Zero Generative Simulation & Strict Data Grounding Contract**: Every metric number ($\text{Obs}$, $\mu$, $\sigma$, $Z$, $\text{CRI}$) MUST be a direct extraction from `secops-gus:udm_search`. If `udm_search` returns `{}` or empty events, report `0 observed events`, `Z = 0.00σ`, and `🟢 Nominal Baseline`. Fabricating synthetic numbers is a **CRITICAL TRUTH-IN-REPORTING FAILURE**.
-* **Hard Stop on API Error (MANDATORY STOP — ZERO SILENT FALLBACK)**: If an API query fails, STOP IMMEDIATELY and report the error. Simulating baselines locally in scratch scripts is a **CRITICAL COMPLIANCE VIOLATION**.
+* **Hard Stop on API Error (MANDATORY STOP — ZERO SILENT FALLBACK)**: If an API query fails, STOP IMMEDIATELY and report the error. Simulating baselines locally in scratch scripts is STRICTLY PROHIBITED.
 * **Native Execution Guarantee (ZERO PYTHON SIMULATION SCRIPTING)**: Multi-stage anomaly detection MUST run inside Chronicle. Zero baseline calculation in Python. Simulating baselines locally is a **CRITICAL COMPLIANCE VIOLATION**.
 * **Zero Local Script Invocations During Hunting (ZERO RUN_COMMAND VALIDATION & SIMULATION)**: Zero Python for queries, search, or baseline calculation. Post-search Python via `run_command` is permitted SOLELY on sanctioned scripts (`scripts/radar_collector.py`) to collate SIEM results.
 * **Hermetic Skill Boundary (ZERO CROSS-SKILL DRIFT)**: Once active, the agent MUST NOT read, import, or search other skills. This skill is 100% self-contained.
@@ -166,8 +163,8 @@ When clearance is granted and native queries execute, the report **MUST STRICTLY
 ### 2. Compiler & Architectural Invariants
 * **Pre-Composed Pipeline Template Routing**: Route hunts directly to composite pipeline templates in `templates/pipelines/` (e.g. `mad_modified_z_2stage.yl2`, `standard_z_score_2stage.yl2`, `poisson_rarity_2stage.yl2`, `dual_sector_fusion_3stage.yl2`).
 * **Zero-Hallucination Compiler Grammar Contract**:
-  - *Match Variable Binding Invariant*: Variables in `match:` MUST be bound in event predicates (`target.user.userid = $user` and `$user = "entity"`). Literal assignment without `$user` crashes compiler with `missing type info for placeholder`.
-  - *Common Compiler Structural Boundary (Zero Event Arithmetic)*: Variable arithmetic (`$a - $b`, `$a / $b`) is STRICTLY PROHIBITED in event/join blocks above `match:`. Common Compiler requires event placeholders to bind directly to fields or scalar functions; variable arithmetic above `match:` causes `missing type info for placeholder`. ALL mathematical derivations, differences, Z-scores, and ratios MUST reside in the `outcome:` section below `match:`.
+  - *Entity Role & Match Binding Invariant*: Variables in `match:` MUST bind in event predicates (`target.user.userid` for logins; `principal.user.userid` for cloud/SaaS/network/process; `principal.asset.hostname` for assets). Literal filter without `$user` crashes compiler with `missing type info for placeholder`.
+  - *Common Compiler Structural Boundary (Zero Event Arithmetic)*: Variable arithmetic (`$a - $b`, `$a / $b`) is STRICTLY PROHIBITED above `match:` (causes `missing type info for placeholder`). Placeholders must bind directly to fields or scalar functions. ALL derivations, differences, and Z-scores MUST reside in `outcome:` below `match:`.
   - *No `in ("A", "B")`*: `in` is strictly reserved for reference lists (`field in %list`). Multiple literals MUST use `(field = "A" or field = "B")` or regex.
   - *No Dot-Notation Metric Properties*: `metrics.foo.mean` is INVALID. Always use canonical function calls `max(metrics.foo(period: 1d, window: 30d, ...))`.
   - *No `by 24h`*: Daily match windows MUST use `by 1d`.
