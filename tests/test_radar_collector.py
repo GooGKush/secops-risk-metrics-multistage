@@ -217,5 +217,23 @@ class TestRadarCollector(unittest.TestCase):
       )
 
 
+
+  def test_generate_data_uri_image(self):
+    """Data-URI image must wrap SVG inside a markdown image tag with base64 encoding."""
+    payload = self.collector.build_radar_payload("tim.smith@altostrat.com", "USER", self.sample_spokes)
+    data_uri = payload["data_uri_image"]
+    self.assertTrue(data_uri.startswith("![360° Behavioral Risk Radar: tim.smith@altostrat.com](data:image/svg+xml;base64,"))
+    self.assertTrue(data_uri.endswith(")"))
+
+  def test_generate_ascii_chart(self):
+    """ASCII chart must render horizontal bars and status indicators for terminals."""
+    payload = self.collector.build_radar_payload("tim.smith@altostrat.com", "USER", self.sample_spokes)
+    ascii_chart = payload["ascii_chart"]
+    self.assertIn("360° BEHAVIORAL RISK RADAR", ascii_chart)
+    self.assertIn("tim.smith@altostrat.com", ascii_chart)
+    self.assertIn("▰", ascii_chart)
+    self.assertIn("Perimeter Threshold: +3.00σ", ascii_chart)
+
+
 if __name__ == "__main__":
   unittest.main()

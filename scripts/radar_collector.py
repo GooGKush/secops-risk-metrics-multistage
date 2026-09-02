@@ -4,10 +4,13 @@ Author: Greg Kushmerek
 Specification: 360 Entity Behavioral Risk Fingerprint & Playbook Hook
 """
 
+import argparse
+import base64
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, asdict
 import json
 import math
+import sys
 from typing import Any, Dict, List, Optional, Tuple
 
 
@@ -248,6 +251,12 @@ outcome:
         "svg_widget": self.generate_self_contained_svg(
             entity_id, sorted_spokes, composite_d, cri
         ),
+        "data_uri_image": self.generate_data_uri_image(
+            entity_id, sorted_spokes, composite_d, cri
+        ),
+        "ascii_chart": self.generate_ascii_chart(
+            entity_id, sorted_spokes, composite_d, cri
+        ),
         "markdown_table": self.generate_markdown_summary(
             entity_id, sorted_spokes, composite_d, cri
         ),
@@ -375,6 +384,55 @@ outcome:
     return "\n".join(svg_parts)
 
   @staticmethod
+  def generate_data_uri_image(
+      entity_id: str,
+      spokes: List[MetricSpoke],
+      composite_d: float,
+      cri: int,
+      scale_mode: str = "zscore",
+  ) -> str:
+    """Renders self-contained SVG wrapped in a Base64 Markdown image to prevent DOM sanitizers from collapsing text."""
+    svg = EntityRadarCollector.generate_self_contained_svg(
+        entity_id, spokes, composite_d, cri, scale_mode=scale_mode
+    )
+    b64_svg = base64.b64encode(svg.encode("utf-8")).decode("utf-8")
+    return f"![360° Behavioral Risk Radar: {entity_id}](data:image/svg+xml;base64,{b64_svg})"
+
+  @staticmethod
+  def generate_ascii_chart(
+      entity_id: str,
+      spokes: List[MetricSpoke],
+      composite_d: float,
+      cri: int,
+      bar_width: int = 20,
+  ) -> str:
+    """Renders a clean, terminal-friendly ASCII horizontal bar chart for plain-text environments."""
+    if not spokes:
+      return f"360° BEHAVIORAL RISK RADAR: {entity_id} — No metric data available"
+
+    is_anomalous = composite_d >= 3.0
+    status_tag = "🚨 HIGH RISK ANOMALY" if is_anomalous else ("⚠️ ELEVATED" if composite_d >= 2.0 else "🟢 NOMINAL")
+    header = f"360° BEHAVIORAL RISK RADAR: {entity_id} (D = {composite_d:.2f}σ | CRI {cri}/100 | {status_tag})"
+    separator = "─" * max(len(header), 75)
+
+    max_label_len = max(len(s.spoke_name) for s in spokes)
+    lines = [header, separator]
+
+    for s in spokes:
+      z_val = max(0.0, s.z_score)
+      capped_z = min(z_val, 4.0)
+      filled = int(round((capped_z / 4.0) * bar_width))
+      bar = "▰" * filled + "▱" * (bar_width - filled)
+      outlier_icon = " 🚨" if s.z_score >= 3.0 else (" ⚠️" if s.z_score >= 2.0 else "   ")
+      lines.append(
+          f"{s.spoke_name:<{max_label_len}}  [{bar}]  +{s.z_score:>5.2f}σ  (CRI {s.cri_score:>3}/100){outlier_icon}"
+      )
+
+    lines.append(separator)
+    lines.append(f"Perimeter Threshold: +3.00σ (CRI 50) | Monitored Sectors: {len(spokes)}")
+    return "\n".join(lines)
+
+  @staticmethod
   def generate_markdown_summary(
       entity_id: str,
       spokes: List[MetricSpoke],
@@ -475,3 +533,72 @@ outcome:
             },
         },
     }
+
+
+def main():
+  """CLI entry point for deterministic visual generation and post-search collation."""
+  parser = argparse.ArgumentParser(description="360° Entity Behavioral Risk Radar Generator")
+  parser.add_argument("--entity", required=True, help="Entity identifier (user or hostname)")
+  parser.add_argument("--data", help="JSON string or file path containing spoke records")
+  parser.add_argument(
+      "--format",
+      choices=["data-uri", "svg", "ascii", "markdown", "json"],
+      default="data-uri",
+      help="Output format: data-uri (markdown image), svg, ascii (terminal), markdown (table), json",
+  )
+  parser.add_argument("--scale-mode", choices=["zscore", "cri"], default="zscore", help="Radar scale mode")
+  parser.add_argument("--output", help="Optional output file path")
+  args = parser.parse_args()
+
+  spoke_items = []
+  if args.data:
+    raw_data = args.data.strip()
+    if raw_data.startswith("[") or raw_data.startswith("{"):
+      parsed = json.loads(raw_data)
+      spoke_items = parsed if isinstance(parsed, list) else parsed.get("spokes", [])
+    else:
+      with open(raw_data, "r", encoding="utf-8") as f:
+        parsed = json.load(f)
+        spoke_items = parsed if isinstance(parsed, list) else parsed.get("spokes", [])
+
+  spokes = []
+  for item in spoke_items:
+    spokes.append(
+        MetricSpoke(
+            sector=item.get("sector", "General"),
+            spoke_name=item.get("spoke_name", item.get("name", "Spoke")),
+            metric_table=item.get("metric_table", "metrics.unknown"),
+            observed=float(item.get("observed", 0.0)),
+            baseline_mean=float(item.get("baseline_mean", item.get("mean", 0.0))),
+            baseline_stddev=float(item.get("baseline_stddev", item.get("stddev", 0.0))),
+            z_score=float(item.get("z_score", item.get("z", 0.0))),
+            unit=item.get("unit", "events"),
+            cri_score=int(item.get("cri_score", item.get("cri", 0))),
+        )
+    )
+
+  collector = EntityRadarCollector()
+  payload = collector.build_radar_payload(args.entity, "USER", spokes)
+
+  if args.format == "data-uri":
+    out_str = payload["data_uri_image"]
+  elif args.format == "svg":
+    out_str = payload["svg_widget"]
+  elif args.format == "ascii":
+    out_str = payload["ascii_chart"]
+  elif args.format == "markdown":
+    out_str = payload["markdown_table"]
+  elif args.format == "json":
+    out_str = json.dumps(payload, indent=2)
+  else:
+    out_str = payload["data_uri_image"]
+
+  if args.output:
+    with open(args.output, "w", encoding="utf-8") as f:
+      f.write(out_str)
+
+  print(out_str)
+
+
+if __name__ == "__main__":
+  main()

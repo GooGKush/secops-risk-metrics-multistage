@@ -99,3 +99,34 @@ Visualizes an entity's 30-day baseline envelope (historical mean line with a sha
   ]
 }
 ```
+
+---
+
+## 4. Visual Rendering Plane, Post-Search Collation & Anti-Simulation Invariant
+
+To guarantee data integrity while supporting rich graphical visualizations and eliminating Markdown DOM sanitizer text-collapse, threat hunting strictly bifurcates execution into two planes:
+
+### A. The Analytical Data Plane (Chronicle Native — Strictly Zero Python Simulation)
+* **Single Source of Truth**: All statistical baselining, event counting, 30-day UEBA lookups, and standardized score calculations ($Z_i$) MUST execute natively inside Chronicle SIEM via `udm_search`.
+* **Zero Simulation Guarantee**: Python is STRICTLY PROHIBITED from constructing YARA-L queries, fetching raw SIEM logs, computing baselines, or faking detection metrics. Every base metric presented in reports must originate directly from Chronicle.
+
+### B. The Post-Search Collation & Visual Reduction Plane (Sanctioned Repo Scripts Allowed)
+* **Post-Search Execution Exemption**: Once verified JSON results are returned from `udm_search`, local Python execution via `run_command` is permitted SOLELY on sanctioned repository scripts (`scripts/radar_collector.py`, `scripts/triage_formatter.py`, `scripts/chart_generator.py`).
+* **Post-Search Collation**: When hunts fan out across decoupled micro-queries (due to Chronicle's 4-join limit) or multi-day sliding horizons, sanctioned scripts are authorized to merge the results and compute exact mathematical composite formulas ($D = \sqrt{\sum Z_i^2}$, Calibrated Risk Index $\text{CRI}$, and CUSUM drift) that Chronicle YARA-L cannot compute natively.
+* **Anti-Scratch-Script Guardrail**: Writing or executing ad-hoc scratch scripts (`scratch/test.py`) during threat hunts is strictly prohibited.
+
+### C. The Dual-Mode Visual Contract (ASCII Universal Baseline + Graphical Layer)
+To ensure 100% compatibility across both rich web dashboards and plain-text/ASCII environments (terminals, SOAR case walls, email gateways):
+1. **Universal ASCII Baseline (Pillar 3 Table)**:
+   * Every report MUST include the CommonMark summary table with the `Visual Magnitude` column populated with Unicode/ASCII progress bars (`▰▰▰▱▱` or `████░░░░`). This guarantees full visual comprehension in 100% of environments.
+2. **Graphical Layer (Data-URI Image / SVG)**:
+   * In graphical environments, the 360° Radar is rendered as a **Markdown Data-URI Image**:
+     ```markdown
+     ![360° Behavioral Risk Radar](data:image/svg+xml;base64,<BASE64_ENCODED_SVG>)
+     ```
+   * **Why Data-URI Image?** Standard chat Markdown renderers (and DOM sanitizers like DOMPurify) frequently strip raw `<svg>` tags and concatenate inner `<text>` elements into an unformatted text wall. Wrapping the SVG inside a standard Markdown image `![alt](data:image/svg+xml;base64,...)` causes the parser to treat it as an `<img>` element, preserving the graphical render and preventing text collapse.
+3. **Terminal / CLI Fallback (`--format ascii`)**:
+   * When operating in a CLI or plain-text environment, `scripts/radar_collector.py --format ascii` outputs a formatted horizontal ASCII bar chart displaying spoke deviations and thresholds without emitting raw XML:
+     ```bash
+     python3 scripts/radar_collector.py --entity "frank.kolzig" --data '<JSON_SPOKES>' --format ascii
+     ```

@@ -99,7 +99,7 @@ When an analyst asks to profile an entity across all vectors (*"visualize all ri
      $z_score = (max($stage1_extract.obs) - max($stage1_extract.mu)) / (max($stage1_extract.sigma) + 1.0)
    ```
 3. **Mode-Specific Visualization Strategy**:
-   - **Mode A (24h Snapshot)**: Render **360° Radial Radar SVG ONLY** (today's spoke deviations). Suppress timeline charts.
+   - **Mode A (24h Snapshot)**: Render **360° Radial Radar (Data-URI SVG or ASCII Table/Bars)**. Suppress multi-day timeline charts.
    - **Mode B (14d Multi-Horizon)**: Render **360° Radial Radar SVG (Peak Envelope $Z_{\text{peak}}$)** paired with the **14-Day Activity & Anomaly Timeline**.
 4. **Dual Scales & Math Appendix**: Support raw Z-score and CRI ($+3.0\sigma$ / CRI 50 perimeter). Section 6 must show formula substitutions for $Z_i$, $D = \sqrt{\sum Z_i^2}$, and $\text{CRI}$.
 
@@ -132,7 +132,7 @@ Once the analyst specifies or confirms vectors and scope (or via CTI threat repo
    * *Interactive Entity Graph Dimension Mandate*: Express Entity Graph joins in card under `• Entity Graph Dimension: [Exact Filter]`.
    * *Interactive Entity Graph Rarity & Context Discovery*: Domain Rarity (Fleet Prevalence `graph.entity.domain.prevalence.rolling_max <= 3`), Binary Rarity (`graph.entity.file.prevalence.rolling_max <= 3`), IP Rarity (`graph.entity.artifact.prevalence.rolling_max <= 3`).
    * *10-Day Prevalence Platform Invariant*: Prevalence is hard-anchored to a 10-day lookback (`day_count = 10`).
-   * *Canonical 2-Stage Preview Invariant*: Named stages MUST NOT use `events:` headers or `$e.` prefixes. Variables in `match:` MUST be bound to a UDM field (`target.user.userid = $user` and `$user = "james.holden"`). Decouple baseline into `stage stage1_extract` and outcome arithmetic into Root Stage with `+ 1.0` dispersion floor.
+   * *Canonical 2-Stage Preview Invariant*: Named stages MUST NOT use `events:` headers or `$e.` prefixes. Match variables MUST bind to UDM fields (`target.user.userid = $user` and `$user = "james.holden"`). Decouple baseline into `stage stage1_extract` and root arithmetic with `+ 1.0` floor.
 4. **Explicit Clearance Question & Turn Termination**: Explicitly ask:
    > *"Would you like to run **Mode A (24-Hour Snapshot fleet ranking)** or **Mode B (14-Day Longitudinal Timeline with inception chart)**?"*
    **STOP CALLING TOOLS IMMEDIATELY AND YIELD THE TURN.**
@@ -142,7 +142,7 @@ Once the analyst specifies or confirms vectors and scope (or via CTI threat repo
 ## 📊 MANDATORY STEP 2: PRESENT FULL 6-SECTION REPORT (AFTER CLEARANCE)
 
 When clearance is granted and native queries execute, the report **MUST STRICTLY CONTAIN ALL 6 NUMBERED PILLARS**:
-1. **Statistical Outlier Report**: `[Target Metric]` ([Statistical Model]) with 30-day baseline (`window: 30d`).
+1. **Statistical Outlier Report**: `[Target Metric]` ([Statistical Model]) with 30-day baseline (`window: 30d`). (For 360° Radar: Embed visual radar via Data-URI image or ASCII chart).
 2. **Executed Multi-Stage YARA-L Query**: Literal executed multi-stage YARA-L query string passed into `secops-gus:udm_search(query=...)`. **Strict Nomenclature Mandate**: MUST be labeled 'Executed Multi-Stage YARA-L Query'. Calling ad-hoc query logic a 'Rule' or 'Hunting Rule' is a **CRITICAL NOMENCLATURE VIOLATION**.
 3. **Ranked Outlier Summary**: Columns: `Entity`, `24h Observed`, `Baseline Mean`, `StdDev`, `Z-Score`, `CRI Score`, `Visual Magnitude`.
 4. **Forensic Vector Breakdown**: Threat translation, significance, attack scenarios, SOC playbook.
@@ -154,10 +154,10 @@ When clearance is granted and native queries execute, the report **MUST STRICTLY
 ## 🛡️ Non-Negotiable Execution & Integrity Contracts
 
 ### 1. Native Execution & Truth in Reporting
-* **Zero Generative Simulation & Strict Data Grounding Contract**: Every metric number in Sections 1, 3, and 4 ($\text{Obs}$, $\mu$, $\sigma$, $Z$, $\text{CRI}$) MUST be a direct extraction from the raw output of `secops-gus:udm_search`. If `udm_search` returns `{}` or empty events, the agent MUST report `0 observed events`, `Z = 0.00σ`, and `🟢 Nominal Baseline`. Fabricating synthetic baseline numbers without tool execution is a **CRITICAL TRUTH-IN-REPORTING FAILURE**.
+* **Zero Generative Simulation & Strict Data Grounding Contract**: Every metric number ($\text{Obs}$, $\mu$, $\sigma$, $Z$, $\text{CRI}$) MUST be a direct extraction from `secops-gus:udm_search`. If `udm_search` returns `{}` or empty events, report `0 observed events`, `Z = 0.00σ`, and `🟢 Nominal Baseline`. Fabricating synthetic numbers is a **CRITICAL TRUTH-IN-REPORTING FAILURE**.
 * **Hard Stop on API Error (MANDATORY STOP — ZERO SILENT FALLBACK)**: If an API query fails, STOP IMMEDIATELY and report the error. Simulating baselines locally in scratch scripts is a **CRITICAL COMPLIANCE VIOLATION**.
 * **Native Execution Guarantee (ZERO PYTHON SIMULATION SCRIPTING)**: Multi-stage anomaly detection MUST run inside Chronicle. Zero baseline calculation in Python.
-* **Zero Local Script Invocations During Hunting (ZERO RUN_COMMAND VALIDATION)**: MUST NOT call `run_command` or execute local Python scripts in terminal during chat. Never prompt for terminal permissions.
+* **Zero Local Script Invocations During Hunting (ZERO RUN_COMMAND VALIDATION & SIMULATION)**: Zero Python for queries, search, or baseline simulation. Post-search Python via `run_command` is permitted SOLELY on sanctioned repo scripts (`scripts/radar_collector.py`) to collate multi-query SIEM results and render visual artifacts. *(See `references/chart-specifications-guide.md`)*.
 * **Hermetic Skill Boundary (ZERO CROSS-SKILL DRIFT)**: Once active, the agent MUST NOT read, import, or search other skills. This skill is 100% self-contained.
 * **Atomic Pipeline Execution Mandate (ZERO PIECEMEAL FRACTURING & DRIFT)**: Dispatch complete multi-stage DAG in a single atomic YARA-L query to `udm_search`. Breaking into isolated 1-metric queries is STRICTLY PROHIBITED.
 * **Literal Query Display Mandate (ZERO FAKED YARA-L QUERIES)**: Section 2 MUST contain the literal exact query string passed into `secops-gus:udm_search(query=...)`.
@@ -181,7 +181,7 @@ When clearance is granted and native queries execute, the report **MUST STRICTLY
 
 ### 3. Scope, Steering & Parsimony
 * **Pure Threat Hunting Scope (SEARCH-ONLY — ZERO RULE CREATION / DEPLOYMENT)**: `create_rule` and `validate_rule` are STRICTLY PROHIBITED during threat hunts.
-* **Zero Streaming Detection Rule Syntax (SEARCH-ONLY YARA-L DAG MANDATE)**: When designing, proposing, or executing queries, the agent MUST ONLY output ad-hoc Multi-Stage YARA-L Search syntax (`stage name { ... }` + unwrapped Root Stage) for Chronicle UDM Search (`udm_search`). Outputting continuous detection rules (`rule <name> { ... }`), `meta:`, or `condition:` blocks is a **CRITICAL NOMENCLATURE & ARCHITECTURAL VIOLATION**. If an inquiry targets non-metrics telemetry (e.g. inter-arrival timing jitter CV), steer to `secops-statistical-hunter`—NEVER improvise detection rules.
+* **Zero Streaming Detection Rule Syntax (SEARCH-ONLY YARA-L DAG MANDATE)**: Output ad-hoc Multi-Stage YARA-L Search syntax (`stage name { ... }` + Root Stage) for Chronicle UDM Search (`udm_search`). Outputting continuous detection rules (`rule <name> { ... }`), `meta:`, or `condition:` blocks is a **CRITICAL NOMENCLATURE & ARCHITECTURAL VIOLATION**. If targeting non-metrics telemetry, steer to `secops-statistical-hunter`—NEVER improvise detection rules.
 * **Non-Metrics Telemetry Steering Mandate (HANDOFF TO STATISTICAL HUNTER)**: If an analyst targets non-baselined telemetry, emit the **Skill Handoff Card** and steer to `secops-statistical-hunter`.
 * **Zero Gratuitous Entity Graph Injection (ON-DEMAND / ALGORITHMIC GROUNDING ONLY)**: Entity Graph constructs must NEVER be injected gratuitously or speculatively. Include ONLY upon **Direct Customer Request (On-Demand)** or explicit **Algorithmic Grounding**.
 
