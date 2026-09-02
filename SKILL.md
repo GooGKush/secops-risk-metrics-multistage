@@ -98,16 +98,15 @@ When an analyst asks to profile an entity across all vectors (*"visualize all ri
    outcome:
      $z_score = (max($stage1_extract.obs) - max($stage1_extract.mu)) / (max($stage1_extract.sigma) + 1.0)
    ```
-3. **Mode-Specific Visualization Strategy**:
-   - **Mode A (24h Snapshot)**: Render **360° Radial Radar SVG** (today's spoke deviations). Suppress multi-day timeline charts.
-   - **Mode B (14d Multi-Horizon)**: Render **360° Radial Radar SVG (Peak Envelope $Z_{\text{peak}}$)** paired with the **14-Day Activity & Anomaly Timeline**.
-4. **Dual Scales & Math Appendix**: Support raw Z-score and CRI ($+3.0\sigma$ / CRI 50 perimeter). Section 6 must show formula substitutions for $Z_i$, $D = \sqrt{\sum Z_i^2}$, and $\text{CRI}$.
+3. **Visualization Strategy**:
+   - **Mode A (24h Snapshot)**: Render **360° Radial Radar SVG** (today's spoke deviations).
+   - **Mode B (14d Multi-Horizon)**: Render **360° Radial Radar SVG (Peak Envelope $Z_{\text{peak}}$)** + **14-Day Activity & Anomaly Timeline**.
+4. **Dual Scales**: Support raw Z-score and CRI ($+3.0\sigma$ / CRI 50 perimeter; Section 6 shows formula substitutions).
 
 ### 🎯 CTI & Threat Report Mapping (Reports, URLs, CVEs, Threat Actors)
 When an analyst provides a threat report (URL, CVEs, or threat actor):
-1. **Extract Attack Chain**: Identify core attack stages (initial access, staging, egress, credential abuse).
-2. **Map to UEBA Metric Tables**: Map attack stages to corresponding pre-computed metric tables (`metrics.*`).
-3. **Transition Directly to Phase 1B**: Emit **Pre-Flight Hunting Specification Card** and **Literal Query Preview** on Turn 1. Ask for target workload scoping and **YIELD THE TURN (0 tools called)**.
+1. **Map to UEBA Metric Tables**: Map attack stages to corresponding pre-computed metric tables (`metrics.*`).
+2. **Transition Directly to Phase 1B**: Emit **Pre-Flight Hunting Specification Card** and **Literal Query Preview** on Turn 1. Ask for target scoping and **YIELD THE TURN (0 tools called)**.
 
 ### 🔍 Phase 1B: Pre-Flight Spec & Query Preview (Once Scope & Vectors are Established)
 Once the analyst specifies or confirms vectors and scope (or via CTI threat report mapping, or for specific prompts like *"MAD on network outbound bytes"*):
@@ -130,9 +129,9 @@ Once the analyst specifies or confirms vectors and scope (or via CTI threat repo
    * *Mandatory Upfront Query Preview Protocol*: Display literal multi-stage YARA-L query in markdown prior to clearance.
    * *Peer Cohort Roster Requirement*: Resolve and list cohort entities and count in card (`• Peer Cohort & Roster: ...`).
    * *Interactive Entity Graph Dimension Mandate*: Express Entity Graph joins in card under `• Entity Graph Dimension: [Exact Filter]`.
-   * *Interactive Entity Graph Rarity & Context Discovery*: Domain Rarity (Fleet Prevalence `graph.entity.domain.prevalence.rolling_max <= 3`), Binary Rarity (`graph.entity.file.prevalence.rolling_max <= 3`), IP Rarity (`graph.entity.artifact.prevalence.rolling_max <= 3`).
+   * *Interactive Entity Graph Rarity & Context Discovery*: Domain Rarity (`graph.entity.domain.prevalence.rolling_max <= 3`), Fleet Prevalence (`day_count = 10`), Binary Rarity (`graph.entity.file.prevalence.rolling_max <= 3`), IP Rarity (`graph.entity.artifact.prevalence.rolling_max <= 3`).
    * *10-Day Prevalence Platform Invariant*: Prevalence is hard-anchored to a 10-day lookback (`day_count = 10`).
-   * *Canonical 2-Stage Preview Invariant*: Named stages MUST NOT use `events:` headers or `$e.` prefixes. Match variables MUST bind to UDM fields (`target.user.userid = $user` and `$user = "james.holden"`). Decouple baseline into `stage stage1_extract` and root arithmetic with `+ 1.0` floor.
+   * *Canonical 2-Stage Preview Invariant*: Named stages MUST NOT use `events:` headers or `$e.` prefixes. Match variables MUST bind to UDM fields (`target.user.userid = $user` and `$user = "entity"`). Decouple baseline into `stage stage1_extract` and root arithmetic with `+ 1.0` floor.
 4. **Explicit Clearance Question & Turn Termination**: Explicitly ask:
    > *"Would you like to run **Mode A (24-Hour Snapshot fleet ranking)** or **Mode B (14-Day Longitudinal Timeline with inception chart)**?"*
    **STOP CALLING TOOLS IMMEDIATELY AND YIELD THE TURN.**
@@ -156,8 +155,8 @@ When clearance is granted and native queries execute, the report **MUST STRICTLY
 ### 1. Native Execution & Truth in Reporting
 * **Zero Generative Simulation & Strict Data Grounding Contract**: Every metric number ($\text{Obs}$, $\mu$, $\sigma$, $Z$, $\text{CRI}$) MUST be a direct extraction from `secops-gus:udm_search`. If `udm_search` returns `{}` or empty events, report `0 observed events`, `Z = 0.00σ`, and `🟢 Nominal Baseline`. Fabricating synthetic numbers is a **CRITICAL TRUTH-IN-REPORTING FAILURE**.
 * **Hard Stop on API Error (MANDATORY STOP — ZERO SILENT FALLBACK)**: If an API query fails, STOP IMMEDIATELY and report the error. Simulating baselines locally in scratch scripts is a **CRITICAL COMPLIANCE VIOLATION**.
-* **Native Execution Guarantee (ZERO PYTHON SIMULATION SCRIPTING)**: Multi-stage anomaly detection MUST run inside Chronicle. Zero baseline calculation in Python.
-* **Zero Local Script Invocations During Hunting (ZERO RUN_COMMAND VALIDATION & SIMULATION)**: Zero Python for queries, search, or baseline simulation. Post-search Python via `run_command` is permitted SOLELY on sanctioned repo scripts (`scripts/radar_collector.py`) to collate multi-query SIEM results and render visual artifacts. *(See `references/chart-specifications-guide.md`)*.
+* **Native Execution Guarantee (ZERO PYTHON SIMULATION SCRIPTING)**: Multi-stage anomaly detection MUST run inside Chronicle. Zero baseline calculation in Python. Simulating baselines locally is a **CRITICAL COMPLIANCE VIOLATION**.
+* **Zero Local Script Invocations During Hunting (ZERO RUN_COMMAND VALIDATION & SIMULATION)**: Zero Python for queries, search, or baseline calculation. Post-search Python via `run_command` is permitted SOLELY on sanctioned scripts (`scripts/radar_collector.py`) to collate SIEM results.
 * **Hermetic Skill Boundary (ZERO CROSS-SKILL DRIFT)**: Once active, the agent MUST NOT read, import, or search other skills. This skill is 100% self-contained.
 * **Atomic Pipeline Execution Mandate (ZERO PIECEMEAL FRACTURING & DRIFT)**: Dispatch complete multi-stage DAG in a single atomic YARA-L query to `udm_search`. Breaking into isolated 1-metric queries is STRICTLY PROHIBITED.
 * **Literal Query Display Mandate (ZERO FAKED YARA-L QUERIES)**: Section 2 MUST contain the literal exact query string passed into `secops-gus:udm_search(query=...)`.
@@ -167,17 +166,17 @@ When clearance is granted and native queries execute, the report **MUST STRICTLY
 ### 2. Compiler & Architectural Invariants
 * **Pre-Composed Pipeline Template Routing**: Route hunts directly to composite pipeline templates in `templates/pipelines/` (e.g. `mad_modified_z_2stage.yl2`, `standard_z_score_2stage.yl2`, `poisson_rarity_2stage.yl2`, `dual_sector_fusion_3stage.yl2`).
 * **Zero-Hallucination Compiler Grammar Contract**:
-  - *Match Variable Binding Invariant*: Variables in `match:` MUST be bound in event predicates (`target.user.userid = $user` and `$user = "entity"`). Literal assignment without `$user` crashes compiler.
+  - *Match Variable Binding Invariant*: Variables in `match:` MUST be bound in event predicates (`target.user.userid = $user` and `$user = "entity"`). Literal assignment without `$user` crashes compiler with `missing type info for placeholder`.
+  - *Common Compiler Structural Boundary (Zero Event Arithmetic)*: Variable arithmetic (`$a - $b`, `$a / $b`) is STRICTLY PROHIBITED in event/join blocks above `match:`. Common Compiler requires event placeholders to bind directly to fields or scalar functions; variable arithmetic above `match:` causes `missing type info for placeholder`. ALL mathematical derivations, differences, Z-scores, and ratios MUST reside in the `outcome:` section below `match:`.
   - *No `in ("A", "B")`*: `in` is strictly reserved for reference lists (`field in %list`). Multiple literals MUST use `(field = "A" or field = "B")` or regex.
   - *No Dot-Notation Metric Properties*: `metrics.foo.mean` is INVALID. Always use canonical function calls `max(metrics.foo(period: 1d, window: 30d, ...))`.
   - *No `by 24h`*: Daily match windows MUST use `by 1d`.
   - *Linear Outcome Arithmetic*: Nested `max(0, ...)` or inline `sqrt(...)` in arithmetic expressions are INVALID. Compute squared norms and order by `$norm_sq desc`.
   - *Max 4 Joins Invariant*: YARA-L 2.0 strictly limits queries to $\le 4$ joins (`maxJoinCount = 4`). In multi-stage DAGs, each UEBA stage consumes 1 join, and root joins consume $K-1$ joins. Stay within $\le 4$ joins. *(See `references/multi-stage-metrics-guide.md`)*.
-* **Exact Time Window Arithmetic**: Compute $\text{startTime} = \text{endTime} - N \times 86400\text{s}$ with exact precision matching the user requested horizon (e.g. 14 days ending Aug 29 starts Aug 16 at 00:00:00Z).
-* **Variable Role Classification & Anti-Passive-Decoration Mandate**: Every variable must fulfill: `[JOIN_KEY]`, `[SCORING_DIMENSION]`, `[ACTIVE_FILTER]`, or `[TRIAGE_DECORATION]`. Qualitative primary threat vectors MUST NEVER act solely as `[TRIAGE_DECORATION]`; bind them to active fleet rarity or Entity Graph constraints. *(See `references/multi-stage-metrics-guide.md`)*.
-* **Threat-to-Telemetry Decomposition Matrix**: Decompose threat descriptions into orthogonal behavioral vectors.
-* **Single-ECG Limit & Decoupled Context Fusion**: Max 1 ECG lookup per stage. Never evaluate `metrics.*` inside stages filtered by `GLOBAL_CONTEXT` or `DERIVED_CONTEXT`. Decouple baseline into Stage 1 and threat context into Stage 2.
-* **Inner-Join Drop Prevention Standard (PRESERVING FULL POPULATION)**: In YARA-L, multi-stage joins are inner joins. Evaluate full baseline in Stage 1 and profile destinations via `array_distinct(target.hostname)`.
+* **Exact Time Window Arithmetic**: Compute $\text{startTime} = \text{endTime} - N \times 86400\text{s}$ matching requested horizon (e.g. 14d ending Aug 29 starts Aug 16 at 00:00:00Z).
+* **Variable Role Classification & Anti-Passive-Decoration Mandate**: Every variable must fulfill `[JOIN_KEY]`, `[SCORING_DIMENSION]`, `[ACTIVE_FILTER]`, or `[TRIAGE_DECORATION]`. Primary threat vectors MUST NEVER act solely as `[TRIAGE_DECORATION]`; bind them to active fleet rarity or Entity Graph constraints.
+* **Single-ECG Limit & Decoupled Context Fusion**: Max 1 ECG lookup per stage. Never evaluate `metrics.*` inside stages filtered by `GLOBAL_CONTEXT` or `DERIVED_CONTEXT`.
+* **Inner-Join Drop Prevention Standard (PRESERVING FULL POPULATION)**: Multi-stage joins are inner joins. Evaluate full baseline in Stage 1 and profile destinations via `array_distinct(target.hostname)`.
 
 ### 3. Scope, Steering & Parsimony
 * **Pure Threat Hunting Scope (SEARCH-ONLY — ZERO RULE CREATION / DEPLOYMENT)**: `create_rule` and `validate_rule` are STRICTLY PROHIBITED during threat hunts.

@@ -871,17 +871,18 @@ class MalachiteASTValidator:
             "Root stages join via '$user = $stage1.user' and '$stage1.outcome_var'."
         )
 
-      # Check that placeholder variables in match section are defined in event section
-      match_block = re.search(r"match:\s*(.*?)(?=\n\s*(?:outcome|condition|\}|$))", stage_body, re.DOTALL)
+      # Check that placeholder variables in match section are defined in event section and no arithmetic above match
+      match_block = re.search(r"\bmatch:\s*(.*?)(?=\b(?:outcome|condition|order)\s*:|\}|$|\Z)", stage_body, re.DOTALL)
       if match_block:
         event_part = stage_body[:match_block.start()]
-        match_vars = re.findall(r"\$([a-zA-Z0-9_]+)", match_block.group(1))
-        for mv in match_vars:
-          if not re.search(rf"\${mv}\b", event_part):
-            errors.append(
-                f"UNBOUND_MATCH_VARIABLE in stage '{stage_name}': Placeholder variable '${mv}' in match section "
-                "must be defined in event section."
-            )
+        errors.extend(MalachiteASTValidator._check_arithmetic_in_event_section(stage_name, event_part))
+        errors.extend(MalachiteASTValidator._check_match_placeholders_bound(stage_name, event_part, match_block.group(1)))
+      else:
+        # If no match section, check event section preceding outcome
+        outcome_block = re.search(r"outcome:\s*", stage_body)
+        if outcome_block:
+          event_part = stage_body[:outcome_block.start()]
+          errors.extend(MalachiteASTValidator._check_arithmetic_in_event_section(stage_name, event_part))
 
       # Anti-Pattern 6: Single-stage multi-vector cramming
       distinct_event_types = set(re.findall(r"metadata\.event_type\s*==?\s*[\"']([A-Z_]+)[\"']", stage_body))
@@ -958,17 +959,17 @@ class MalachiteASTValidator:
                 f"INVALID_METRIC_FILTER in root stage: '{param}' is not a supported filter for 'metrics.{m_name}'.{hint}"
             )
 
-    # Check that placeholder variables in root stage match section are defined
-    root_match = re.search(r"match:\s*(.*?)(?=\n\s*(?:outcome|condition|$))", root_body, re.DOTALL)
+    # Check that placeholder variables in root stage match section are defined and no arithmetic above match
+    root_match = re.search(r"\bmatch:\s*(.*?)(?=\b(?:outcome|condition|order)\s*:|\Z)", root_body, re.DOTALL)
     if root_match:
       root_event_part = root_body[:root_match.start()]
-      root_match_vars = re.findall(r"\$([a-zA-Z0-9_]+)", root_match.group(1))
-      for mv in root_match_vars:
-        if not re.search(rf"\${mv}\b", root_event_part):
-          errors.append(
-              f"UNBOUND_MATCH_VARIABLE in root stage: Placeholder variable '${mv}' in match section "
-              "must be defined in event section."
-          )
+      errors.extend(MalachiteASTValidator._check_arithmetic_in_event_section("root stage", root_event_part))
+      errors.extend(MalachiteASTValidator._check_match_placeholders_bound("root stage", root_event_part, root_match.group(1)))
+    else:
+      root_outcome = re.search(r"outcome:\s*", root_body)
+      if root_outcome:
+        root_event_part = root_body[:root_outcome.start()]
+        errors.extend(MalachiteASTValidator._check_arithmetic_in_event_section("root stage", root_event_part))
 
     # 4. Multi-Sector Fusion Architecture Validation
     if "MULTI_SECTOR" in query_text.upper() or "MULTI-SECTOR" in query_text.upper():
@@ -978,7 +979,57 @@ class MalachiteASTValidator:
 
     return errors
 
+  @staticmethod
+  def _check_arithmetic_in_event_section(stage_name: str, event_part: str) -> List[str]:
+    """Ensures no binary arithmetic is performed in event/stage join sections above match:."""
+    errors = []
+    lines = event_part.splitlines()
+    for line in lines:
+      clean = re.sub(r"//.*", "", line).strip()
+      if not clean or "=" not in clean:
+        continue
+      parts = clean.split("=", 1)
+      lhs = parts[0].strip()
+      rhs = parts[1].strip()
+      if re.match(r"^\$[a-zA-Z0-9_]+$", lhs):
+        # Strip string literals and regex literals
+        rhs_no_strings = re.sub(r'"[^"\\]*(?:\\.[^"\\]*)*"', '""', rhs)
+        rhs_no_strings = re.sub(r"'[^'\\]*(?:\\.[^'\\]*)*'", "''", rhs_no_strings)
+        rhs_no_strings = re.sub(r'/[^/\\]*(?:\\.[^/\\]*)*/', '//', rhs_no_strings)
+        # Check for binary arithmetic (+, -, *, /) between variables or numbers
+        if re.search(r"(\$[a-zA-Z0-9_.]+|\d+(?:\.\d+)?)\s*[-+*/]\s*(\$[a-zA-Z0-9_.]+|\d+(?:\.\d+)?)", rhs_no_strings):
+          errors.append(
+              f"ARITHMETIC_IN_EVENT_SECTION in stage '{stage_name}': Variable arithmetic ('{clean}') is prohibited "
+              "in event predicate blocks above match:. Under Google SecOps Common Compiler, placeholders in the events section "
+              "must bind directly to event fields, stage fields, or scalar functions. "
+              "Move arithmetic expressions into the outcome: section below match:."
+          )
+    return errors
 
+  @staticmethod
+  def _check_match_placeholders_bound(stage_name: str, event_part: str, match_part: str) -> List[str]:
+    """Ensures every placeholder used in match: has an explicit binding in event_part."""
+    errors = []
+    match_vars = re.findall(r"\$([a-zA-Z0-9_]+)", match_part)
+    for mv in match_vars:
+      # Must be bound via $mv = ... or field = $mv
+      is_bound = False
+      for line in event_part.splitlines():
+        clean = re.sub(r"//.*", "", line).strip()
+        if not clean or "=" not in clean:
+          continue
+        parts = clean.split("=", 1)
+        lhs = parts[0].strip()
+        rhs = parts[1].strip()
+        if lhs == f"${mv}" or re.search(rf"\${mv}\b", rhs):
+          is_bound = True
+          break
+      if not is_bound:
+        errors.append(
+            f"UNBOUND_MATCH_VARIABLE in stage '{stage_name}': Match placeholder '${mv}' is not bound to any event field "
+            "or stage field in the event section. Common Compiler requires all match variables to be explicitly assigned in events."
+        )
+    return errors
 
   @staticmethod
   def validate_model_concordance(query_text: str, model: StatisticalModel) -> List[str]:

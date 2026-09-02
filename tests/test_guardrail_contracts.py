@@ -653,6 +653,81 @@ class TestGuardrailContracts(unittest.TestCase):
     self.assertIn("Zero Streaming Detection Rule Syntax", self.skill_content)
     self.assertIn("CRITICAL NOMENCLATURE & ARCHITECTURAL VIOLATION", self.skill_content)
 
+  def test_event_section_arithmetic_rejection(self):
+    """Common Compiler rejects variable arithmetic above match: (in event/stage join sections)."""
+    bad_arithmetic_query = """
+    // Goal: Test event section arithmetic rejection
+    stage stage1_intervals {
+      metadata.event_type = "NETWORK_CONNECTION"
+      $src = principal.asset.ip
+      $dst = target.ip
+      $t1 = metadata.event_timestamp.seconds
+      match: $src, $dst by 1h
+      outcome:
+        $first = min($t1)
+        $last = max($t1)
+    }
+    stage stage2_stats {
+      $src = $stage1_intervals.src
+      $dst = $stage1_intervals.dst
+      $time_span = $stage1_intervals.last - $stage1_intervals.first
+      match: $src, $dst
+      outcome:
+        $mean_span = avg($time_span)
+    }
+    $src = $stage2_stats.src
+    $dst = $stage2_stats.dst
+    match: $src, $dst
+    outcome:
+      $val = max($stage2_stats.mean_span)
+    """
+    errors = MalachiteASTValidator.validate_query(bad_arithmetic_query)
+    self.assertTrue(any("ARITHMETIC_IN_EVENT_SECTION" in e for e in errors))
+    self.assertTrue(any("time_span" in e for e in errors))
+
+  def test_unbound_match_placeholder_rejection(self):
+    """Common Compiler requires all placeholders in match: to be explicitly bound in the event section."""
+    unbound_match_query = """
+    // Goal: Test unbound match placeholder rejection
+    stage stage1_auth {
+      metadata.event_type = "USER_LOGIN"
+      target.user.userid = "frank.kolzig"
+      match: $user by 1d
+      outcome:
+        $obs = count(metadata.id)
+    }
+    $user = $stage1_auth.user
+    match: $user by 1d
+    outcome:
+      $z = 1.0
+    """
+    errors = MalachiteASTValidator.validate_query(unbound_match_query)
+    self.assertTrue(any("UNBOUND_MATCH_VARIABLE" in e for e in errors))
+    self.assertTrue(any("user" in e for e in errors))
+
+  def test_outcome_arithmetic_permitted(self):
+    """Common Compiler permits full variable-to-variable arithmetic, subtraction, and division in outcome:."""
+    valid_outcome_math_query = """
+    // Goal: Test outcome section arithmetic acceptance
+    stage stage1_extract {
+      metadata.event_type = "USER_LOGIN"
+      $user = target.user.userid
+      $user = "admin"
+      match: $user by 1d
+      outcome:
+        $obs = count(metadata.id)
+        $mu = max(metrics.auth_attempts_success(period: 1d, window: 30d, metric: event_count_sum, agg: avg, target.user.userid: $user))
+        $sigma = max(metrics.auth_attempts_success(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, target.user.userid: $user))
+    }
+    $user = $stage1_extract.user
+    match: $user by 1d
+    outcome:
+      $diff = max($stage1_extract.obs) - max($stage1_extract.mu)
+      $z_score = $diff / (max($stage1_extract.sigma) + 1.0)
+    """
+    errors = MalachiteASTValidator.validate_query(valid_outcome_math_query)
+    self.assertEqual(errors, [])
+
 
 if __name__ == '__main__':
   unittest.main()
