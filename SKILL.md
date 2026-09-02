@@ -99,7 +99,7 @@ When an analyst asks to profile an entity across all vectors (*"visualize all ri
      $z_score = (max($stage1_extract.obs) - max($stage1_extract.mu)) / (max($stage1_extract.sigma) + 1.0)
    ```
 3. **Mode-Specific Visualization Strategy**:
-   - **Mode A (24h Snapshot)**: Render **360° Radial Radar (Data-URI SVG or ASCII Table/Bars)**. Suppress multi-day timeline charts.
+   - **Mode A (24h Snapshot)**: Render **360° Radial Radar SVG** (today's spoke deviations). Suppress multi-day timeline charts.
    - **Mode B (14d Multi-Horizon)**: Render **360° Radial Radar SVG (Peak Envelope $Z_{\text{peak}}$)** paired with the **14-Day Activity & Anomaly Timeline**.
 4. **Dual Scales & Math Appendix**: Support raw Z-score and CRI ($+3.0\sigma$ / CRI 50 perimeter). Section 6 must show formula substitutions for $Z_i$, $D = \sqrt{\sum Z_i^2}$, and $\text{CRI}$.
 
@@ -142,7 +142,7 @@ Once the analyst specifies or confirms vectors and scope (or via CTI threat repo
 ## 📊 MANDATORY STEP 2: PRESENT FULL 6-SECTION REPORT (AFTER CLEARANCE)
 
 When clearance is granted and native queries execute, the report **MUST STRICTLY CONTAIN ALL 6 NUMBERED PILLARS**:
-1. **Statistical Outlier Report**: `[Target Metric]` ([Statistical Model]) with 30-day baseline (`window: 30d`). (For 360° Radar: Embed visual radar via Data-URI image or ASCII chart).
+1. **Statistical Outlier Report**: `[Target Metric]` ([Statistical Model]) with 30-day baseline (`window: 30d`). (For 360° Radar: Embed visual radar via SVG).
 2. **Executed Multi-Stage YARA-L Query**: Literal executed multi-stage YARA-L query string passed into `secops-gus:udm_search(query=...)`. **Strict Nomenclature Mandate**: MUST be labeled 'Executed Multi-Stage YARA-L Query'. Calling ad-hoc query logic a 'Rule' or 'Hunting Rule' is a **CRITICAL NOMENCLATURE VIOLATION**.
 3. **Ranked Outlier Summary**: Columns: `Entity`, `24h Observed`, `Baseline Mean`, `StdDev`, `Z-Score`, `CRI Score`, `Visual Magnitude`.
 4. **Forensic Vector Breakdown**: Threat translation, significance, attack scenarios, SOC playbook.
