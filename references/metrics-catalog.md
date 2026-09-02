@@ -23,6 +23,14 @@ This catalog details all 38 active pre-computed behavioral risk metrics availabl
 > 3. **Assets (`principal.asset.hostname` / `principal.asset.ip`)**:
 >    - For asset profiling, host is `principal.asset.hostname` across network, endpoint, DNS, and login events.
 >    - Device IP filtering strictly requires `principal.asset.ip` (mapping to `PRINCIPAL_DEVICE`), whereas `principal.ip` is rejected on network, auth, DNS, and endpoint metrics.
+> 4. **User Display Names vs. Technical User IDs (`user.user_display_name` vs. `user.userid`)**:
+>    - **Technical User ID Dimension**: All 38 UEBA pre-computed metric tables (`metrics.*`) are partitioned and indexed strictly by the technical logon account identifier (`sAMAccountName`, UPN, or email prefix, e.g. `jholden`, `james.holden`, `fkolzig`).
+>    - **Human Display Names**: Human names containing spaces (e.g. `"James Holden"`, `"Frank Kolzig"`) are Display Names (`user.user_display_name`), NOT `user.userid`. Passing a display name directly to `target.user.userid = "James Holden"` or metric filters will match zero events and zero baseline rows in Chronicle.
+>    - **Pre-Flight Identity Spot Check**: When an analyst specifies a human display name, the agent executes a single lightweight spot check query to resolve the corresponding technical `userid`:
+>      ```udm
+>      target.user.user_display_name = "<Display Name>" nocase or principal.user.user_display_name = "<Display Name>" nocase
+>      ```
+>    - **Confirmation Gate**: The resolved `userid` must be presented in the Pre-Flight Card (e.g. `• Target Entity / Scope: James Holden (Resolved User ID: jholden)`) and explicitly confirmed with the analyst before compiling hunting queries. If the display name is not found in the current tenant's logs/enrichments, the agent must prompt the analyst for the technical `userid`.
 
 ---
 

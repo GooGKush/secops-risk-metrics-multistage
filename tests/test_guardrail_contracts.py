@@ -728,6 +728,24 @@ class TestGuardrailContracts(unittest.TestCase):
     errors = MalachiteASTValidator.validate_query(valid_outcome_math_query)
     self.assertEqual(errors, [])
 
+  def test_identity_disambiguation_and_spot_check_contract(self):
+    """SKILL.md, metrics catalog, and multi-stage guide must define the identity spot check and display name resolution protocol."""
+    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    skill_path = os.path.join(skill_dir, 'SKILL.md')
+    catalog_path = os.path.join(skill_dir, 'references', 'metrics-catalog.md')
+    guide_path = os.path.join(skill_dir, 'references', 'multi-stage-metrics-guide.md')
+    with open(skill_path, 'r', encoding='utf-8') as f:
+      s_content = f.read()
+    with open(catalog_path, 'r', encoding='utf-8') as f:
+      c_content = f.read()
+    with open(guide_path, 'r', encoding='utf-8') as f:
+      g_content = f.read()
+
+    self.assertIn("Identity Disambiguation & Confirmation Protocol", s_content)
+    self.assertIn("Display names (with spaces) are NOT `user.userid`", s_content)
+    self.assertIn("User Display Names vs. Technical User IDs", c_content)
+    self.assertIn("Using Display Name in User metric filters", g_content)
+
 
 if __name__ == '__main__':
   unittest.main()

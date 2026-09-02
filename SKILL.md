@@ -6,7 +6,7 @@ aliases:
   - Behavioral Outlier Engine
   - Agentic UEBA Core
 description: |
-  Constructs and executes multi-stage statistical outlier hunting in Google SecOps using pre-computed Risk Analytics metrics (`metrics.*`) chained into 2-stage, 3-stage, and 4-stage DAGs across 14 models (Z-Score, MAD, Poisson, Delta-Z, Multi-Sector Fusion).
+  Multi-stage statistical outlier hunting in Google SecOps using pre-computed Risk Analytics metrics (`metrics.*`) chained into 2-stage to 4-stage DAGs across 14 models (Z-Score, MAD, Poisson, Delta-Z, Multi-Sector Fusion).
   Triggers: "hunt with risk metrics", "multi-stage metrics outlier", "MAD on network bytes", "z-score on auth", "fleet outlier", "poisson burst", "fano factor", "dual-baseline delta-z", "multi-sector threat fusion", "360 health check", "360 risk radar", "radial chart", "all risk vectors", "behavioral fingerprint", "compare to team", "behavioral drift", "top statistical outliers".
 compatibility: Requires Google SecOps with Risk Analytics metrics enabled and the SecOps GUS MCP server (udm_search, get_operation).
 ---
@@ -79,9 +79,9 @@ When an analyst asks to profile an entity across all vectors (*"visualize all ri
    - Inner joins across sectors drop quiet accounts. Display the canonical decoupled micro-query:
    ```yara
    stage stage1_extract {
-       metadata.event_type = "USER_LOGIN"
-       target.user.userid = "%(entity_id)s"
-       $user = target.user.userid
+     metadata.event_type = "USER_LOGIN"
+     target.user.userid = "%(entity_id)s"
+     $user = target.user.userid
      match: $user by 1d
      outcome:
        $obs = count(metadata.id)
@@ -106,44 +106,46 @@ When an analyst provides a threat report (URL, CVEs, or threat actor):
 
 ### 🔍 Phase 1B: Pre-Flight Spec & Query Preview (Once Scope & Vectors are Established)
 Once the analyst specifies or confirms vectors and scope (or via CTI threat report mapping, or for specific prompts like *"MAD on network outbound bytes"*):
-1. **ZERO Tool Execution**: 0 calls to `udm_search`, `import_logs`, `run_command`, or scripts.
+1. **ZERO Tool Execution**: 0 calls to `udm_search`, `import_logs`, `run_command`, or scripts for hunting. *(Exception: If entity is a human display name with spaces, 1 lightweight spot check via `udm_search(user_display_name = "<name>" nocase)` is permitted to resolve technical `user.userid`).*
 2. **Plain-English Cyber Analogy (1–2 Sentences)**: Explain statistical approach using a physical concept. *(See `references/statistical-models-taxonomy.md`)*.
 3. **Structured PRE-FLIGHT HUNTING SPECIFICATION Card & Mandatory Query Preview**:
    *Render using high-contrast bold key-value formatting:*
    ```markdown
-   ┌───────────────────────────────────────────────────────────────────────────────────┐
-   │                     PRE-FLIGHT HUNTING SPECIFICATION                              │
-   │  • Target Entity / Scope:   [Target User/Host ID or Enterprise Fleet]             │
-   │  • Baseline Horizon Spine:  30-Day Pre-Computed Metrics (period: 1d, win: 30d)   │
-   │  • Peer Cohort & Roster:    [Team/Dept Cohort, e.g. IT Dept (Frank, Tim)]         │
-   │  • Entity Graph Dimension:  [Prevalence (rolling_max <= 3) / First-Seen / N/A]   │
-   │  • Evaluation Horizon Mode: [Mode A: 24h Snapshot (Default) OR Mode B: 14d]      │
-   │  • Statistical Model:       [Model Name, e.g. 4-Stage Multi-Sector Threat Fusion] │
-   │  • Significance Threshold:  [e.g. Z >= 3.0σ (CRI >= 50) or Multi-Sector (D >= 3.5σ)]│
-   └───────────────────────────────────────────────────────────────────────────────────┘
+   ┌─────────────────────────────────────────────────────────────────┐
+   │                PRE-FLIGHT HUNTING SPECIFICATION                 │
+   │ • Target Entity / Scope:  [Target User/Host ID or Fleet]        │
+   │ • Baseline Horizon Spine: 30-Day Pre-Computed (period: 1d, 30d) │
+   │ • Peer Cohort & Roster:   [Team/Dept, e.g. IT (Frank, Tim)]     │
+   │ • Entity Graph Dimension: [Prevalence (rolling_max <= 3) / N/A] │
+   │ • Evaluation Horizon Mode:[Mode A: 24h (Default) OR Mode B: 14d]│
+   │ • Statistical Model:      [Model, e.g. Multi-Sector Fusion]     │
+   │ • Significance Threshold: [Z >= 3.0σ (CRI >= 50) / D >= 3.5σ]   │
+   └─────────────────────────────────────────────────────────────────┘
    ```
    * *Mandatory Upfront Query Preview Protocol*: Display literal multi-stage YARA-L query in markdown prior to clearance.
    * *Peer Cohort Roster Requirement*: Resolve and list cohort entities and count in card (`• Peer Cohort & Roster: ...`).
    * *Interactive Entity Graph Dimension Mandate*: Express Entity Graph joins in card under `• Entity Graph Dimension: [Exact Filter]`.
    * *Interactive Entity Graph Rarity & Context Discovery*: Domain Rarity (`graph.entity.domain.prevalence.rolling_max <= 3`), Fleet Prevalence (`day_count = 10`), Binary Rarity (`graph.entity.file.prevalence.rolling_max <= 3`), IP Rarity (`graph.entity.artifact.prevalence.rolling_max <= 3`).
    * *10-Day Prevalence Platform Invariant*: Prevalence is hard-anchored to a 10-day lookback (`day_count = 10`).
-   * *Canonical 2-Stage Preview Invariant*: Named stages MUST NOT use `events:` headers or `$e.` prefixes. Match variables bind to active UDM fields: `target.user.userid` for auth, `principal.user.userid` for cloud/SaaS/network/process (`principal.asset.hostname` for assets). Decouple baseline into `stage stage1_extract` and root math with `+ 1.0` floor.
+   * *Canonical 2-Stage Preview Invariant*: Stages MUST NOT use `events:` headers or `$e.`. Match variables bind to active fields (`target.user.userid` for auth, `principal.user.userid` for cloud/SaaS/net/proc, `principal.asset.hostname` for assets). Decouple into `stage stage1_extract` and root math with `+ 1.0` floor.
+   * *Identity Disambiguation & Confirmation Protocol*: Display names (with spaces) are NOT `user.userid`. `metrics.*` tables require logon `userid`s (e.g. `jholden`). Show resolved ID in card (`• Target Entity / Scope: James Holden (Resolved User ID: jholden)`). Confirm `userid` in clearance question. If unresolved (e.g. separate tenant), prompt for technical `userid`.
 4. **Explicit Clearance Question & Turn Termination**: Explicitly ask:
    > *"Would you like to run **Mode A (24-Hour Snapshot fleet ranking)** or **Mode B (14-Day Longitudinal Timeline with inception chart)**?"*
+   *(If display name was provided, confirm the resolved or requested `userid` in question).*
    **STOP CALLING TOOLS IMMEDIATELY AND YIELD THE TURN.**
 
 ---
 
 ## 📊 MANDATORY STEP 2: PRESENT FULL 6-SECTION REPORT (AFTER CLEARANCE)
 
-*Pre-Output Tool Execution Guard*: On clearance, execute `udm_search` or run `scripts/radar_collector.py` FIRST. NEVER output markdown, SVG, or report pillars until tool execution completes.
+*Pre-Output Tool Execution Guard*: On clearance, execute `udm_search` across all 5 sectors or run `scripts/radar_collector.py` FIRST. NEVER output markdown, SVG, or report pillars until tool execution completes. Zero single-query raw filter fallbacks.
 The report **MUST STRICTLY CONTAIN ALL 6 NUMBERED PILLARS**:
 1. **Statistical Outlier Report**: `[Target Metric]` ([Statistical Model]) with 30-day baseline (`window: 30d`). (For 360° Radar: Embed visual radar via SVG).
 2. **Executed Multi-Stage YARA-L Query**: Literal executed multi-stage YARA-L query string passed into `secops-gus:udm_search(query=...)`. **Strict Nomenclature Mandate**: MUST be labeled 'Executed Multi-Stage YARA-L Query'. Calling ad-hoc query logic a 'Rule' or 'Hunting Rule' is a **CRITICAL NOMENCLATURE VIOLATION**.
 3. **Ranked Outlier Summary**: Columns: `Entity`, `24h Observed`, `Baseline Mean`, `StdDev`, `Z-Score`, `CRI Score`, `Visual Magnitude`.
 4. **Forensic Vector Breakdown**: Threat translation, significance, attack scenarios, SOC playbook.
 5. **Immediate 1-Click Investigation Queries**: Raw UDM filter query for analyst drilldown.
-6. **Statistical & Mathematical Appendix**: Model formulation ($N = 30d$), Calibrated Risk Index $\text{CRI} = \text{round}\left(\frac{100}{1 + \exp(-0.6 \cdot (Z - 3.0))}\right)$.
+6. **Statistical & Mathematical Appendix**: Model formulation ($N = 30d$), $\text{CRI} = \text{round}\left(\frac{100}{1 + \exp(-0.6 \cdot (Z - 3.0))}\right)$.
 
 ---
 
@@ -158,7 +160,7 @@ The report **MUST STRICTLY CONTAIN ALL 6 NUMBERED PILLARS**:
 * **Atomic Pipeline Execution Mandate (ZERO PIECEMEAL FRACTURING & DRIFT)**: Dispatch complete multi-stage DAG in a single atomic YARA-L query to `udm_search`. Breaking into isolated 1-metric queries is STRICTLY PROHIBITED.
 * **Literal Query Display Mandate (ZERO FAKED YARA-L QUERIES)**: Section 2 MUST contain the literal exact query string passed into `secops-gus:udm_search(query=...)`.
 * **Zero Unsolicited Ingestion**: Zero unsolicited ingestion via `import_logs` or `generate_synthetic_events`.
-* **Post-Flight Audit & Auto-Correction**: If execution is deformed, present auto-corrected query and ask: *"Would you like me to execute this auto-corrected query now, or exit this hunt?"*
+* **Post-Flight Audit & Auto-Correction**: If execution is deformed, present auto-corrected query and ask: *"Execute this auto-corrected query now, or exit?"*
 
 ### 2. Compiler & Architectural Invariants
 * **Pre-Composed Pipeline Template Routing**: Route hunts directly to composite pipeline templates in `templates/pipelines/` (e.g. `mad_modified_z_2stage.yl2`, `standard_z_score_2stage.yl2`, `poisson_rarity_2stage.yl2`, `dual_sector_fusion_3stage.yl2`).
@@ -169,7 +171,7 @@ The report **MUST STRICTLY CONTAIN ALL 6 NUMBERED PILLARS**:
   - *No Dot-Notation Metric Properties*: `metrics.foo.mean` is INVALID. Always use canonical function calls `max(metrics.foo(period: 1d, window: 30d, ...))`.
   - *No `by 24h`*: Daily match windows MUST use `by 1d`.
   - *Linear Outcome Arithmetic*: Nested `max(0, ...)` or inline `sqrt(...)` in arithmetic expressions are INVALID. Compute squared norms and order by `$norm_sq desc`.
-  - *Max 4 Joins Invariant*: YARA-L 2.0 strictly limits queries to $\le 4$ joins (`maxJoinCount = 4`). In multi-stage DAGs, each UEBA stage consumes 1 join, and root joins consume $K-1$ joins. Stay within $\le 4$ joins. *(See `references/multi-stage-metrics-guide.md`)*.
+  - *Max 4 Joins Invariant*: YARA-L 2.0 limits queries to $\le 4$ joins (`maxJoinCount = 4`). Each UEBA stage consumes 1 join; root joins consume $K-1$ joins. Stay within $\le 4$ joins. *(See `references/multi-stage-metrics-guide.md`)*.
 * **Exact Time Window Arithmetic**: Compute $\text{startTime} = \text{endTime} - N \times 86400\text{s}$ matching requested horizon (e.g. 14d ending Aug 29 starts Aug 16 at 00:00:00Z).
 * **Variable Role Classification & Anti-Passive-Decoration Mandate**: Every variable must fulfill `[JOIN_KEY]`, `[SCORING_DIMENSION]`, `[ACTIVE_FILTER]`, or `[TRIAGE_DECORATION]`. Primary threat vectors MUST NEVER act solely as `[TRIAGE_DECORATION]`; bind them to active fleet rarity or Entity Graph constraints.
 * **Single-ECG Limit & Decoupled Context Fusion**: Max 1 ECG lookup per stage. Never evaluate `metrics.*` inside stages filtered by `GLOBAL_CONTEXT` or `DERIVED_CONTEXT`.
@@ -187,12 +189,11 @@ The report **MUST STRICTLY CONTAIN ALL 6 NUMBERED PILLARS**:
 
 ### 1. Intent Routing: General Ingestion vs. Explicit Case Wall Attachment
 * **Path A: General Escalation & Ingestion (Default when no Case ID is given)**:
-  - *Trigger Wording*: *"Send a report about this to Google SecOps"*, *"Escalate to SecOps"*, *"Log in Chronicle"*, *"Create a case"*, *"Promote this finding"*.
-  - *Action*: Construct & ingest a synthetic UDM security event to trigger a **brand-new dedicated case** via the catch-all detection rule.
-  - *Anti-Pollution Invariant*: The agent MUST NEVER arbitrarily pick an existing case via `list_cases` to attach comments. Doing so is a **CRITICAL PROCESS POLLUTION VIOLATION**.
+  - *Trigger Wording*: *"Send report to SecOps"*, *"Escalate to SecOps"*, *"Create a case"*, *"Promote finding"*.
+  - *Action*: Ingest synthetic UDM security event to trigger dedicated case. The agent MUST NEVER arbitrarily pick an existing case via `list_cases` (CRITICAL PROCESS POLLUTION VIOLATION).
 * **Path B: Explicit Case Wall Attachment (Carved-Out Exception for Active Case Work)**:
-  - *Trigger Wording*: The analyst explicitly specifies a target case (e.g. *"Attach this finding to Case 11075"*, *"Add this report to the case wall of Case 11075"*).
-  - *Action*: Call `secops-gus:create_case_comment(case_id="<ID>", comment=...)` on that **explicitly designated Case ID**.
+  - *Trigger Wording*: Analyst specifies target case (*"Attach this finding to Case 11075"*).
+  - *Action*: Call `secops-gus:create_case_comment(case_id="<ID>", comment=...)` on that explicitly designated Case ID.
 
 ### 2. Mandatory Workflow per Path:
 * **For Path A (Synthetic UDM Event Ingestion)**:
