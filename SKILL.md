@@ -29,14 +29,8 @@ Executes **multi-sector statistical outlier hunting** using **30-day pre-compute
 
 ---
 
-## 💡 How Risk Metrics Multi-Stage Analytics Work (Overview Inquiries)
-
-When asked how multi-stage analytics work, present this **3-Step Overview**:
-1. **30-Day Pre-Computed Baselines**: Rolling 30d activity across 38 metric tables (`metrics.*`) for $O(1)$ lookups ($\mu$, $\sigma$).
-2. **Multi-Stage DAG Analytics**: Chains Stage 1 baselines into downstream stages to evaluate deviations or Entity Graph joins.
-3. **Execution Framework Summary**: Evaluates Z-Score, MAD, Poisson, Delta-$Z$, CUSUM, and Multi-Sector Fusion ($D$).
-
-> **Ask for more information** for deep dives on how these models expose outliers. *(See `references/statistical-models-taxonomy.md`)*
+## 💡 How Risk Metrics Multi-Stage Analytics Work
+When asked how analytics work: 1. **30d Baselines** (`metrics.*`), 2. **Multi-Stage DAG Analytics**, 3. **Execution Framework Summary** ($Z$, MAD, Poisson, $\Delta Z$, CUSUM, $D$). **Ask for more information** if you would like a deep dive on these behavioral models. *(See `references/statistical-models-taxonomy.md`)*
 
 ---
 
@@ -79,11 +73,12 @@ When an analyst asks to profile an entity across all vectors (*"visualize all ri
    outcome:
      $z_score = (max($stage1_extract.obs) - max($stage1_extract.mu)) / (max($stage1_extract.sigma) + 1.0)
    ```
-3. **Visualization Strategy (MANDATORY INLINE SVG — ZERO ASCII RADAR DIAGRAMS)**:
-   - **Mode A (24h Snapshot)**: In Pillar 1, emit Data-URI image `![360° Behavioral Risk Radar: <entity>](data:image/svg+xml;base64,...)` from canonical `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 460" width="100%" height="460" style="background:#fff;border-radius:8px;">` so UI renders graphic.
-     **ZERO ASCII RADAR MANDATE**: NEVER output ASCII art, ```json_chart, or code fences (NO ```xml). NEVER wrap <svg> in code blocks; emit graphical radar directly so UI renders graphic (CRITICAL VISUAL SPECIFICATION VIOLATION).
-   - **Canonical 5-Spoke SVG Layout**: Center $(280, 240)$, max $r=150$. Rings: $r=37.5$ ($+1\sigma$), $75$ ($+2\sigma$), $112.5$ (`stroke="#d93025" stroke-dasharray="4,4"` for $+3.0\sigma$ threshold), $150$ ($+4\sigma$). Spokes: Auth ($280,90$), Cloud ($423,194$), Workspace ($368,361$), Network ($192,361$), Endpoint ($137,194$). Polygon: `<polygon points="..." fill="rgba(26,115,232,0.25)" stroke="#1a73e8" stroke-width="2.5"/>` (red `#d93025` if $D \ge 3.0\sigma$).
-   - **Mode B (14d Multi-Horizon)**: Render 360° Radial Radar SVG ($Z_{\text{peak}}$) + 14-Day Timeline.
+3. **Visualization Strategy (Dual-Surface Context-Aware Architecture)**:
+   - **Surface 1 (Inline Chat Stream & Cases)**: In Pillar 1 and case comments, output CommonMark table with Unicode magnitude progress bars (`▰▰▰▰▱▱▱▱`) and ASCII horizontal radar card from `scripts/radar_collector.py --format ascii`.
+   - **Surface 2 (Interactive Graphical Canvas & Artifacts)**: Save self-contained SVG/HTML artifact via `scripts/radar_collector.py --format html --output <artifact_dir>/radar_<entity>.html` with `UserFacing: true`. In UI environments supporting `<agent-embed>` (Jetski/Antigravity), embed inline: `<agent-embed src="file:///<artifact_dir>/radar_<entity>.html"></agent-embed>`.
+   - **Canonical 5-Spoke SVG Layout**: Center $(280, 240)$, max $r=150$. Rings: $r=37.5$ ($+1\sigma$), $75$ ($+2\sigma$), $112.5$ (`#d93025` $+3.0\sigma$), $150$ ($+4\sigma$). Spokes: Auth ($280,90$), Cloud ($423,194$), Workspace ($368,361$), Network ($192,361$), Endpoint ($137,194$). Polygon: `<polygon points="..." fill="rgba(26,115,232,0.25)" stroke="#1a73e8"/>` (red if $D \ge 3.0\sigma$). Layout `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 460" width="100%" height="460" style="background:#fff;border-radius:8px;">`.
+   - **Sanitization Invariant**: NEVER output raw `<svg>` directly into markdown text (stripped by DOMPurify) and NEVER output raw base64 data-URIs in chat (blocked by CSP) (CRITICAL VISUAL SPECIFICATION VIOLATION).
+   - **Mode B (14d Multi-Horizon)**: Render 360° Radial Radar ($Z_{\text{peak}}$) + 14-Day Timeline.
 4. **Dual Scales**: Raw Z-score and CRI ($+3.0\sigma$ / CRI 50 perimeter; Section 6 formula).
 
 ### 🎯 CTI & Threat Report Mapping (Reports, URLs, CVEs, Threat Actors)
@@ -112,7 +107,7 @@ Once the analyst specifies or confirms vectors and scope (or via CTI threat repo
    * *Mandatory Upfront Query Preview Protocol*: Display literal multi-stage YARA-L query in markdown prior to clearance.
    * *Peer Cohort Roster Requirement*: Resolve and list cohort entities and count in card (`• Peer Cohort & Roster: ...`).
    * *Interactive Entity Graph Dimension Mandate*: Express Entity Graph joins in card under `• Entity Graph Dimension: [Exact Filter]`.
-   * *Interactive Entity Graph Rarity & Context Discovery*: Domain Rarity (`graph.entity.domain.prevalence.rolling_max <= 3`), Fleet Prevalence (`day_count = 10`), Binary Rarity (`graph.entity.file.prevalence.rolling_max <= 3`), IP Rarity (`graph.entity.artifact.prevalence.rolling_max <= 3`).
+   * *Interactive Entity Graph Rarity & Context Discovery*: Domain Rarity (`rolling_max <= 3`), Fleet Prevalence (`day_count = 10`), Binary Rarity (`rolling_max <= 3`), IP Rarity (`rolling_max <= 3`).
    * *10-Day Prevalence Platform Invariant*: Prevalence is hard-anchored to a 10-day lookback (`day_count = 10`).
    * *Canonical 2-Stage Preview Invariant*: No `events:` headers or `$e.`. Match variables bind to active fields (`target.user.userid` for auth, `principal.user.userid` for cloud/SaaS/net/proc, `principal.asset.hostname` for assets). Decouple into `stage stage1_extract` and root math (`+ 1.0` floor).
    * *Identity Disambiguation & Confirmation Protocol*: Display names (with spaces) are NOT `user.userid`. Resolve technical `userid` (e.g. `jholden`) in card (`• Target Entity / Scope: James Holden (Resolved User ID: jholden)`) and confirm in clearance question. If unresolved, prompt for `userid`.
@@ -127,7 +122,7 @@ Once the analyst specifies or confirms vectors and scope (or via CTI threat repo
 
 *Pre-Output Tool Execution Guard*: On clearance, execute `udm_search` across all 5 sectors (fleet-matching `$user by 1d` in $\le 5$ queries) or run `scripts/radar_collector.py` FIRST. NEVER output markdown, SVG, or report pillars until tool execution completes. Zero single-query raw filter fallbacks.
 The report **MUST STRICTLY CONTAIN ALL 6 NUMBERED PILLARS**:
-1. **Statistical Outlier Report**: `[Target Metric]` ([Statistical Model]) with 30-day baseline (`window: 30d`). (For 360° Radar: **MANDATORY INLINE SVG** — Embed Data-URI image `![360° Behavioral Risk Radar](data:image/svg+xml;base64,...)` or raw `<svg xmlns="http://www.w3.org/2000/svg" ...>` directly WITHOUT code fences (NO ```xml). **ZERO ASCII RADAR MANDATE**: Never output ASCII, ```json_chart, or code blocks).
+1. **Statistical Outlier Report**: `[Target Metric]` ([Statistical Model]) with 30-day baseline (`window: 30d`). (For 360° Radar: **Dual-Surface Presentation** — In chat stream, emit CommonMark table with Unicode magnitude progress bars and ASCII radar card; for graphical canvas, write self-contained SVG to `<artifact_dir>/radar_<entity>.html` and embed via `<agent-embed src="file:///<path>">`).
 2. **Executed Multi-Stage YARA-L Query**: Literal executed multi-stage YARA-L query string passed into `secops-gus:udm_search(query=...)`. (For 360° Radar: display the compilable decoupled micro-query for the primary outlier sector, e.g. Cloud CRUD with vendor/product or Auth; NEVER cram multiple sectors into a single stage or fabricate an invalid inner join). **Strict Nomenclature Mandate**: MUST be labeled 'Executed Multi-Stage YARA-L Query'. Calling ad-hoc query logic a 'Rule' or 'Hunting Rule' is a **CRITICAL NOMENCLATURE VIOLATION**.
 3. **Ranked Outlier Summary**: Columns: `Entity`, `24h Observed`, `Baseline Mean`, `StdDev`, `Z-Score`, `CRI Score`, `Visual Magnitude`.
 4. **Forensic Vector Breakdown**: Threat translation, significance, attack scenarios, SOC playbook.

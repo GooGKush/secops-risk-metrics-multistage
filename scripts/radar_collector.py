@@ -251,6 +251,9 @@ outcome:
         "svg_widget": self.generate_self_contained_svg(
             entity_id, sorted_spokes, composite_d, cri
         ),
+        "html_widget": self.generate_html_widget(
+            entity_id, sorted_spokes, composite_d, cri
+        ),
         "data_uri_image": self.generate_data_uri_image(
             entity_id, sorted_spokes, composite_d, cri
         ),
@@ -382,6 +385,28 @@ outcome:
 
     svg_parts.append('</svg>')
     return "\n".join(svg_parts)
+
+  @staticmethod
+  def generate_html_widget(
+      entity_id: str,
+      spokes: List[MetricSpoke],
+      composite_d: float,
+      cri: int,
+      scale_mode: str = "zscore",
+  ) -> str:
+    """Wraps self-contained SVG into a Generative UI HTML artifact compatible with <agent-embed>."""
+    svg = EntityRadarCollector.generate_self_contained_svg(
+        entity_id, spokes, composite_d, cri, scale_mode=scale_mode
+    )
+    return (
+        '<!DOCTYPE html>\n<html>\n<head>\n'
+        '  <meta charset="utf-8">\n'
+        '  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>\n'
+        '</head>\n<body class="bg-transparent text-[var(--foreground)] antialiased p-2 flex justify-center">\n'
+        '  <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-3 shadow-sm">\n'
+        f'    {svg}\n'
+        '  </div>\n</body>\n</html>\n'
+    )
 
   @staticmethod
   def generate_data_uri_image(
@@ -542,9 +567,9 @@ def main():
   parser.add_argument("--data", help="JSON string or file path containing spoke records")
   parser.add_argument(
       "--format",
-      choices=["data-uri", "svg", "ascii", "markdown", "json"],
+      choices=["data-uri", "svg", "html", "ascii", "markdown", "json"],
       default="data-uri",
-      help="Output format: data-uri (markdown image), svg, ascii (terminal), markdown (table), json",
+      help="Output format: data-uri (markdown image), svg, html (generative-ui embed), ascii (terminal), markdown (table), json",
   )
   parser.add_argument("--scale-mode", choices=["zscore", "cri"], default="zscore", help="Radar scale mode")
   parser.add_argument("--output", help="Optional output file path")
@@ -584,6 +609,8 @@ def main():
     out_str = payload["data_uri_image"]
   elif args.format == "svg":
     out_str = payload["svg_widget"]
+  elif args.format == "html":
+    out_str = payload["html_widget"]
   elif args.format == "ascii":
     out_str = payload["ascii_chart"]
   elif args.format == "markdown":

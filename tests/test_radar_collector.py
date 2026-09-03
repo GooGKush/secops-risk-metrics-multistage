@@ -235,21 +235,29 @@ class TestRadarCollector(unittest.TestCase):
     self.assertIn("Perimeter Threshold: +3.00σ", ascii_chart)
 
 
-  def test_skill_md_mandatory_inline_svg_radar_contract(self):
-    """SKILL.md must mandate raw inline SVG in Pillar 1 and strictly ban ASCII diagrams for 360° radar."""
+  def test_generate_html_widget(self):
+    """HTML widget must wrap SVG inside a Generative UI template compatible with <agent-embed>."""
+    payload = self.collector.build_radar_payload("tim.smith@altostrat.com", "USER", self.sample_spokes)
+    html_widget = payload["html_widget"]
+    self.assertIn('<svg xmlns="http://www.w3.org/2000/svg"', html_widget)
+    self.assertIn("tailwindcss.min.js", html_widget)
+    self.assertIn("tim.smith@altostrat.com", html_widget)
+
+  def test_skill_md_dual_surface_radar_contract(self):
+    """SKILL.md must specify Dual-Surface visualization: ASCII/Unicode in chat stream and SVG via agent-embed."""
     import os
     repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     skill_path = os.path.join(repo_dir, "SKILL.md")
     with open(skill_path, "r", encoding="utf-8") as f:
       content = f.read()
 
-    self.assertIn("ZERO ASCII RADAR MANDATE", content)
-    self.assertIn("MANDATORY INLINE SVG — ZERO ASCII RADAR DIAGRAMS", content)
+    self.assertIn("Dual-Surface Context-Aware Architecture", content)
+    self.assertIn("Unicode magnitude progress bars", content)
     self.assertIn('<svg xmlns="http://www.w3.org/2000/svg"', content)
     self.assertIn("Canonical 5-Spoke SVG Layout", content)
     self.assertIn("Center $(280, 240)$, max $r=150$", content)
     self.assertIn("CRITICAL VISUAL SPECIFICATION VIOLATION", content)
-    self.assertIn("MANDATORY INLINE SVG", content)
+    self.assertIn("agent-embed", content)
 
 
 if __name__ == "__main__":
