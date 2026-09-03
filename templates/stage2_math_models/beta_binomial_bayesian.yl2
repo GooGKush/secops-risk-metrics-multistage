@@ -7,19 +7,19 @@ match:
 
 outcome:
   $observed_fails = max($stage1_extract.observed_val)
-  $observed_total = max($stage1_extract.observed_total_events)
   $avg_fail_prob = max($stage1_extract.historical_avg)
-  $variance_p = max($stage1_extract.historical_variance)
+  $stddev_p = max($stage1_extract.historical_stddev)
+  $variance_p = ($stddev_p * $stddev_p) + 0.001
   $active_days = max($stage1_extract.historical_active_days)
 
   // 1. Beta Prior Parameterization via Method of Moments
-  $sample_factor = (($avg_fail_prob * (1.0 - $avg_fail_prob)) / ($variance_p + 0.001)) - 1.0
+  $sample_factor = (($avg_fail_prob * ($avg_fail_prob + 1.0)) / ($variance_p + 0.001))
   $alpha_prior = $avg_fail_prob * $sample_factor
-  $beta_prior = (1.0 - $avg_fail_prob) * $sample_factor
+  $beta_prior = ($avg_fail_prob + 1.0) * $sample_factor
 
   // 2. Conjugate Posterior Updating with Daily Evidence
   $alpha_post = $alpha_prior + $observed_fails
-  $beta_post = $beta_prior + ($observed_total - $observed_fails)
+  $beta_post = $beta_prior + 1.0
 
   // 3. Regularized Posterior Failure Probability
   $posterior_fail_prob = $alpha_post / ($alpha_post + $beta_post)

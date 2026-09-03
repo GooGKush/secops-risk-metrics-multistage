@@ -55,15 +55,14 @@ outcome:
 
   // 1. Personal Historical Z-Score
   $personal_diff = $obs - $personal_avg
-  $personal_z = $personal_diff / $personal_stddev
+  $personal_z = $personal_diff / ($personal_stddev + 1.0)
 
   // 2. Fleet Today Cross-Sectional Z-Score
   $fleet_diff = $obs - $fleet_avg
-  $fleet_z = $fleet_diff / $fleet_stddev
+  $fleet_z = $fleet_diff / ($fleet_stddev + 1.0)
 
   // 3. Delta-Z Anomaly Isolation (Targeted anomaly score)
   $delta_z = $personal_z - $fleet_z
 
 order:
   $delta_z desc
-

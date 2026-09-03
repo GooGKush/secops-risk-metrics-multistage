@@ -138,8 +138,8 @@ stage s1 {
     $user by 1d
   outcome:
     $bytes_obs = sum(network.sent_bytes)
-    $bytes_avg = max(metrics.network_bytes_outbound(period: 1d, window: 30d, metric: sent_bytes_sum, agg: avg, principal.user.userid: "%(entity_id)s"))
-    $bytes_std = max(metrics.network_bytes_outbound(period: 1d, window: 30d, metric: sent_bytes_sum, agg: stddev, principal.user.userid: "%(entity_id)s"))
+    $bytes_avg = max(metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: avg, principal.user.userid: "%(entity_id)s"))
+    $bytes_std = max(metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: stddev, principal.user.userid: "%(entity_id)s"))
 }
 $user = $s1.user
 match: $user by 1d

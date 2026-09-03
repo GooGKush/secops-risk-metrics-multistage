@@ -235,5 +235,22 @@ class TestRadarCollector(unittest.TestCase):
     self.assertIn("Perimeter Threshold: +3.00σ", ascii_chart)
 
 
+  def test_skill_md_mandatory_inline_svg_radar_contract(self):
+    """SKILL.md must mandate raw inline SVG in Pillar 1 and strictly ban ASCII diagrams for 360° radar."""
+    import os
+    repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    skill_path = os.path.join(repo_dir, "SKILL.md")
+    with open(skill_path, "r", encoding="utf-8") as f:
+      content = f.read()
+
+    self.assertIn("ZERO ASCII RADAR MANDATE", content)
+    self.assertIn("MANDATORY INLINE SVG — ZERO ASCII RADAR DIAGRAMS", content)
+    self.assertIn('<svg xmlns="http://www.w3.org/2000/svg"', content)
+    self.assertIn("Canonical 5-Spoke SVG Layout", content)
+    self.assertIn("Center $(280, 240)$, max $r=150$", content)
+    self.assertIn("CRITICAL VISUAL SPECIFICATION VIOLATION", content)
+    self.assertIn("MANDATORY INLINE SVG", content)
+
+
 if __name__ == "__main__":
   unittest.main()

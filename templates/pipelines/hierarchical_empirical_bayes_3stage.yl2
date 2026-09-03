@@ -31,7 +31,7 @@ stage fleet_hyperpriors {
 
   outcome:
     $fleet_mean = avg($host_extract.hist_avg)
-    $fleet_var = variance($host_extract.hist_avg)
+    $fleet_std = stddev($host_extract.hist_avg)
     $active_hosts = count_distinct($host_extract.host)
 }
 
@@ -50,7 +50,8 @@ outcome:
   $host_active_days = max($host_extract.hist_active_days)
 
   $fleet_mu = max($fleet_hyperpriors.fleet_mean)
-  $fleet_sigma_sq = max($fleet_hyperpriors.fleet_var)
+  $fleet_sigma = max($fleet_hyperpriors.fleet_std)
+  $fleet_sigma_sq = $fleet_sigma * $fleet_sigma
 
   // 1. Empirical Bayes Peer-Group Prior Parameterization
   $beta_fleet = $fleet_mu / $fleet_sigma_sq

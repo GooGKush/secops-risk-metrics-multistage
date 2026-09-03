@@ -109,50 +109,17 @@ Certain pre-computed Risk Metrics require specific auxiliary UDM fields as dimen
 
 ---
 
-## 6. Standard 3-Tier Tuning Pattern in Condition Blocks
+## 6. Threshold Tuning and Ordering in Multi-Stage Search
 
-Every multi-stage query generated for threat hunting should embed this standard tuning structure in its root `condition:` block:
-
-```yara
-condition:
-  // --- TIER 0: Smoke Test Floor (Default) ---
-  $observed_vol > 0
-
-  // --- TIER 1: Strict / High Confidence Alerting (Uncomment to apply) ---
-  // $observed_vol >= 10
-  // and $active_days >= 7
-  // and $sigma > 0
-  // and $z_score >= 3.0
-
-  // --- TIER 2: Balanced Threat Hunting (Uncomment to apply) ---
-  // $observed_vol >= 5
-  // and $active_days >= 5
-  // and $sigma > 0
-  // and $z_score >= 2.0
-
-  // --- TIER 3: Broad Exploratory Discovery (Uncomment to apply) ---
-  // $observed_vol >= 1
-  // and $active_days >= 3
-  // and ($z_score >= 1.5 or $surge_multiplier >= 2.0)
-```
-
----
-
-## 6. Inline Condition Tuning Pattern
-
-For early iterations or broad requests, construct the `condition:` section with a permissive test floor and commented production parameters:
-
-```yara
-condition:
-  // Permissive condition for smoke testing (returns all active results)
-  $observed_val > 0
-
-  // For a Strict/Production Hunt, replace the condition above with:
-  // $observed_val >= 10
-  // and $active_days >= 7
-  // and $sigma > 0
-  // and $z_score >= 3.0
-```
+> [!IMPORTANT]
+> **Zero `condition:` Block in Multi-Stage Search**:
+> In Google SecOps / Chronicle Malachite, multi-stage queries (`stage ... { }`) are **Search pipelines** executed in UDM Search, **not** streaming detection rules.
+> - Multi-stage search queries **terminate with `order:`** (e.g. `order: $personal_z desc`).
+> - Adding a `condition:` block to a multi-stage search query causes a **fatal compilation/syntax error** in the Chronicle editor.
+> - Filtering and tuning are achieved through:
+>   1. **Stage 1 Event Predicates**: Pre-filter events before aggregation (e.g. `network.sent_bytes > 0`, `$event_type = "PROCESS_LAUNCH"`).
+>   2. **Root Stage Ordering**: Surface the highest-severity statistical anomalies at the top of the search table via `order: $personal_z desc` or `order: $composite_threat_norm_sq desc`.
+>   3. **Post-Aggregation Visual Thresholds**: In analysts' dashboards and tabular results, entities are evaluated against standard statistical cutoffs ($Z \ge 3.0\sigma$, $\text{CRI} \ge 50$).
 
 ---
 
@@ -367,7 +334,7 @@ For automated threat hunting and headless pipeline execution, the agent and quer
 | :--- | :--- | :--- |
 | **`[JOIN_KEY]`** | Binds intermediate stages to the root stage (`$host`, `$user`, `$ws`). | Must appear in stage and root `match:` blocks. |
 | **`[SCORING_DIMENSION]`** | Directly computes an anomaly score ($Z$, $D$, $\Delta Z$, Bayes). | Must be part of the root mathematical formula. |
-| **`[ACTIVE_FILTER]`** | Constrains data volume (e.g. `rolling_max <= 3`, `$fleet_hosts <= 2`). | Must appear in stage filters or root `condition:`. |
+| **`[ACTIVE_FILTER]`** | Constrains data volume (e.g. `rolling_max <= 3`, `$fleet_hosts <= 2`). | Must appear in stage event filters or root match predicates. |
 | **`[TRIAGE_DECORATION]`** | Informational context only (`array_distinct(command_line)`). | Cannot be the *sole* representation of a primary threat vector. |
 
 ### 2. The Anti-Passive-Decoration Invariant:

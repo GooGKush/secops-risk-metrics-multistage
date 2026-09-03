@@ -4,6 +4,7 @@ __author__ = "Greg Kushmerek"
 __version__ = "2.1.0"
 
 from pathlib import Path
+import re
 from typing import Optional
 from .preflight_validator import EntityType, MatchMode, PipelineArchitecture, PreFlightValidator, StatisticalModel
 
@@ -54,8 +55,17 @@ class MultiStageTemplateRouter:
       raise FileNotFoundError(f"Missing Stage 2 template: {stage2_path}")
     stage2_raw = stage2_path.read_text().strip()
 
+    # Harmonize Stage 2 entity variable with Stage 1 match variable ($user, $host, $entity)
+    match_var_match = re.search(r'match:\s+([$][a-zA-Z0-9_]+)', stage1_content)
+    primary_var = match_var_match.group(1) if match_var_match else "$entity"
+    entity_name = primary_var.lstrip("$")
+
+    if primary_var != "$entity":
+      stage2_raw = stage2_raw.replace("$entity = $stage1_extract.entity", f"{primary_var} = $stage1_extract.{entity_name}")
+      stage2_raw = stage2_raw.replace("$entity", primary_var)
+
     if match_mode == MatchMode.FLEET_ROLLUP:
-      stage2_raw = stage2_raw.replace("match:\n  $entity, $ws by 1d", "match:\n  $entity")
+      stage2_raw = stage2_raw.replace(f"match:\n  {primary_var}, $ws by 1d", f"match:\n  {primary_var}")
       stage2_raw = stage2_raw.replace("$ws = $stage1_extract.window_start\n", "")
 
     stage2_rendered = stage2_raw.replace("{{anomaly_threshold}}", str(anomaly_threshold))

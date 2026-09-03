@@ -32,16 +32,26 @@ Contributions to this skill package are highly welcome! Whether you are adding n
 
 ## 🧪 Testing & Validation Standards
 
-Every contribution must pass the automated unit test suite before submission:
+Every contribution must strictly adhere to the **[Pre-Submission Compiler Policy](references/compiler-submission-policy.md)** and pass all automated verification suites before code submission or pull requests:
 
 ```bash
-# Run all unit tests
+# 1. Run canonical submission test suite (19 pipeline, router, and radar cases)
+python3 scripts/submission_tests.py
+
+# 2. Run all unit tests (including compiler policy assertions)
 python3 -m unittest discover -s tests -p "test_*.py"
+
+# 3. Verify SKILL.md token and line budget (<= 250 lines, <= 20,480 bytes)
+wc -l SKILL.md
+wc -c SKILL.md
 ```
 
-### Test Requirements:
-* Add corresponding syntax and parameter binding assertions in `tests/test_complex_multistage_syntax.py` or `tests/test_guardrail_contracts.py`.
-* Ensure `SKILL.md` remains strictly within its $\le 250$ line budget.
+### Mandatory Quality & Compiler Gates:
+* **Zero-Compiler-Error Policy**: All generated queries across pipeline templates, radar spokes, and dynamic router permutations must achieve a 100% pass rate against Malachite YARA-L 2.0 compiler invariants (`scripts/submission_tests.py`).
+* **Unit Test Assertions**: Add corresponding syntax and parameter binding assertions in `tests/test_submission_compiler_policy.py`, `tests/test_complex_multistage_syntax.py`, or `tests/test_guardrail_contracts.py`.
+* **Universal Dispersion Floor**: All $Z$-score denominators must enforce `($stddev + 1.0)`.
+* **Universal 6-Point Contract**: All Stage 1 extractors must export the standard 6 outcome metrics.
+* **Skill Budget Compliance**: `SKILL.md` must strictly remain within its budget of $\le 250$ lines and $\le 20,480$ bytes.
 
 ---
 

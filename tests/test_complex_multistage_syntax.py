@@ -118,9 +118,10 @@ class ComplexMultiStageSyntaxTest(unittest.TestCase):
     self.assertIn("stage host_extract", content)
     self.assertIn("stage fleet_hyperpriors", content)
 
-    # 2. Stage 2 must calculate hyperprior mean and variance
+    # 2. Stage 2 must calculate hyperprior mean and stddev (variance derived in outcome)
     self.assertIn("avg($host_extract.hist_avg)", content)
-    self.assertIn("variance($host_extract.hist_avg)", content)
+    self.assertIn("stddev($host_extract.hist_avg)", content)
+    self.assertIn("$fleet_sigma_sq = $fleet_sigma * $fleet_sigma", content)
 
     # 3. Root stage must blend priors and compute posterior rate
     self.assertIn("$alpha_post = $alpha_host + $obs_24h", content)
@@ -307,4 +308,3 @@ order:
 
 if __name__ == '__main__':
   unittest.main()
-

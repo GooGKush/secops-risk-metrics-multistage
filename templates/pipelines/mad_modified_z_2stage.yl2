@@ -60,8 +60,5 @@ outcome:
   $deviation = $observed_val - $baseline_mean
   $mad_modified_z = 0.6745 * ($deviation / ($baseline_stddev + {{dispersion_floor}}))
 
-  // 2. Calibrated Risk Index (CRI: 0–100 Logistic Sigmoid Mapping)
-  $calibrated_risk_index = round(100.0 / (1.0 + math.exp(-0.6 * ($mad_modified_z - 3.0))))
-
 order:
   $mad_modified_z desc

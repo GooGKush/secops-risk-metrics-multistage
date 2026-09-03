@@ -63,8 +63,5 @@ outcome:
   // 3. Positive Drift Increments
   $cusum_drift_score = if($slack_excess > 0, $slack_excess, 0.0)
 
-  // 4. Calibrated Risk Index (CRI)
-  $calibrated_risk_index = round(100.0 / (1.0 + math.exp(-0.6 * ($cusum_drift_score - 2.5))))
-
 order:
   $cusum_drift_score desc

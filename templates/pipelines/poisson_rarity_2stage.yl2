@@ -57,8 +57,5 @@ outcome:
   $diff = $k - $lambda
   $poisson_z = $diff / math.sqrt($lambda + 1.0)
 
-  // Calibrated Risk Index (CRI)
-  $calibrated_risk_index = round(100.0 / (1.0 + math.exp(-0.6 * ($poisson_z - 3.0))))
-
 order:
   $poisson_z desc

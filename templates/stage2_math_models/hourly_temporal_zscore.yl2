@@ -1,19 +1,19 @@
 // Root Stage: Intra-Day Hourly Surge Isolation (Preserving Hourly Timeline)
-$entity = $stage1_hourly.entity
-$ws = $stage1_hourly.window_start
+$entity = $stage1_extract.entity
+$ws = $stage1_extract.window_start
 
 match:
   $entity, $ws by 1h
 
 outcome:
-  $observed_hour = max($stage1_hourly.observed_val)
-  $hist_avg_daily = max($stage1_hourly.historical_avg)
-  $hist_stddev_daily = max($stage1_hourly.historical_stddev)
-  $active_days = max($stage1_hourly.historical_active_days)
+  $observed_hour = max($stage1_extract.observed_val)
+  $hist_avg_daily = max($stage1_extract.historical_avg)
+  $hist_stddev_daily = max($stage1_extract.historical_stddev)
+  $active_days = max($stage1_extract.historical_active_days)
 
-  $avg_hourly = max($stage1_hourly.hist_avg_hourly)
-  $stddev_hourly = max($stage1_hourly.hist_stddev_hourly)
-  $max_hourly = max($stage1_hourly.hist_max_hourly)
+  $avg_hourly = max($stage1_extract.historical_avg)
+  $stddev_hourly = max($stage1_extract.historical_stddev)
+  $max_hourly = max($stage1_extract.historical_max)
 
   // 1. Intra-Day Hourly Z-Score
   $hourly_diff = $observed_hour - $avg_hourly

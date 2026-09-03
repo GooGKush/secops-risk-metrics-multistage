@@ -17,6 +17,13 @@ In enterprise security telemetry, many high-risk behaviors (e.g. failed administ
 
 **The Solution**: CRI maps all statistical indicators onto a monotonic, non-linear **[0–100] S-Curve**.
 
+> [!IMPORTANT]
+> **Post-Processing Transformation Layer (Never in YARA-L Queries)**:
+> CRI is strictly a **post-query presentation and triage transformation** executed in Python reporting scripts (`scripts/radar_collector.py`), dashboards, and SOAR playbooks.
+> - **YARA-L Responsibility**: Chronicle queries calculate raw statistical deviations ($Z$-score, $\text{MAD } Z$, Poisson $Z$, CUSUM drift, Euclidean distance norm $D^2$) and order results via `order: <score> desc`.
+> - **Post-Processing Responsibility**: Python / reporting layers consume the raw $Z$-scores and apply the logistic sigmoid function to normalize scores into the [0–100] CRI range.
+> - **Do NOT implement CRI in YARA-L**: Chronicle YARA-L does not support `math.exp()`, and computing non-linear sigmoid curves inside database queries is unnecessary and anti-idiomatic.
+
 ---
 
 ## 2. 🧮 Mathematical Formulation
