@@ -43,6 +43,7 @@ from scripts.preflight_validator import (
     PreFlightValidator,
     StatisticalModel,
 )
+from scripts.statistical_validator import StatisticalAntipatternAuditor
 from scripts.template_router import MultiStageTemplateRouter
 
 
@@ -374,6 +375,11 @@ class SubmissionTestSuite:
     if "{{" in query or "}}" in query:
       placeholders = re.findall(r'\{\{([^}]+)\}\}', query)
       errors.append(f"Unrendered template placeholders detected: {placeholders}")
+
+    # 9. Statistical Antipattern Audit (5 Core Statistical Invariants)
+    stat_violations = StatisticalAntipatternAuditor.audit_query(query)
+    for sv in stat_violations:
+      errors.append(f"[{sv.antipattern.value}] stage '{sv.stage_name}': {sv.description}")
 
     return errors
 

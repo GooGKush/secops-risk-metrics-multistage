@@ -67,6 +67,14 @@ Extensive live compilation testing against Google SecOps customer instances has 
 * **Outcome Variable Ceiling**: A single stage outcome block may define at most **20 outcome variables**.
 * **Search Query Structure**: Multi-stage search queries must terminate with `order: <var> [desc|asc]`. They must **NEVER** contain a `condition:` block (which is reserved exclusively for detection rules).
 
+### 2.6 Statistical Invariant & Antipattern Auditing (`scripts/statistical_validator.py`)
+In addition to compiler syntax, all queries submitted to Chronicle must satisfy the 5 Statistical Invariants:
+1. **Scope Symmetry (Zero Part-of-the-Whole Bias)**: Stages filtering observed events to specific products or attributes must bind the identical dimensions in `metrics.*` or decouple into 2-stage context fusion.
+2. **Dynamic Range Isolation ("Elephant and Mouse" Prevention)**: Multi-resource data access must slice dynamically by `($user, $resource by 1d)` to evaluate local-baseline isolation and prevent high-volume routine traffic from masking acute targeted exfiltration.
+3. **Universal Dispersion Flooring**: All outcome divisions by standard deviation ($\sigma$) or MAD must incorporate an additive scalar floor (`+ 1.0`) to prevent division by zero or NaN on quiet accounts.
+4. **Distribution Domain Integrity**: Discrete count metrics (e.g. `auth_attempts_fail`) evaluated with continuous Gaussian Z-scores require active baseline days gating ($N \ge 3$) or Poisson rarity modeling.
+5. **Orthogonal Sector Fusion**: Multi-sector Euclidean threat norms ($D = \sqrt{\sum Z_i^2}$) must fuse strictly independent behavioral vector families (Auth, Cloud CRUD, Workspace, Network, Endpoint), never collinear intra-family metrics.
+
 ---
 
 ## 3. Pre-Submission Test Harness (`scripts/submission_tests.py`)
