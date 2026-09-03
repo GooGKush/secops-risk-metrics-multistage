@@ -86,7 +86,7 @@ When an analyst asks to profile an entity across all vectors (*"visualize all ri
    ```
 3. **Visualization Strategy (MANDATORY INLINE SVG — ZERO ASCII RADAR DIAGRAMS)**:
    - **Mode A (24h Snapshot)**: In Pillar 1, emit raw inline `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 460" width="100%" height="460" style="background:#fff;border-radius:8px;">`.
-     **ZERO ASCII RADAR MANDATE**: NEVER output ASCII art, code-block drawings (` ``` `), text crosshairs, or text trees for the radar visual (CRITICAL VISUAL SPECIFICATION VIOLATION).
+     **ZERO ASCII RADAR MANDATE**: NEVER output ASCII art, ```json_chart, code blocks, or text trees for the radar visual (CRITICAL VISUAL SPECIFICATION VIOLATION). MUST emit raw inline <svg> XML.
    - **Canonical 5-Spoke SVG Layout**: Center $(280, 240)$, max $r=150$:
      • Background Badge: `<rect x="20" y="15" width="520" height="36" rx="6" fill="#e8f0fe"/>` + `<text x="32" y="38" font-size="13" font-weight="bold" fill="#1967d2">[ENTITY] • 360° BEHAVIORAL RADAR (D = [D]σ | CRI [CRI]/100)</text>`.
      • Rings: Concentric circles at $r=37.5$ ($+1\sigma$), $75$ ($+2\sigma$), $112.5$ (`stroke="#d93025" stroke-dasharray="4,4"` for $+3.0\sigma$ threshold), $150$ ($+4\sigma$).
@@ -136,7 +136,7 @@ Once the analyst specifies or confirms vectors and scope (or via CTI threat repo
 
 *Pre-Output Tool Execution Guard*: On clearance, execute `udm_search` across all 5 sectors or run `scripts/radar_collector.py` FIRST. NEVER output markdown, SVG, or report pillars until tool execution completes. Zero single-query raw filter fallbacks.
 The report **MUST STRICTLY CONTAIN ALL 6 NUMBERED PILLARS**:
-1. **Statistical Outlier Report**: `[Target Metric]` ([Statistical Model]) with 30-day baseline (`window: 30d`). (For 360° Radar: **MANDATORY INLINE SVG** — Embed raw inline `<svg xmlns="http://www.w3.org/2000/svg" ...>...</svg>` XML. **ZERO ASCII RADAR MANDATE**: Never output ASCII diagrams, code-block drawings (` ``` `), or text trees for the radar).
+1. **Statistical Outlier Report**: `[Target Metric]` ([Statistical Model]) with 30-day baseline (`window: 30d`). (For 360° Radar: **MANDATORY INLINE SVG** — Embed raw inline `<svg xmlns="http://www.w3.org/2000/svg" ...>...</svg>` XML. **ZERO ASCII RADAR MANDATE**: Never output ASCII, ```json_chart, or code blocks for the radar).
 2. **Executed Multi-Stage YARA-L Query**: Literal executed multi-stage YARA-L query string passed into `secops-gus:udm_search(query=...)`. **Strict Nomenclature Mandate**: MUST be labeled 'Executed Multi-Stage YARA-L Query'. Calling ad-hoc query logic a 'Rule' or 'Hunting Rule' is a **CRITICAL NOMENCLATURE VIOLATION**.
 3. **Ranked Outlier Summary**: Columns: `Entity`, `24h Observed`, `Baseline Mean`, `StdDev`, `Z-Score`, `CRI Score`, `Visual Magnitude`.
 4. **Forensic Vector Breakdown**: Threat translation, significance, attack scenarios, SOC playbook.
