@@ -128,13 +128,33 @@ class TestRadarCollector(unittest.TestCase):
     )
     self.assertIn("<svg", svg)
     self.assertIn("</svg>", svg)
+    self.assertIn('viewBox="0 0 620 480"', svg)
     self.assertIn("<polygon", svg)
     self.assertIn("+3.0σ", svg)
     self.assertIn("+1.0σ", svg)
     self.assertIn("tim.smith@altostrat.com", svg)
     self.assertIn("Cloud Deletions", svg)
+    self.assertIn("<tspan", svg)
     self.assertIn("<title>", svg)
     self.assertIn("24h Observed: 640.0", svg)
+
+  def test_generate_self_contained_svg_negative_and_zero_deviations(self):
+    """SVG must format negative and zero deviations cleanly without '+-' sign duplication or text truncation."""
+    negative_spokes = [
+        MetricSpoke("Cloud", "Cloud Deletions", "tbl1", 0.0, 10.0, 2.0, -5.0),
+        MetricSpoke("IAM", "Auth Attempts", "tbl2", 5.0, 5.0, 1.0, 0.0),
+    ]
+    svg = EntityRadarCollector.generate_self_contained_svg(
+        entity_id="frank.kolzig",
+        spokes=negative_spokes,
+        composite_d=0.0,
+        cri=0,
+    )
+    self.assertNotIn("+-", svg)
+    self.assertIn("(-5.0σ)", svg)
+    self.assertIn("(+0.0σ)", svg)
+    self.assertIn("frank.kolzig • 360° BEHAVIORAL RADAR", svg)
+    self.assertIn("Multi-Sector Distance: D = 0.00σ", svg)
 
   def test_generate_self_contained_svg_cri_mode(self):
     """SVG in CRI mode must display 0-100 concentric rings and map 50 to 3.0-sigma threshold."""
@@ -255,7 +275,8 @@ class TestRadarCollector(unittest.TestCase):
     self.assertIn("Unicode magnitude progress bars", content)
     self.assertIn('<svg xmlns="http://www.w3.org/2000/svg"', content)
     self.assertIn("Canonical 5-Spoke SVG Layout", content)
-    self.assertIn("Center $(280, 240)$, max $r=150$", content)
+    self.assertIn("Center $(310, 260)$, max $r=125$", content)
+    self.assertIn("viewBox=\"0 0 620 480\"", content)
     self.assertIn("CRITICAL VISUAL SPECIFICATION VIOLATION", content)
     self.assertIn("agent-embed", content)
 

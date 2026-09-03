@@ -274,16 +274,16 @@ outcome:
       spokes: List[MetricSpoke],
       composite_d: float,
       cri: int,
-      width: int = 560,
-      height: int = 460,
+      width: int = 620,
+      height: int = 480,
       scale_mode: str = "zscore",
   ) -> str:
     """Renders a self-contained, crisp SVG radar chart with hover tooltips and 3-sigma perimeter."""
     if not spokes:
       return "<svg><text>No metric data available</text></svg>"
 
-    cx, cy = width / 2.0, height / 2.0 + 15
-    max_radius = min(width, height) / 2.0 - 65
+    cx, cy = width / 2.0, height / 2.0 + 20
+    max_radius = 125.0
 
     n = len(spokes)
     is_cri_mode = (scale_mode.lower() == "cri")
@@ -306,9 +306,9 @@ outcome:
         '      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.1"/>',
         '    </filter>',
         '  </defs>',
-        f'  <rect x="20" y="15" width="{width - 40}" height="36" rx="6" fill="{status_badge_bg}"/>',
-        f'  <text x="32" y="38" font-size="13" font-weight="bold" fill="{status_badge_fg}">{entity_id} • 360° BEHAVIORAL RADAR</text>',
-        f'  <text x="{width - 32}" y="38" font-size="13" font-weight="bold" text-anchor="end" fill="{status_badge_fg}">D = {composite_d:.2f}σ  |  CRI {cri}/100 ({status_text})</text>',
+        f'  <rect x="20" y="12" width="{width - 40}" height="46" rx="6" fill="{status_badge_bg}"/>',
+        f'  <text x="32" y="30" font-size="12" font-weight="bold" fill="{status_badge_fg}">{entity_id} • 360° BEHAVIORAL RADAR</text>',
+        f'  <text x="32" y="47" font-size="11" font-weight="500" fill="{status_badge_fg}">Multi-Sector Distance: D = {composite_d:.2f}σ  |  CRI: {cri}/100 ({status_text})</text>',
     ]
 
     if is_cri_mode:
@@ -348,7 +348,7 @@ outcome:
       polygon_points.append(f"{px:.1f},{py:.1f}")
       spoke_coords.append((px, py, s))
 
-      label_r = max_radius + 24
+      label_r = max_radius + 20
       lx = cx + label_r * math.cos(angle)
       ly = cy + label_r * math.sin(angle)
 
@@ -361,14 +361,22 @@ outcome:
 
       spoke_highlight = "#c5221f" if s.z_score >= 3.0 else "#3c4043"
       outlier_tag = " 🚨" if s.z_score >= 4.0 else ""
+      z_formatted = f"{s.z_score:+.1f}σ"
+
+      if i == 0:  # Top spoke
+        ly -= 6
+      elif i in (1, n - 1):  # Upper side spokes
+        ly -= 2
+
       if is_cri_mode:
-        label_text = f"{s.spoke_name} (CRI {s.cri_score} | +{s.z_score:.1f}σ{outlier_tag})"
+        score_subtext = f"(CRI {s.cri_score} | {z_formatted}{outlier_tag})"
       else:
-        label_text = f"{s.spoke_name} (+{s.z_score:.1f}σ{outlier_tag})"
+        score_subtext = f"({z_formatted}{outlier_tag})"
 
       svg_parts.append(
           f'  <text x="{lx:.1f}" y="{ly:.1f}" font-size="10" font-weight="bold" text-anchor="{text_anchor}" fill="{spoke_highlight}">'
-          f'{label_text}'
+          f'<tspan x="{lx:.1f}" dy="0">{s.spoke_name}</tspan>'
+          f'<tspan x="{lx:.1f}" dy="13" font-size="9" font-weight="600" fill="{spoke_highlight}">{score_subtext}</tspan>'
           f'</text>'
       )
 
@@ -377,9 +385,10 @@ outcome:
 
     for px, py, s in spoke_coords:
       pt_color = "#d93025" if s.z_score >= 3.0 else poly_stroke
+      z_formatted_title = f"{s.z_score:+.2f}σ"
       svg_parts.append(f'  <circle cx="{px:.1f}" cy="{py:.1f}" r="4.5" fill="{pt_color}" stroke="#ffffff" stroke-width="1.5">')
       svg_parts.append(
-          f'    <title>{s.spoke_name}\n• 24h Observed: {s.observed} {s.unit}\n• 30d Baseline Mean: {s.baseline_mean:.1f}\n• 30d StdDev: {s.baseline_stddev:.1f}\n• Deviation: +{s.z_score:.2f}σ</title>'
+          f'    <title>{s.spoke_name}\n• 24h Observed: {s.observed} {s.unit}\n• 30d Baseline Mean: {s.baseline_mean:.1f}\n• 30d StdDev: {s.baseline_stddev:.1f}\n• Deviation: {z_formatted_title}</title>'
       )
       svg_parts.append('  </circle>')
 
