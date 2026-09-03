@@ -7,7 +7,7 @@ aliases:
   - Agentic UEBA Core
 description: |
   Multi-stage statistical outlier hunting in Google SecOps using pre-computed Risk Analytics metrics (`metrics.*`) chained into 2-stage to 4-stage DAGs across 14 models (Z-Score, MAD, Poisson, Delta-Z, Multi-Sector Fusion).
-  Triggers: "hunt with risk metrics", "multi-stage metrics outlier", "MAD on network bytes", "z-score on auth", "fleet outlier", "poisson burst", "fano factor", "dual-baseline delta-z", "multi-sector threat fusion", "360 health check", "360 risk radar", "radial chart", "all risk vectors", "behavioral fingerprint", "compare to team", "behavioral drift", "top statistical outliers".
+  Triggers: "hunt with risk metrics", "multi-stage metrics outlier", "MAD on network bytes", "z-score on auth", "fleet outlier", "poisson burst", "fano factor", "dual-baseline delta-z", "multi-sector threat fusion", "360 health check", "360 risk radar", "radial chart", "all risk vectors", "behavioral fingerprint", "compare to team", "behavioral drift", "service account cloud repository access", "cloud CRUD baseline", "unexpected origin IP for service account", "top statistical outliers".
 compatibility: Requires Google SecOps with Risk Analytics metrics enabled and the SecOps GUS MCP server (udm_search, get_operation).
 ---
 
@@ -21,8 +21,8 @@ Executes **multi-sector statistical outlier hunting** in Google SecOps using **3
 
 | If hunt targets... | Activate... | Operational Action |
 | :--- | :--- | :--- |
-| • **30-Day Baselines** (`metrics.*`)<br>• **Peer Cohorts**<br>• **Multi-Sector Fusion** | 📊 **`secops-risk-metrics-multistage`** *(This Skill)* | Execute native multi-stage `metrics.*` pipeline. |
-| • **Ad-Hoc Raw Telemetry Sensors** (C2 jitter CV)<br>• **Non-Metrics Telemetry** | ⚡ **`secops-statistical-hunter`** | Emit **Skill Handoff Card** and Non-Metrics Telemetry Steering Mandate to `secops-statistical-hunter`. |
+| • **30-Day Baselines** (`metrics.*`)<br>• **Peer Cohorts**<br>• **Cloud Data Stores** (GCS, BQ, S3)<br>• **Multi-Sector Fusion** | 📊 **`secops-risk-metrics-multistage`** *(This Skill)* | Execute native multi-stage `metrics.*` pipeline. |
+| • **Ad-Hoc Raw Telemetry Sensors** (C2 jitter CV)<br>• **Non-Metrics Telemetry** (Git repos, raw UDM) | ⚡ **`secops-statistical-hunter`** | Emit **Skill Handoff Card** and Non-Metrics Telemetry Steering Mandate to `secops-statistical-hunter`. |
 
 ---
 
@@ -59,7 +59,7 @@ Phase 1B (Query Preview & Spec Card) is **ONLY UNLOCKED** when **BOTH** requirem
 > If an analyst specifies entities (*"compare user A to user B"*, *"check user X for deviations"*) but **omits the telemetry vector**, **THE AGENT MUST NOT DEFAULT TO `metrics.auth_attempts_*` OR `USER_LOGIN`**.  
 > The agent MUST act as a consultative partner, yield the turn (Conversational Break), and ask:
 > *"Across which behavioral vector(s) would you like to evaluate [Target Entities]?"*
-> • ☁️ **Cloud CRUD**: `metrics.resource_creation_*`, `metrics.resource_deletion_*` (GCP/AWS).
+> • ☁️ **Cloud CRUD**: `metrics.resource_read_*`, `metrics.resource_written_*`, `metrics.resource_creation_*` (GCP/AWS/Azure).
 > • 📁 **Workspace Exfil**: `metrics.workspace_total_download_actions`, `metrics.workspace_total_change_actions`.
 > • ⚙️ **Endpoint Tools**: `PROCESS_LAUNCH` (LOLBins, script engines, admin shells).
 > • 🌐 **Network Egress**: `metrics.network_bytes_outbound` (data egress).
@@ -71,7 +71,7 @@ Phase 1B (Query Preview & Spec Card) is **ONLY UNLOCKED** when **BOTH** requirem
 When an analyst asks to profile an entity across all vectors (*"visualize all risk vectors"*, *"radial/spider chart"*, *"full spectrum profile"*, *"360 health check"*, *"behavioral fingerprint"*):
 1. **Mandatory 5-Sector Roster**: Above the Pre-Flight Card, present the explicit 5-point enumerated list:
    - 🔑 **Authentication & Access** (`metrics.auth_attempts_*`)
-   - ☁️ **Cloud Resource CRUD** (`metrics.resource_creation_*`, `metrics.resource_deletion_*`)
+   - ☁️ **Cloud Resource CRUD** (`metrics.resource_read_*`, `metrics.resource_written_*`, `metrics.resource_creation_*`)
    - 📁 **Workspace & SaaS Exfiltration** (`metrics.workspace_*`)
    - 🌐 **Network Egress** (`metrics.network_bytes_outbound`)
    - ⚙️ **Endpoint Process Activity** (`PROCESS_LAUNCH`)
@@ -97,7 +97,7 @@ When an analyst asks to profile an entity across all vectors (*"visualize all ri
 3. **Visualization Strategy**:
    - **Mode A (24h Snapshot)**: Render **360° Radial Radar SVG** (today's spoke deviations).
    - **Mode B (14d Multi-Horizon)**: Render **360° Radial Radar SVG (Peak Envelope $Z_{\text{peak}}$)** + **14-Day Activity & Anomaly Timeline**.
-4. **Dual Scales**: Support raw Z-score and CRI ($+3.0\sigma$ / CRI 50 perimeter; Section 6 shows formula substitutions).
+4. **Dual Scales**: Support raw Z-score and CRI ($+3.0\sigma$ / CRI 50 perimeter; Section 6 formula).
 
 ### 🎯 CTI & Threat Report Mapping (Reports, URLs, CVEs, Threat Actors)
 When an analyst provides a threat report (URL, CVEs, or threat actor):
@@ -172,15 +172,15 @@ The report **MUST STRICTLY CONTAIN ALL 6 NUMBERED PILLARS**:
   - *No `by 24h`*: Daily match windows MUST use `by 1d`.
   - *Linear Outcome Arithmetic*: Nested `max(0, ...)` or inline `sqrt(...)` in arithmetic expressions are INVALID. Compute squared norms and order by `$norm_sq desc`.
   - *Max 4 Joins Invariant*: YARA-L 2.0 limits queries to $\le 4$ joins (`maxJoinCount = 4`). Each UEBA stage consumes 1 join; root joins consume $K-1$ joins. Stay within $\le 4$ joins. *(See `references/multi-stage-metrics-guide.md`)*.
-* **Exact Time Window Arithmetic**: Compute $\text{startTime} = \text{endTime} - N \times 86400\text{s}$ matching requested horizon (e.g. 14d ending Aug 29 starts Aug 16 at 00:00:00Z).
+* **Time Window Arithmetic**: $\text{startTime} = \text{endTime} - N \times 86400\text{s}$ matching requested horizon.
 * **Variable Role Classification & Anti-Passive-Decoration Mandate**: Every variable must fulfill `[JOIN_KEY]`, `[SCORING_DIMENSION]`, `[ACTIVE_FILTER]`, or `[TRIAGE_DECORATION]`. Primary threat vectors MUST NEVER act solely as `[TRIAGE_DECORATION]`; bind them to active fleet rarity or Entity Graph constraints.
-* **Single-ECG Limit & Decoupled Context Fusion**: Max 1 ECG lookup per stage. Never evaluate `metrics.*` inside stages filtered by `GLOBAL_CONTEXT` or `DERIVED_CONTEXT`.
+* **Single-ECG Limit**: Max 1 ECG lookup per stage; never evaluate `metrics.*` in `GLOBAL_CONTEXT` or `DERIVED_CONTEXT` stages.
 * **Inner-Join Drop Prevention Standard (PRESERVING FULL POPULATION)**: Multi-stage joins are inner joins. Evaluate full baseline in Stage 1 and profile destinations via `array_distinct(target.hostname)`.
 
 ### 3. Scope, Steering & Parsimony
 * **Pure Threat Hunting Scope (SEARCH-ONLY — ZERO RULE CREATION / DEPLOYMENT)**: `create_rule` and `validate_rule` are STRICTLY PROHIBITED during threat hunts.
 * **Zero Streaming Detection Rule Syntax (SEARCH-ONLY YARA-L DAG MANDATE)**: Output ad-hoc Multi-Stage YARA-L Search syntax (`stage name { ... }` + Root Stage) for Chronicle UDM Search (`udm_search`). Outputting continuous detection rules (`rule <name> { ... }`), `meta:`, or `condition:` blocks is a **CRITICAL NOMENCLATURE & ARCHITECTURAL VIOLATION**. If targeting non-metrics telemetry, steer to `secops-statistical-hunter`—NEVER improvise detection rules.
-* **Non-Metrics Telemetry Steering Mandate (HANDOFF TO STATISTICAL HUNTER)**: If an analyst targets non-baselined telemetry, emit the **Skill Handoff Card** and steer to `secops-statistical-hunter`.
+* **Non-Metrics Telemetry Steering Mandate (HANDOFF TO STATISTICAL HUNTER)**: If an analyst targets non-baselined telemetry (e.g. Git code repositories, raw UDM), emit the **Skill Handoff Card** and steer to `secops-statistical-hunter`.
 * **Zero Gratuitous Entity Graph Injection (ON-DEMAND / ALGORITHMIC GROUNDING ONLY)**: Entity Graph constructs must NEVER be injected gratuitously or speculatively. Include ONLY upon **Direct Customer Request (On-Demand)** or explicit **Algorithmic Grounding**.
 
 ---
@@ -209,6 +209,3 @@ The report **MUST STRICTLY CONTAIN ALL 6 NUMBERED PILLARS**:
 
 * **Documentation (`references/`)**: `metrics-catalog.md`, `statistical-models-taxonomy.md`, `calibrated-risk-index-guide.md`, `multi-stage-metrics-guide.md`, `soar-playbook-radar-integration.md`, `chart-specifications-guide.md`
 * **Automation & Pipelines**: `templates/` (`pipelines/`, `stage1_extractors/`, `stage2_math_models/`), `scripts/` (`radar_collector.py`, `preflight_validator.py`, `chart_generator.py`)
-
----
-*Created and maintained by Greg Kushmerek for Google SecOps Chronicle SIEM threat hunting workflows.*

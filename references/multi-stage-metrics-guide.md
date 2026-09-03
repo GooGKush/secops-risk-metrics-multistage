@@ -413,7 +413,7 @@ When an analyst's inquiry is open-ended (e.g. *"find privilege abuse"*, *"look f
 | **3. Enterprise-Wide Leaderboard** | Open fleet-wide anomaly audit. | Evaluates all active identities and ranks top statistical outliers via Delta-$Z$ or CRI. |
 
 ### 2. The 6 Operational Behavioral Vector Families:
-1. ☁️ **Cloud Infrastructure CRUD**: `metrics.resource_creation_*`, `metrics.resource_deletion_*`, `metrics.resource_written_*` (GCP CloudAudit, AWS CloudTrail, Azure Activity).
+1. ☁️ **Cloud Infrastructure & Data Store CRUD**: `metrics.resource_read_*`, `metrics.resource_written_*`, `metrics.resource_creation_*`, `metrics.resource_deletion_*` (GCP CloudAudit, AWS CloudTrail, Azure Activity). Supports baselining service accounts (`principal.user.userid`) and caller origin IPs (`principal.ip`) against cloud data repositories (`target.resource.name`).
 2. 📁 **Workspace Data Hoarding & Exfiltration**: `metrics.workspace_total_download_actions`, `metrics.workspace_total_change_actions` (Google Drive mass exports, permission sharing changes).
 3. ⚙️ **Endpoint Administrative Execution**: `PROCESS_LAUNCH` (LOLBins, script interpreters, administrative shells).
 4. 🌐 **Outbound Data Egress**: `metrics.network_bytes_outbound` (data siphoning and egress volume surges).
