@@ -60,7 +60,7 @@ Phase 1B (Query Preview & Spec Card) is **ONLY UNLOCKED** when **BOTH** requirem
 
 ### 🕸️ 360° Entity Behavioral Risk Radar (All-Vectors / Radial Profiling)
 When an analyst asks to profile an entity across all vectors (*"visualize all risk vectors"*, *"radial/spider chart"*, *"full spectrum profile"*, *"360 health check"*, *"behavioral fingerprint"*):
-1. **Mandatory 5-Sector Roster**: Above Pre-Flight Card, present: 🔑 **Authentication & Access** (`metrics.auth_attempts_*`), ☁️ **Cloud Resource CRUD** (`metrics.resource_read_*`, `resource_written_*`, `resource_creation_*`), 📁 **Workspace & SaaS Exfiltration** (`metrics.workspace_*`), 🌐 **Network Egress** (`metrics.network_bytes_outbound`), ⚙️ **Endpoint Process Activity** (`PROCESS_LAUNCH`).
+1. **Mandatory 5-Sector Roster**: Above Pre-Flight Card, present: 🔑 **Authentication & Access** (`metrics.auth_attempts_*`), ☁️ **Cloud Resource CRUD** (`metrics.resource_read_*`, `resource_written_*`, `resource_creation_total`), 📁 **Workspace & SaaS Exfiltration** (`metrics.workspace_*`), 🌐 **Network Egress** (`metrics.network_bytes_outbound`), ⚙️ **Endpoint Process Activity** (`PROCESS_LAUNCH`).
 2. **Compilable Micro-Query Template (ZERO CROSS-SECTOR JOINS)**:
    - Inner joins across sectors drop quiet accounts. Display the canonical decoupled micro-query:
    ```yara
@@ -154,7 +154,7 @@ The report **MUST STRICTLY CONTAIN ALL 6 NUMBERED PILLARS**:
 * **Zero-Hallucination Compiler Grammar Contract**:
   - *Entity Role & Match Binding Invariant*: Variables in `match:` MUST bind in event predicates (`target.user.userid` for logins; `principal.user.userid` for cloud/SaaS/net/proc; `principal.asset.hostname` for assets).
   - *Common Compiler Structural Boundary (Zero Event Arithmetic)*: Arithmetic (`$a - $b`, `$a / $b`) is STRICTLY PROHIBITED above `match:`. Placeholders bind directly to fields/scalar functions. ALL derivations and Z-scores reside in `outcome:` below `match:`.
-  - *Syntax Invariants*: No `in ("A", "B")` (use `%list` or `or`); no dot-notation metric properties (`metrics.foo.mean` is INVALID, use `max(metrics.foo(...))`); no `by 24h` (use `by 1d`); linear outcome arithmetic (no nested `max(0,...)` or inline `sqrt(...)`).
+  - *Syntax Invariants*: No `in ("A", "B")` (use `%list` or `or`); no dot-notation metric properties (`metrics.foo.mean` is INVALID, use `max(metrics.foo(...))`); no `by 24h` (use `by 1d`); linear outcome arithmetic (no nested `max(0,...)` or inline `sqrt(...)`); canonical metric names only: volumetric resource/workspace metrics end in `_total` (e.g. `metrics.resource_creation_total`; never invent `_count`).
   - *Mandatory Companion Dimensions*: All Cloud CRUD metrics (`metrics.resource_*`) strictly require both `metadata.vendor_name` and `metadata.product_name`. File execution metrics (`metrics.file_executions_*`) strictly require `metadata.event_type` and `principal.process.file.sha256`. Omitting companion dimensions causes Malachite compiler rejection (`unsupported filters for metric`).
   - *Max 4 Joins Invariant*: YARA-L 2.0 limits queries to $\le 4$ joins (`maxJoinCount = 4`). Each UEBA stage consumes 1 join; root joins consume $K-1$ joins. Stay within $\le 4$ joins. *(See `references/multi-stage-metrics-guide.md`)*.
 * **Variable Role Classification & Anti-Passive-Decoration Mandate**: Every variable must fulfill `[JOIN_KEY]`, `[SCORING_DIMENSION]`, `[ACTIVE_FILTER]`, or `[TRIAGE_DECORATION]`. Primary threat vectors MUST NEVER act solely as `[TRIAGE_DECORATION]`; bind them to active fleet rarity or Entity Graph constraints.
@@ -180,11 +180,12 @@ The report **MUST STRICTLY CONTAIN ALL 6 NUMBERED PILLARS**:
   - *Action*: Call `secops-gus:create_case_comment(case_id="<ID>", comment=...)` on that explicitly designated Case ID.
 
 ### 2. Mandatory Workflow per Path:
-* **For Path A (Synthetic UDM Event Ingestion)**: 1. Preview canonical event JSON from [`references/clean-handoff-udm-schema.md`](references/clean-handoff-udm-schema.md). 2. Ask *"Would you like me to ingest this event into Chronicle SIEM now to trigger automated case promotion?"* and **STOP CALLING TOOLS AND YIELD THE TURN**. 3. Upon confirmation, execute `secops-gus:import_logs` with `product_name: "SecOps Risk Metrics Hunter"`.
+* **For Path A (Synthetic UDM Event Ingestion)**: 1. Preview canonical event JSON from `references/clean-handoff-udm-schema.md`. 2. Ask *"Would you like me to ingest this event into Chronicle SIEM now to trigger automated case promotion?"* and **STOP CALLING TOOLS AND YIELD THE TURN**. 3. Upon confirmation, execute `secops-gus:import_logs` with `product_name: "SecOps Risk Metrics Hunter"`.
 * **For Path B (Explicit Case Wall Comment)**: Call `secops-gus:create_case_comment(case_id="<ID>", comment=...)` with user-provided `case_id` and confirm attachment.
 
 ---
 
 ## 📂 Modular References & Template Architecture
-* **`references/`**: `metrics-catalog.md`, `statistical-models-taxonomy.md`, `calibrated-risk-index-guide.md`, `multi-stage-metrics-guide.md`, `soar-playbook-radar-integration.md`, `chart-specifications-guide.md`, `compiler-submission-policy.md`
+* **`references/`**: `metrics-catalog.md`, `statistical-models-taxonomy.md`, `calibrated-risk-index-guide.md`, `multi-stage-metrics-guide.md`, `compiler-submission-policy.md`
 * **Pipelines & Scripts**: `templates/pipelines/`, `scripts/` (`radar_collector.py`, `preflight_validator.py`, `submission_tests.py`)
+
