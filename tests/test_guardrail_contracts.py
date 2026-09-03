@@ -838,6 +838,27 @@ class TestGuardrailContracts(unittest.TestCase):
     conflated_errors = MalachiteASTValidator.validate_query(conflated_query)
     self.assertTrue(any("MULTI_VECTOR_STAGE_CONFLATION" in e for e in conflated_errors))
 
+  def test_multiturn_continuity_and_followup_mandate_contract(self):
+    """SKILL.md and multi-stage guide must enforce multi-turn continuity and prevent raw log degradation on follow-up turns."""
+    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    skill_path = os.path.join(skill_dir, 'SKILL.md')
+    guide_path = os.path.join(skill_dir, 'references', 'multi-stage-metrics-guide.md')
+
+    with open(skill_path, 'r', encoding='utf-8') as f:
+      skill_content = f.read()
+    with open(guide_path, 'r', encoding='utf-8') as f:
+      guide_content = f.read()
+
+    # Verify SKILL.md mandate
+    self.assertIn("Multi-Turn Continuity & Follow-Up Mandate", skill_content)
+    self.assertIn("NEVER degrade to raw log dumps", skill_content)
+
+    # Verify multi-stage guide documentation
+    self.assertIn("Multi-Turn Continuity & Conversational Anaphora Resolution", guide_content)
+    self.assertIn("The Anti-Context-Collapse Mandate", guide_content)
+    self.assertIn("looking backwards 14 days", guide_content)
+    self.assertIn("Mode B: 30-Day Longitudinal Sliding Timeline", guide_content)
+
 
 if __name__ == '__main__':
   unittest.main()

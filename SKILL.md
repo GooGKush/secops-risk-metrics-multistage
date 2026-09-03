@@ -62,7 +62,7 @@ When an analyst asks to profile an entity across all vectors (*"visualize all ri
        In Pillar 1, output ONLY `<agent-embed src="file:///<artifact_dir>/radar_%(entity)s.html"></agent-embed>` and link `[Open 360° Radar](file:///<artifact_dir>/radar_%(entity)s.html)`. Omit ASCII card. Never re-read scripts.
      • *Generic MCP (no shell tool)*: In Pillar 1, emit pure inline `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 620 480">` directly in markdown. Omit ASCII card.
      • *CLI / Terminal*: Render ASCII radar card ONLY (or when analyst requests 'cli'/'ascii').
-   - **Canonical SVG & ASCII Layout**: Center $(310, 240)$, max $r=125$. Rings: $31.25$ ($+1\sigma$), $62.5$ ($+2\sigma$), $93.75$ ($+3.0\sigma$), $125$ ($+4\sigma$). Spokes: Auth, Cloud, Workspace, Network, DNS/Web. Polygon: `<polygon points="..." fill="rgba(26,115,232,0.35)" stroke="#1a73e8" stroke-width="2"/>` (red if $D \ge 3.0\sigma$). CLI: Render text cross-axis radar card.
+   - **Canonical SVG & ASCII Layout**: Rings: $+1\sigma$, $+2\sigma$, $+3\sigma$, $+4\sigma$. Spokes: Auth, Cloud, Workspace, Network, DNS/Web. CLI: Render text cross-axis radar card. Detail in `references/chart-specifications-guide.md`.
    - **Mode B (14d Multi-Horizon)**: Render 360° Radial Radar ($Z_{\text{peak}}$) + 14-Day Timeline.
 4. **Dual Scales**: Raw Z-score and CRI ($+3.0\sigma$ / CRI 50 perimeter; Section 6 formula).
 
@@ -134,7 +134,8 @@ The report **MUST STRICTLY CONTAIN ALL 6 NUMBERED PILLARS**:
 * **Native Execution Guarantee (ZERO PYTHON SIMULATION SCRIPTING)**: Detection MUST run inside Chronicle SIEM. Simulating baselines locally in Python is a CRITICAL COMPLIANCE VIOLATION.
 * **Zero Local Script Invocations During Hunting (ZERO RUN_COMMAND VALIDATION)**: Zero Python for detection/search. Post-search Python via `run_command` is permitted SOLELY on the 1-line `scripts/radar_collector.py` call to write the HTML embed artifact. Never re-read scripts or check Python versions.
 * **Hermetic Skill Boundary (ZERO CROSS-SKILL DRIFT)**: Once active, the agent MUST NOT read, import, or search other skills. This skill is 100% self-contained.
-* **Atomic Pipeline Execution Mandate (ZERO PIECEMEAL FRACTURING & DRIFT)**: Single/dual-vector hunts dispatch the single atomic YARA-L query atomically to `udm_search`. Fracturing into piecemeal searches is STRICTLY PROHIBITED. 360° Radar queries 5 canonical sector functions in parallel (<= 5 micro-queries). Each projects `$obs`, `$mu`, `$sigma`, `$z_score` in root `outcome:`. Zero Duplicate Queries: Never re-run queries. Zero Log Fishing: If a sector has 0 events or $Z \le 0$, record $0.00\sigma$, CRI 0; never fish for raw Sysmon/DNS/HTTP logs.
+* **Multi-Turn Continuity & Follow-Up Mandate**: On follow-up turns shifting entity or time parameters ("run same for user X", "look back 14d"), MAINTAIN the active Multi-Stage Risk Analytics architecture (30d baselines, DAGs, 6 pillars). NEVER degrade to raw log dumps.
+* **Atomic Pipeline Execution Mandate (ZERO PIECEMEAL FRACTURING & DRIFT)**: Single/dual-vector hunts dispatch the single atomic YARA-L query atomically to `udm_search`. Fracturing into piecemeal searches is STRICTLY PROHIBITED. 360° Radar queries 5 canonical sector functions in parallel (<= 5 micro-queries). Each projects `$obs`, `$mu`, `$sigma`, `$z_score` in root `outcome:`. If a sector has 0 events or $Z \le 0$, record $0.00\sigma$, CRI 0; never fish for raw Sysmon/DNS/HTTP logs.
 * **Literal Query Display Mandate (ZERO FAKED YARA-L QUERIES)**: Section 2 MUST contain the literal exact query string passed into `secops-gus:udm_search(query=...)`.
 * **Zero Unsolicited Ingestion**: Zero ingestion via `import_logs` or `generate_synthetic_events`.
 * **Post-Flight Audit & Auto-Correction**: If execution is deformed, present auto-corrected query and ask: *"Execute this auto-corrected query now, or exit?"*
@@ -169,17 +170,12 @@ The report **MUST STRICTLY CONTAIN ALL 6 NUMBERED PILLARS**:
 > This protocol is EXCLUSIVELY triggered when the analyst explicitly requests escalation, case creation, or ticketing (e.g. *"escalate this finding"*, *"send report to SecOps"*, *"open a case"*, *"ingest alert into SIEM"*).
 > **NEVER append synthetic UDM events, event previews, or ingestion prompts to standard threat hunting reports or 360° behavioral profiles.** Standard hunt reports terminate cleanly at Pillar 6 (Appendix).
 
-### 1. Intent Routing (When Escalation Is Explicitly Requested):
-* **Path A: General Escalation (No Case ID)**: Analyst asks to escalate without case ID. Ingest synthetic UDM security event to trigger dedicated case. Never pick existing cases via `list_cases`.
-* **Path B: Explicit Case Wall Attachment (Case ID specified)**: Call `secops-gus:create_case_comment(case_id="<ID>", comment=...)` on designated ID.
-
-### 2. Mandatory Workflow per Path:
-* **For Path A**: 1. Preview event JSON. 2. Ask *"Would you like me to ingest this event into Chronicle SIEM now to trigger automated case promotion?"* and **STOP CALLING TOOLS AND YIELD THE TURN**. 3. Upon confirmation, execute `secops-gus:import_logs` with `product_name: "SecOps Risk Metrics Hunter"`.
-* **For Path B**: Call `secops-gus:create_case_comment(case_id="<ID>", comment=...)` with user-provided `case_id` and confirm.
+### Intent Routing & Mandatory Workflow (When Escalation Is Explicitly Requested):
+* **Path A: General Escalation (No Case ID)**: 1. Preview synthetic event JSON. 2. Ask *"Would you like me to ingest this event into Chronicle SIEM now to trigger automated case promotion?"* and **STOP CALLING TOOLS AND YIELD THE TURN**. 3. Upon confirmation, execute `secops-gus:import_logs` (`product_name: "SecOps Risk Metrics Hunter"`). Never pick existing cases via `list_cases`.
+* **Path B: Explicit Case Wall Attachment (Case ID specified)**: Call `secops-gus:create_case_comment(case_id="<ID>", comment=...)` on designated ID and confirm.
 
 ---
 
 ## 📂 Modular References & Template Architecture
 * **`references/`**: `metrics-catalog.md`, `statistical-models-taxonomy.md`, `calibrated-risk-index-guide.md`, `multi-stage-metrics-guide.md`, `compiler-submission-policy.md`
 * **Pipelines & Scripts**: `templates/pipelines/`, `scripts/` (`radar_collector.py`, `submission_tests.py`)
-

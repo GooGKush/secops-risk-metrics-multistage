@@ -525,11 +525,38 @@ When a Tier 1 fleet hunt discovers an entity with severe statistical anomalies (
 ```
 
 ---
+
+## 25. Multi-Turn Continuity & Conversational Anaphora Resolution
+
+In multi-turn threat hunting dialogues, security analysts frequently issue follow-up prompts that refer anaphorically to the preceding query while modifying one or more search parameters:
+* *"Can you run the same search but for user 'admin' and looking backwards 14 days starting from August 18?"*
+* *"Now do the same hunt for svc-deployer@my-project.iam.gserviceaccount.com"*
+* *"Look back 14 days on that same vector"*
+
+### The Anti-Context-Collapse Mandate
+Under no circumstances should the assistant treat a follow-up query as a prompt to abandon the active UEBA Multi-Stage Risk Analytics architecture or degrade into raw log retrieval (`udm_search` on `GCP_CLOUDAUDIT`, raw Windows Event logs, or unfiltered Sysmon). 
+
+1. **Architecture Persistence**: The phrase *"same search"* explicitly binds the execution to the current active pipeline:
+   * Pre-computed 30-day baselines (`metrics.*`).
+   * Multi-stage YARA-L 2.0 DAG constructs (`stage ...` + Root Stage).
+   * Statistical outlier formulation ($Z$-score, MAD, Poisson rarity, or $\Delta Z$).
+   * Canonical 6-Pillar triage report structure upon clearance.
+
+2. **Entity Parameter Substitution**:
+   * Replace the previous target entity with the new target (`principal.user.userid = "admin"` or designated service account).
+   * If the entity is a display name with spaces, apply the **Identity Disambiguation Protocol** (spot-check $\le 5$ events; if 0 events match, halt and ask for technical account identifier).
+
+3. **Time Horizon Substitution & Anchor Mapping**:
+   * Standard snapshot queries operate in **Mode A** ($24\text{h}$ snapshot vs 30d baseline).
+   * Follow-up phrases such as *"looking backwards 14 days starting from [Date]"* or *"14-day timeline"* map directly to **Mode B: 30-Day Longitudinal Sliding Timeline (`TIMELINE_BREAKDOWN`)**.
+   * **Date-Anchor Resolution**:
+     $$\text{endTime} = \text{Anchor Date (e.g. 2026-08-18T23:59:59Z)}$$
+     $$\text{startTime} = \text{Anchor Date} - 14\text{d (e.g. 2026-08-04T00:00:00Z)}$$
+   * **Timeline Query Semantics**: Multi-stage YARA-L groups daily observations: `match: $entity by 1d` evaluated against the 30-day baseline spine (`window: 30d`).
+
+4. **Follow-Up Clearance Protocol**:
+   * If both the entity scope and telemetry vectors are unambiguously known from the context, present the updated **Pre-Flight Hunting Specification Card** and literal **Multi-Stage YARA-L Query Preview**.
+   * Ask for execution clearance (Mode A vs. Mode B confirmation) and yield the turn (zero search or ingestion tools called on Turn 1 of the follow-up).
+
+---
 *Created and maintained by Greg Kushmerek for Google SecOps Chronicle SIEM threat hunting workflows.*
-
-
-
-
-
-
-
