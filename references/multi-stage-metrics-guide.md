@@ -598,4 +598,24 @@ Before outputting any candidate multi-stage YARA-L query in the Phase 1B Pre-Fli
 * **Zero Broken Previews**: If the probe fails with a compilation error, the agent is strictly prohibited from rendering the broken query in markdown. It must auto-correct syntax or trigger the Consultative Pivot Protocol immediately.
 
 ---
+
+## 27. Template-First Query Architecture & Post-Flight Integrity
+
+### A. Template-First Assembly via `MultiStageTemplateRouter`
+To eliminate runtime syntax failures and semantic distortions, multi-stage queries are deterministically assembled from canonical templates:
+1. **Stage 1 Extractors (`templates/stage1_extractors/`)**: Provide guaranteed 6-point outcome tuples (`$observed_val`, `$historical_avg`, `$historical_stddev`, `$historical_active_days`, `$historical_max`, `$historical_sum`) with immutable entity bindings.
+2. **Stage 2 Math Models (`templates/stage2_math_models/`)**: Provide clean AST implementations of standard $Z$, MAD, Poisson, CV, and Bayesian models.
+3. **Pre-Composed Pipelines (`templates/pipelines/`)**: End-to-end validated pipelines for complex multi-stage hunts (e.g. `cloud_repository_scope_dual_branch.yl2`, `mad_modified_z_2stage.yl2`).
+
+### B. The `RAW_LOG_DUMP_DETECTED` Post-Flight Inspection Rule
+When `udm_search` completes, the response must be audited before generating any report:
+* If the API response contains `"events"` without `"stats"` (unaggregated raw UDM events) when statistical aggregation was expected, `RAW_LOG_DUMP_DETECTED` is flagged.
+* The agent is strictly barred from computing ad-hoc statistics locally in Python to disguise a failed query.
+* Instead, `CommonMarkTriageFormatter` aborts 6-Pillar report generation, presents an auto-corrected canonical template (or initiates the Consultative Pivot Protocol), and prompts the analyst for execution clearance.
+
+### C. Clean Hand-Off & SOAR Playbook Integration
+* **Clean Hand-Off Schema**: See `references/clean-handoff-udm-schema.md` for the synthetic UDM event structure used to promote outliers ($Z \ge 3.0\sigma$, $\text{CRI} \ge 50$) to Chronicle alerts and cases.
+* **SOAR Playbook Radar Hook**: See `references/soar-playbook-radar-integration.md` for wiring 360° behavioral fingerprinting directly into Chronicle SOAR playbooks.
+
+---
 *Created and maintained by Greg Kushmerek for Google SecOps Chronicle SIEM threat hunting workflows.*

@@ -929,6 +929,37 @@ class TestGuardrailContracts(unittest.TestCase):
     self.assertIn("The 3 Canonical Consultative Pivot Paths", guide_content)
     self.assertIn("Cloud-First 2-Phase Pivot", guide_content)
 
+  def test_template_first_routing_and_raw_dump_audit_contract(self):
+    """SKILL.md and multi-stage guide must mandate template-first query assembly and post-flight raw-dump audit."""
+    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    skill_path = os.path.join(skill_dir, 'SKILL.md')
+    guide_path = os.path.join(skill_dir, 'references', 'multi-stage-metrics-guide.md')
+
+    with open(skill_path, 'r', encoding='utf-8') as f:
+      skill_content = f.read()
+    with open(guide_path, 'r', encoding='utf-8') as f:
+      guide_content = f.read()
+
+    # SKILL.md template-first routing mandate
+    self.assertIn("Template-First Routing Mandate", skill_content)
+    self.assertIn("MultiStageTemplateRouter", skill_content)
+    self.assertIn("templates/pipelines/", skill_content)
+
+    # SKILL.md post-flight raw dump detection
+    self.assertIn("RAW_LOG_DUMP_DETECTED", skill_content)
+    self.assertIn('"events"', skill_content)
+    self.assertIn('"stats"', skill_content)
+
+    # Modular references index in SKILL.md
+    self.assertIn("clean-handoff-udm-schema.md", skill_content)
+    self.assertIn("soar-playbook-radar-integration.md", skill_content)
+    self.assertIn("template_router.py", skill_content)
+
+    # Multi-stage guide documentation
+    self.assertIn("Template-First Query Architecture & Post-Flight Integrity", guide_content)
+    self.assertIn("MultiStageTemplateRouter", guide_content)
+    self.assertIn("RAW_LOG_DUMP_DETECTED", guide_content)
+
 
 if __name__ == '__main__':
   unittest.main()
