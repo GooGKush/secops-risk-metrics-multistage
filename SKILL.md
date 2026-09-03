@@ -27,7 +27,7 @@ Executes **multi-sector statistical outlier hunting** using **30-day pre-compute
 ---
 
 ## 💡 How Risk Metrics Multi-Stage Analytics Work
-When asked how analytics work: 1. **30d Baselines** (`metrics.*`), 2. **Multi-Stage DAG Analytics**, 3. **Execution Framework Summary** ($Z$, MAD, Poisson, $\Delta Z$, CUSUM, $D$). **Ask for more information** if you would like a deep dive on these behavioral models. *(See `references/statistical-models-taxonomy.md`)*
+When asked how analytics work: 1. **30d Baselines** (`metrics.*`), 2. **Multi-Stage DAGs**, 3. **Statistical Framework** ($Z$, MAD, Poisson, $\Delta Z$, CUSUM, $D$). Ask if analyst wants a deep dive on behavioral models.
 
 ---
 
@@ -72,13 +72,14 @@ When an analyst asks to profile an entity across all vectors (*"visualize all ri
    outcome:
      $z_score = (max($stage1_extract.obs) - max($stage1_extract.mu)) / (max($stage1_extract.sigma) + 1.0)
    ```
-3. **Visualization Strategy (Multi-Surface: Jetski Embed + Inline SVG + ASCII)**:
-   - **Adaptive Multi-Surface Routing**:
+3. **Visualization Strategy (Single Surface: Jetski Embed OR Inline SVG OR ASCII)**:
+   - **Adaptive Single-Surface Routing (NEVER Render Both ASCII & Visual)**:
      • *Jetski (`run_command` present)*: Run 1-line collector command to write HTML artifact:
        `python3 /usr/local/google/home/kushmerek/.gemini/skills/secops-risk-metrics-multistage/scripts/radar_collector.py --entity "%(entity)s" --scores "auth=<Z1>,cloud=<Z2>,workspace=<Z3>,net=<Z4>,dns=<Z5>" --output "<artifact_dir>/radar_%(entity)s.html" --format dual`
-       In Pillar 1, output `<agent-embed src="file:///<artifact_dir>/radar_%(entity)s.html"></agent-embed>`, ASCII radar card, and `[Open 360° Radar](file:///<artifact_dir>/radar_%(entity)s.html)`. Never re-read python scripts.
-     • *Generic MCP (no shell tool)*: In Pillar 1, emit ASCII radar card + pure inline `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 620 480">` directly in markdown.
-   - **Canonical ASCII Radar Card**:
+       In Pillar 1, output ONLY `<agent-embed src="file:///<artifact_dir>/radar_%(entity)s.html"></agent-embed>` and link `[Open 360° Radar](file:///<artifact_dir>/radar_%(entity)s.html)`. Omit ASCII card. Never re-read scripts.
+     • *Generic MCP (no shell tool)*: In Pillar 1, emit pure inline `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 620 480">` directly in markdown. Omit ASCII card.
+     • *CLI / Terminal*: Render ASCII radar card ONLY (or when analyst requests 'cli'/'ascii').
+   - **Canonical ASCII Radar Card (CLI Only)**:
      ```
                           [1] Authentication (+Z.ZZσ)
                                       ▲
@@ -99,11 +100,21 @@ When an analyst provides a threat report (URL, CVEs, or threat actor):
 
 ### 🔍 Phase 1B: Pre-Flight Spec & Query Preview (Once Scope & Vectors are Established)
 Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to both"*, or via CTI mapping):
-1. **Turn 1 Tool Invariant (ZERO FILE/SCHEMA INSPECTION & 0 OR 1 SPOT-CHECK ONLY)**:
-   Do NOT call `view_file`, `list_dir`, `grep_search`, or schema inspection tools. The skill contract is already in context. At most ONE `udm_search(user_display_name = "<name>" nocase, startTime: 1d ago)` is permitted to resolve `user.userid`. Immediately output the Pre-Flight Hunting Specification Card and Query Preview.
-2. **Plain-English Cyber Analogy (1–2 Sentences)**: Explain statistical approach using a physical concept.
-3. **Structured PRE-FLIGHT HUNTING SPECIFICATION Card & Mandatory Query Preview**:
-   *Render using high-contrast bold key-value formatting:*
+1. **Turn 1 Tool Invariant & Zero-File-Inspection Mandate**:
+   Do NOT call `view_file`, `list_dir`, `grep_search`, `find_by_name`, or schema tools. All metrics & YARA-L patterns are in context.
+2. **Identity Disambiguation & Hard Resolution Gate (ZERO GUESSING & IMMEDIATE HALT)**:
+   - *Technical IDs*: Single-token account IDs without spaces (e.g. `expanse`, `fkolzig`, `srv-01`) are technical IDs. Proceed directly.
+   - *Display Names*: Names containing spaces (e.g. `James Holden`) are NOT `user.userid`.
+     • Execute AT MOST ONE spot-check: `udm_search(query='user.user_display_name = "<name>" nocase', startTime: 1d ago)`.
+     • *Match Found ($\ge 1$ events)*: Extract verified `user.userid`. Set in card: `• Target Entity / Scope: <Name> (Verified User ID: <id>)`.
+     • *HARD RESOLUTION GATE (ZERO GUESSING)*: If 0 events match or query fails:
+       **STRICTLY FORBIDDEN TO GUESS OR SYNTHESIZE A USERNAME** (no `first.last`, `f_last`, or heuristic abbreviations).
+       **DO NOT GENERATE THE SPECIFICATION CARD OR DRAFT QUERIES.**
+       **HALT IMMEDIATELY AND YIELD THE TURN (0 tools called)**, asking:
+       > *"I could not resolve a technical `user.userid` for '<Display Name>' in recent UDM telemetry. What is their technical user ID / account identifier (e.g., username, sAMAccountName)?"*
+       Wait for the analyst's answer before generating the Pre-Flight Card.
+3. **Plain-English Cyber Analogy (1–2 Sentences)**: Explain statistical approach using a physical concept.
+4. **Structured PRE-FLIGHT HUNTING SPECIFICATION Card & Mandatory Query Preview**:
    ```markdown
    ┌─────────────────────────────────────────────────────────────────┐
    │                PRE-FLIGHT HUNTING SPECIFICATION                 │
@@ -120,8 +131,7 @@ Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to bo
    * *Peer Cohort Roster*: Resolve and list cohort entities and count in card.
    * *Entity Graph Dimension*: Express joins in card under `• Entity Graph Dimension: [Exact Filter]` (Prevalence, Domain/IP/Binary Rarity `rolling_max <= 3`, `day_count = 10`).
    * *Canonical 2-Stage Preview*: Match variables bind to active fields (`target.user.userid` for auth, `principal.user.userid` for cloud/SaaS/net/proc, `principal.asset.hostname` for assets). Decouple into `stage stage1_extract` and root math (`+ 1.0` floor).
-   * *Identity Disambiguation*: Display names (spaces) are NOT `user.userid`. Resolve technical `userid` in card (`• Target Entity / Scope: James Holden (Resolved User ID: jholden)`) and confirm in clearance question. If unresolved, prompt for `userid`.
-4. **Explicit Clearance Question & Turn Termination**: Explicitly ask:
+5. **Explicit Clearance Question & Turn Termination**: Explicitly ask:
    > *"Would you like to run **Mode A (24-Hour Snapshot fleet ranking)** or **Mode B (14-Day Longitudinal Timeline with inception chart)**?"*
    **STOP CALLING TOOLS IMMEDIATELY AND YIELD THE TURN.**
 
@@ -131,7 +141,7 @@ Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to bo
 
 *Pre-Output Tool Execution Guard*: On clearance, execute 5 sector micro-queries in parallel. In Jetski, run `scripts/radar_collector.py` to write HTML artifact. In generic MCP, render inline `<svg>`. Emit findings into 6 numbered pillars. Zero `json_chart`.
 The report **MUST STRICTLY CONTAIN ALL 6 NUMBERED PILLARS**:
-1. **Statistical Outlier Report**: `[Target Metric]` ([Statistical Model]) with 30-day baseline (`window: 30d`). Render ASCII radar card, `<agent-embed>` (in Jetski) or inline `<svg>` (generic MCP), and 5-sector table with Unicode magnitude bars (`▰▰▰▰▱▱▱▱`).
+1. **Statistical Outlier Report**: `[Target Metric]` ([Statistical Model]) with 30-day baseline (`window: 30d`). Single visual surface (<agent-embed> in Jetski, inline <svg> in generic MCP, ASCII radar card in CLI only; NEVER dual-render ASCII + visual) and 5-sector table with Unicode magnitude bars (`▰▰▰▰▱▱▱▱`).
 2. **Executed Multi-Stage YARA-L Query**: Literal executed multi-stage YARA-L query string passed into `secops-gus:udm_search(query=...)`. (For 360° Radar: display compilable decoupled micro-query for primary outlier sector). Labeled 'Executed Multi-Stage YARA-L Query' (never 'Rule').
 3. **Ranked Outlier Summary**: Columns: `Entity`, `24h Observed`, `30d Mean (μ)`, `30d StdDev (σ)`, `Z-Score`, `CRI Score`, `Visual Magnitude`.
 4. **Forensic Vector Breakdown**: Threat translation, significance, attack scenarios, SOC playbook.
@@ -146,9 +156,9 @@ The report **MUST STRICTLY CONTAIN ALL 6 NUMBERED PILLARS**:
 * **Zero Generative Simulation & Strict Data Grounding Contract**: Every metric number ($\text{Obs}$, $\mu$, $\sigma$, $Z$, $\text{CRI}$) MUST be directly extracted from `secops-gus:udm_search`. If `udm_search` returns `{}` or empty events, report `0 observed events`, `Z = 0.00σ`, and `🟢 Nominal Baseline`. Fabricating numbers is a **CRITICAL TRUTH-IN-REPORTING FAILURE**.
 * **Hard Stop on API Error (MANDATORY STOP — ZERO SILENT FALLBACK)**: If an API query fails, STOP IMMEDIATELY and report the error. Simulating baselines locally is STRICTLY PROHIBITED.
 * **Native Execution Guarantee (ZERO PYTHON SIMULATION SCRIPTING)**: Detection MUST run inside Chronicle SIEM. Simulating baselines locally in Python is a CRITICAL COMPLIANCE VIOLATION.
-* **Zero Local Script Invocations During Hunting (ZERO RUN_COMMAND VALIDATION & SIMULATION)**: Zero Python for queries/search. Post-search Python via `run_command` permitted SOLELY on the sanctioned 1-line `scripts/radar_collector.py` invocation to write the HTML embed artifact. Never re-read internal scripts or check python versions.
+* **Zero Local Script Invocations (ZERO RUN_COMMAND VALIDATION)**: Zero Python for detection/search. Post-search Python via `run_command` is permitted SOLELY on the 1-line `scripts/radar_collector.py` call to write the HTML embed artifact. Never re-read scripts or check Python versions.
 * **Hermetic Skill Boundary (ZERO CROSS-SKILL DRIFT)**: Once active, the agent MUST NOT read, import, or search other skills. This skill is 100% self-contained.
-* **Atomic Pipeline Execution Mandate (ZERO PIECEMEAL FRACTURING & DRIFT)**: Single/dual-vector hunts dispatch the complete multi-stage DAG in a single atomic YARA-L query to `udm_search`. Breaking into isolated queries is STRICTLY PROHIBITED. 360° Radar queries the 5 canonical sector metric functions via parallel decoupled micro-queries in a single tool turn (<= 5 queries max). Each micro-query MUST project `$obs`, `$mu`, `$sigma`, and `$z_score` in root `outcome:`. Zero Duplicate Queries: Never re-run queries to fetch missing fields. Zero Exploratory Log Fishing: If a sector has 0 events or nominal activity ($Z \le 0$), record $0.00\sigma$ and CRI 0; never fish for secondary logs (raw Sysmon, DNS failure, HTTP counts).
+* **Atomic Pipeline Execution Mandate (ZERO FRACTURING & LOG FISHING)**: Single/dual-vector hunts dispatch the complete multi-stage DAG atomically to `udm_search`. 360° Radar queries 5 canonical sector functions in parallel (<= 5 micro-queries). Each projects `$obs`, `$mu`, `$sigma`, `$z_score` in root `outcome:`. Zero Duplicate Queries: Never re-run queries. Zero Log Fishing: If a sector has 0 events or $Z \le 0$, record $0.00\sigma$, CRI 0; never fish for raw Sysmon/DNS/HTTP logs.
 * **Literal Query Display Mandate (ZERO FAKED YARA-L QUERIES)**: Section 2 MUST contain the literal exact query string passed into `secops-gus:udm_search(query=...)`.
 * **Zero Unsolicited Ingestion**: Zero ingestion via `import_logs` or `generate_synthetic_events`.
 * **Post-Flight Audit & Auto-Correction**: If execution is deformed, present auto-corrected query and ask: *"Execute this auto-corrected query now, or exit?"*
@@ -161,7 +171,7 @@ The report **MUST STRICTLY CONTAIN ALL 6 NUMBERED PILLARS**:
   - *Syntax Invariants*: No `in ("A", "B")` (use `%list` or `or`); no dot-notation metric properties (`metrics.foo.mean` is INVALID, use `max(metrics.foo(...))`); no `by 24h` (use `by 1d`); linear outcome arithmetic (no nested `max(0,...)` or inline `sqrt(...)`); canonical metric names end in `_total` (`metrics.resource_creation_total`).
   - *Mandatory Companion Dimensions*: Cloud CRUD metrics (`metrics.resource_*`) require `metadata.vendor_name` and `metadata.product_name`. File metrics (`metrics.file_executions_*`) require `metadata.event_type` and `principal.process.file.sha256`.
   - *Max 4 Joins Invariant*: YARA-L 2.0 limits queries to <= 4 joins (`maxJoinCount = 4`). Each UEBA stage consumes 1 join; root consumes K-1 joins.
-* **Variable Role Classification & Anti-Passive-Decoration Mandate**: Every variable must fulfill `[JOIN_KEY]`, `[SCORING_DIMENSION]`, `[ACTIVE_FILTER]`, or `[TRIAGE_DECORATION]`. Primary threat vectors MUST NEVER act solely as `[TRIAGE_DECORATION]`; bind them to active fleet rarity or Entity Graph constraints.
+* **Variable Classification & Anti-Passive-Decoration**: Variables must fulfill `[JOIN_KEY]`, `[SCORING_DIMENSION]`, `[ACTIVE_FILTER]`, or `[TRIAGE_DECORATION]`. Primary vectors must bind to active fleet rarity or Entity Graph constraints.
 * **Inner-Join Drop Prevention Standard (PRESERVING FULL POPULATION)**: Multi-stage joins are inner joins. Evaluate full baseline in Stage 1 and profile destinations via `array_distinct(target.hostname)`.
 
 ### 3. Scope, Steering, Typography & Parsimony
