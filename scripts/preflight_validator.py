@@ -1017,6 +1017,13 @@ class MalachiteASTValidator:
               f"MISSING_MANDATORY_FILTER in root stage: Metric 'metrics.{m_name}' is missing required companion dimension(s): {sorted(list(missing_dims))}.{hint}"
           )
 
+    # Check for events: header in root stage
+    if re.search(r"^\s*events:\s*", root_body, re.MULTILINE):
+      errors.append(
+          "INVALID_EVENTS_SECTION_IN_ROOT: Root stage of a multi-stage query must not contain an 'events:' header block. "
+          "Stage variable bindings (e.g. '$host = $stage1.host') must be declared directly at the root level before match:."
+      )
+
     # Check that placeholder variables in root stage match section are defined and no arithmetic above match
     root_match = re.search(r"\bmatch:\s*(.*?)(?=\b(?:outcome|condition|order)\s*:|\Z)", root_body, re.DOTALL)
     if root_match:
@@ -1068,6 +1075,13 @@ class MalachiteASTValidator:
   def _check_match_placeholders_bound(stage_name: str, event_part: str, match_part: str) -> List[str]:
     """Ensures every placeholder used in match: has an explicit binding in event_part."""
     errors = []
+    # Check for member access or stage-scoped dot references in match: (e.g. $s1.host)
+    if re.search(r"\$[a-zA-Z0-9_]+\.[a-zA-Z0-9_.]+", match_part):
+      errors.append(
+          f"INVALID_MATCH_MEMBER_ACCESS in stage '{stage_name}': Match section cannot contain member access or "
+          "stage-scoped dot references like '$s1.host'. In YARA-L, match variables must be simple identifiers ('$host'). "
+          "Bind stage variables in events ('$host = $stage.host') before match:."
+      )
     match_vars = re.findall(r"\$([a-zA-Z0-9_]+)", match_part)
     for mv in match_vars:
       # Must be bound via $mv = ... or field = $mv

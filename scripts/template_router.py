@@ -164,3 +164,67 @@ class MultiStageTemplateRouter:
 
     else:
       raise ValueError(f"Unsupported pipeline type: {pipeline_type}")
+
+class ChainedHuntRouter:
+  """Builds Two-Phase Chained Hunt query specifications across entity boundaries."""
+
+  @staticmethod
+  def build_phase1_endpoint_query(entity_scope: str = "fleet", anomaly_threshold: float = 3.0) -> str:
+    """Builds Phase 1 Endpoint Process Outlier YARA-L query."""
+    host_filter = "" if entity_scope == "fleet" else f'  $proc.principal.asset.hostname = "{entity_scope}"\n'
+    return (
+        "// Goal: Phase 1 Endpoint Process Outlier Hunt\n"
+        "// Architecture: Two-Phase Chained Pipeline\n"
+        "stage stage1_process_outlier {\n"
+        "  $proc.metadata.event_type = \"PROCESS_LAUNCH\"\n"
+        f"{host_filter}"
+        "  $host = $proc.principal.asset.hostname\n"
+        "  $sha256 = $proc.principal.process.file.sha256\n"
+        "\n"
+        "  match:\n"
+        "    $host, $sha256 by 1d\n"
+        "\n"
+        "  outcome:\n"
+        "    $obs = count($proc.metadata.id)\n"
+        "    $mu = max(metrics.file_executions_total(\n"
+        "      period: 1d, window: 30d, metric: event_count_sum, agg: avg,\n"
+        "      metadata.event_type: \"PROCESS_LAUNCH\",\n"
+        "      principal.asset.hostname: $host, principal.process.file.sha256: $sha256\n"
+        "    ))\n"
+        "    $sigma = max(metrics.file_executions_total(\n"
+        "      period: 1d, window: 30d, metric: event_count_sum, agg: stddev,\n"
+        "      metadata.event_type: \"PROCESS_LAUNCH\",\n"
+        "      principal.asset.hostname: $host, principal.process.file.sha256: $sha256\n"
+        "    ))\n"
+        "    $diff = $obs - $mu\n"
+        "    $denom = $sigma + 1.0\n"
+        "    $z_score = $diff / $denom\n"
+        "}\n"
+        "\n"
+        "$host = $stage1_process_outlier.host\n"
+        "$sha256 = $stage1_process_outlier.sha256\n"
+        "\n"
+        "match:\n"
+        "  $host, $sha256 by 1d\n"
+        "\n"
+        "outcome:\n"
+        "  $process_z = max($stage1_process_outlier.z_score)\n"
+        "  $observed_launches = max($stage1_process_outlier.obs)\n"
+        "  $historical_mean = max($stage1_process_outlier.mu)\n"
+        "\n"
+        "condition:\n"
+        f"  $process_z >= {anomaly_threshold}\n"
+    )
+
+  @staticmethod
+  def build_phase2_cloud_query(target_user: Optional[str] = None, caller_ip: Optional[str] = None) -> str:
+    """Builds Phase 2 Targeted Cloud Audit UDM search query."""
+    filters = ['metadata.vendor_name = "Google Cloud Platform"', 'metadata.event_type = "USER_RESOURCE_ACCESS"']
+    if target_user and caller_ip:
+      filters.append(f'(principal.user.userid = "{target_user}" or principal.ip = "{caller_ip}")')
+    elif target_user:
+      filters.append(f'principal.user.userid = "{target_user}"')
+    elif caller_ip:
+      filters.append(f'principal.ip = "{caller_ip}"')
+    
+    return " AND ".join(filters)

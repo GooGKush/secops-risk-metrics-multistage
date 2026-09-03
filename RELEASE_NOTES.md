@@ -1,10 +1,40 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.4.0)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.4.1)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v1.4.0 — September 2026  
+**Latest Version**: v1.4.1 — September 2026  
+
+---
+
+## 📢 What's New in v1.4.1 (Minor Point Release)
+
+* **Tool-Precondition Code Block Embargo (Zero Broken Queries)**:
+  - Enforced a hard operational protocol: Under NO circumstances may an agent emit candidate YARA-L query syntax in markdown (````yara) unless a 1-shot pre-preview compiler probe (`secops-gus:udm_search(query="...", startTime="now-10m", endTime="now", maxEvents=1)`) executed and succeeded with 200 OK in the immediately preceding tool call.
+  - If the compiler probe fails, returns an ANTLR grammar error, or schema violation, query emission is strictly embargoed. The agent must auto-correct via `MultiStageTemplateRouter` or execute the Consultative Pivot.
+
+* **Two-Phase Chained Hunt Specification**:
+  - Resolved the architectural boundary for cross-entity investigations crossing physical horizons (Endpoint Asset ──► Cloud User).
+  - Clarified the *Atomic Pipeline Execution Mandate*: Standard same-entity hunts execute as single atomic multi-stage DAGs; cross-entity hunts execute via the Two-Phase Chained Hunt Specification:
+    1. **Phase 1 (Statistical UEBA Baseline Search)**: Scoped to the host/fleet (`metrics.file_executions_total` on `$host, $sha256`).
+    2. **Bridge Contract**: Extracts investigative keys (`$host`, `$timestamp`, `$user`, `$caller_ip`).
+    3. **Phase 2 (Targeted Forensic Drilldown Search)**: Chronicle SIEM raw UDM search scoped to the extracted user/caller IP around the Phase 1 anomaly window.
+  - Implemented `ChainedHuntRouter` in `scripts/template_router.py` to deterministically construct Phase 1 and Phase 2 queries.
+
+* **AST Grammar & Malachite Compiler Guardrails**:
+  - Enhanced `MalachiteASTValidator` to reject member dot-notation in `match:` blocks (`$s1.host` ──► raises `INVALID_MATCH_MEMBER_ACCESS`). In YARA-L 2.0 ANTLR grammar, match variables must be simple identifiers (`$host`).
+  - Added detection and rejection of `events:` header blocks in the root stage (`INVALID_EVENTS_SECTION_IN_ROOT`), requiring stage bindings to be declared directly before `match:`.
+  - Reaffirmed prohibition of non-linear functions (`sqrt(...)`) in outcome arithmetic (requiring squared Euclidean norms `$dist_sq = $z1*$z1 + $z2*$z2`).
+
+* **Strict Data Provenance Stamping**:
+  - Required stamping execution provenance (scanned event volume, query duration, projected schema columns) from Chronicle's real API response in Pillars 1 and 3.
+  - Hardened against fabricated metrics, ensuring zero simulation or recycled numbers.
+
+* **Reference Documentation & Test Suite**:
+  - Added Section 28 (*Two-Phase Chained Hunt Specification & Data Provenance Protocol*) to `references/multi-stage-metrics-guide.md`.
+  - Added regression test suite in `tests/test_guardrail_contracts.py` verifying all v1.4.1 contracts.
+  - Verified 100% pass rate across 141 unit tests and 20 submission tests while maintaining strict `SKILL.md` constraints ($\le 250$ lines, $\le 20,480$ bytes).
 
 ---
 

@@ -960,8 +960,116 @@ class TestGuardrailContracts(unittest.TestCase):
     self.assertIn("MultiStageTemplateRouter", guide_content)
     self.assertIn("RAW_LOG_DUMP_DETECTED", guide_content)
 
+  def test_tool_precondition_code_block_embargo_contract(self):
+    """SKILL.md and multi-stage guide must mandate tool-precondition code block embargo."""
+    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    skill_path = os.path.join(skill_dir, 'SKILL.md')
+    guide_path = os.path.join(skill_dir, 'references', 'multi-stage-metrics-guide.md')
+
+    with open(skill_path, 'r', encoding='utf-8') as f:
+      skill_content = f.read()
+    with open(guide_path, 'r', encoding='utf-8') as f:
+      guide_content = f.read()
+
+    self.assertIn("Tool-Precondition Code Block Embargo", skill_content)
+    self.assertIn("Tool-Precondition Code Block Embargo (Zero Broken Queries)", guide_content)
+    self.assertIn("Emitting ```yara without an immediate preceding successful probe is STRICTLY PROHIBITED", skill_content)
+    self.assertIn("query preview must be withheld", guide_content)
+
+  def test_twophase_chained_hunt_specification_contract(self):
+    """SKILL.md and multi-stage guide must define the Two-Phase Chained Hunt specification."""
+    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    skill_path = os.path.join(skill_dir, 'SKILL.md')
+    guide_path = os.path.join(skill_dir, 'references', 'multi-stage-metrics-guide.md')
+
+    with open(skill_path, 'r', encoding='utf-8') as f:
+      skill_content = f.read()
+    with open(guide_path, 'r', encoding='utf-8') as f:
+      guide_content = f.read()
+
+    self.assertIn("Two-Phase Chained Hunt Specification", skill_content)
+    self.assertIn("Bridge Contract ($host, $timestamp, $user, $caller_ip)", skill_content)
+    self.assertIn("Two-Phase Chained Hunt Specification & Data Provenance Protocol", guide_content)
+    self.assertIn("The Two-Phase Chained Architecture", guide_content)
+    self.assertIn("Phase 1 (Statistical UEBA Baseline Search)", guide_content)
+    self.assertIn("Phase 2 (Targeted Forensic Drilldown Search)", guide_content)
+
+  def test_ast_validator_rejects_match_member_access(self):
+    """MalachiteASTValidator must reject stage member access like $s1.host in match: sections."""
+    invalid_query = """
+    stage s1 {
+      $e.metadata.event_type = "USER_LOGIN"
+      $host = $e.principal.hostname
+      match:
+        $host by 1d
+      outcome:
+        $cnt = count($e.metadata.id)
+    }
+    match:
+      $s1.host by 1d
+    outcome:
+      $val = max($s1.cnt)
+    """
+    errors = MalachiteASTValidator.validate_query(invalid_query)
+    self.assertTrue(any("INVALID_MATCH_MEMBER_ACCESS" in e for e in errors),
+                    f"Expected INVALID_MATCH_MEMBER_ACCESS error, got: {errors}")
+
+  def test_ast_validator_rejects_root_events_header(self):
+    """MalachiteASTValidator must reject events: header blocks in root stages."""
+    invalid_query = """
+    stage s1 {
+      $e.metadata.event_type = "USER_LOGIN"
+      $host = $e.principal.hostname
+      match:
+        $host by 1d
+      outcome:
+        $cnt = count($e.metadata.id)
+    }
+    events:
+      $host = $s1.host
+    match:
+      $host by 1d
+    outcome:
+      $val = max($s1.cnt)
+    """
+    errors = MalachiteASTValidator.validate_query(invalid_query)
+    self.assertTrue(any("INVALID_EVENTS_SECTION_IN_ROOT" in e for e in errors),
+                    f"Expected INVALID_EVENTS_SECTION_IN_ROOT error, got: {errors}")
+
+  def test_chained_hunt_router_builds_valid_queries(self):
+    """ChainedHuntRouter must construct valid Phase 1 YARA-L AST queries and Phase 2 UDM queries."""
+    from scripts.template_router import ChainedHuntRouter
+
+    phase1 = ChainedHuntRouter.build_phase1_endpoint_query(entity_scope="ws-finance-04", anomaly_threshold=3.0)
+    self.assertIn("stage stage1_process_outlier", phase1)
+    self.assertIn('principal.asset.hostname = "ws-finance-04"', phase1)
+    self.assertIn("metrics.file_executions_total", phase1)
+    errors = MalachiteASTValidator.validate_query(phase1)
+    self.assertEqual(len(errors), 0, f"Phase 1 query should have zero AST errors, got: {errors}")
+
+    phase2 = ChainedHuntRouter.build_phase2_cloud_query(target_user="fkolzig@company.com", caller_ip="198.51.100.24")
+    self.assertIn('metadata.vendor_name = "Google Cloud Platform"', phase2)
+    self.assertIn('principal.user.userid = "fkolzig@company.com"', phase2)
+    self.assertIn('principal.ip = "198.51.100.24"', phase2)
+
+  def test_provenance_stamping_contract(self):
+    """SKILL.md and multi-stage guide must document execution provenance stamping."""
+    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    skill_path = os.path.join(skill_dir, 'SKILL.md')
+    guide_path = os.path.join(skill_dir, 'references', 'multi-stage-metrics-guide.md')
+
+    with open(skill_path, 'r', encoding='utf-8') as f:
+      skill_content = f.read()
+    with open(guide_path, 'r', encoding='utf-8') as f:
+      guide_content = f.read()
+
+    self.assertIn("Ranked Outlier Summary & Provenance Stamp", skill_content)
+    self.assertIn("Stamp execution provenance (events scanned, query execution time, projected schema columns)", skill_content)
+    self.assertIn("Data Provenance & Execution Stamping", guide_content)
+
 
 if __name__ == '__main__':
+
   unittest.main()
 
 

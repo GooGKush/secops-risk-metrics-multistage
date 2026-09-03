@@ -618,4 +618,36 @@ When `udm_search` completes, the response must be audited before generating any 
 * **SOAR Playbook Radar Hook**: See `references/soar-playbook-radar-integration.md` for wiring 360° behavioral fingerprinting directly into Chronicle SOAR playbooks.
 
 ---
+
+## 28. Two-Phase Chained Hunt Specification & Data Provenance Protocol
+
+When an analyst's hypothesis crosses physical entity boundaries (such as correlating endpoint process executions with cloud audit activity), multi-stage queries must respect the boundary between Statistical Baselining and Targeted Forensics.
+
+### A. The Two-Phase Chained Architecture
+1. **Phase 1 (Statistical UEBA Baseline Search)**:
+   * **Engine**: Google SecOps Risk Analytics (`metrics.*`).
+   * **Scope**: Evaluates population or fleet-wide activity against 30-day historical distributions ($N = 30\text{d}$).
+   * **Output**: Identifies the high-significance anomaly (e.g. Host `ws-finance-04`, Binary `cloud_sync.exe`, $Z \ge 3.0\sigma$) and the exact anomaly timestamp window.
+2. **The Bridge Contract**:
+   * Instead of attempting an in-engine inner join across disjoint entity keys and private NAT boundaries, the pipeline extracts the concrete investigative keys:
+     * `$host`: The compromised asset hostname.
+     * `$timestamp`: The execution window.
+     * `$user`: The principal user logged into that asset.
+     * `$caller_ip`: The external egress NAT/public IP associated with that host.
+3. **Phase 2 (Targeted Forensic Drilldown Search)**:
+   * **Engine**: Chronicle SIEM Raw UDM Search.
+   * **Scope**: High-precision forensic search scoped to the extracted user or caller IP around the Phase 1 timestamp.
+   * **Output**: Detailed chronological timeline of cloud API calls, bucket operations, or IAM modifications.
+
+### B. Tool-Precondition Code Block Embargo (Zero Broken Queries)
+* Under no circumstances may an agent render a candidate YARA-L query in markdown (\`\`\`yara) without having executed a 1-shot pre-preview compiler probe (`udm_search(query="...", startTime="now-10m", endTime="now", maxEvents=1)`) in the immediately preceding tool call.
+* If the compiler probe returns an invalid argument, syntax error, or ANTLR crash, the query preview must be withheld. The agent must auto-correct the query or present the Two-Phase Consultative Pivot.
+
+### C. Data Provenance & Execution Stamping
+To prevent fabricated results or recycled numbers, reports must stamp execution provenance directly from the Chronicle API response:
+* Scanned event volume.
+* Engine query execution timestamp.
+* Projected schema columns from the `stats` payload.
+
+---
 *Created and maintained by Greg Kushmerek for Google SecOps Chronicle SIEM threat hunting workflows.*
