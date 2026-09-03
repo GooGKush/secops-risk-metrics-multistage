@@ -115,12 +115,12 @@ Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to bo
 
 ## 📊 MANDATORY STEP 2: PRESENT FULL 6-SECTION REPORT (AFTER CLEARANCE)
 
-*Pre-Output Tool Execution Guard*: On clearance, execute 5 sector micro-queries in parallel. In Jetski, run `scripts/radar_collector.py` to write HTML artifact. In generic MCP, render inline `<svg>`. Emit findings into 6 numbered pillars. Zero `json_chart`.
+*Pre-Output Tool Execution Guard*: On clearance, execute the target pipeline (for 360° Radar: 5 parallel sector micro-queries). Emit findings into 6 numbered pillars. Zero `json_chart`.
 The report **MUST STRICTLY CONTAIN ALL 6 NUMBERED PILLARS**:
-1. **Statistical Outlier Report**: `[Target Metric]` ([Statistical Model]) with 30-day baseline (`window: 30d`). Single visual surface (<agent-embed> in Jetski, inline <svg> in generic MCP, ASCII radar card in CLI only; NEVER dual-render ASCII + visual) and 5-sector table with Unicode magnitude bars (`▰▰▰▰▱▱▱▱`).
+1. **Statistical Outlier Report**: `[Target Metric]` ([Statistical Model]) with 30-day baseline (`window: 30d`). Single visual surface: Vector distribution/timeline for fleet hunts; 5-sector radar embed (<agent-embed> in Jetski, inline <svg> in generic MCP, ASCII radar in CLI; NEVER dual-render ASCII + visual) for 360° profiles with Unicode magnitude bars (`▰▰▰▰▱▱▱▱`). Detail in `references/chart-specifications-guide.md`.
 2. **Executed Multi-Stage YARA-L Query**: Literal executed multi-stage YARA-L query string passed into `secops-gus:udm_search(query=...)`. (For 360° Radar: display compilable decoupled micro-query for primary outlier sector). Labeled 'Executed Multi-Stage YARA-L Query' (never 'Rule').
 3. **Ranked Outlier Summary**: Columns: `Entity`, `24h Observed`, `30d Mean (μ)`, `30d StdDev (σ)`, `Z-Score`, `CRI Score`, `Visual Magnitude`.
-4. **Forensic Vector Breakdown**: Threat translation, significance, attack scenarios, SOC playbook.
+4. **Forensic Vector Breakdown**: Threat translation, significance, attack scenarios, SOC playbook. For fleet hunts with severe outliers ($Z \ge 3.0\sigma$), proactively suggest a 360° Behavioral Radar deep-dive.
 5. **Immediate 1-Click Investigation Queries**: Raw UDM filter query for analyst drilldown.
 6. **Statistical & Mathematical Appendix**: Formulation ($N = 30d$), single-line CRI formula, Euclidean distance norm $D = \sqrt{\sum Z^2}$.
 

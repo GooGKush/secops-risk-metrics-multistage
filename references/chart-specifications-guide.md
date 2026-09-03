@@ -130,3 +130,18 @@ To ensure 100% compatibility across both rich web dashboards and plain-text/ASCI
      ```bash
      python3 scripts/radar_collector.py --entity "frank.kolzig" --data '<JSON_SPOKES>' --format ascii
      ```
+
+---
+
+## 5. Visual Surface Mapping by Hunt Archetype (Pillar 1 Specification)
+
+To prevent cognitive distortion and preserve investigative clarity, the visual surface rendered in **Pillar 1 (Statistical Outlier Report)** must strictly match the hunt archetype:
+
+| Hunt Archetype | Operational Objective | Pillar 1 Visual Surface | Downstream Next Step |
+| :--- | :--- | :--- | :--- |
+| **Vector / Fleet Outlier Hunt (Mode A: 24h Snapshot)** | Fleet-wide ranking of outliers on a specific behavioral vector (Cloud CRUD, Network Egress, Logins, File Executions). | **Dual-Y Outlier Bar / Distribution Chart**: Horizontal SVG bar chart comparing top entities' observed activity ($k$) against their 30-day baseline mean ($\mu$) with $\pm 3\sigma$ threshold indicators. | Summarize ranked fleet in Pillar 3. If an entity exhibits extreme novelty ($Z \ge 3.0\sigma$), proactively suggest a 360° deep-dive in Pillar 4. |
+| **Vector / Fleet Outlier Hunt (Mode B: 14d Timeline)** | Temporal longitudinal trajectory tracking to determine inception date, burst duration, or gradual CUSUM drift. | **Longitudinal Baseline Envelope & Inception Timeline**: Time-series SVG line chart displaying daily observed volume across the 14-day evaluation window against the shaded 30-day historical baseline envelope. | Analyze onset timing in Pillar 4; suggest 360° cross-sector verification if multi-stage compromise is suspected. |
+| **360° Entity Health Check (Explicit Request or Accepted Pivot)** | Multi-vector evaluation of a *single specific entity* across all 5 behavioral sectors to measure aggregate threat distance ($D$). | **360° Behavioral Risk Radar**: Rendered via `scripts/radar_collector.py` as an `<agent-embed>` in Jetski or Markdown Data-URI SVG, accompanied by the 5-sector spoke table. | Recommend host isolation, credential suspension, or SOAR case escalation. |
+
+> [!WARNING]
+> **Anti-Conflation Mandate**: NEVER insert a 360° Radar profile or 5-sector table into Pillar 1 of a Vector/Fleet Outlier Hunt. Forcing an entity deep-dive before presenting fleet search results creates cognitive confusion and forces zero-padding on unqueried sectors.

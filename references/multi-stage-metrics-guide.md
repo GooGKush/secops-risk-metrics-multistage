@@ -494,6 +494,37 @@ The pipeline computes two orthogonal anomaly scores:
 This architecture is codified in `templates/pipelines/cloud_repository_scope_dual_branch.yl2` and verified by `PIPE-08-CLOUD-SCOPE`. It consumes only 1 internal UEBA join ($\le 4$ join limit) and enforces mandatory companion dimensions (`metadata.vendor_name`, `metadata.product_name`).
 
 ---
+
+## 24. Threat Hunting Lifecycles: Fleet/Vector Outlier Hunts vs. 360° Entity Pivot
+
+Threat hunting follows a two-tier investigative lifecycle:
+
+### Tier 1: Fleet/Vector Outlier Hunting (Broad Discovery)
+* **Goal**: Surface top anomalous identities or resources across an entire fleet or category on a specific vector (e.g. Cloud CRUD, Network Bytes, Authentication Spikes).
+* **Execution**: Single atomic multi-stage YARA-L query (Mode A 24h snapshot or Mode B 14d timeline).
+* **Reporting Standard**:
+  * **Pillar 1**: Renders the distribution or timeline of the *target hunt itself* (e.g., bar chart of observed vs baseline $\mu$ for Mode A, or 14-day inception curve for Mode B).
+  * **Pillars 2–5**: Query, ranked fleet summary, forensic threat breakdown, and 1-click investigation queries.
+  * **Pillar 4 Pivot**: Concludes with the **Consultative 360° Pivot Card**.
+
+### Tier 2: 360° Multi-Sector Entity Deep-Dive (Targeted Verification)
+* **Trigger**: Triggered **only** upon:
+  1. Explicit analyst request (e.g. *"run a 360 health check on svc-analytics"*, *"compare admin@... to all sectors"*), OR
+  2. Analyst confirms the Consultative 360° Pivot Card offered at the conclusion of a Tier 1 fleet hunt.
+* **Execution**: Dispatches 5 decoupled parallel sector micro-queries via `scripts/radar_collector.py`.
+* **Reporting Standard**: Pillar 1 renders the full 360° Behavioral Risk Radar (`<agent-embed>` or Markdown Data-URI SVG) with all 5 sector scores.
+
+### The Consultative 360° Pivot Card Pattern
+When a Tier 1 fleet hunt discovers an entity with severe statistical anomalies ($Z \ge 3.0\sigma$, $\text{CRI} \ge 50$, or acute novelty departure), Pillar 4 must proactively suggest a 360° health check:
+
+```markdown
+> [!TIP]
+> **💡 Recommended Investigative Next Step: 360° Behavioral Radar Deep-Dive**
+> Service account `[entity_id]` exhibited an acute behavioral anomaly ($Z = +[X.XX]\sigma$, CRI: [YY]) on [Target Metric].
+> Would you like to run a full **360° Behavioral Risk Radar** across all 5 telemetry sectors (Authentication, Cloud CRUD, Workspace, Network, Endpoint) to verify if this identity is exhibiting concurrent compromise indicators?
+```
+
+---
 *Created and maintained by Greg Kushmerek for Google SecOps Chronicle SIEM threat hunting workflows.*
 
 
