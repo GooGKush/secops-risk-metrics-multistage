@@ -1,13 +1,9 @@
 ---
 name: secops-risk-metrics-multistage
 author: Greg Kushmerek
-aliases:
-  - Chronicle Baseline Hunter
-  - Behavioral Outlier Engine
-  - Agentic UEBA Core
 description: |
-  Multi-stage statistical outlier hunting in Google SecOps using pre-computed Risk Analytics metrics (`metrics.*`) chained into 2-stage to 4-stage DAGs across 14 models (Z-Score, MAD, Poisson, Delta-Z, Multi-Sector Fusion).
-  Triggers: "hunt with risk metrics", "multi-stage metrics outlier", "MAD on network bytes", "z-score on auth", "fleet outlier", "poisson burst", "fano factor", "dual-baseline delta-z", "multi-sector threat fusion", "360 health check", "360 risk radar", "radial chart", "all risk vectors", "behavioral fingerprint", "compare to team", "behavioral drift", "service account cloud repository access", "cloud CRUD baseline", "unexpected origin IP for service account", "top statistical outliers".
+  Multi-stage statistical outlier hunting in Google SecOps using pre-computed Risk Analytics metrics (`metrics.*`) chained into 2-to-4 stage DAGs across 14 models.
+  Triggers: "hunt with risk metrics", "multi-stage metrics outlier", "MAD on network bytes", "z-score on auth", "fleet outlier", "dual-baseline delta-z", "multi-sector threat fusion", "360 health check", "360 risk radar", "radial chart", "all risk vectors", "compare to team", "behavioral drift", "service account cloud repository access", "cloud CRUD baseline".
 compatibility: Requires Google SecOps with Risk Analytics metrics enabled and the SecOps GUS MCP server (udm_search, get_operation).
 ---
 
@@ -21,8 +17,8 @@ Executes **multi-sector statistical outlier hunting** in Google SecOps using **3
 
 | If hunt targets... | Activate... | Operational Action |
 | :--- | :--- | :--- |
-| • **30-Day Baselines** (`metrics.*`)<br>• **Peer Cohorts**<br>• **Cloud Data Stores** (GCS, BQ, S3)<br>• **Multi-Sector Fusion** | 📊 **`secops-risk-metrics-multistage`** *(This Skill)* | Execute native multi-stage `metrics.*` pipeline. |
-| • **Ad-Hoc Raw Telemetry Sensors** (C2 jitter CV)<br>• **Non-Metrics Telemetry** (Git repos, raw UDM) | ⚡ **`secops-statistical-hunter`** | Emit **Skill Handoff Card** and Non-Metrics Telemetry Steering Mandate to `secops-statistical-hunter`. |
+| • **30-Day Baselines** (`metrics.*`), **Peer Cohorts**, **Cloud Data Stores**, **Multi-Sector Fusion** | 📊 **`secops-risk-metrics-multistage`** *(This Skill)* | Execute native multi-stage `metrics.*` pipeline. |
+| • **Ad-Hoc Raw Telemetry Sensors**, **Non-Metrics Telemetry** (Git repos, raw UDM) | ⚡ **`secops-statistical-hunter`** | Emit **Skill Handoff Card** and Non-Metrics Telemetry Steering Mandate to `secops-statistical-hunter`. |
 
 ---
 
@@ -36,12 +32,11 @@ Executes **multi-sector statistical outlier hunting** in Google SecOps using **3
 ## 💡 How Risk Metrics Multi-Stage Analytics Work (Overview Inquiries)
 
 When asked how multi-stage analytics work, present this **3-Step Overview**:
-1. **30-Day Pre-Computed Baselines**: Rolling 30d activity across 38 metric tables (`metrics.*`) for instant $O(1)$ lookups ($\mu$, $\sigma$) without scanning raw logs.
-2. **Multi-Stage DAG Analytics**: Chains Stage 1 baselines into downstream stages to compute deviations or join Entity Graph context.
-3. **Execution Framework Summary**: Evaluates Z-Score, Robust MAD, Poisson, Delta-$Z$, CUSUM Drift, and Multi-Sector Fusion ($D$) natively in Chronicle.
+1. **30-Day Pre-Computed Baselines**: Rolling 30d activity across 38 metric tables (`metrics.*`) for instant $O(1)$ lookups ($\mu$, $\sigma$).
+2. **Multi-Stage DAG Analytics**: Chains Stage 1 baselines into downstream stages to evaluate deviations or Entity Graph joins.
+3. **Execution Framework Summary**: Evaluates Z-Score, Robust MAD, Poisson, Delta-$Z$, CUSUM Drift, and Multi-Sector Fusion ($D$) in Chronicle.
 
-> [!TIP]
-> **Ask for more information** if you would like a deep dive on how any of these models expose behavioral outliers. *(See `references/statistical-models-taxonomy.md`)*
+> **Ask for more information** for deep dives on how these models expose outliers. *(See `references/statistical-models-taxonomy.md`)*
 
 ---
 
@@ -58,7 +53,7 @@ Phase 1B (Query Preview & Spec Card) is **ONLY UNLOCKED** when **BOTH** requirem
 > **Anti-Auth-Defaulting Guardrail & Conversational Break**:
 > If an analyst specifies entities (*"compare user A to user B"*, *"check user X for deviations"*) but **omits the telemetry vector**, **THE AGENT MUST NOT DEFAULT TO `metrics.auth_attempts_*` OR `USER_LOGIN`**. Yield the turn (Conversational Break) and ask:
 > *"Across which behavioral vector(s) would you like to evaluate [Target Entities]?"*
-> • ☁️ **Cloud CRUD** (`metrics.resource_read_*`, `resource_written_*`, `resource_creation_*`) • 📁 **Workspace** (`metrics.workspace_*`)
+> • ☁️ **Cloud CRUD** (`metrics.resource_*`) • 📁 **Workspace** (`metrics.workspace_*`)
 > • ⚙️ **Endpoint Tools** (`PROCESS_LAUNCH`) • 🌐 **Network Egress** (`metrics.network_bytes_outbound`)
 > • 🔑 **Authentication** (`metrics.auth_attempts_*`) • 🔀 **Multi-Sector Fusion** ($D$)
 > **STOP AND YIELD TURN (CONVERSATIONAL BREAK).** Do NOT render query preview until user responds.
@@ -87,13 +82,9 @@ When an analyst asks to profile an entity across all vectors (*"visualize all ri
 3. **Visualization Strategy (MANDATORY INLINE SVG — ZERO ASCII RADAR DIAGRAMS)**:
    - **Mode A (24h Snapshot)**: In Pillar 1, emit raw inline `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 460" width="100%" height="460" style="background:#fff;border-radius:8px;">`.
      **ZERO ASCII RADAR MANDATE**: NEVER output ASCII art, ```json_chart, or code fences (NO ```xml). NEVER wrap <svg> in code blocks; emit raw <svg>...</svg> directly so UI renders graphic (CRITICAL VISUAL SPECIFICATION VIOLATION).
-   - **Canonical 5-Spoke SVG Layout**: Center $(280, 240)$, max $r=150$:
-     • Background Badge: `<rect x="20" y="15" width="520" height="36" rx="6" fill="#e8f0fe"/>` + `<text x="32" y="38" font-size="13" font-weight="bold" fill="#1967d2">[ENTITY] • 360° BEHAVIORAL RADAR (D = [D]σ | CRI [CRI]/100)</text>`.
-     • Rings: Concentric circles at $r=37.5$ ($+1\sigma$), $75$ ($+2\sigma$), $112.5$ (`stroke="#d93025" stroke-dasharray="4,4"` for $+3.0\sigma$ threshold), $150$ ($+4\sigma$).
-     • Spokes & Labels: Auth (top: $280,90$), Cloud ($423,194$), Workspace ($368,361$), Network ($192,361$), Endpoint ($137,194$).
-     • Entity Profile Polygon: `<polygon points="x1,y1 x2,y2 x3,y3 x4,y4 x5,y5" fill="rgba(26,115,232,0.25)" stroke="#1a73e8" stroke-width="2.5"/>` (if $D \ge 3.0\sigma$, use `rgba(217,48,37,0.25)` and `#d93025`).
-   - **Mode B (14d Multi-Horizon)**: Render 360° Radial Radar SVG (Peak Envelope $Z_{\text{peak}}$) + 14-Day Timeline.
-4. **Dual Scales**: Support raw Z-score and CRI ($+3.0\sigma$ / CRI 50 perimeter; Section 6 formula).
+   - **Canonical 5-Spoke SVG Layout**: Center $(280, 240)$, max $r=150$. Rings: $r=37.5$ ($+1\sigma$), $75$ ($+2\sigma$), $112.5$ (`stroke="#d93025" stroke-dasharray="4,4"` for $+3.0\sigma$ threshold), $150$ ($+4\sigma$). Spokes: Auth ($280,90$), Cloud ($423,194$), Workspace ($368,361$), Network ($192,361$), Endpoint ($137,194$). Polygon: `<polygon points="..." fill="rgba(26,115,232,0.25)" stroke="#1a73e8" stroke-width="2.5"/>` (red `#d93025` if $D \ge 3.0\sigma$). *(See `references/chart-specifications-guide.md`)*.
+   - **Mode B (14d Multi-Horizon)**: Render 360° Radial Radar SVG ($Z_{\text{peak}}$) + 14-Day Timeline.
+4. **Dual Scales**: Raw Z-score and CRI ($+3.0\sigma$ / CRI 50 perimeter; Section 6 formula).
 
 ### 🎯 CTI & Threat Report Mapping (Reports, URLs, CVEs, Threat Actors)
 When an analyst provides a threat report (URL, CVEs, or threat actor):
@@ -137,7 +128,7 @@ Once the analyst specifies or confirms vectors and scope (or via CTI threat repo
 *Pre-Output Tool Execution Guard*: On clearance, execute `udm_search` across all 5 sectors or run `scripts/radar_collector.py` FIRST. NEVER output markdown, SVG, or report pillars until tool execution completes. Zero single-query raw filter fallbacks.
 The report **MUST STRICTLY CONTAIN ALL 6 NUMBERED PILLARS**:
 1. **Statistical Outlier Report**: `[Target Metric]` ([Statistical Model]) with 30-day baseline (`window: 30d`). (For 360° Radar: **MANDATORY INLINE SVG** — Embed raw `<svg xmlns="http://www.w3.org/2000/svg" ...>...</svg>` directly WITHOUT code fences (NO ```xml). **ZERO ASCII RADAR MANDATE**: Never output ASCII, ```json_chart, or code blocks).
-2. **Executed Multi-Stage YARA-L Query**: Literal executed multi-stage YARA-L query string passed into `secops-gus:udm_search(query=...)`. **Strict Nomenclature Mandate**: MUST be labeled 'Executed Multi-Stage YARA-L Query'. Calling ad-hoc query logic a 'Rule' or 'Hunting Rule' is a **CRITICAL NOMENCLATURE VIOLATION**.
+2. **Executed Multi-Stage YARA-L Query**: Literal executed multi-stage YARA-L query string passed into `secops-gus:udm_search(query=...)`. (For 360° Radar: display the compilable decoupled micro-query for the primary outlier sector, e.g. Cloud CRUD with vendor/product or Auth; NEVER cram multiple sectors into a single stage or fabricate an invalid inner join). **Strict Nomenclature Mandate**: MUST be labeled 'Executed Multi-Stage YARA-L Query'. Calling ad-hoc query logic a 'Rule' or 'Hunting Rule' is a **CRITICAL NOMENCLATURE VIOLATION**.
 3. **Ranked Outlier Summary**: Columns: `Entity`, `24h Observed`, `Baseline Mean`, `StdDev`, `Z-Score`, `CRI Score`, `Visual Magnitude`.
 4. **Forensic Vector Breakdown**: Threat translation, significance, attack scenarios, SOC playbook.
 5. **Immediate 1-Click Investigation Queries**: Raw UDM filter query for analyst drilldown.
@@ -153,7 +144,7 @@ The report **MUST STRICTLY CONTAIN ALL 6 NUMBERED PILLARS**:
 * **Native Execution Guarantee (ZERO PYTHON SIMULATION SCRIPTING)**: Detection MUST run inside Chronicle SIEM. Simulating baselines locally in Python is a CRITICAL COMPLIANCE VIOLATION.
 * **Zero Local Script Invocations During Hunting (ZERO RUN_COMMAND VALIDATION & SIMULATION)**: Zero Python for queries or search. Post-search Python via `run_command` is permitted SOLELY on sanctioned scripts (`scripts/radar_collector.py`) to collate SIEM results.
 * **Hermetic Skill Boundary (ZERO CROSS-SKILL DRIFT)**: Once active, the agent MUST NOT read, import, or search other skills. This skill is 100% self-contained.
-* **Atomic Pipeline Execution Mandate (ZERO PIECEMEAL FRACTURING & DRIFT)**: Dispatch complete multi-stage DAG in a single atomic YARA-L query to `udm_search`. Breaking into isolated queries is STRICTLY PROHIBITED.
+* **Atomic Pipeline Execution Mandate (ZERO PIECEMEAL FRACTURING & DRIFT)**: Single/dual-vector hunts dispatch the complete multi-stage DAG in a single atomic YARA-L query to `udm_search`. Breaking into isolated queries is STRICTLY PROHIBITED. 360° Radar evaluates the 5 sectors via decoupled micro-queries (via `scripts/radar_collector.py` or parallel `udm_search`) to stay within the 4-join limit.
 * **Literal Query Display Mandate (ZERO FAKED YARA-L QUERIES)**: Section 2 MUST contain the literal exact query string passed into `secops-gus:udm_search(query=...)`.
 * **Zero Unsolicited Ingestion**: Zero unsolicited ingestion via `import_logs` or `generate_synthetic_events`.
 * **Post-Flight Audit & Auto-Correction**: If execution is deformed, present auto-corrected query and ask: *"Execute this auto-corrected query now, or exit?"*
@@ -164,6 +155,7 @@ The report **MUST STRICTLY CONTAIN ALL 6 NUMBERED PILLARS**:
   - *Entity Role & Match Binding Invariant*: Variables in `match:` MUST bind in event predicates (`target.user.userid` for logins; `principal.user.userid` for cloud/SaaS/net/proc; `principal.asset.hostname` for assets).
   - *Common Compiler Structural Boundary (Zero Event Arithmetic)*: Arithmetic (`$a - $b`, `$a / $b`) is STRICTLY PROHIBITED above `match:`. Placeholders bind directly to fields/scalar functions. ALL derivations and Z-scores reside in `outcome:` below `match:`.
   - *Syntax Invariants*: No `in ("A", "B")` (use `%list` or `or`); no dot-notation metric properties (`metrics.foo.mean` is INVALID, use `max(metrics.foo(...))`); no `by 24h` (use `by 1d`); linear outcome arithmetic (no nested `max(0,...)` or inline `sqrt(...)`).
+  - *Mandatory Companion Dimensions*: All Cloud CRUD metrics (`metrics.resource_*`) strictly require both `metadata.vendor_name` and `metadata.product_name`. File execution metrics (`metrics.file_executions_*`) strictly require `metadata.event_type` and `principal.process.file.sha256`. Omitting companion dimensions causes Malachite compiler rejection (`unsupported filters for metric`).
   - *Max 4 Joins Invariant*: YARA-L 2.0 limits queries to $\le 4$ joins (`maxJoinCount = 4`). Each UEBA stage consumes 1 join; root joins consume $K-1$ joins. Stay within $\le 4$ joins. *(See `references/multi-stage-metrics-guide.md`)*.
 * **Variable Role Classification & Anti-Passive-Decoration Mandate**: Every variable must fulfill `[JOIN_KEY]`, `[SCORING_DIMENSION]`, `[ACTIVE_FILTER]`, or `[TRIAGE_DECORATION]`. Primary threat vectors MUST NEVER act solely as `[TRIAGE_DECORATION]`; bind them to active fleet rarity or Entity Graph constraints.
 * **Inner-Join Drop Prevention Standard (PRESERVING FULL POPULATION)**: Multi-stage joins are inner joins. Evaluate full baseline in Stage 1 and profile destinations via `array_distinct(target.hostname)`.
@@ -188,12 +180,8 @@ The report **MUST STRICTLY CONTAIN ALL 6 NUMBERED PILLARS**:
   - *Action*: Call `secops-gus:create_case_comment(case_id="<ID>", comment=...)` on that explicitly designated Case ID.
 
 ### 2. Mandatory Workflow per Path:
-* **For Path A (Synthetic UDM Event Ingestion)**:
-  1. *Preview*: Construct canonical synthetic UDM event JSON from [`references/clean-handoff-udm-schema.md`](references/clean-handoff-udm-schema.md).
-  2. *Gate*: Ask *"Would you like me to ingest this event into Chronicle SIEM now to trigger automated case promotion?"* and **STOP CALLING TOOLS AND YIELD THE TURN**.
-  3. *Execute*: Upon confirmation, execute `secops-gus:import_logs` with `product_name: "SecOps Risk Metrics Hunter"`.
-* **For Path B (Explicit Case Wall Comment)**:
-  1. Call `secops-gus:create_case_comment(case_id="<ID>", comment=...)` with user-provided `case_id` and confirm attachment.
+* **For Path A (Synthetic UDM Event Ingestion)**: 1. Preview canonical event JSON from [`references/clean-handoff-udm-schema.md`](references/clean-handoff-udm-schema.md). 2. Ask *"Would you like me to ingest this event into Chronicle SIEM now to trigger automated case promotion?"* and **STOP CALLING TOOLS AND YIELD THE TURN**. 3. Upon confirmation, execute `secops-gus:import_logs` with `product_name: "SecOps Risk Metrics Hunter"`.
+* **For Path B (Explicit Case Wall Comment)**: Call `secops-gus:create_case_comment(case_id="<ID>", comment=...)` with user-provided `case_id` and confirm attachment.
 
 ---
 

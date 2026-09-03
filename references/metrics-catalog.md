@@ -122,6 +122,13 @@ This catalog details all 38 active pre-computed behavioral risk metrics availabl
 | `metrics.resource_read_*` | `total`, `success`, `fail` | `principal.user.userid` (or `target.user.userid`) + `metadata.vendor_name` + `metadata.product_name` (+ optional `target.resource.name`) |
 | `metrics.resource_written_*` | `total`, `success`, `fail` | `principal.user.userid` (or `target.user.userid`) + `metadata.vendor_name` + `metadata.product_name` (+ optional `target.resource.name`) |
 
+> [!IMPORTANT]
+> **Mandatory Vendor & Product Scoping Invariant for Cloud CRUD (`resource_*`)**:
+> In Google SecOps Chronicle Malachite, all Cloud Resource Lifecycle metrics (`metrics.resource_creation_*`, `metrics.resource_deletion_*`, `metrics.resource_read_*`, `metrics.resource_written_*`) **strictly require** both `metadata.vendor_name` AND `metadata.product_name` when filtering by user (`principal.user.userid`) or device.
+> Calling a Cloud CRUD metric with `principal.user.userid` alone causes a fatal compile-time failure:  
+> `compilation error: validating ueba functions: unsupported filters for metric RESOURCE_*`  
+> Always match `$v = metadata.vendor_name, $p = metadata.product_name` in the event/match section and pass `metadata.vendor_name: $v, metadata.product_name: $p` into the metric function call.
+
 ### Service Account Cloud Repository & Origin IP Monitoring
 * **Actor & Principal Role**: Service accounts in cloud IAM (e.g. `*.iam.gserviceaccount.com`, AWS IAM Role ARN) are tracked via `principal.user.userid`.
 * **Expected Host Origin Invariant (`principal.ip`)**: Cloud CRUD and Google Workspace are the **only** metric families in Chronicle allowing direct baseline filtering on `principal.ip` (the caller IP).

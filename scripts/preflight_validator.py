@@ -791,6 +791,26 @@ MALACHITE_SUPPORTED_FILTERS: Dict[str, Set[str]] = {
     },
 }
 
+MALACHITE_MANDATORY_FILTERS = {
+    # All Cloud Resource Lifecycle (CRUD) metrics strictly require both metadata.vendor_name and metadata.product_name
+    "resource_creation_fail": {"metadata.vendor_name", "metadata.product_name"},
+    "resource_creation_success": {"metadata.vendor_name", "metadata.product_name"},
+    "resource_creation_total": {"metadata.vendor_name", "metadata.product_name"},
+    "resource_deletion_fail": {"metadata.vendor_name", "metadata.product_name"},
+    "resource_deletion_success": {"metadata.vendor_name", "metadata.product_name"},
+    "resource_deletion_total": {"metadata.vendor_name", "metadata.product_name"},
+    "resource_read_fail": {"metadata.vendor_name", "metadata.product_name"},
+    "resource_read_success": {"metadata.vendor_name", "metadata.product_name"},
+    "resource_read_total": {"metadata.vendor_name", "metadata.product_name"},
+    "resource_written_fail": {"metadata.vendor_name", "metadata.product_name"},
+    "resource_written_success": {"metadata.vendor_name", "metadata.product_name"},
+    "resource_written_total": {"metadata.vendor_name", "metadata.product_name"},
+    # Process launch execution metrics require event_type and process sha256
+    "file_executions_fail": {"metadata.event_type", "principal.process.file.sha256"},
+    "file_executions_success": {"metadata.event_type", "principal.process.file.sha256"},
+    "file_executions_total": {"metadata.event_type", "principal.process.file.sha256"},
+}
+
 
 class MalachiteASTValidator:
   """Enforces Google SecOps compiler rules and mathematical AST constraints on YARA-L 2.0 queries."""
@@ -893,6 +913,14 @@ class MalachiteASTValidator:
             f"event types {distinct_event_types} while evaluating metrics. Use independent DAG stages fused in Root stage."
         )
 
+      # Anti-Pattern 6B: Multi-vector metric conflation within single stage
+      metric_event_types = {METRIC_CATALOG[m].event_type for m in metrics_calls if m in METRIC_CATALOG}
+      if len(metric_event_types) > 1:
+        errors.append(
+            f"MULTI_VECTOR_STAGE_CONFLATION in stage '{stage_name}': Stage attempts to evaluate metrics across different event types ({sorted(list(metric_event_types))}). "
+            "Each telemetry vector must be evaluated in its own decoupled stage or micro-query."
+        )
+
       # Anti-Pattern 7: Non-existent metric functions
       for metric_name in metrics_calls:
         if metric_name not in METRIC_CATALOG:
@@ -905,9 +933,9 @@ class MalachiteASTValidator:
       metric_call_matches = re.findall(r"metrics\.([a-zA-Z0-9_]+)\s*\(([^)]+)\)", stage_body, re.DOTALL)
       for m_name, args_body in metric_call_matches:
         m_lower = m_name.lower()
+        called_params = re.findall(r"([a-zA-Z0-9_.]+)\s*:", args_body)
         if m_lower in MALACHITE_SUPPORTED_FILTERS:
           valid_filters = MALACHITE_SUPPORTED_FILTERS[m_lower]
-          called_params = re.findall(r"([a-zA-Z0-9_.]+)\s*:", args_body)
           for param in called_params:
             if param not in standard_params and param not in valid_filters:
               hint = ""
@@ -918,6 +946,21 @@ class MalachiteASTValidator:
               errors.append(
                   f"INVALID_METRIC_FILTER in stage '{stage_name}': '{param}' is not a supported filter for 'metrics.{m_name}'.{hint}"
               )
+
+        # Check for mandatory companion dimensions
+        if m_lower in MALACHITE_MANDATORY_FILTERS:
+          required_dims = MALACHITE_MANDATORY_FILTERS[m_lower]
+          called_filter_keys = set(called_params) - standard_params
+          missing_dims = required_dims - called_filter_keys
+          if missing_dims:
+            hint = ""
+            if "metadata.vendor_name" in missing_dims:
+              hint = " In Chronicle Malachite, all Cloud CRUD metrics require both 'metadata.vendor_name' and 'metadata.product_name' when filtering by user/asset."
+            elif "principal.process.file.sha256" in missing_dims:
+              hint = " In Chronicle Malachite, process execution metrics require both 'metadata.event_type' and 'principal.process.file.sha256'."
+            errors.append(
+                f"MISSING_MANDATORY_FILTER in stage '{stage_name}': Metric 'metrics.{m_name}' is missing required companion dimension(s): {sorted(list(missing_dims))}.{hint}"
+            )
 
       # Invariant: Maximum 1 ECG (Entity Context Graph) lookup per stage
       graph_aliases = set(re.findall(r"\$([a-zA-Z0-9_]+)\.graph\.", stage_body))
@@ -945,9 +988,9 @@ class MalachiteASTValidator:
     root_metric_calls = re.findall(r"metrics\.([a-zA-Z0-9_]+)\s*\(([^)]+)\)", root_body, re.DOTALL)
     for m_name, args_body in root_metric_calls:
       m_lower = m_name.lower()
+      called_params = re.findall(r"([a-zA-Z0-9_.]+)\s*:", args_body)
       if m_lower in MALACHITE_SUPPORTED_FILTERS:
         valid_filters = MALACHITE_SUPPORTED_FILTERS[m_lower]
-        called_params = re.findall(r"([a-zA-Z0-9_.]+)\s*:", args_body)
         for param in called_params:
           if param not in standard_params and param not in valid_filters:
             hint = ""
@@ -958,6 +1001,21 @@ class MalachiteASTValidator:
             errors.append(
                 f"INVALID_METRIC_FILTER in root stage: '{param}' is not a supported filter for 'metrics.{m_name}'.{hint}"
             )
+
+      # Check for mandatory companion dimensions in root stage
+      if m_lower in MALACHITE_MANDATORY_FILTERS:
+        required_dims = MALACHITE_MANDATORY_FILTERS[m_lower]
+        called_filter_keys = set(called_params) - standard_params
+        missing_dims = required_dims - called_filter_keys
+        if missing_dims:
+          hint = ""
+          if "metadata.vendor_name" in missing_dims:
+            hint = " In Chronicle Malachite, all Cloud CRUD metrics require both 'metadata.vendor_name' and 'metadata.product_name' when filtering by user/asset."
+          elif "principal.process.file.sha256" in missing_dims:
+            hint = " In Chronicle Malachite, process execution metrics require both 'metadata.event_type' and 'principal.process.file.sha256'."
+          errors.append(
+              f"MISSING_MANDATORY_FILTER in root stage: Metric 'metrics.{m_name}' is missing required companion dimension(s): {sorted(list(missing_dims))}.{hint}"
+          )
 
     # Check that placeholder variables in root stage match section are defined and no arithmetic above match
     root_match = re.search(r"\bmatch:\s*(.*?)(?=\b(?:outcome|condition|order)\s*:|\Z)", root_body, re.DOTALL)

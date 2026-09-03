@@ -766,6 +766,79 @@ class TestGuardrailContracts(unittest.TestCase):
     self.assertIn("Cloud Infrastructure & Data Store CRUD", g_content)
 
 
+  def test_malachite_mandatory_companion_dimensions(self):
+    """Verifies that MalachiteASTValidator enforces mandatory companion dimensions for Cloud CRUD and Process Execution."""
+    # 1. Cloud CRUD query missing vendor and product dimensions
+    invalid_cloud_query = """
+    // Goal: Test invalid cloud read without vendor and product
+    stage stage1_extract {
+      metadata.event_type = "RESOURCE_READ"
+      principal.user.userid = "admin"
+      $user = principal.user.userid
+      match: $user by 1d
+      outcome:
+        $mu = max(metrics.resource_read_total(
+          period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+          principal.user.userid: "admin"
+        ))
+    }
+    $user = $stage1_extract.user
+    match: $user by 1d
+    outcome:
+      $z = 2.0
+    """
+    cloud_errors = MalachiteASTValidator.validate_query(invalid_cloud_query)
+    self.assertTrue(any("MISSING_MANDATORY_FILTER" in e for e in cloud_errors))
+    self.assertTrue(any("metadata.vendor_name" in e and "metadata.product_name" in e for e in cloud_errors))
+
+    # 2. Valid Cloud CRUD query with vendor and product dimensions
+    valid_cloud_query = """
+    // Goal: Test valid cloud read with vendor and product
+    stage stage1_extract {
+      metadata.event_type = "RESOURCE_READ"
+      principal.user.userid = "admin"
+      $user = principal.user.userid
+      $v = metadata.vendor_name
+      $p = metadata.product_name
+      match: $user, $v, $p by 1d
+      outcome:
+        $mu = max(metrics.resource_read_total(
+          period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+          principal.user.userid: "admin",
+          metadata.vendor_name: $v,
+          metadata.product_name: $p
+        ))
+    }
+    $user = $stage1_extract.user
+    $v = $stage1_extract.v
+    $p = $stage1_extract.p
+    match: $user, $v, $p by 1d
+    outcome:
+      $z = 2.0
+    """
+    valid_cloud_errors = MalachiteASTValidator.validate_query(valid_cloud_query)
+    self.assertFalse(any("MISSING_MANDATORY_FILTER" in e for e in valid_cloud_errors))
+
+    # 3. Multi-vector metric conflation in single stage
+    conflated_query = """
+    // Goal: Test multi-vector metric conflation in a single stage
+    stage stage1_extract {
+      target.user.userid = "admin"
+      $user = target.user.userid
+      match: $user by 1d
+      outcome:
+        $mu_auth = max(metrics.auth_attempts_success(period: 1d, window: 30d, metric: event_count_sum, agg: avg, target.user.userid: "admin"))
+        $mu_cloud = max(metrics.resource_read_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: "admin", metadata.vendor_name: "Google Cloud Platform", metadata.product_name: "Storage"))
+    }
+    $user = $stage1_extract.user
+    match: $user by 1d
+    outcome:
+      $z = 2.0
+    """
+    conflated_errors = MalachiteASTValidator.validate_query(conflated_query)
+    self.assertTrue(any("MULTI_VECTOR_STAGE_CONFLATION" in e for e in conflated_errors))
+
+
 if __name__ == '__main__':
   unittest.main()
 
