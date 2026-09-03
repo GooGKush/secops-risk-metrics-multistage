@@ -146,6 +146,25 @@ match: $user by 1d
 outcome:
   $z_egress = (max($s1.bytes_obs) - max($s1.bytes_avg)) / (max($s1.bytes_std) + 1.0)
 """,
+      "DNS & Web Activity": """
+// Sector: DNS & Web Activity
+stage s1 {
+    metadata.event_type = "NETWORK_DNS"
+    network.dns.response_code != 0
+    principal.user.userid = "%(entity_id)s"
+    $user = principal.user.userid
+  match:
+    $user by 1d
+  outcome:
+    $dns_obs = count(metadata.id)
+    $dns_avg = max(metrics.dns_queries_fail(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: "%(entity_id)s"))
+    $dns_std = max(metrics.dns_queries_fail(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: "%(entity_id)s"))
+}
+$user = $s1.user
+match: $user by 1d
+outcome:
+  $z_dns_fail = (max($s1.dns_obs) - max($s1.dns_avg)) / (max($s1.dns_std) + 1.0)
+""",
   }
 
   ASSET_SECTOR_QUERIES = {
@@ -230,7 +249,7 @@ outcome:
         MetricSpoke("Cloud Infrastructure", "Cloud Resource CRUD", "metrics.resource_creation_total", 0.0, 0.0, 0.0, 0.0, "events", 0),
         MetricSpoke("Workspace Data", "Workspace & SaaS Exfil", "metrics.workspace_total_download_actions", 0.0, 0.0, 0.0, 0.0, "actions", 0),
         MetricSpoke("Network Egress", "Network Egress", "metrics.network_bytes_outbound", 0.0, 0.0, 0.0, 0.0, "bytes", 0),
-        MetricSpoke("Endpoint Process", "Endpoint Process Activity", "PROCESS_LAUNCH", 0.0, 0.0, 0.0, 0.0, "events", 0),
+        MetricSpoke("DNS & Web Activity", "DNS & Web Activity", "metrics.dns_queries_fail", 0.0, 0.0, 0.0, 0.0, "queries", 0),
     ]
 
   @staticmethod
@@ -245,7 +264,7 @@ outcome:
         "cloud": 1, "crud": 1, "resource": 1,
         "workspace": 2, "saas": 2, "drive": 2, "doc": 2,
         "net": 3, "network": 3, "egress": 3, "byte": 3,
-        "proc": 4, "endpoint": 4, "process": 4, "launch": 4,
+        "dns": 4, "web": 4, "http": 4, "proc": 4, "endpoint": 4, "process": 4, "launch": 4,
     }
     asset_map = {
         "auth": 0, "login": 0, "access": 0,
@@ -318,6 +337,9 @@ outcome:
             entity_id, sorted_spokes, composite_d, cri
         ),
         "data_uri_image": self.generate_data_uri_image(
+            entity_id, sorted_spokes, composite_d, cri
+        ),
+        "dual_surface_embed": self.generate_dual_surface_embed(
             entity_id, sorted_spokes, composite_d, cri
         ),
         "ascii_chart": self.generate_ascii_chart(
@@ -496,6 +518,27 @@ outcome:
     return f"![360° Behavioral Risk Radar: {entity_id}](data:image/svg+xml;base64,{b64_svg})"
 
   @staticmethod
+  def generate_dual_surface_embed(
+      entity_id: str,
+      spokes: List[MetricSpoke],
+      composite_d: float,
+      cri: int,
+      artifact_path: Optional[str] = None,
+      scale_mode: str = "zscore",
+  ) -> str:
+    """Renders cross-client dual-surface snippet (<agent-embed> for Jetski + Base64 image for MCP clients)."""
+    data_uri = EntityRadarCollector.generate_data_uri_image(
+        entity_id, spokes, composite_d, cri, scale_mode=scale_mode
+    )
+    src_path = artifact_path if artifact_path else f"radar_{entity_id}.html"
+    file_uri = src_path if src_path.startswith("file://") else f"file://{src_path}"
+    return (
+        f'<agent-embed src="{file_uri}"></agent-embed>\n'
+        f'{data_uri}\n'
+        f'[📊 Open 360° Risk Radar (SVG/HTML)]({file_uri})'
+    )
+
+  @staticmethod
   def generate_ascii_chart(
       entity_id: str,
       spokes: List[MetricSpoke],
@@ -649,9 +692,9 @@ def main():
   parser.add_argument("--data", help="JSON string or file path containing spoke records")
   parser.add_argument(
       "--format",
-      choices=["html", "svg", "data-uri", "ascii", "markdown", "json"],
+      choices=["html", "svg", "data-uri", "dual", "ascii", "markdown", "json"],
       default="html",
-      help="Output format: html (generative-ui embed), svg, data-uri (markdown image), ascii (terminal), markdown (table), json",
+      help="Output format: html (generative-ui embed), svg, data-uri (markdown image), dual (cross-client embed+data-uri), ascii (terminal), markdown (table), json",
   )
   parser.add_argument("--scale-mode", choices=["zscore", "cri"], default="zscore", help="Radar scale mode")
   parser.add_argument("--output", help="Optional output file path")
@@ -696,6 +739,10 @@ def main():
     out_str = payload["svg_widget"]
   elif args.format == "data-uri":
     out_str = payload["data_uri_image"]
+  elif args.format == "dual":
+    out_str = EntityRadarCollector.generate_dual_surface_embed(
+        args.entity, spokes, payload["composite_distance_d"], payload["calibrated_risk_index"], artifact_path=args.output
+    )
   elif args.format == "ascii":
     out_str = payload["ascii_chart"]
   elif args.format == "markdown":
@@ -706,8 +753,9 @@ def main():
     out_str = payload["html_widget"]
 
   if args.output:
+    file_content = payload["html_widget"] if args.format == "dual" else out_str
     with open(args.output, "w", encoding="utf-8") as f:
-      f.write(out_str)
+      f.write(file_content)
 
     # Automatically generate companion file for seamless multi-surface rendering (.html <-> .svg)
     if args.output.endswith(".html"):

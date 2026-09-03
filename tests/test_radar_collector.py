@@ -277,14 +277,26 @@ class TestRadarCollector(unittest.TestCase):
 
   def test_parse_scores_argument(self):
     """parse_scores_argument must parse key-value pairs into calibrated MetricSpoke instances."""
-    spokes = EntityRadarCollector.parse_scores_argument("auth=0.0,cloud=3.8,workspace=3.2,net=0.8,proc=10.8", "USER")
+    spokes = EntityRadarCollector.parse_scores_argument("auth=0.0,cloud=3.8,workspace=3.2,net=0.8,dns=10.8", "USER")
     self.assertEqual(len(spokes), 5)
     spoke_map = {s.spoke_name: s.z_score for s in spokes}
     self.assertEqual(spoke_map["Authentication Attempts"], 0.0)
     self.assertEqual(spoke_map["Cloud Resource CRUD"], 3.8)
     self.assertEqual(spoke_map["Workspace & SaaS Exfil"], 3.2)
     self.assertEqual(spoke_map["Network Egress"], 0.8)
-    self.assertEqual(spoke_map["Endpoint Process Activity"], 10.8)
+    self.assertEqual(spoke_map["DNS & Web Activity"], 10.8)
+
+    # Backward-compatible proc/endpoint alias
+    proc_spokes = EntityRadarCollector.parse_scores_argument("proc=5.5", "USER")
+    self.assertEqual(proc_spokes[4].z_score, 5.5)
+
+  def test_generate_dual_surface_embed(self):
+    """Dual-surface embed must emit <agent-embed>, Base64 markdown image, and direct file link."""
+    payload = self.collector.build_radar_payload("tim.smith@altostrat.com", "USER", self.sample_spokes)
+    dual_embed = payload["dual_surface_embed"]
+    self.assertIn("<agent-embed", dual_embed)
+    self.assertIn("![360° Behavioral Risk Radar: tim.smith@altostrat.com](data:image/svg+xml;base64,", dual_embed)
+    self.assertIn("[📊 Open 360° Risk Radar (SVG/HTML)](file://", dual_embed)
 
   def test_empty_spokes_handling(self):
     """Passing empty spoke list to visualizers must auto-populate nominal baseline without blackouts."""
