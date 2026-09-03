@@ -879,6 +879,27 @@ class TestGuardrailContracts(unittest.TestCase):
     self.assertIn("Semantic Tool Discovery Protocol", chart_guide_content)
     self.assertIn("Dynamic Schema Binding", chart_guide_content)
 
+  def test_jetski_visual_agent_embed_contract(self):
+    """SKILL.md and chart specifications guide must mandate <agent-embed> in Jetski and strictly ban data-uri."""
+    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    skill_path = os.path.join(skill_dir, 'SKILL.md')
+    chart_guide_path = os.path.join(skill_dir, 'references', 'chart-specifications-guide.md')
+
+    with open(skill_path, 'r', encoding='utf-8') as f:
+      skill_content = f.read()
+    with open(chart_guide_path, 'r', encoding='utf-8') as f:
+      chart_guide_content = f.read()
+
+    # SKILL.md mandates agent-embed in Jetski and bans data-uri in chat
+    self.assertIn("Jetski (`run_command` present)", skill_content)
+    self.assertIn("agent-embed", skill_content)
+    self.assertIn("Zero data-uri or raw SVG in chat Markdown", skill_content)
+
+    # Chart guide mandates agent-embed across all visual charts in Jetski
+    self.assertIn("MANDATORY `<agent-embed>` (ZERO DATA-URI / ZERO RAW SVG IN CHAT)", chart_guide_content)
+    self.assertIn("ALL visual charts", chart_guide_content)
+    self.assertIn("NEVER emit `data:image/svg+xml;base64`", chart_guide_content)
+
 
 if __name__ == '__main__':
   unittest.main()

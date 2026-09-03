@@ -57,12 +57,12 @@ When an analyst asks to profile an entity across all vectors (*"visualize all ri
 2. **Compilable Micro-Query Template (ZERO CROSS-SECTOR JOINS)**: Decoupled per sector (`stage stage1_extract` matching `$user by 1d` with `max(metrics.*)` and root `$z_score = ($obs - $mu) / ($sigma + 1.0)`). Avoid multi-vector inner joins that drop quiet entities.
 3. **Visualization Strategy (Single visual surface: Client Tool OR Embed OR Inline SVG OR ASCII)**:
    - **Adaptive Single-Surface Routing (NEVER Render Both ASCII & Visual)**:
-     • *Client Tool (if present)*: If any active tool declares radar/SVG visualization, invoke it with entity and computed sector Z-scores matching its parameter schema to render Pillar 1. Omit ASCII card. Detail in `references/chart-specifications-guide.md`.
-     • *Jetski (`run_command` present)*: Run `python3 scripts/radar_collector.py --entity "%(entity)s" --scores "auth=<Z1>,cloud=<Z2>,workspace=<Z3>,net=<Z4>,dns=<Z5>" --output "<artifact_dir>/radar_%(entity)s.html" --format dual`. In Pillar 1, output ONLY `<agent-embed src="file:///<artifact_dir>/radar_%(entity)s.html"></agent-embed>` and link `[Open 360° Radar](file:///<artifact_dir>/radar_%(entity)s.html)`. Omit ASCII card.
-     • *Generic MCP (no tool)*: In Pillar 1, emit pure inline `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 620 480">` directly in markdown.
-     • *CLI / Plaintext*: Render ASCII radar card ONLY when analyst explicitly requests 'cli' or 'ascii'.
-   - **Canonical SVG & ASCII Layout**: Rings: $+1\sigma$, $+2\sigma$, $+3\sigma$, $+4\sigma$. Spokes: Auth, Cloud, Workspace, Network, DNS/Web. CLI: Render text cross-axis radar card. Detail in `references/chart-specifications-guide.md`.
-   - **Mode B (14d Multi-Horizon)**: Render 360° Radial Radar ($Z_{\text{peak}}$) + 14-Day Timeline.
+     • *Jetski (`run_command` present)*: Write visual charts (radar, timeline, distribution) to HTML in `<artifact_dir>/<name>.html` and output ONLY `<agent-embed src="file:///<artifact_dir>/<name>.html"></agent-embed>` and link. Radar: `python3 scripts/radar_collector.py --entity "%(entity)s" --scores "auth=<Z1>,cloud=<Z2>,workspace=<Z3>,net=<Z4>,dns=<Z5>" --output "<artifact_dir>/radar_%(entity)s.html" --format embed`. Zero data-uri or raw SVG in chat Markdown. Omit ASCII card.
+     • *Client Tool (if present)*: If active tool declares radar/SVG visualization, invoke with entity and sector scores matching its schema. Omit ASCII card. Detail in `references/chart-specifications-guide.md`.
+     • *Generic MCP (no tool)*: Emit pure inline `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 620 480">` in markdown. Zero data-uri.
+     • *CLI / Plaintext*: Render ASCII card ONLY on explicit analyst request ('cli'/'ascii').
+   - **Canonical Layout**: Rings $+1\sigma$ to $+4\sigma$; spokes: Auth, Cloud, Workspace, Net, DNS. Detail in `references/chart-specifications-guide.md`.
+   - **Mode B (14d Multi-Horizon)**: Render 14-Day Timeline (fleet) or 360° Radar ($Z_{\text{peak}}$) + Timeline (entity).
 4. **Dual Scales**: Raw Z-score and CRI ($+3.0\sigma$ / CRI 50 perimeter; Section 6 formula).
 
 ### ☁️ Cloud Data Store Scope & Anti-Narrowing Invariant
@@ -116,7 +116,7 @@ Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to bo
 
 *Pre-Output Tool Execution Guard*: On clearance, execute the target pipeline (for 360° Radar: 5 parallel sector micro-queries). Emit findings into 6 numbered pillars. Zero `json_chart`.
 The report **MUST STRICTLY CONTAIN ALL 6 NUMBERED PILLARS**:
-1. **Statistical Outlier Report**: `[Target Metric]` ([Statistical Model]) with 30-day baseline (`window: 30d`). Single visual surface: Vector distribution/timeline for fleet hunts; 5-sector radar embed (<agent-embed> in Jetski, inline <svg> in generic MCP, ASCII radar in CLI; NEVER dual-render ASCII + visual) for 360° profiles with Unicode magnitude bars (`▰▰▰▰▱▱▱▱`). Detail in `references/chart-specifications-guide.md`.
+1. **Statistical Outlier Report**: `[Target Metric]` ([Statistical Model]) with 30-day baseline (`window: 30d`). Single visual surface in Pillar 1: `<agent-embed>` in Jetski (timeline, distribution, radar); client visual tool or inline <svg> in generic MCP; ASCII on explicit request. Include Unicode magnitude bars (`▰▰▰▰▱▱▱▱`) in table. Detail in `references/chart-specifications-guide.md`.
 2. **Executed Multi-Stage YARA-L Query**: Literal executed multi-stage YARA-L query string passed into `secops-gus:udm_search(query=...)`. (For 360° Radar: display compilable decoupled micro-query for primary outlier sector). Labeled 'Executed Multi-Stage YARA-L Query' (never 'Rule').
 3. **Ranked Outlier Summary**: Columns: `Entity`, `24h Observed`, `30d Mean (μ)`, `30d StdDev (σ)`, `Z-Score`, `CRI Score`, `Visual Magnitude`.
 4. **Forensic Vector Breakdown**: Threat translation, significance, attack scenarios, SOC playbook. For fleet hunts with severe outliers ($Z \ge 3.0\sigma$), proactively suggest a 360° Behavioral Radar deep-dive.

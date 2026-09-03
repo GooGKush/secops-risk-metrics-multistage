@@ -692,9 +692,9 @@ def main():
   parser.add_argument("--data", help="JSON string or file path containing spoke records")
   parser.add_argument(
       "--format",
-      choices=["html", "svg", "data-uri", "dual", "ascii", "markdown", "json"],
+      choices=["html", "svg", "data-uri", "dual", "embed", "ascii", "markdown", "json"],
       default="html",
-      help="Output format: html (generative-ui embed), svg, data-uri (markdown image), dual (cross-client embed+data-uri), ascii (terminal), markdown (table), json",
+      help="Output format: html (generative-ui embed), svg, data-uri (markdown image), dual (cross-client embed+data-uri), embed (agent-embed snippet), ascii (terminal), markdown (table), json",
   )
   parser.add_argument("--scale-mode", choices=["zscore", "cri"], default="zscore", help="Radar scale mode")
   parser.add_argument("--output", help="Optional output file path")
@@ -743,6 +743,13 @@ def main():
     out_str = EntityRadarCollector.generate_dual_surface_embed(
         args.entity, spokes, payload["composite_distance_d"], payload["calibrated_risk_index"], artifact_path=args.output
     )
+  elif args.format == "embed":
+    src_path = args.output if args.output else f"radar_{args.entity}.html"
+    file_uri = src_path if src_path.startswith("file://") else f"file://{src_path}"
+    out_str = (
+        f'<agent-embed src="{file_uri}"></agent-embed>\n'
+        f'[📊 Open 360° Risk Radar (SVG/HTML)]({file_uri})'
+    )
   elif args.format == "ascii":
     out_str = payload["ascii_chart"]
   elif args.format == "markdown":
@@ -753,7 +760,7 @@ def main():
     out_str = payload["html_widget"]
 
   if args.output:
-    file_content = payload["html_widget"] if args.format == "dual" else out_str
+    file_content = payload["html_widget"] if args.format in ("dual", "embed") else out_str
     with open(args.output, "w", encoding="utf-8") as f:
       f.write(file_content)
 

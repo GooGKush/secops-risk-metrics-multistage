@@ -115,21 +115,38 @@ To guarantee data integrity while supporting rich graphical visualizations and e
 * **Post-Search Collation**: When hunts fan out across decoupled micro-queries (due to Chronicle's 4-join limit) or multi-day sliding horizons, sanctioned scripts are authorized to merge the results and compute exact mathematical composite formulas ($D = \sqrt{\sum Z_i^2}$, Calibrated Risk Index $\text{CRI}$, and CUSUM drift) that Chronicle YARA-L cannot compute natively.
 * **Anti-Scratch-Script Guardrail**: Writing or executing ad-hoc scratch scripts (`scratch/test.py`) during threat hunts is strictly prohibited.
 
-### C. The Dual-Mode Visual Contract (ASCII Universal Baseline + Graphical Layer)
-To ensure 100% compatibility across both rich web dashboards and plain-text/ASCII environments (terminals, SOAR case walls, email gateways):
-1. **Universal ASCII Baseline (Pillar 3 Table)**:
-   * Every report MUST include the CommonMark summary table with the `Visual Magnitude` column populated with Unicode/ASCII progress bars (`▰▰▰▱▱` or `████░░░░`). This guarantees full visual comprehension in 100% of environments.
-2. **Graphical Layer (Data-URI Image / SVG)**:
-   * In graphical environments, the 360° Radar is rendered as a **Markdown Data-URI Image**:
-     ```markdown
-     ![360° Behavioral Risk Radar](data:image/svg+xml;base64,<BASE64_ENCODED_SVG>)
-     ```
-   * **Why Data-URI Image?** Standard chat Markdown renderers (and DOM sanitizers like DOMPurify) frequently strip raw `<svg>` tags and concatenate inner `<text>` elements into an unformatted text wall. Wrapping the SVG inside a standard Markdown image `![alt](data:image/svg+xml;base64,...)` causes the parser to treat it as an `<img>` element, preserving the graphical render and preventing text collapse.
+### C. The Tri-Surface Visual Rendering Contract (Jetski Embed vs. Generic MCP vs. CLI)
+To guarantee visual fidelity across diverse frontend clients:
+
+1. **Jetski Environment (`run_command` present)**:
+   * **MANDATORY `<agent-embed>` (ZERO DATA-URI / ZERO RAW SVG IN CHAT)**:
+     * In Jetski Web UI, the Markdown parser (`rehype-sanitize`) and CSP strictly block raw `<svg>` tags and `data:image/svg+xml;base64` Data-URIs (rendering as broken image placeholders).
+     * Therefore, in Jetski, **ALL visual charts** (whether 360° radar, Mode B 14-day timeline, or Mode A distribution) MUST be written to an HTML artifact in `<artifact_dir>/<chart_name>.html` and embedded in Pillar 1 using:
+       `<agent-embed src="file:///<artifact_dir>/<chart_name>.html"></agent-embed>`
+     * Inside `<agent-embed>`, SVG, HTML, and Tailwind CSS render natively in an isolated sandboxed iframe with zero sanitizer stripping:
+       ```html
+       <!DOCTYPE html>
+       <html>
+       <head>
+         <meta charset="utf-8">
+         <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+       </head>
+       <body class="bg-transparent text-[var(--foreground)] antialiased p-2 flex justify-center">
+         <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-3 shadow-sm">
+           <svg ...>...</svg>
+         </div>
+       </body>
+       </html>
+       ```
+     * In Pillar 1, output ONLY `<agent-embed src="file:///<artifact_dir>/<chart_name>.html"></agent-embed>` and link `[Open Visual Chart](file:///<artifact_dir>/<chart_name>.html)`. Omit ASCII card.
+
+2. **Generic MCP / Custom Client Environment (no `run_command`)**:
+   * **Semantic Client Tool Discovery**: If an active client-side tool declares radar or SVG chart generation, invoke it (Section 6).
+   * **Inline SVG**: If no client tool is present and the client's renderer supports inline SVG, emit pure inline `<svg>` directly in markdown.
+   * **NEVER emit `data:image/svg+xml;base64`**: Blocked by modern web sanitizers.
+
 3. **Terminal / CLI Fallback (`--format ascii`)**:
-   * When operating in a CLI or plain-text environment, `scripts/radar_collector.py --format ascii` outputs a formatted horizontal ASCII bar chart displaying spoke deviations and thresholds without emitting raw XML:
-     ```bash
-     python3 scripts/radar_collector.py --entity "frank.kolzig" --data '<JSON_SPOKES>' --format ascii
-     ```
+   * When operating in a CLI or plain-text environment (or when the analyst explicitly requests `'cli'` or `'ascii'`), output formatted ASCII/Unicode magnitude bars.
 
 ---
 
@@ -139,9 +156,9 @@ To prevent cognitive distortion and preserve investigative clarity, the visual s
 
 | Hunt Archetype | Operational Objective | Pillar 1 Visual Surface | Downstream Next Step |
 | :--- | :--- | :--- | :--- |
-| **Vector / Fleet Outlier Hunt (Mode A: 24h Snapshot)** | Fleet-wide ranking of outliers on a specific behavioral vector (Cloud CRUD, Network Egress, Logins, File Executions). | **Dual-Y Outlier Bar / Distribution Chart**: Horizontal SVG bar chart comparing top entities' observed activity ($k$) against their 30-day baseline mean ($\mu$) with $\pm 3\sigma$ threshold indicators. | Summarize ranked fleet in Pillar 3. If an entity exhibits extreme novelty ($Z \ge 3.0\sigma$), proactively suggest a 360° deep-dive in Pillar 4. |
-| **Vector / Fleet Outlier Hunt (Mode B: 14d Timeline)** | Temporal longitudinal trajectory tracking to determine inception date, burst duration, or gradual CUSUM drift. | **Longitudinal Baseline Envelope & Inception Timeline**: Time-series SVG line chart displaying daily observed volume across the 14-day evaluation window against the shaded 30-day historical baseline envelope. | Analyze onset timing in Pillar 4; suggest 360° cross-sector verification if multi-stage compromise is suspected. |
-| **360° Entity Health Check (Explicit Request or Accepted Pivot)** | Multi-vector evaluation of a *single specific entity* across all 5 behavioral sectors to measure aggregate threat distance ($D$). | **360° Behavioral Risk Radar**: Rendered via `scripts/radar_collector.py` as an `<agent-embed>` in Jetski or Markdown Data-URI SVG, accompanied by the 5-sector spoke table. | Recommend host isolation, credential suspension, or SOAR case escalation. |
+| **Vector / Fleet Outlier Hunt (Mode A: 24h Snapshot)** | Fleet-wide ranking of outliers on a specific behavioral vector (Cloud CRUD, Network Egress, Logins, File Executions). | **Dual-Y Outlier Bar / Distribution Chart**: `<agent-embed>` in Jetski; inline SVG in generic MCP; ASCII table in CLI. | Summarize ranked fleet in Pillar 3. If an entity exhibits extreme novelty ($Z \ge 3.0\sigma$), proactively suggest a 360° deep-dive in Pillar 4. |
+| **Vector / Fleet Outlier Hunt (Mode B: 14d Timeline)** | Temporal longitudinal trajectory tracking to determine inception date, burst duration, or gradual CUSUM drift. | **Longitudinal Baseline Envelope & Inception Timeline**: `<agent-embed>` in Jetski; inline SVG in generic MCP; ASCII timeline in CLI. | Analyze onset timing in Pillar 4; suggest 360° cross-sector verification if multi-stage compromise is suspected. |
+| **360° Entity Health Check (Explicit Request or Accepted Pivot)** | Multi-vector evaluation of a *single specific entity* across all 5 behavioral sectors to measure aggregate threat distance ($D$). | **360° Behavioral Risk Radar**: Rendered via `scripts/radar_collector.py` as `<agent-embed>` in Jetski; Client visual tool or inline SVG in generic MCP; ASCII radar in CLI. | Recommend host isolation, credential suspension, or SOAR case escalation. |
 
 > [!WARNING]
 > **Anti-Conflation Mandate**: NEVER insert a 360° Radar profile or 5-sector table into Pillar 1 of a Vector/Fleet Outlier Hunt. Forcing an entity deep-dive before presenting fleet search results creates cognitive confusion and forces zero-padding on unqueried sectors.
