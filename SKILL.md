@@ -105,8 +105,8 @@ Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to bo
 2. **Identity Disambiguation & Hard Resolution Gate (ZERO GUESSING & IMMEDIATE HALT)**:
    - *Technical IDs*: Single-token account IDs without spaces (e.g. `expanse`, `fkolzig`, `srv-01`) are technical IDs. Proceed directly.
    - *Display Names*: Names containing spaces (e.g. `James Holden`) are NOT `user.userid`.
-     • Execute AT MOST ONE spot-check: `udm_search(query='user.user_display_name = "<name>" nocase', startTime: 1d ago)`.
-     • *Match Found ($\ge 1$ events)*: Extract verified `user.userid`. Set in card: `• Target Entity / Scope: <Name> (Verified User ID: <id>)`.
+     • Execute AT MOST ONE spot-check: `udm_search(query='target.user.user_display_name = "<name>" nocase or principal.user.user_display_name = "<name>" nocase', startTime: 1d ago)`.
+     • *Match Found ($\ge 1$ events)*: Extract verified `user.userid` (`target`/`principal`). In card: `• Target Entity / Scope: <Name> (Verified User ID: <id>)`.
      • *HARD RESOLUTION GATE (ZERO GUESSING)*: If 0 events match or query fails:
        **STRICTLY FORBIDDEN TO GUESS OR SYNTHESIZE A USERNAME** (no `first.last`, `f_last`, or heuristic abbreviations).
        **DO NOT GENERATE THE SPECIFICATION CARD OR DRAFT QUERIES.**
