@@ -71,7 +71,7 @@ Extensive live compilation testing against Google SecOps customer instances has 
 
 ## 3. Pre-Submission Test Harness (`scripts/submission_tests.py`)
 
-The submission test harness automates compiler verification across 19 canonical test cases categorized into four operational suites:
+The submission test harness automates compiler verification across 20 canonical test cases categorized into four operational suites:
 
 | ID | Suite | Target Metric / Model | Key Compiler Check |
 |:---|:------|:----------------------|:-------------------|
@@ -82,6 +82,7 @@ The submission test harness automates compiler verification across 19 canonical 
 | `PIPE-05-DELTA-Z` | Pipeline Template | `http_queries_total` (Asset) | Cross-sectional 3-stage Delta-Z fusion |
 | `PIPE-06-DUAL-SECTOR` | Pipeline Template | Auth + Network Egress | Orthogonal 2-sector Euclidean norm |
 | `PIPE-07-EMPIRICAL-BAYES` | Pipeline Template | `http_queries_total` (Asset) | 3-stage hyperprior shrinkage (stddev²) |
+| `PIPE-08-CLOUD-SCOPE` | Pipeline Template | `resource_read_total` | Dual-branch cloud repository scope & origin outlier |
 | `RADAR-01-AUTH` | Decoupled Radar Spoke | `auth_attempts_fail` | Allowed vs failed login micro-query |
 | `RADAR-02-CLOUD` | Decoupled Radar Spoke | `resource_creation_total` | Multi-dimensional cloud CRUD tracking |
 | `RADAR-03-WORKSPACE` | Decoupled Radar Spoke | `google_workspace_downloads` | High-frequency document hoarding query |
@@ -102,7 +103,7 @@ The submission test harness automates compiler verification across 19 canonical 
 Before committing changes, contributors must execute the following test commands:
 
 ```bash
-# 1. Run canonical submission test suite (Static verification of 19 test cases)
+# 1. Run canonical submission test suite (Static verification of 20 test cases)
 python3 scripts/submission_tests.py
 
 # 2. Run all unit tests (including compiler policy assertions)

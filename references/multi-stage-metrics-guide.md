@@ -462,6 +462,38 @@ If an analyst inquiry targets ad-hoc telemetry without pre-computed baselines, r
 3. Render the **Skill Handoff Card** and hand off execution cleanly to `secops-statistical-hunter`.
 
 ---
+
+## 22. Service Account Cloud Repository Scope, Origin IP Outliers & Local-Baseline Isolation
+
+When investigating service accounts accessing data repositories out of their normal behavioral scope or unexpected host origins, analysts face two critical failure modes:
+1. **The Narrowing Antipattern**: Hardcoding a query to a single product (e.g. `BigQuery` or `Storage`) when asked about broad cloud data repositories.
+2. **The "Elephant and Mouse" Dynamic Range Masking Problem**: High-volume routine background activity (e.g., 1,000,000 GCS telemetry sync reads) completely masks an acute targeted exfiltration dump from a sensitive repository (e.g., 2,500 reads against a quiet Spanner database or S3 bucket) if the service account's activity is evaluated against an account-level aggregate baseline.
+
+### 1. Architectural Solution: Local-Baseline Isolation
+To preserve sensitivity across disparate repositories, the query MUST slice dynamically by:
+$$\text{Match Key} = (\$sa, \$vendor, \$product, \$resource, \$ip \text{ by } 1d)$$
+By matching each destination resource individually against `metrics.resource_read_total`, each repository is evaluated strictly against its own local historical parameters $(\mu_r, \sigma_r, N_r)$.
+
+### 2. Dual-Branch Mathematical Outlier Formulation
+The pipeline computes two orthogonal anomaly scores:
+- **Branch 1: Destination Depth & Novelty Anomaly ($Z_{\text{dest}}$)**:
+  - *Established Destinations ($\mu_r > 0, \text{active days} \ge 3$)*: Evaluates depth volumetric surges via standard $Z$-score:
+    $$Z_{\text{depth}} = \frac{\text{Obs} - \mu_r}{\sigma_r + 1.0}$$
+  - *Novel / Unobserved Destinations ($\mu_r = 0, \text{active days} = 0$)*: Under the universal dispersion floor ($+ 1.0$), when $\mu_r = 0$ and $\sigma_r = 0$:
+    $$Z_{\text{novelty}} = \frac{\text{Obs} - 0}{0 + 1.0} = \text{Obs}$$
+    Any access to a completely novel cloud repository immediately yields an acute anomaly score proportional to the extraction volume.
+- **Branch 2: Caller Origin Host Anomaly ($Z_{\text{origin}}$)**:
+  - Caller origin IP is evaluated via `principal.ip: $ip`.
+  - For unobserved or foreign host origins ($\mu_{\text{origin}} = 0$):
+    $$Z_{\text{origin}} = \frac{\text{Obs} - 0}{0 + 1.0} = \text{Obs}$$
+- **Composite Outlier Score**:
+  $$Z_{\text{composite}} = Z_{\text{dest}} + Z_{\text{origin}}$$
+  Surfaces entities that simultaneously hit novel/surging repositories from novel caller IPs.
+
+### 3. Canonical Compiler-Verified Pipeline
+This architecture is codified in `templates/pipelines/cloud_repository_scope_dual_branch.yl2` and verified by `PIPE-08-CLOUD-SCOPE`. It consumes only 1 internal UEBA join ($\le 4$ join limit) and enforces mandatory companion dimensions (`metadata.vendor_name`, `metadata.product_name`).
+
+---
 *Created and maintained by Greg Kushmerek for Google SecOps Chronicle SIEM threat hunting workflows.*
 
 

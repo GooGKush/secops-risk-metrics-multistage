@@ -16,7 +16,7 @@
 
 """Unit tests validating the Pre-Submission Compiler Policy and Harness.
 
-Ensures that all 19 canonical submission test cases pass static invariant validation,
+Ensures that all 20 canonical submission test cases pass static invariant validation,
 the invariant validator accurately detects forbidden patterns, and documentation
 stays synchronized.
 """
@@ -41,11 +41,11 @@ class TestSubmissionCompilerPolicy(unittest.TestCase):
     cls.matrix = cls.suite.build_canonical_test_matrix()
 
   def test_canonical_matrix_size(self):
-    """Asserts that exactly 19 canonical test cases are defined."""
-    self.assertEqual(len(self.matrix), 19)
+    """Asserts that exactly 20 canonical test cases are defined."""
+    self.assertEqual(len(self.matrix), 20)
 
   def test_all_canonical_cases_pass_static_validation(self):
-    """Validates that all 19 canonical test cases produce clean YARA-L 2.0."""
+    """Validates that all 20 canonical test cases produce clean YARA-L 2.0."""
     for tc in self.matrix:
       with self.subTest(test_id=tc.test_id, name=tc.name):
         query = tc.render()
@@ -200,7 +200,7 @@ class TestSubmissionCompilerPolicy(unittest.TestCase):
     self.assertTrue(any("at most 2 raw event extraction stages" in e for e in errors))
 
   def test_policy_document_covers_all_test_case_ids(self):
-    """Ensures compiler-submission-policy.md explicitly documents all 19 test IDs."""
+    """Ensures compiler-submission-policy.md explicitly documents all 20 test IDs."""
     doc_path = SKILL_ROOT / "references" / "compiler-submission-policy.md"
     self.assertTrue(doc_path.exists(), "compiler-submission-policy.md is missing")
     content = doc_path.read_text(encoding="utf-8")

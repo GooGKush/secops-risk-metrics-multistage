@@ -156,5 +156,11 @@ class MultiStageTemplateRouter:
       )
       return rendered + "\n"
 
+    elif pipeline_type == PipelineArchitecture.CLOUD_REPOSITORY_SCOPE_DUAL_BRANCH:
+      pipeline_file = self.template_dir / "pipelines" / "cloud_repository_scope_dual_branch.yl2"
+      if not pipeline_file.exists():
+        raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
+      return pipeline_file.read_text().strip() + "\n"
+
     else:
       raise ValueError(f"Unsupported pipeline type: {pipeline_type}")

@@ -232,6 +232,17 @@ class SubmissionTestSuite:
         )
     )
 
+    matrix.append(
+        TestCase(
+            test_id="PIPE-08-CLOUD-SCOPE",
+            category="Pipeline Template",
+            name="2-Stage Dual-Branch Cloud Repository Scope & Origin Outlier",
+            description="Evaluates service account cloud repository access with local-baseline isolation across depth, breadth/novelty, and caller origin.",
+            generator=lambda: (self.pipelines_dir / "cloud_repository_scope_dual_branch.yl2").read_text(encoding="utf-8"),
+            expected_stages=["stage1_extract"],
+        )
+    )
+
     # -------------------------------------------------------------------------
     # 3. Decoupled 360° Risk Radar Micro-Queries (4 Cases)
     # -------------------------------------------------------------------------

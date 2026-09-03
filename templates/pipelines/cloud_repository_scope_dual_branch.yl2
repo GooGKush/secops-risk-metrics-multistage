@@ -1,0 +1,115 @@
+// ============================================================================
+// ARCHITECTURE: 2-STAGE DUAL-BRANCH CLOUD REPOSITORY SCOPE & ORIGIN OUTLIER PIPELINE
+// Skill: secops-risk-metrics-multistage
+// Purpose: Detects service accounts accessing cloud data stores out of normal scope or from unexpected host origins
+// Methodology: Local-Baseline Isolation (Solves Elephant & Mouse Problem)
+// Branches:
+//   1. Depth Outlier: Volumetric surge in high-traffic known destinations (Obs >> mu_dest)
+//   2. Breadth Outlier: Zero-baseline acute departure on novel data repositories (dest_active_days == 0)
+//   3. Origin Outlier: Zero-baseline novel host IP or anomalous volume from caller origin (origin_active_days == 0)
+// Join Accounting: 1 UEBA Metric Join + 0 Root Stage Joins = 1 Join Total (Limit: <= 4)
+// ============================================================================
+
+// --- STAGE 1: Dynamic Cloud Repository Extraction & Pre-Computed Baseline Lookups ---
+stage stage1_extract {
+    metadata.event_type = "RESOURCE_READ"
+    $sa = principal.user.userid
+    $vendor = metadata.vendor_name
+    $product = metadata.product_name
+    $resource = target.resource.name
+    $ip = principal.ip
+
+    // Enforce identity and repository existence
+    $sa != ""
+    $resource != ""
+
+  match:
+    $sa, $vendor, $product, $resource, $ip by 1d
+
+  outcome:
+    $observed_reads = count(metadata.id)
+
+    // 1. Destination Resource Baseline (Local-Baseline Isolation)
+    $dest_avg = max(metrics.resource_read_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+        principal.user.userid: $sa,
+        metadata.vendor_name: $vendor,
+        metadata.product_name: $product,
+        target.resource.name: $resource
+    ))
+    $dest_stddev = max(metrics.resource_read_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+        principal.user.userid: $sa,
+        metadata.vendor_name: $vendor,
+        metadata.product_name: $product,
+        target.resource.name: $resource
+    ))
+    $dest_active_days = max(metrics.resource_read_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+        principal.user.userid: $sa,
+        metadata.vendor_name: $vendor,
+        metadata.product_name: $product,
+        target.resource.name: $resource
+    ))
+
+    // 2. Caller Origin IP Baseline
+    $origin_avg = max(metrics.resource_read_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+        principal.user.userid: $sa,
+        principal.ip: $ip,
+        metadata.vendor_name: $vendor,
+        metadata.product_name: $product
+    ))
+    $origin_stddev = max(metrics.resource_read_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+        principal.user.userid: $sa,
+        principal.ip: $ip,
+        metadata.vendor_name: $vendor,
+        metadata.product_name: $product
+    ))
+    $origin_active_days = max(metrics.resource_read_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+        principal.user.userid: $sa,
+        principal.ip: $ip,
+        metadata.vendor_name: $vendor,
+        metadata.product_name: $product
+    ))
+}
+
+// --- ROOT STAGE: Dual-Branch Evaluation & Composite Risk Ranking ---
+$sa = $stage1_extract.sa
+$product = $stage1_extract.product
+$resource = $stage1_extract.resource
+$ip = $stage1_extract.ip
+$ws = $stage1_extract.window_start
+
+match:
+  $sa, $product, $resource, $ip, $ws by 1d
+
+outcome:
+  $obs = max($stage1_extract.observed_reads)
+  $dest_mu = max($stage1_extract.dest_avg)
+  $dest_sigma = max($stage1_extract.dest_stddev)
+  $dest_days = max($stage1_extract.dest_active_days)
+
+  $origin_mu = max($stage1_extract.origin_avg)
+  $origin_sigma = max($stage1_extract.origin_stddev)
+  $origin_days = max($stage1_extract.origin_active_days)
+
+  // 1. Destination Outlier Score: Local-Baseline Isolation
+  // For established destinations (mu > 0, sigma > 0), measures volumetric surge
+  // For unobserved destinations (mu = 0, sigma = 0), universal floor (+ 1.0) scales acute score = obs
+  $dest_diff = $obs - $dest_mu
+  $dest_z = $dest_diff / ($dest_sigma + 1.0)
+
+  // 2. Caller Origin IP Outlier Score
+  // For established IPs, measures volume surge
+  // For unobserved IPs (mu = 0, sigma = 0), scales acute novelty score = obs
+  $origin_diff = $obs - $origin_mu
+  $origin_z = $origin_diff / ($origin_sigma + 1.0)
+
+  // 3. Composite Dual-Branch Threat Score
+  $composite_risk = $dest_z + $origin_z
+
+order:
+  $composite_risk desc

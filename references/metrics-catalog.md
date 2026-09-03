@@ -136,7 +136,11 @@ This catalog details all 38 active pre-computed behavioral risk metrics availabl
 * **Anomaly Mechanics**:
   - **Origin IP Outlier**: If a service account calls a data repository from an IP with zero 30-day baseline history ($\mu = 0$), it represents an immediate acute origin deviation.
   - **Scope/Volume Outlier**: Read spikes (`metrics.resource_read_total`) or bulk writes (`metrics.resource_written_total`) exceeding $Z > 3.0\sigma$ against the account's 30-day baseline flag potential data hoarding or exfiltration.
-
+* **Local-Baseline Isolation & Dynamic Range Masking ("Elephant and Mouse" Problem)**:
+  - *The Antipattern*: Hardcoding a single product (e.g. BigQuery) or comparing resource-level activity against an account-level aggregate causes severe dynamic range masking. An account with 1,000,000 routine storage sync reads will completely mask 2,500 acute reads dumping a high-value database if baselined globally.
+  - *The Mathematical Solution*: Slice dynamically by `($sa, $vendor, $product, $resource, $ip by 1d)` so each repository is evaluated strictly against its own local historical parameters $(\mu_r, \sigma_r)$. A universal dispersion floor (`+ 1.0`) naturally detects zero-baseline novelty dumps ($\mu = 0 \implies Z = \text{Obs}$) while standard $Z$-scores flag depth surges in routine destinations.
+  - *Composite Outlier Scoring*: $Z_{\text{composite}} = Z_{\text{dest}} + Z_{\text{origin}}$.
+  - *Reference Pipeline*: `templates/pipelines/cloud_repository_scope_dual_branch.yl2`.
 
 ---
 
