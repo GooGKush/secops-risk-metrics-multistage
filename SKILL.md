@@ -14,11 +14,8 @@ Executes **multi-sector statistical outlier hunting** using **30-day pre-compute
 ---
 
 ## 🔀 Bi-Directional Skill Steering & Handoff Protocol
-
-| If hunt targets... | Activate... | Operational Action |
-| :--- | :--- | :--- |
-| • **30-Day Baselines** (`metrics.*`), **Peer Cohorts**, **Cloud Data Stores**, **Multi-Sector Fusion** | 📊 **`secops-risk-metrics-multistage`** *(This Skill)* | Execute native multi-stage `metrics.*` pipeline. |
-| • **Ad-Hoc Raw Telemetry Sensors**, **Non-Metrics Telemetry** (Git repos, raw UDM) | ⚡ **`secops-statistical-hunter`** | Emit **Skill Handoff Card** and Non-Metrics Telemetry Steering Mandate to `secops-statistical-hunter`. |
+* • **30-Day Baselines** (`metrics.*`) / **Peer Cohorts** / **Multi-Sector Fusion**: Execute this skill (`secops-risk-metrics-multistage`).
+* • **Non-Metrics Telemetry** (Git repos, raw UDM): Emit **Skill Handoff Card** and Non-Metrics Telemetry Steering Mandate to `secops-statistical-hunter`.
 
 ---
 
@@ -50,7 +47,7 @@ Phase 1B (Query Preview & Spec Card) is **ONLY UNLOCKED** when **BOTH** requirem
 > • ☁️ **Cloud CRUD** (`metrics.resource_*`) • 📁 **Workspace** (`metrics.workspace_*`)
 > • ⚙️ **Endpoint Tools** (`PROCESS_LAUNCH`) • 🌐 **Network Egress** (`metrics.network_bytes_outbound`)
 > • 🔑 **Authentication** (`metrics.auth_attempts_*`) • 🔀 **Multi-Sector Fusion** ($D$)
-> **STOP AND YIELD TURN (CONVERSATIONAL BREAK).** Do NOT render query preview until user responds.
+> **STOP AND YIELD TURN (CONVERSATIONAL BREAK).** Analyst responses (*"yes to both"*, *"Cloud CRUD"*) **ONLY UNLOCK PHASE 1B** (Pre-Flight Card & Query Preview); they are NOT clearance to execute or summarize.
 
 ### 🕸️ 360° Entity Behavioral Risk Radar (All-Vectors / Radial Profiling)
 When an analyst asks to profile an entity across all vectors (*"visualize all risk vectors"*, *"radial/spider chart"*, *"full spectrum profile"*, *"360 health check"*, *"behavioral fingerprint"*):
@@ -87,8 +84,8 @@ When an analyst provides a threat report (URL, CVEs, or threat actor):
 2. **Transition Directly to Phase 1B**: Emit **Pre-Flight Hunting Specification Card** and **Literal Query Preview** on Turn 1. Ask for target scoping and **YIELD THE TURN (0 tools called)**.
 
 ### 🔍 Phase 1B: Pre-Flight Spec & Query Preview (Once Scope & Vectors are Established)
-Once the analyst specifies or confirms vectors and scope (or via CTI threat report mapping, or for specific prompts like *"MAD on network outbound bytes"*):
-1. **ZERO Tool Execution**: 0 calls to `udm_search`, `import_logs`, `run_command`, or scripts for hunting. *(Exception: 1 spot check via `udm_search(user_display_name = "<name>" nocase)` is permitted to resolve `user.userid`).*
+Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to both"*, or via CTI mapping):
+1. **ZERO Tool Execution**: 0 calls to `udm_search`, `summarize_entity`, `list_cases`, `run_command`, or hunting scripts. *(Exception: 1 spot check via `udm_search(user_display_name = "<name>" nocase)` is permitted to resolve `user.userid`).*
 2. **Plain-English Cyber Analogy (1–2 Sentences)**: Explain statistical approach using a physical concept.
 3. **Structured PRE-FLIGHT HUNTING SPECIFICATION Card & Mandatory Query Preview**:
    *Render using high-contrast bold key-value formatting:*
@@ -120,14 +117,14 @@ Once the analyst specifies or confirms vectors and scope (or via CTI threat repo
 
 ## 📊 MANDATORY STEP 2: PRESENT FULL 6-SECTION REPORT (AFTER CLEARANCE)
 
-*Pre-Output Tool Execution Guard*: On clearance, execute `udm_search` across all 5 sectors (fleet-matching `$user by 1d` in $\le 5$ queries) or run `scripts/radar_collector.py` FIRST. NEVER output markdown, SVG, or report pillars until tool execution completes. Zero single-query raw filter fallbacks.
+*Pre-Output Tool Execution Guard*: On Mode A/B clearance, execute `udm_search` across sectors or run `scripts/radar_collector.py` FIRST. NEVER output markdown, SVG, or report pillars until tool execution completes.
 The report **MUST STRICTLY CONTAIN ALL 6 NUMBERED PILLARS**:
 1. **Statistical Outlier Report**: `[Target Metric]` ([Statistical Model]) with 30-day baseline (`window: 30d`). (For 360° Radar: **MANDATORY GRAPHICAL SVG RADAR** — Save to `<artifact_dir>/radar_<entity>.svg` and embed inline via `![360° Behavioral Risk Radar](file:///<path>)` or `<agent-embed>` along with CommonMark table and Unicode magnitude progress bars. ASCII is strictly for SOAR case comments).
 2. **Executed Multi-Stage YARA-L Query**: Literal executed multi-stage YARA-L query string passed into `secops-gus:udm_search(query=...)`. (For 360° Radar: display the compilable decoupled micro-query for the primary outlier sector, e.g. Cloud CRUD with vendor/product or Auth; NEVER cram multiple sectors into a single stage or fabricate an invalid inner join). **Strict Nomenclature Mandate**: MUST be labeled 'Executed Multi-Stage YARA-L Query'. Calling ad-hoc query logic a 'Rule' or 'Hunting Rule' is a **CRITICAL NOMENCLATURE VIOLATION**.
 3. **Ranked Outlier Summary**: Columns: `Entity`, `24h Observed`, `Baseline Mean`, `StdDev`, `Z-Score`, `CRI Score`, `Visual Magnitude`.
 4. **Forensic Vector Breakdown**: Threat translation, significance, attack scenarios, SOC playbook.
 5. **Immediate 1-Click Investigation Queries**: Raw UDM filter query for analyst drilldown.
-6. **Statistical & Mathematical Appendix**: Model formulation ($N = 30d$), $\text{CRI} = \text{round}\left(\frac{100}{1 + \exp(-0.6 \cdot (Z - 3.0))}\right)$.
+6. **Statistical & Mathematical Appendix**: Formulation ($N = 30d$), CRI formula.
 
 ---
 
@@ -157,6 +154,7 @@ The report **MUST STRICTLY CONTAIN ALL 6 NUMBERED PILLARS**:
 
 ### 3. Scope, Steering & Parsimony
 * **Pure Threat Hunting Scope (SEARCH-ONLY — ZERO RULE CREATION / DEPLOYMENT)**: `create_rule` and `validate_rule` are STRICTLY PROHIBITED during threat hunts.
+* **Zero Ad-Hoc Entity Dossier Drift (MANDATORY 6-PILLAR REPORT & YARA-L EXECUTION)**: For any risk profile or hunt, NEVER substitute generic entity overviews (`summarize_entity`, cases, alerts) for the 6-Pillar report. Every profile MUST execute native multi-stage YARA-L, show the literal query in Pillar 2, and render the SVG radar in Pillar 1.
 * **Zero Streaming Detection Rule Syntax (SEARCH-ONLY YARA-L DAG MANDATE)**: Output ad-hoc Multi-Stage YARA-L Search syntax (`stage name { ... }` + Root Stage) for Chronicle UDM Search (`udm_search`). Outputting continuous detection rules (`rule <name> { ... }`), `meta:`, or `condition:` blocks is a CRITICAL NOMENCLATURE & ARCHITECTURAL VIOLATION.
 * **Zero In-Query CRI Calculation (POST-PROCESSING ONLY MANDATE)**: Never evaluate CRI formulas in YARA-L. Compute raw scores ($Z$, $\text{MAD } Z$, Poisson, CUSUM, $D^2$) and order via `order: <score> desc`. CRI [0–100] is computed in Python post-processing.
 * **Non-Metrics Telemetry Steering Mandate (HANDOFF TO STATISTICAL HUNTER)**: If an analyst targets non-baselined telemetry (e.g. Git repos, raw UDM), emit the **Skill Handoff Card** and steer to `secops-statistical-hunter`.
