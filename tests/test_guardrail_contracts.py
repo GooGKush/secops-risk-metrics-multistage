@@ -859,6 +859,26 @@ class TestGuardrailContracts(unittest.TestCase):
     self.assertIn("looking backwards 14 days", guide_content)
     self.assertIn("Mode B: 30-Day Longitudinal Sliding Timeline", guide_content)
 
+  def test_generic_client_visualization_tool_contract(self):
+    """SKILL.md and chart specifications guide must support generic client visualization tool discovery without proprietary hardcoding."""
+    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    skill_path = os.path.join(skill_dir, 'SKILL.md')
+    chart_guide_path = os.path.join(skill_dir, 'references', 'chart-specifications-guide.md')
+
+    with open(skill_path, 'r', encoding='utf-8') as f:
+      skill_content = f.read()
+    with open(chart_guide_path, 'r', encoding='utf-8') as f:
+      chart_guide_content = f.read()
+
+    # SKILL.md generic discovery
+    self.assertIn("Client Tool (if present)", skill_content)
+    self.assertNotIn("generate_behavioral_radar", skill_content)  # Must remain generic and portable!
+
+    # Chart guide detailed contract
+    self.assertIn("Client-Side Visualization Tool Contract (Generic Endpoint Discovery)", chart_guide_content)
+    self.assertIn("Semantic Tool Discovery Protocol", chart_guide_content)
+    self.assertIn("Dynamic Schema Binding", chart_guide_content)
+
 
 if __name__ == '__main__':
   unittest.main()

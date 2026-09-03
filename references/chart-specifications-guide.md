@@ -145,3 +145,26 @@ To prevent cognitive distortion and preserve investigative clarity, the visual s
 
 > [!WARNING]
 > **Anti-Conflation Mandate**: NEVER insert a 360° Radar profile or 5-sector table into Pillar 1 of a Vector/Fleet Outlier Hunt. Forcing an entity deep-dive before presenting fleet search results creates cognitive confusion and forces zero-padding on unqueried sectors.
+
+---
+
+## 6. Client-Side Visualization Tool Contract (Generic Endpoint Discovery)
+
+To maintain strict modularity, client-independence, and portability across heterogeneous AI environments (Jetski, custom Gemini/Claude SDK clients, web consoles, and headless automation), skills must never hardcode proprietary client-side function names.
+
+### A. Semantic Tool Discovery Protocol
+When rendering **Pillar 1** of a 360° Entity Health Check:
+1. **Tool Roster Introspection**: The agent inspects its list of active client tools (`gemini_functions` / tool definitions).
+2. **Intent Matching**: If any active tool's name or description declares capability to generate or render radar charts, pentagon risk graphs, or SVG visualizations (e.g. descriptions mentioning *"360-degree behavioral risk pentagon radar"*, *"radar SVG chart"*, or *"render visualization"*):
+   * The agent **MUST** delegate visual rendering to that client-side tool rather than attempting manual ASCII or raw XML generation.
+3. **Dynamic Schema Binding**:
+   * The agent extracts the tool's expected parameter schema.
+   * **Entity Binding**: Passes the target identity into the entity argument (e.g. `username`, `entity`, or `user_id`).
+   * **Telemetry Scores Binding**: Maps the 5 computed sector Z-scores into the tool's expected dictionary or keyword structure (e.g. `telemetry_data={"Auth": Z1, "Cloud": Z2, "Workspace": Z3, "Egress": Z4, "DNS": Z5}`).
+4. **Pillar 1 Output**: The raw SVG or HTML returned by the tool is emitted directly inside Pillar 1. The ASCII fallback card is omitted.
+
+### B. Fallback Hierarchy When No Visualization Tool Exists
+If no active tool in the agent's toolset declares visual chart rendering:
+1. **Local Shell Execution**: If `run_command` is available (Jetski environment), execute `scripts/radar_collector.py` to write the standalone HTML artifact and render `<agent-embed>`.
+2. **Pure Inline SVG**: If running in an MCP environment without local shell or client visual tools, emit pure inline `<svg>` directly into the Markdown stream.
+3. **Plaintext / CLI**: Render the ASCII cross-axis card ONLY when the analyst explicitly requests `'cli'` or `'ascii'`.

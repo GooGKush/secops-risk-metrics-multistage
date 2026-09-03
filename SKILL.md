@@ -2,14 +2,14 @@
 name: secops-risk-metrics-multistage
 author: Greg Kushmerek
 description: |
-  Multi-stage statistical outlier hunting in Google SecOps using pre-computed Risk Analytics metrics (`metrics.*`) chained into 2-to-4 stage DAGs across 14 models.
-  Triggers: "hunt with risk metrics", "multi-stage metrics outlier", "MAD on network bytes", "z-score on auth", "fleet outlier", "dual-baseline delta-z", "multi-sector threat fusion", "360 health check", "360 risk radar", "all risk vectors", "compare to team", "behavioral drift".
+  Multi-stage statistical outlier hunting in Google SecOps using pre-computed Risk Analytics metrics (`metrics.*`) chained into 2-to-4 stage DAGs.
+  Triggers: "hunt with risk metrics", "multi-stage metrics outlier", "MAD on network bytes", "z-score on auth", "fleet outlier", "dual-baseline delta-z", "multi-sector threat fusion", "360 health check", "360 risk radar", "all risk vectors", "compare to team".
 compatibility: Requires Google SecOps with Risk Analytics metrics enabled and the SecOps GUS MCP server (udm_search, get_operation).
 ---
 
 # SecOps Risk Metrics Multi-Stage Statistical Hunter (`secops-risk-metrics-multistage`)
 
-Executes **multi-sector statistical outlier hunting** using **30-day pre-computed Risk Analytics metrics (`metrics.*`)** chained into **2-to-4 stage DAG pipelines**.
+Executes **multi-sector statistical outlier hunting** using **30-day pre-computed Risk Analytics metrics (`metrics.*`)** in **2-to-4 stage DAGs**.
 
 ---
 
@@ -55,13 +55,12 @@ When an analyst asks to profile an entity across all vectors (*"visualize all ri
    • 🌐 **Network Egress**: `metrics.network_bytes_outbound` (`principal.user.userid`)
    • 🌐 **DNS & Web Activity**: `metrics.http_queries_total` (`principal.user.userid`; assets: `metrics.file_executions_total` with sha256).
 2. **Compilable Micro-Query Template (ZERO CROSS-SECTOR JOINS)**: Decoupled per sector (`stage stage1_extract` matching `$user by 1d` with `max(metrics.*)` and root `$z_score = ($obs - $mu) / ($sigma + 1.0)`). Avoid multi-vector inner joins that drop quiet entities.
-3. **Visualization Strategy (Single Surface: Jetski Embed OR Inline SVG OR ASCII)**:
+3. **Visualization Strategy (Single visual surface: Client Tool OR Embed OR Inline SVG OR ASCII)**:
    - **Adaptive Single-Surface Routing (NEVER Render Both ASCII & Visual)**:
-     • *Jetski (`run_command` present)*: Run 1-line collector command to write HTML artifact:
-       `python3 scripts/radar_collector.py --entity "%(entity)s" --scores "auth=<Z1>,cloud=<Z2>,workspace=<Z3>,net=<Z4>,dns=<Z5>" --output "<artifact_dir>/radar_%(entity)s.html" --format dual`
-       In Pillar 1, output ONLY `<agent-embed src="file:///<artifact_dir>/radar_%(entity)s.html"></agent-embed>` and link `[Open 360° Radar](file:///<artifact_dir>/radar_%(entity)s.html)`. Omit ASCII card. Never re-read scripts.
-     • *Generic MCP (no shell tool)*: In Pillar 1, emit pure inline `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 620 480">` directly in markdown. Omit ASCII card.
-     • *CLI / Terminal*: Render ASCII radar card ONLY (or when analyst requests 'cli'/'ascii').
+     • *Client Tool (if present)*: If any active tool declares radar/SVG visualization, invoke it with entity and computed sector Z-scores matching its parameter schema to render Pillar 1. Omit ASCII card. Detail in `references/chart-specifications-guide.md`.
+     • *Jetski (`run_command` present)*: Run `python3 scripts/radar_collector.py --entity "%(entity)s" --scores "auth=<Z1>,cloud=<Z2>,workspace=<Z3>,net=<Z4>,dns=<Z5>" --output "<artifact_dir>/radar_%(entity)s.html" --format dual`. In Pillar 1, output ONLY `<agent-embed src="file:///<artifact_dir>/radar_%(entity)s.html"></agent-embed>` and link `[Open 360° Radar](file:///<artifact_dir>/radar_%(entity)s.html)`. Omit ASCII card.
+     • *Generic MCP (no tool)*: In Pillar 1, emit pure inline `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 620 480">` directly in markdown.
+     • *CLI / Plaintext*: Render ASCII radar card ONLY when analyst explicitly requests 'cli' or 'ascii'.
    - **Canonical SVG & ASCII Layout**: Rings: $+1\sigma$, $+2\sigma$, $+3\sigma$, $+4\sigma$. Spokes: Auth, Cloud, Workspace, Network, DNS/Web. CLI: Render text cross-axis radar card. Detail in `references/chart-specifications-guide.md`.
    - **Mode B (14d Multi-Horizon)**: Render 360° Radial Radar ($Z_{\text{peak}}$) + 14-Day Timeline.
 4. **Dual Scales**: Raw Z-score and CRI ($+3.0\sigma$ / CRI 50 perimeter; Section 6 formula).
@@ -77,7 +76,7 @@ When an analyst provides a threat report (URL, CVEs, or threat actor):
 ### 🔍 Phase 1B: Pre-Flight Spec & Query Preview (Once Scope & Vectors are Established)
 Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to both"*, or via CTI mapping):
 1. **Turn 1 Tool Invariant & Zero-File-Inspection Mandate**:
-   Do NOT call `view_file`, `list_dir`, `grep_search`, `find_by_name`, or schema tools. All metrics & YARA-L patterns are in context.
+   Do NOT call `view_file`, `list_dir`, `grep_search`, or `find_by_name`. All metrics & patterns are in context.
 2. **Identity Disambiguation & Confirmation Protocol (ZERO GUESSING & IMMEDIATE HALT)**:
    - *Technical IDs*: Single-token account IDs without spaces (e.g. `expanse`, `fkolzig`, `srv-01`) are technical IDs. Proceed directly.
    - *Display Names*: Display names (with spaces) are NOT `user.userid`.
@@ -132,7 +131,7 @@ The report **MUST STRICTLY CONTAIN ALL 6 NUMBERED PILLARS**:
 * **Zero Generative Simulation & Strict Data Grounding Contract**: Every metric number ($\text{Obs}$, $\mu$, $\sigma$, $Z$, $\text{CRI}$) MUST be directly extracted from `secops-gus:udm_search`. If `udm_search` returns `{}` or empty events, report `0 observed events`, `Z = 0.00σ`, and `🟢 Nominal Baseline`. Fabricating numbers is a **CRITICAL TRUTH-IN-REPORTING FAILURE**.
 * **Hard Stop on API Error (MANDATORY STOP — ZERO SILENT FALLBACK)**: If an API query fails, STOP IMMEDIATELY and report the error. Simulating baselines locally is STRICTLY PROHIBITED.
 * **Native Execution Guarantee (ZERO PYTHON SIMULATION SCRIPTING)**: Detection MUST run inside Chronicle SIEM. Simulating baselines locally in Python is a CRITICAL COMPLIANCE VIOLATION.
-* **Zero Local Script Invocations During Hunting (ZERO RUN_COMMAND VALIDATION)**: Zero Python for detection/search. Post-search Python via `run_command` is permitted SOLELY on the 1-line `scripts/radar_collector.py` call to write the HTML embed artifact. Never re-read scripts or check Python versions.
+* **Zero Local Script Invocations During Hunting (ZERO RUN_COMMAND VALIDATION)**: Zero Python for detection/search. Client visual tools or post-search `run_command` (`scripts/radar_collector.py`) are permitted SOLELY for Pillar 1 rendering. Never re-read scripts or check Python versions.
 * **Hermetic Skill Boundary (ZERO CROSS-SKILL DRIFT)**: Once active, the agent MUST NOT read, import, or search other skills. This skill is 100% self-contained.
 * **Multi-Turn Continuity & Follow-Up Mandate**: On follow-up turns shifting entity or time parameters ("run same for user X", "look back 14d"), MAINTAIN the active Multi-Stage Risk Analytics architecture (30d baselines, DAGs, 6 pillars). NEVER degrade to raw log dumps.
 * **Atomic Pipeline Execution Mandate (ZERO PIECEMEAL FRACTURING & DRIFT)**: Single/dual-vector hunts dispatch the single atomic YARA-L query atomically to `udm_search`. Fracturing into piecemeal searches is STRICTLY PROHIBITED. 360° Radar queries 5 canonical sector functions in parallel (<= 5 micro-queries). Each projects `$obs`, `$mu`, `$sigma`, `$z_score` in root `outcome:`. If a sector has 0 events or $Z \le 0$, record $0.00\sigma$, CRI 0; never fish for raw Sysmon/DNS/HTTP logs.
