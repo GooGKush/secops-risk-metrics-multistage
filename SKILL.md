@@ -3,7 +3,7 @@ name: secops-risk-metrics-multistage
 author: Greg Kushmerek
 description: |
   Multi-stage statistical outlier hunting in Google SecOps using pre-computed Risk Analytics metrics (`metrics.*`) chained into 2-to-4 stage DAGs across 14 models.
-  Triggers: "hunt with risk metrics", "multi-stage metrics outlier", "MAD on network bytes", "z-score on auth", "fleet outlier", "dual-baseline delta-z", "multi-sector threat fusion", "360 health check", "360 risk radar", "radial chart", "all risk vectors", "compare to team", "behavioral drift", "service account cloud repository access", "cloud CRUD baseline".
+  Triggers: "hunt with risk metrics", "multi-stage metrics outlier", "MAD on network bytes", "z-score on auth", "fleet outlier", "dual-baseline delta-z", "multi-sector threat fusion", "360 health check", "360 risk radar", "all risk vectors", "compare to team", "behavioral drift".
 compatibility: Requires Google SecOps with Risk Analytics metrics enabled and the SecOps GUS MCP server (udm_search, get_operation).
 ---
 
@@ -105,7 +105,7 @@ Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to bo
 2. **Identity Disambiguation & Hard Resolution Gate (ZERO GUESSING & IMMEDIATE HALT)**:
    - *Technical IDs*: Single-token account IDs without spaces (e.g. `expanse`, `fkolzig`, `srv-01`) are technical IDs. Proceed directly.
    - *Display Names*: Names containing spaces (e.g. `James Holden`) are NOT `user.userid`.
-     • Execute AT MOST ONE spot-check: `udm_search(query='target.user.user_display_name = "<name>" nocase or principal.user.user_display_name = "<name>" nocase', startTime: 1d ago)`.
+     • Execute AT MOST ONE spot-check (14d window): `udm_search(query='(target.user.user_display_name = "<name>" nocase or principal.user.user_display_name = "<name>" nocase) or (principal.user.first_name = "<First>" nocase and principal.user.last_name = "<Last>" nocase)', startTime: 14d ago, maxEvents: 5)`.
      • *Match Found ($\ge 1$ events)*: Extract verified `user.userid` (`target`/`principal`). In card: `• Target Entity / Scope: <Name> (Verified User ID: <id>)`.
      • *HARD RESOLUTION GATE (ZERO GUESSING)*: If 0 events match or query fails:
        **STRICTLY FORBIDDEN TO GUESS OR SYNTHESIZE A USERNAME** (no `first.last`, `f_last`, or heuristic abbreviations).
