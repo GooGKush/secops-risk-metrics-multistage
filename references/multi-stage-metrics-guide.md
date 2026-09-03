@@ -559,4 +559,43 @@ Under no circumstances should the assistant treat a follow-up query as a prompt 
    * Ask for execution clearance (Mode A vs. Mode B confirmation) and yield the turn (zero search or ingestion tools called on Turn 1 of the follow-up).
 
 ---
+
+## 26. Metric Entity Affinity, Cross-Entity Boundaries & The Consultative Pivot Protocol
+
+When an analyst proposes a hunting hypothesis that spans multiple architectural domains (such as correlating endpoint process executions with cloud API activity), the skill must respect Chronicle's physical metric schemas and guide the analyst toward viable detection strategies.
+
+### A. The Metric Entity Affinity Matrix
+In Google SecOps Malachite, pre-computed UEBA metric tables are indexed by immutable entity keys. Passing an unsupported entity dimension causes a fatal compile-time failure (`compilation error: validating predicates: validating ueba functions: unsupported filters for metric ...`):
+
+| Metric Family | Canonical Metric Table | Supported Entity Keys (Match Dimensions) | Mandatory Companion Dimensions | Unsupported Entity Filters |
+| :--- | :--- | :--- | :--- | :--- |
+| **File & Process Execution** | `metrics.file_executions_*` | `principal.asset.hostname`, `principal.asset.ip` | `metadata.event_type = "PROCESS_LAUNCH"`, `principal.process.file.sha256` | **`principal.user.userid`** (Chronicle does not baseline process counts per user) |
+| **Cloud Resource CRUD** | `metrics.resource_*` | `principal.user.userid`, `target.user.userid` | `metadata.vendor_name`, `metadata.product_name` | Hostname without vendor/product scoping |
+| **Authentication & IAM** | `metrics.auth_attempts_*` | `target.user.userid`, `principal.user.userid` | `target.user.userid` (Logins) | Generic unindexed IP keys |
+| **Workspace & SaaS** | `metrics.workspace_*` | `principal.user.userid` | `metadata.product_name = "Google Workspace"` | Machine hostname |
+| **Network Egress** | `metrics.network_bytes_outbound` | `principal.user.userid`, `principal.asset.hostname` | N/A | N/A |
+| **DNS & HTTP Queries** | `metrics.dns_queries_*`, `metrics.http_queries_*` | `principal.user.userid`, `principal.asset.hostname` | N/A | N/A |
+
+### B. The Cross-Entity Boundary & The Anti-Forced-Join Invariant
+In YARA-L multi-stage DAGs, stages that join in the root must share the exact same match variable (`match: $key by 1d`). 
+* Because `metrics.file_executions_*` tracks **workstations and binary hashes** (`$host, $sha256`), while `metrics.resource_*` tracks **user identities** (`$user`), they **CANNOT** be joined on `$user` inside a single multi-stage YARA-L rule.
+* **Strict Anti-Hallucination Invariant**: An agent is strictly prohibited from stripping `$sha256` or inventing `principal.user.userid: $user` on `file_executions_total` to force a join.
+
+### C. The 3 Canonical Consultative Pivot Paths
+When an analyst requests a cross-entity scenario (such as an endpoint workstation pivoting into Google Cloud), the agent must clearly explain the dimensional boundary and guide the analyst using one of three canonical paths:
+
+1. **Path 1: Cloud-First 2-Phase Pivot (Recommended within Risk Metrics)**:
+   * **Step 1 (Pre-Computed UEBA)**: Search for user accounts exhibiting extreme cloud resource creation surges ($Z \ge 3.0\sigma$) via `metrics.resource_creation_total`. Project `principal.ip` (the caller's origin IP) and event timestamps.
+   * **Step 2 (Targeted EDR Drilldown)**: Using the caller IP or user identity, query endpoint telemetry for rare process launches on that workstation around the attack window.
+2. **Path 2: Workstation-Centric Baseline (within Risk Metrics)**:
+   * Baseline known developer workstations or jump boxes using `metrics.file_executions_total` (`$host, $sha256 by 1d`). Flag acute execution spikes ($Z \ge 3.0\sigma$) and cross-reference with outbound cloud network connections.
+3. **Path 3: Raw Log Statistical Outlier Handoff (`secops-statistical-hunter`)**:
+   * If the analyst needs ad-hoc statistical outlier hunting directly across raw `PROCESS_LAUNCH` logs (e.g. inline MAD, CV, Poisson rarity, or Tukey fences on user-process pairs without pre-computed table limits), seamlessly transition to `secops-statistical-hunter`.
+
+### D. The Pre-Preview Compilation Probe Gate (Compiler Verification)
+Before outputting any candidate multi-stage YARA-L query in the Phase 1B Pre-Flight Specification Card:
+* The agent executes a 1-shot compilation probe via `secops-gus:udm_search(query="<query>", startTime="now-10m", endTime="now", maxEvents=1)`.
+* **Zero Broken Previews**: If the probe fails with a compilation error, the agent is strictly prohibited from rendering the broken query in markdown. It must auto-correct syntax or trigger the Consultative Pivot Protocol immediately.
+
+---
 *Created and maintained by Greg Kushmerek for Google SecOps Chronicle SIEM threat hunting workflows.*

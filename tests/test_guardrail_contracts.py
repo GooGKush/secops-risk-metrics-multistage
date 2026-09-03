@@ -900,6 +900,35 @@ class TestGuardrailContracts(unittest.TestCase):
     self.assertIn("ALL visual charts", chart_guide_content)
     self.assertIn("NEVER emit `data:image/svg+xml;base64`", chart_guide_content)
 
+  def test_prepreview_compilation_gate_and_consultative_pivot_contract(self):
+    """SKILL.md and multi-stage guide must enforce pre-preview compiler verification and consultative pivot on dimensional mismatches."""
+    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    skill_path = os.path.join(skill_dir, 'SKILL.md')
+    guide_path = os.path.join(skill_dir, 'references', 'multi-stage-metrics-guide.md')
+
+    with open(skill_path, 'r', encoding='utf-8') as f:
+      skill_content = f.read()
+    with open(guide_path, 'r', encoding='utf-8') as f:
+      guide_content = f.read()
+
+    # Pre-Preview Compilation Gate
+    self.assertIn("Mandatory Upfront Query Preview Protocol (Mandatory Query Preview)", skill_content)
+    self.assertIn("1-shot pre-preview compiler probe", skill_content)
+    self.assertIn("Display query in markdown ONLY if probe compiles cleanly", skill_content)
+
+    # Consultative Pivot Protocol in SKILL.md
+    self.assertIn("Consultative Pivot & Handoff Protocol", skill_content)
+    self.assertIn("ZERO FORCED JOINS", skill_content)
+    self.assertIn("secops-statistical-hunter", skill_content)
+    self.assertIn("NEVER bind `principal.user.userid` to file metrics", skill_content)
+
+    # Deep Reference in multi-stage guide
+    self.assertIn("Metric Entity Affinity, Cross-Entity Boundaries & The Consultative Pivot Protocol", guide_content)
+    self.assertIn("The Metric Entity Affinity Matrix", guide_content)
+    self.assertIn("The Cross-Entity Boundary & The Anti-Forced-Join Invariant", guide_content)
+    self.assertIn("The 3 Canonical Consultative Pivot Paths", guide_content)
+    self.assertIn("Cloud-First 2-Phase Pivot", guide_content)
+
 
 if __name__ == '__main__':
   unittest.main()

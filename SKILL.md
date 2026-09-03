@@ -3,7 +3,7 @@ name: secops-risk-metrics-multistage
 author: Greg Kushmerek
 description: |
   Multi-stage statistical outlier hunting in Google SecOps using pre-computed Risk Analytics metrics (`metrics.*`) chained into 2-to-4 stage DAGs.
-  Triggers: "hunt with risk metrics", "multi-stage metrics outlier", "MAD on network bytes", "z-score on auth", "fleet outlier", "dual-baseline delta-z", "multi-sector threat fusion", "360 health check", "360 risk radar", "all risk vectors", "compare to team".
+  Triggers: "hunt with risk metrics", "multi-stage metrics outlier", "MAD on network bytes", "z-score on auth", "fleet outlier", "multi-sector fusion", "360 risk radar", "all risk vectors".
 compatibility: Requires Google SecOps with Risk Analytics metrics enabled and the SecOps GUS MCP server (udm_search, get_operation).
 ---
 
@@ -27,7 +27,7 @@ Executes **multi-sector statistical outlier hunting** using **30-day pre-compute
 ---
 
 ## 💡 How Risk Metrics Multi-Stage Analytics Work
-Provide 3-step **Execution Framework Summary**: 1. **30d Baselines** (`metrics.*`), 2. **Multi-Stage DAGs**, 3. **Statistical Framework** ($Z$, MAD, Poisson, $\Delta Z$, CUSUM, $D$). Ask for more information / deep dive on behavioral models.
+Provide 3-step **Execution Framework Summary**: 1. **30d Baselines** (`metrics.*`), 2. **Multi-Stage DAGs**, 3. **Statistical Framework** ($Z$, MAD, Poisson, $\Delta Z$, CUSUM, $D$). Ask for more information.
 
 ---
 
@@ -66,7 +66,7 @@ When an analyst asks to profile an entity across all vectors (*"visualize all ri
 4. **Dual Scales**: Raw Z-score and CRI ($+3.0\sigma$ / CRI 50 perimeter; Section 6 formula).
 
 ### ☁️ Cloud Data Store Scope & Anti-Narrowing Invariant
-* **Anti-Narrowing Invariant for Cloud Data Stores**: When hunting service account cloud repository access (e.g. `resource_read_*`, `resource_written_*`), NEVER narrow to a single product (`BigQuery`/`Storage`). Route to `templates/pipelines/cloud_repository_scope_dual_branch.yl2` with dynamic `($sa, $vendor, $product, $resource, $ip by 1d)` to evaluate local baseline isolation and solve dynamic range masking (depth surges + zero-baseline dumps + origin host outliers).
+* **Anti-Narrowing Invariant for Cloud Data Stores**: When hunting service account cloud repository access (e.g. `resource_read_*`, `resource_written_*`), NEVER narrow to a single product. Route to `templates/pipelines/cloud_repository_scope_dual_branch.yl2` with `($sa, $vendor, $product, $resource, $ip by 1d)` to evaluate local baseline isolation and prevent dynamic range masking.
 
 ### 🎯 CTI & Threat Report Mapping (Reports, URLs, CVEs, Threat Actors)
 When an analyst provides a threat report (URL, CVEs, or threat actor):
@@ -75,17 +75,14 @@ When an analyst provides a threat report (URL, CVEs, or threat actor):
 
 ### 🔍 Phase 1B: Pre-Flight Spec & Query Preview (Once Scope & Vectors are Established)
 Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to both"*, or via CTI mapping):
-1. **Turn 1 Tool Invariant & Zero-File-Inspection Mandate**:
-   Do NOT call `view_file`, `list_dir`, `grep_search`, or `find_by_name`. All metrics & patterns are in context.
+1. **Turn 1 Tool Invariant**: Zero file inspection (`view_file`, `list_dir`). Permitted tools: name resolution spot-check and 1-shot pre-preview compiler probe (`udm_search`).
 2. **Identity Disambiguation & Confirmation Protocol (ZERO GUESSING & IMMEDIATE HALT)**:
    - *Technical IDs*: Single-token account IDs without spaces (e.g. `expanse`, `fkolzig`, `srv-01`) are technical IDs. Proceed directly.
    - *Display Names*: Display names (with spaces) are NOT `user.userid`.
      • Execute AT MOST ONE spot-check (14d window): `udm_search(query='(target.user.user_display_name = "<name>" nocase or principal.user.user_display_name = "<name>" nocase) or (principal.user.first_name = "<First>" nocase and principal.user.last_name = "<Last>" nocase)', startTime: 14d ago, maxEvents: 5)`.
      • *Match Found ($\ge 1$ events)*: Extract verified `user.userid` (`target`/`principal`). In card: `• Target Entity / Scope: <Name> (Verified User ID: <id>)`.
      • *HARD RESOLUTION GATE (ZERO GUESSING)*: If 0 events match or query fails:
-       **STRICTLY FORBIDDEN TO GUESS OR SYNTHESIZE A USERNAME** (no `first.last`, `f_last`, or heuristic abbreviations).
-       **DO NOT GENERATE THE SPECIFICATION CARD OR DRAFT QUERIES.**
-       **HALT IMMEDIATELY AND YIELD THE TURN (0 tools called)**, asking:
+       **STRICTLY FORBIDDEN TO GUESS OR SYNTHESIZE A USERNAME** (no heuristic abbreviations). **DO NOT GENERATE SPEC CARD OR DRAFT QUERIES. HALT IMMEDIATELY (0 tools called)**, asking:
        > *"I could not resolve a technical `user.userid` for '<Display Name>' in recent UDM telemetry. What is their technical user ID / account identifier (e.g., username, sAMAccountName)?"*
        Wait for the analyst's answer before generating the Pre-Flight Card.
 3. **Plain-English Cyber Analogy (1–2 Sentences)**: Explain statistical approach using a physical concept.
@@ -102,7 +99,7 @@ Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to bo
    │ • Significance Threshold: [Z >= 3.0σ (CRI >= 50) / D >= 3.5σ]   │
    └─────────────────────────────────────────────────────────────────┘
    ```
-   * *Mandatory Upfront Query Preview Protocol (Mandatory Query Preview)*: Display literal multi-stage YARA-L query in markdown prior to clearance.
+   * *Mandatory Upfront Query Preview Protocol (Mandatory Query Preview)*: Execute 1-shot pre-preview compiler probe: `secops-gus:udm_search(query="<query>", startTime="now-10m", endTime="now", maxEvents=1)`. Display query in markdown ONLY if probe compiles cleanly. If probe fails, auto-correct or trigger Consultative Pivot.
    * *Peer Cohort Roster Requirement (Peer Cohort & Roster)*: Resolve and list cohort entities and count in card.
    * *Interactive Entity Graph Dimension Mandate*: Express joins in card under `• Entity Graph Dimension: [Exact Filter]` (Domain Rarity, Fleet Prevalence, Binary Rarity, IP Rarity `rolling_max <= 3`, `day_count = 10` platform invariant).
    * *Canonical 2-Stage Preview*: Match variables bind to active fields (`target.user.userid` for auth, `principal.user.userid` for cloud/SaaS/net/proc, `principal.asset.hostname` for assets). Decouple into `stage stage1_extract` and root math (`+ 1.0` floor).
@@ -117,7 +114,7 @@ Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to bo
 *Pre-Output Tool Execution Guard*: On clearance, execute the target pipeline (for 360° Radar: 5 parallel sector micro-queries). Emit findings into 6 numbered pillars. Zero `json_chart`.
 The report **MUST STRICTLY CONTAIN ALL 6 NUMBERED PILLARS**:
 1. **Statistical Outlier Report**: `[Target Metric]` ([Statistical Model]) with 30-day baseline (`window: 30d`). Single visual surface in Pillar 1: `<agent-embed>` in Jetski (timeline, distribution, radar); client visual tool or inline <svg> in generic MCP; ASCII on explicit request. Include Unicode magnitude bars (`▰▰▰▰▱▱▱▱`) in table. Detail in `references/chart-specifications-guide.md`.
-2. **Executed Multi-Stage YARA-L Query**: Literal executed multi-stage YARA-L query string passed into `secops-gus:udm_search(query=...)`. (For 360° Radar: display compilable decoupled micro-query for primary outlier sector). Labeled 'Executed Multi-Stage YARA-L Query' (never 'Rule').
+2. **Executed Multi-Stage YARA-L Query**: Literal executed multi-stage YARA-L query string passed into `secops-gus:udm_search(query=...)`. Labeled 'Executed Multi-Stage YARA-L Query' (never 'Rule').
 3. **Ranked Outlier Summary**: Columns: `Entity`, `24h Observed`, `30d Mean (μ)`, `30d StdDev (σ)`, `Z-Score`, `CRI Score`, `Visual Magnitude`.
 4. **Forensic Vector Breakdown**: Threat translation, significance, attack scenarios, SOC playbook. For fleet hunts with severe outliers ($Z \ge 3.0\sigma$), proactively suggest a 360° Behavioral Radar deep-dive.
 5. **Immediate 1-Click Investigation Queries**: Raw UDM filter query for analyst drilldown.
@@ -128,10 +125,10 @@ The report **MUST STRICTLY CONTAIN ALL 6 NUMBERED PILLARS**:
 ## 🛡️ Non-Negotiable Execution & Integrity Contracts
 
 ### 1. Native Execution & Truth in Reporting
-* **Zero Generative Simulation & Strict Data Grounding Contract**: Every metric number ($\text{Obs}$, $\mu$, $\sigma$, $Z$, $\text{CRI}$) MUST be directly extracted from `secops-gus:udm_search`. If `udm_search` returns `{}` or empty events, report `0 observed events`, `Z = 0.00σ`, and `🟢 Nominal Baseline`. Fabricating numbers is a **CRITICAL TRUTH-IN-REPORTING FAILURE**.
+* **Zero Generative Simulation & Strict Data Grounding Contract**: Numbers ($\text{Obs}$, $\mu$, $\sigma$, $Z$, $\text{CRI}$) MUST be directly extracted from `secops-gus:udm_search`. If `{}` or empty, report `0 observed events`, `Z = 0.00σ`, `🟢 Nominal Baseline`. Fabricating numbers is a **CRITICAL TRUTH-IN-REPORTING FAILURE**.
 * **Hard Stop on API Error (MANDATORY STOP — ZERO SILENT FALLBACK)**: If an API query fails, STOP IMMEDIATELY and report the error. Simulating baselines locally is STRICTLY PROHIBITED.
 * **Native Execution Guarantee (ZERO PYTHON SIMULATION SCRIPTING)**: Detection MUST run inside Chronicle SIEM. Simulating baselines locally in Python is a CRITICAL COMPLIANCE VIOLATION.
-* **Zero Local Script Invocations During Hunting (ZERO RUN_COMMAND VALIDATION)**: Zero Python for detection/search. Client visual tools or post-search `run_command` (`scripts/radar_collector.py`) are permitted SOLELY for Pillar 1 rendering. Never re-read scripts or check Python versions.
+* **Zero Local Script Invocations During Hunting (ZERO RUN_COMMAND VALIDATION)**: Zero Python for detection/search. Client visual tools or post-search `run_command` (`scripts/radar_collector.py`) permitted SOLELY for Pillar 1 rendering.
 * **Hermetic Skill Boundary (ZERO CROSS-SKILL DRIFT)**: Once active, the agent MUST NOT read, import, or search other skills. This skill is 100% self-contained.
 * **Multi-Turn Continuity & Follow-Up Mandate**: On follow-up turns shifting entity or time parameters ("run same for user X", "look back 14d"), MAINTAIN the active Multi-Stage Risk Analytics architecture (30d baselines, DAGs, 6 pillars). NEVER degrade to raw log dumps.
 * **Atomic Pipeline Execution Mandate (ZERO PIECEMEAL FRACTURING & DRIFT)**: Single/dual-vector hunts dispatch the single atomic YARA-L query atomically to `udm_search`. Fracturing into piecemeal searches is STRICTLY PROHIBITED. 360° Radar queries 5 canonical sector functions in parallel (<= 5 micro-queries). Each projects `$obs`, `$mu`, `$sigma`, `$z_score` in root `outcome:`. If a sector has 0 events or $Z \le 0$, record $0.00\sigma$, CRI 0; never fish for raw Sysmon/DNS/HTTP logs.
@@ -143,11 +140,12 @@ The report **MUST STRICTLY CONTAIN ALL 6 NUMBERED PILLARS**:
 * **Pre-Composed Pipeline Template Routing**: Route hunts directly to composite pipeline templates in `templates/pipelines/` (e.g. `mad_modified_z_2stage.yl2`, `standard_z_score_2stage.yl2`, `poisson_rarity_2stage.yl2`, `dual_sector_fusion_3stage.yl2`).
 * **Zero-Hallucination Compiler Grammar Contract**:
   - *Entity Role & Match Binding Invariant*: Variables in `match:` MUST bind in event predicates (`target.user.userid` for logins; `principal.user.userid` for cloud/SaaS/net/proc; `principal.asset.hostname` for assets).
-  - *Common Compiler Structural Boundary (Zero Event Arithmetic)*: Arithmetic (`$a - $b`, `$a / $b`) is STRICTLY PROHIBITED above `match:`. Placeholders bind directly to fields/scalar functions. ALL derivations and Z-scores reside in `outcome:` below `match:`.
-  - *Syntax Invariants*: No `in ("A", "B")` (use `%list` or `or`); no dot-notation metric properties (`metrics.foo.mean` is INVALID, use `max(metrics.foo(...))`); no `by 24h` (use `by 1d`); linear outcome arithmetic (no nested `max(0,...)` or inline `sqrt(...)`); canonical metric names end in `_total` (`metrics.resource_creation_total`).
-  - *Mandatory Companion Dimensions*: Cloud CRUD metrics (`metrics.resource_*`) require `metadata.vendor_name` and `metadata.product_name`. File metrics (`metrics.file_executions_*`) require `metadata.event_type` and `principal.process.file.sha256`.
+  - *Compiler Structural Boundary*: Arithmetic (`$a - $b`, `$a / $b`) is STRICTLY PROHIBITED above `match:`. Placeholders bind directly to fields/functions. Derivations and Z-scores reside in `outcome:` below `match:`.
+  - *Syntax Invariants*: No `in ("A", "B")` (use `%list` or `or`); no dot-notation metric properties (`metrics.foo.mean` is INVALID); no `by 24h` (use `by 1d`); linear outcome arithmetic (no nested `max`/`sqrt`); canonical metric names end in `_total`.
+  - *Mandatory Companion Dimensions & Entity Affinity*: Cloud CRUD (`metrics.resource_*`) requires `metadata.vendor_name` and `metadata.product_name`. File metrics (`metrics.file_executions_*`) are strictly Host/Binary scoped (`$host, $sha256`) requiring `metadata.event_type` and `principal.process.file.sha256`. NEVER bind `principal.user.userid` to file metrics or force cross-entity joins.
+* **Consultative Pivot & Handoff Protocol (ZERO FORCED JOINS)**: When requested vectors cross entity boundaries or lack pre-computed user baselines (e.g. user process launches), NEVER synthesize fake schemas. State the boundary and offer 3 paths: 1) 2-Phase Pivot (Cloud CRUD surge first ──► trace origin IP ──► inspect workstation EDR process logs), 2) Asset-First Pivot (baseline workstation on `file_executions_total`), or 3) Handoff to `secops-statistical-hunter` for raw log statistical outlier hunting. Detail in `references/multi-stage-metrics-guide.md`.
   - *Max 4 Joins Invariant*: YARA-L 2.0 limits queries to <= 4 joins (`maxJoinCount = 4`). Each UEBA stage consumes 1 join; root consumes K-1 joins.
-* **Variable Role Classification & Anti-Passive-Decoration Mandate**: Variables must fulfill `[JOIN_KEY]`, `[SCORING_DIMENSION]`, `[ACTIVE_FILTER]`, or `[TRIAGE_DECORATION]`. Primary threat vectors MUST NEVER act solely as `[TRIAGE_DECORATION]` and must bind to active fleet rarity or Entity Graph constraints.
+* **Variable Role Classification & Anti-Passive-Decoration Mandate**: Variables must fulfill `[JOIN_KEY]`, `[SCORING_DIMENSION]`, `[ACTIVE_FILTER]`, or `[TRIAGE_DECORATION]`. Primary threat vectors MUST NEVER act solely as `[TRIAGE_DECORATION]` and must bind to active fleet/graph constraints.
 * **Inner-Join Drop Prevention Standard (PRESERVING FULL POPULATION)**: Multi-stage joins are inner joins. Evaluate full baseline in Stage 1 and profile destinations via `array_distinct(target.hostname)`.
 
 ### 3. Scope, Steering, Typography & Parsimony
@@ -166,12 +164,11 @@ The report **MUST STRICTLY CONTAIN ALL 6 NUMBERED PILLARS**:
 > [!IMPORTANT]
 > **Strict Escalation Gating Mandate (ZERO UNSOLICITED ESCALATION)**:
 > Unsolicited case creation is a **CRITICAL PROCESS POLLUTION VIOLATION**.
-> This protocol is EXCLUSIVELY triggered when the analyst explicitly requests escalation, case creation, or ticketing (e.g. *"escalate this finding"*, *"send report to SecOps"*, *"open a case"*, *"ingest alert into SIEM"*).
-> **NEVER append synthetic UDM events, event previews, or ingestion prompts to standard threat hunting reports or 360° behavioral profiles.** Standard hunt reports terminate cleanly at Pillar 6 (Appendix).
+> Triggered EXCLUSIVELY when analyst explicitly requests escalation (*"escalate"*, *"open a case"*). NEVER append synthetic UDM events or ingestion prompts to standard hunt reports; terminate cleanly at Pillar 6.
 
 ### Intent Routing & Mandatory Workflow (When Escalation Is Explicitly Requested):
-* **Path A: General Escalation (No Case ID)**: 1. Preview synthetic event JSON. 2. Ask *"Would you like me to ingest this event into Chronicle SIEM now to trigger automated case promotion?"* and **STOP CALLING TOOLS AND YIELD THE TURN**. 3. Upon confirmation, execute `secops-gus:import_logs` (`product_name: "SecOps Risk Metrics Hunter"`). Never pick existing cases via `list_cases`.
-* **Path B: Explicit Case Wall Attachment (Case ID specified)**: Call `secops-gus:create_case_comment(case_id="<ID>", comment=...)` on designated ID and confirm.
+* **Path A: General Escalation (No Case ID)**: 1. Preview synthetic event JSON. 2. Ask *"Ingest this event into Chronicle SIEM now to trigger automated case promotion?"* and **STOP CALLING TOOLS AND YIELD THE TURN**. 3. On confirmation, execute `secops-gus:import_logs` (`product_name: "SecOps Risk Metrics Hunter"`).
+* **Path B: Explicit Case Wall Attachment (Case ID specified)**: Call `secops-gus:create_case_comment(case_id="<ID>", comment=...)` and confirm.
 
 ---
 
