@@ -317,13 +317,8 @@ class TestRadarCollector(unittest.TestCase):
     with open(skill_path, "r", encoding="utf-8") as f:
       content = f.read()
 
-    self.assertIn("Dual-Surface Context-Aware Architecture", content)
-    self.assertIn("Unicode magnitude progress bars", content)
-    self.assertIn('<svg xmlns="http://www.w3.org/2000/svg"', content)
-    self.assertIn("Canonical 5-Spoke SVG Layout", content)
-    self.assertIn("Center $(310, 260)$, max $r=125$", content)
-    self.assertIn("viewBox=\"0 0 620 480\"", content)
-    self.assertIn("CRITICAL VISUAL SPECIFICATION VIOLATION", content)
+    self.assertIn("Single visual surface", content)
+    self.assertIn("Unicode magnitude bars", content)
     self.assertIn("agent-embed", content)
 
 

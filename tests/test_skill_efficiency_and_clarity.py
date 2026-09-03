@@ -72,9 +72,9 @@ class TestSkillEfficiencyAndClarity(unittest.TestCase):
       )
 
   def test_step1_preflight_gate_hierarchy(self):
-    """SKILL.md must define the 4 essential sub-requirements of Step 1 Pre-Flight Gate."""
+    """SKILL.md must define the essential sub-requirements of Step 1 Pre-Flight Gate."""
     self.assertIn("MANDATORY STEP 1: PRE-FLIGHT CLEARANCE", self.skill_content)
-    self.assertIn("ZERO Tool Execution", self.skill_content)
+    self.assertIn("Turn 1 Tool Invariant", self.skill_content)
     self.assertIn("PRE-FLIGHT HUNTING SPECIFICATION", self.skill_content)
     self.assertIn("Explicit Clearance Question & Turn Termination", self.skill_content)
 

@@ -1,8 +1,8 @@
 # Google SecOps Multi-Stage Risk Metrics Threat Hunter (`secops-risk-metrics-multistage`)
 
-[![Version](https://img.shields.io/badge/version-v1.3.1-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Tests](https://img.shields.io/badge/tests-77%2F77%20passing-brightgreen.svg)](tests/)
+[![Version](https://img.shields.io/badge/version-v1.4.0-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Submission Tests](https://img.shields.io/badge/submission%20tests-19%2F19%20passing%20(100%25)-brightgreen.svg)](scripts/submission_tests.py)
 
-A specialized, production-grade AI agent skill package for **Google Security Operations (SecOps / Chronicle SIEM & SOAR)** that constructs, validates, and executes **Multi-Stage YARA-L 2.0 Directed Acyclic Graph (DAG) statistical threat hunting pipelines**.
+A specialized, production-grade AI agent skill package for **Google Security Operations (SecOps / Chronicle SIEM & SOAR)** that constructs, validates, and executes **Multi-Stage YARA-L 2.0 Directed Acyclic Graph (DAG) statistical threat hunting pipelines** and **360° Entity Behavioral Risk Radars**.
 
 The skill utilizes Google SecOps pre-computed behavioral risk analytics (`metrics.*`) as the Stage 1 baseline foundation ($O(1)$ constant-time lookup) and executes advanced mathematical outlier evaluation across subsequent stages.
 
@@ -14,9 +14,8 @@ This repository is structured to conform strictly with the [Agent Skills Specifi
 
 ```
 secops-risk-metrics-multistage/
-├── SKILL.md                              # Core orchestrator prompt & pre-flight decision matrix
-├── ARCHITECTURE.md                       # High-level architecture & DAG execution invariants
-├── README.md                             # Package overview & usage guide
+├── SKILL.md                              # Core orchestrator prompt, 360° radar spec, & pre-flight decision matrix
+├── README.md                             # Package overview, directory map, & usage guide
 ├── RELEASE_NOTES.md                      # Comprehensive release notes & ready-to-run queries
 ├── CONTRIBUTING.md                       # Contribution guidelines & test requirements
 ├── LICENSE                               # Apache 2.0 License
@@ -27,8 +26,10 @@ secops-risk-metrics-multistage/
 │   ├── calibrated-risk-index-guide.md    # CRI [0–100] sigmoid score translation guide
 │   ├── chart-specifications-guide.md     # Vega-Lite & Chart.js declarative visual contracts
 │   ├── clean-handoff-udm-schema.md       # 9 UDM event schemas & Catch-All case promotion rule
+│   ├── compiler-submission-policy.md     # Chronicle SIEM Malachite compiler grammar & invariants
 │   ├── metrics-catalog.md                # Full catalog of 38 pre-computed behavioral risk metrics
 │   ├── multi-stage-metrics-guide.md      # Multi-stage YARA-L DAG contracts & Entity Graph rules
+│   ├── soar-playbook-radar-integration.md# Chronicle SOAR playbook integration for 360° radar
 │   └── statistical-models-taxonomy.md    # Mathematical taxonomy of all 14 statistical models
 ├── templates/                            # Composable YARA-L 2.0 template library
 │   ├── pipelines/                        # Pre-composed 2-stage, 3-stage, and 4-stage DAG pipelines
@@ -57,21 +58,25 @@ secops-risk-metrics-multistage/
 │       ├── poisson_rarity.yl2
 │       ├── standard_z_score.yl2
 │       └── variance_fano.yl2
-├── scripts/                              # Local verification, routing, & formatting utilities
+├── scripts/                              # Verification, execution, collector, & formatting utilities
 │   ├── chart_generator.py                # Formats hunt outputs into Vega-Lite & Chart.js specs
 │   ├── data_reduction.py                 # Multi-stage DAG syntax reduction engine
 │   ├── preflight_validator.py            # Pre-flight syntax and outcome contract validator
+│   ├── radar_collector.py                # 5-Sector 360° radar SVG/HTML generator & score collector
+│   ├── submission_tests.py               # Canonical 19-case compiler verification test harness
 │   ├── template_router.py                # Maps natural language intent to .yl2 templates
 │   └── triage_formatter.py               # Generates 6-section triage reports & CRI scores
-└── tests/                                # Automated unit test suite (70 unit tests)
+└── tests/                                # Automated unit test suite
     ├── test_chart_specifications.py
     ├── test_complex_multistage_syntax.py
     ├── test_cri_and_math.py
     ├── test_exhaustive_matrix_syntax.py
     ├── test_global_context_syntax.py
     ├── test_guardrail_contracts.py
+    ├── test_radar_collector.py
     ├── test_skill_efficiency_and_clarity.py
     ├── test_statistical_assumptions.py
+    ├── test_submission_compiler_policy.py
     ├── test_triage_formatter.py
     └── test_yaral_templates.py
 ```
@@ -82,18 +87,23 @@ secops-risk-metrics-multistage/
 
 1. **$O(1)$ Behavioral Baselining Foundation**:
    * Evaluates 30-day historical averages ($\mu$), standard deviations ($\sigma$), and active observation days ($N$) in constant time via pre-computed summary tables (`metrics.*`).
-2. **14 Mathematical Outlier Models**:
-   * Standard $Z$-Score, Robust MAD, Coefficient of Variation ($CV$), Hourly Temporal $Z$-Score, Poisson Dispersion (Fano Factor), Discrete Poisson Rarity, Poisson-Gamma Conjugate Updating, Beta-Binomial Failure Rate Regularization, 3-Stage Dual-Baseline Delta-$Z$, 3-Stage Hierarchical Empirical Bayes, 4-Stage Multi-Sector Fusion ($D = \sqrt{\sum Z_i^2}$), 360° Omnibus Entity Radar, Longitudinal CUSUM Drift, and Entity Graph Prevalence Rarity.
-3. **Interactive Step 1 Pre-Flight Safety Protocol**:
-   * Enforces zero tool execution on Turn 1, explains methodologies with physical cyber analogies (*The Seasoned SOC Detective*, *The Patch Tuesday Earthquake Shield*), presents structured Pre-Flight Specification Cards with Entity Graph dimensions, and renders complete literal YARA-L query previews before clearance.
-4. **Calibrated Risk Index (CRI [0–100])**:
+2. **360° Entity Behavioral Risk Radar (All-Vectors Profiling)**:
+   * Generates comprehensive behavioral fingerprints across the **5 canonical risk sectors**: Authentication & Access, Cloud Resource CRUD, Workspace & SaaS, Network Egress, and DNS & Web Activity.
+   * Leverages decoupled 2-stage parallel micro-queries to avoid silent inner-join drops on quiet accounts, synthesizing findings into the Euclidean Threat Distance norm:
+     $$D = \sqrt{\sum_{i=1}^{5} Z_i^2}$$
+3. **Adaptive Multi-Surface Visualization**:
+   * Renders single-surface visual outputs matched to client capabilities: `<agent-embed>` standalone HTML widgets in Jetski Web, clean inline `<svg>` in generic MCP clients, and Canonical ASCII Radar Cards in headless CLI terminals. Enforces a strict single-surface guarantee to prevent duplicate visual clutter.
+4. **Identity Governance & Zero-Guessing Hard Resolution Gate**:
+   * Strictly bans heuristic username synthesis. Uses a 14-day UDM lookback window (`startTime: 14d ago, maxEvents: 5`) and compound name matching (`user_display_name` and `first_name`/`last_name`) across `principal.user` and `target.user`.
+   * Halts immediately and yields the turn if an identity cannot be resolved from telemetry, prompting the analyst for their technical user ID before proceeding.
+5. **14 Mathematical Outlier Models**:
+   * Standard $Z$-Score, Robust MAD, Coefficient of Variation ($CV$), Hourly Temporal $Z$-Score, Poisson Dispersion (Fano Factor), Discrete Poisson Rarity, Poisson-Gamma Conjugate Updating, Beta-Binomial Failure Rate Regularization, 3-Stage Dual-Baseline Delta-$Z$, 3-Stage Hierarchical Empirical Bayes, 4-Stage Multi-Sector Fusion, 360° Omnibus Entity Radar, Longitudinal CUSUM Drift, and Entity Graph Prevalence Rarity.
+6. **Interactive Step 1 Pre-Flight Safety Protocol**:
+   * Enforces zero search execution on Turn 1, explains methodologies with physical cyber analogies, presents structured Pre-Flight Specification Cards, and renders literal YARA-L query previews before clearance.
+7. **Calibrated Risk Index (CRI [0–100])**:
    * Normalizes disparate multi-dimensional statistics onto a unified, sigmoid-bounded 0–100 triage currency across 4 operational severity tiers: 🟢 Nominal (0–29), 🟡 Elevated (30–49), 🟠 High (50–84), and 🔴 Critical (85–100).
-5. **Lossless 1:1 Clean Hand-Off & Case Escalation**:
-   * Ingests discrete synthetic UDM security events per outlier ($Z \ge 3.0\sigma$, $\text{CRI} \ge 50$) across **9 specialized `product_event_type` schemas**, automatically promoted into Chronicle SOAR cases via tenant catch-all rules.
-6. **Declarative Web UI Visualizations**:
-   * Generates strictly-typed Vega-Lite (v5) and Chart.js specs for 30-day behavioral envelope charts ($\mu \pm 3\sigma$) and dual-axis volume vs. outlier score charts.
-7. **Variable Role Classification & Threat Decomposition Engine (v1.1.0)**:
-   * Categorizes intermediate variables into `[JOIN_KEY]`, `[SCORING_DIMENSION]`, `[ACTIVE_FILTER]`, and `[TRIAGE_DECORATION]`. Prevents qualitative threats (command lines, script droppers, LOLBins) from acting solely as passive output strings by actively mapping them to Cross-Sectional Fleet Rarity DAGs ($N_{\text{hosts}} \le 2$).
+8. **Lossless Clean Hand-Off & Case Escalation**:
+   * Gated strictly behind explicit analyst request (zero unsolicited escalation). Ingests synthetic UDM security events across 9 specialized `product_event_type` schemas or attaches directly to designated SOAR cases.
 
 ---
 
@@ -107,6 +117,7 @@ git clone https://github.com/GooGKush/secops-risk-metrics-multistage.git ~/.gemi
 
 ### 2. Triggering Threat Hunts
 Once installed, trigger multi-stage statistical hunting using natural language:
+* *"Show me a 360 view of user Frank Kolzig using ueba risk metrics."*
 * *"Hunt across the fleet for workstations with abnormal file execution spikes compared to their historical baseline that are launching rare binaries."*
 * *"Hunt across the enterprise for hosts with coordinated anomalies across authentication failures and outbound network bytes."*
 * *"Is Frank doing things his teammates don't do? Check his authentication activity against his IT Department peer group."*
@@ -116,13 +127,12 @@ Once installed, trigger multi-stage statistical hunting using natural language:
 
 ## 🧪 Testing & Verification
 
-Run the automated test suite to verify mathematical safety and YARA-L template syntax:
+Run the official Google SecOps Malachite submission test harness to verify AST compliance and compiler invariants across all templates:
 ```bash
-python3 -m unittest discover -s tests -p "test_*.py"
+python3 scripts/submission_tests.py
 ```
-* **Status**: 70/70 passing unit tests in $\le 0.2\text{s}$.
-* **Live SIEM Validation**: Validated on Google SecOps customer instances (`gus-sdl`).
-
+* **Status**: 19/19 passing submission test cases (100.0% clean compilation).
+* **Live SIEM Validation**: Validated on live Google SecOps customer instances (`gus-sdl`).
 
 ---
 

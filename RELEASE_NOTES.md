@@ -1,12 +1,54 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.3.4)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.4.0)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v1.3.4 — September 2026  
+**Latest Version**: v1.4.0 — September 2026  
 
 ---
+
+## 📢 What's New in v1.4.0
+
+* **360° Entity Behavioral Risk Radar (All-Vectors Full-Spectrum Profiling)**:
+  - Added full-spectrum behavioral profiling across the **5 canonical risk sectors**:
+    1. 🔑 **Authentication & Access**: `metrics.auth_attempts_success` (`target.user.userid`)
+    2. ☁️ **Cloud Resource CRUD**: `metrics.resource_creation_total` (`principal.user.userid`, vendor: "Google Cloud Platform", product: "Google Cloud Platform")
+    3. 📁 **Workspace & SaaS**: `metrics.workspace_total_download_actions` (`principal.user.userid`)
+    4. 🌐 **Network Egress**: `metrics.network_bytes_outbound` (`principal.user.userid`)
+    5. 🌐 **DNS & Web Activity**: `metrics.http_queries_total` (`principal.user.userid`; assets: `metrics.file_executions_total` with sha256).
+  - **Decoupled Parallel Micro-Queries**: Completely avoids silent inner-join drops for quiet accounts by executing decoupled 2-stage queries per sector in parallel (<= 5 micro-queries) projecting `$obs`, `$mu`, `$sigma`, and `$z_score`.
+  - **Euclidean Multi-Sector Threat Distance**: Computes $D = \\sqrt{\\sum_{i=1}^5 Z_i^2}$, flagging coordinated multi-vector threats when $D \\ge 3.0\\sigma$.
+
+* **Adaptive Multi-Surface Visualization Engine**:
+  - **Jetski Web UI**: Compiles dynamic 5-sector HTML/SVG interactive visual artifacts via `scripts/radar_collector.py` and renders them natively using `<agent-embed>` with clickable artifact links.
+  - **Generic MCP Web**: Emits clean, self-contained inline `<svg>` charts directly in markdown.
+  - **Headless CLI / Terminal**: Emits high-contrast Canonical ASCII Radar Cards.
+  - **Single-Surface Mandate**: Enforces strict single-surface rendering per client environment, eliminating dual ASCII + SVG clutter in the chat stream.
+
+* **Identity Governance & Zero-Guessing Hard Resolution Gate**:
+  - **Zero-Guessing Invariant**: Strictly prohibits heuristic username guessing or synthesis (`first.last`, `f_last`, etc.).
+  - **14-Day UDM Lookback Window**: Spot-checks query a 14-day window (`startTime: 14d ago, maxEvents: 5`) to bridge inactivity gaps and capture real user identity events.
+  - **Compound Name Matching**: Queries both `user_display_name` and split `first_name` / `last_name` across `principal.user` and `target.user`.
+  - **Mandatory Hard Resolution Gate**: If 0 events match or the query fails, the agent halts immediately and yields the turn, prompting the analyst for their technical account ID before drafting the Pre-Flight Card.
+
+* **Strict Escalation Gating Mandate**:
+  - Unsolicited synthetic UDM event previews and ingestion prompts are strictly prohibited during standard threat hunts.
+  - Escalation workflows (Path A / Path B) trigger exclusively upon direct, explicit analyst request.
+
+* **Compiler Submission Test Harness (`scripts/submission_tests.py`)**:
+  - Implemented the official 19-case submission test suite covering all 2-stage and 3-stage pipeline templates, router permutations, and decoupled radar spokes.
+  - Guarantees 100% clean AST compilation against Chronicle SIEM Malachite compiler rules.
+
+* **Documentation & Reference Updates**:
+  - Added `references/compiler-submission-policy.md` and `references/soar-playbook-radar-integration.md`.
+  - Removed obsolete `ARCHITECTURE.md`.
+  - Enforced strict KaTeX typography formatting invariants (flush-left display math, linear single-line formulas, clean table headers).
+  - Maintained strict skill budget compliance (<= 250 lines, <= 20,480 bytes).
+
+---
+
+
 
 ## 📢 What's New in v1.3.4
 
