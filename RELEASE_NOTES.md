@@ -11,7 +11,7 @@
 ## 📢 What's New in v1.3.4
 
 * **Malachite Ground-Truth Metric Filter & Dimension Validation**:
-  - Extracted and codified Google SecOps Malachite Common Compiler ground truth (`ueba_validator.go`, `dimension_field_mapping.textproto`, `config.textproto`) for all 38 risk metrics.
+  - Validated and codified Google SecOps UEBA Risk Analytics metric dimension specifications across all 38 risk metrics.
   - Added canonical `MALACHITE_SUPPORTED_FILTERS` catalog to `scripts/preflight_validator.py` mapping every analytical metric to its valid UDM filter fields.
   - Implemented `INVALID_METRIC_FILTER` AST validation in `MalachiteASTValidator` across both intermediate stages and the root stage, providing intelligent developer hints when invalid dimensions are used (e.g., suggesting `principal.asset.ip` or `principal.asset.hostname` when `principal.ip` is attempted).
 * **Device IP vs. IP Dimension Disambiguation**:

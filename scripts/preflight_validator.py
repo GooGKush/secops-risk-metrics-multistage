@@ -53,7 +53,7 @@ class MetricDefinition:
   description: str
 
 
-# ALL 38 Pre-Computed Active Risk Metrics defined in entity.proto & config.textproto
+# ALL 38 Pre-Computed Active Risk Metrics defined in Google SecOps YARA-L 2.0
 METRIC_CATALOG: Dict[str, MetricDefinition] = {
     "network_bytes_inbound": MetricDefinition(
         metric_id=1,
@@ -532,8 +532,7 @@ class PreFlightValidator:
     }
 
 
-# Canonical UDM Filter Fields per Metric from Malachite compiler source
-# (googlex/security/malachite/analytics/configs/config.textproto & dimension_field_mapping.textproto)
+# Canonical UDM Filter Fields per Metric from Google SecOps YARA-L 2.0 specifications
 MALACHITE_SUPPORTED_FILTERS: Dict[str, Set[str]] = {
     "alert_event_name_count": {
         "principal.asset.asset_id", "principal.asset.hostname", "principal.asset.ip",
