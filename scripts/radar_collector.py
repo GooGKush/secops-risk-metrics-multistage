@@ -178,11 +178,11 @@ stage s1 {
     $asset by 1d
   outcome:
     $out_obs = sum(network.sent_bytes)
-    $out_avg = max(metrics.network_bytes_outbound(period: 1d, window: 30d, metric: sent_bytes_sum, agg: avg, principal.asset.hostname: "%(entity_id)s"))
-    $out_std = max(metrics.network_bytes_outbound(period: 1d, window: 30d, metric: sent_bytes_sum, agg: stddev, principal.asset.hostname: "%(entity_id)s"))
+    $out_avg = max(metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: avg, principal.asset.hostname: "%(entity_id)s"))
+    $out_std = max(metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: stddev, principal.asset.hostname: "%(entity_id)s"))
     $in_obs = sum(network.received_bytes)
-    $in_avg = max(metrics.network_bytes_inbound(period: 1d, window: 30d, metric: received_bytes_sum, agg: avg, principal.asset.hostname: "%(entity_id)s"))
-    $in_std = max(metrics.network_bytes_inbound(period: 1d, window: 30d, metric: received_bytes_sum, agg: stddev, principal.asset.hostname: "%(entity_id)s"))
+    $in_avg = max(metrics.network_bytes_inbound(period: 1d, window: 30d, metric: value_sum, agg: avg, principal.asset.hostname: "%(entity_id)s"))
+    $in_std = max(metrics.network_bytes_inbound(period: 1d, window: 30d, metric: value_sum, agg: stddev, principal.asset.hostname: "%(entity_id)s"))
 }
 $asset = $s1.asset
 match: $asset by 1d
