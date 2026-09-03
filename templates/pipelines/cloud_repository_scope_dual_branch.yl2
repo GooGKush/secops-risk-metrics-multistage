@@ -19,8 +19,11 @@ stage stage1_extract {
     $resource = target.resource.name
     $ip = principal.ip
 
-    // Enforce identity and repository existence
-    $sa != ""
+    // Enforce cloud service account identity construction (GCP *.gserviceaccount.com or AWS IAM role ARN)
+    (
+        $sa = /@.*gserviceaccount\.com$/ nocase or
+        $sa = /^arn:aws:(iam|sts)::.*:(role|assumed-role)\// nocase
+    )
     $resource != ""
 
   match:

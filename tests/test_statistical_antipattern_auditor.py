@@ -213,6 +213,40 @@ class TestStatisticalAntipatternAuditor(unittest.TestCase):
         f"Expected COLLINEAR_VECTOR_FUSION, got {violations}",
     )
 
+  def test_catches_unprofiled_service_account(self):
+    """Detects querying service accounts without identity pattern profiling (allowing machine/OS accounts)."""
+    bad_query = """
+    stage stage1_extract {
+      metadata.event_type = "RESOURCE_READ"
+      $sa = principal.user.userid
+      $vendor = metadata.vendor_name
+      $product = metadata.product_name
+      $resource = target.resource.name
+      $ip = principal.ip
+      $sa != ""
+      $resource != ""
+      match: $sa, $vendor, $product, $resource, $ip by 1d
+      outcome:
+        $obs = count(metadata.id)
+        $mu = max(metrics.resource_read_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: $sa, metadata.vendor_name: $vendor, metadata.product_name: $product, target.resource.name: $resource))
+        $sigma = max(metrics.resource_read_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: $sa, metadata.vendor_name: $vendor, metadata.product_name: $product, target.resource.name: $resource))
+    }
+    $sa = $stage1_extract.sa
+    $product = $stage1_extract.product
+    $resource = $stage1_extract.resource
+    $ip = $stage1_extract.ip
+    match: $sa, $product, $resource, $ip by 1d
+    outcome:
+      $diff = max($stage1_extract.obs) - max($stage1_extract.mu)
+      $z = $diff / (max($stage1_extract.sigma) + 1.0)
+    order: $z desc
+    """
+    violations = StatisticalAntipatternAuditor.audit_query(bad_query)
+    self.assertTrue(
+        any(v.antipattern == StatisticalAntipatternType.UNPROFILED_SERVICE_ACCOUNT for v in violations),
+        f"Expected UNPROFILED_SERVICE_ACCOUNT, got {violations}",
+    )
+
 
 if __name__ == "__main__":
   unittest.main()

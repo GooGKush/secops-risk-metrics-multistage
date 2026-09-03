@@ -41,6 +41,7 @@ class StatisticalAntipatternType(str, Enum):
   ZERO_DISPERSION_HAZARD = "STAT_ANTIPATTERN_ZERO_DISPERSION_HAZARD"
   DISTRIBUTION_MISMATCH = "STAT_ANTIPATTERN_DISTRIBUTION_MISMATCH"
   COLLINEAR_VECTOR_FUSION = "STAT_ANTIPATTERN_COLLINEAR_VECTOR_FUSION"
+  UNPROFILED_SERVICE_ACCOUNT = "STAT_ANTIPATTERN_UNPROFILED_SERVICE_ACCOUNT"
 
 
 @dataclass
@@ -109,6 +110,9 @@ class StatisticalAntipatternAuditor:
 
       # 4. Distribution Domain Mismatch
       violations.extend(cls._check_distribution_mismatch(stage_name, stage_body))
+
+      # 5. Unprofiled Service Account Identity Construction
+      violations.extend(cls._check_unprofiled_service_account(stage_name, stage_body))
 
     # Check Root Stage
     if root_stage_body:
@@ -370,5 +374,47 @@ class StatisticalAntipatternAuditor:
                 ),
             )
         )
+
+    return violations
+
+  @classmethod
+  def _check_unprofiled_service_account(cls, stage_name: str, stage_body: str) -> List[StatisticalViolation]:
+    """Detects service account querying without identity pattern profiling (allowing machine/OS accounts)."""
+    violations: List[StatisticalViolation] = []
+
+    # Check if this stage defines a service account variable
+    sa_match = re.search(r"(?:\A|\s)(\$sa|\$service_account)\b\s*=\s*principal\.user\.userid\b", stage_body)
+    if not sa_match:
+      return violations
+
+    sa_var = sa_match.group(1)
+
+    # Check if the stage contains identity profiling (e.g. gserviceaccount, arn:aws, regex)
+    has_identity_profile = any([
+        "gserviceaccount" in stage_body,
+        "arn:aws" in stage_body,
+        "re.regex" in stage_body and sa_var in stage_body,
+        "re.capture" in stage_body and sa_var in stage_body,
+        bool(re.search(rf"{re.escape(sa_var)}\s*=\s*/[^/]+/", stage_body)),
+        bool(re.search(rf"/{re.escape(sa_var)}/", stage_body)),
+    ])
+
+    if not has_identity_profile:
+      violations.append(
+          StatisticalViolation(
+              antipattern=StatisticalAntipatternType.UNPROFILED_SERVICE_ACCOUNT,
+              stage_name=stage_name,
+              description=(
+                  f"Stage '{stage_name}' binds service account variable '{sa_var}' but relies solely on null guards "
+                  f"without identity pattern profiling. This allows Windows Active Directory computer accounts ($) "
+                  "and local OS accounts (LOCAL SERVICE) to pollute cloud repository analytics."
+              ),
+              remediation=(
+                  f"Enforce cloud service account identity construction: '({sa_var} = /@.*gserviceaccount\\.com$/ nocase "
+                  f"or {sa_var} = /^arn:aws:(iam|sts)::.*:(role|assumed-role)\\// nocase)'. "
+                  "Profile what follows after the '@' symbol to anchor cloud domain and project boundaries."
+              ),
+          )
+      )
 
     return violations
