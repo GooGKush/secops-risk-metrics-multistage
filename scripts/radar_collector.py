@@ -215,6 +215,68 @@ outcome:
     self.client = secops_client
 
   @staticmethod
+  def get_canonical_nominal_spokes(entity_type: str = "USER") -> List[MetricSpoke]:
+    """Returns the 5 canonical nominal spokes (Z=0.00σ) when data is omitted or baseline is nominal."""
+    if entity_type.upper() == "ASSET":
+      return [
+          MetricSpoke("Authentication", "Authentication & Access", "metrics.auth_attempts_fail", 0.0, 0.0, 0.0, 0.0, "logins", 0),
+          MetricSpoke("Network", "Network Traffic Volume", "metrics.network_bytes_outbound", 0.0, 0.0, 0.0, 0.0, "bytes", 0),
+          MetricSpoke("DNS", "DNS Resolution", "metrics.dns_queries_fail", 0.0, 0.0, 0.0, 0.0, "queries", 0),
+          MetricSpoke("Cloud", "Cloud Infrastructure", "metrics.resource_creation_total", 0.0, 0.0, 0.0, 0.0, "events", 0),
+          MetricSpoke("Endpoint", "Endpoint Process Activity", "PROCESS_LAUNCH", 0.0, 0.0, 0.0, 0.0, "events", 0),
+      ]
+    return [
+        MetricSpoke("IAM & Authentication", "Authentication Attempts", "metrics.auth_attempts_fail", 0.0, 0.0, 0.0, 0.0, "logins", 0),
+        MetricSpoke("Cloud Infrastructure", "Cloud Resource CRUD", "metrics.resource_creation_total", 0.0, 0.0, 0.0, 0.0, "events", 0),
+        MetricSpoke("Workspace Data", "Workspace & SaaS Exfil", "metrics.workspace_total_download_actions", 0.0, 0.0, 0.0, 0.0, "actions", 0),
+        MetricSpoke("Network Egress", "Network Egress", "metrics.network_bytes_outbound", 0.0, 0.0, 0.0, 0.0, "bytes", 0),
+        MetricSpoke("Endpoint Process", "Endpoint Process Activity", "PROCESS_LAUNCH", 0.0, 0.0, 0.0, 0.0, "events", 0),
+    ]
+
+  @staticmethod
+  def parse_scores_argument(scores_str: str, entity_type: str = "USER") -> List[MetricSpoke]:
+    """Parses convenient comma-separated key=value scores (e.g. 'auth=0.0,cloud=3.8,workspace=3.2,net=0.8,proc=10.8')."""
+    canonical = EntityRadarCollector.get_canonical_nominal_spokes(entity_type)
+    if not scores_str:
+      return canonical
+
+    user_map = {
+        "auth": 0, "iam": 0, "login": 0,
+        "cloud": 1, "crud": 1, "resource": 1,
+        "workspace": 2, "saas": 2, "drive": 2, "doc": 2,
+        "net": 3, "network": 3, "egress": 3, "byte": 3,
+        "proc": 4, "endpoint": 4, "process": 4, "launch": 4,
+    }
+    asset_map = {
+        "auth": 0, "login": 0, "access": 0,
+        "net": 1, "network": 1, "traffic": 1,
+        "dns": 2,
+        "cloud": 3, "infra": 3, "crud": 3,
+        "proc": 4, "endpoint": 4, "process": 4,
+    }
+    target_map = asset_map if entity_type.upper() == "ASSET" else user_map
+
+    for part in scores_str.split(","):
+      part = part.strip()
+      if "=" in part:
+        k, v = part.split("=", 1)
+        k = k.strip().lower()
+        try:
+          val = float(v.strip())
+          for prefix, idx in target_map.items():
+            if prefix in k:
+              canonical[idx].z_score = val
+              if val > 0:
+                canonical[idx].observed = max(1.0, round(val * 10.0))
+                canonical[idx].baseline_mean = 5.0
+                canonical[idx].baseline_stddev = 2.0
+              canonical[idx].__post_init__()
+              break
+        except ValueError:
+          pass
+    return canonical
+
+  @staticmethod
   def calculate_composite_risk(spokes: List[MetricSpoke]) -> Tuple[float, int]:
     """Calculates the Euclidean Composite Distance D and Calibrated Risk Index (CRI)."""
     if not spokes:
@@ -232,7 +294,8 @@ outcome:
       spokes: List[MetricSpoke],
   ) -> Dict[str, Any]:
     """Assembles the full radar payload including statistics, SVG, Markdown, and Chart.js specs."""
-    sorted_spokes = sorted(spokes, key=lambda s: s.z_score, reverse=True)
+    active_spokes = spokes if spokes else self.get_canonical_nominal_spokes(entity_type)
+    sorted_spokes = sorted(active_spokes, key=lambda s: s.z_score, reverse=True)
     composite_d, cri = self.calculate_composite_risk(sorted_spokes)
 
     top_outlier = sorted_spokes[0] if sorted_spokes else None
@@ -279,8 +342,8 @@ outcome:
       scale_mode: str = "zscore",
   ) -> str:
     """Renders a self-contained, crisp SVG radar chart with hover tooltips and 3-sigma perimeter."""
-    if not spokes:
-      return "<svg><text>No metric data available</text></svg>"
+    active_spokes = spokes if spokes else EntityRadarCollector.get_canonical_nominal_spokes()
+    spokes = active_spokes
 
     cx, cy = width / 2.0, height / 2.0 + 20
     max_radius = 125.0
@@ -441,8 +504,8 @@ outcome:
       bar_width: int = 20,
   ) -> str:
     """Renders a clean, terminal-friendly ASCII horizontal bar chart for plain-text environments."""
-    if not spokes:
-      return f"360° BEHAVIORAL RISK RADAR: {entity_id} — No metric data available"
+    active_spokes = spokes if spokes else EntityRadarCollector.get_canonical_nominal_spokes()
+    spokes = active_spokes
 
     is_anomalous = composite_d >= 3.0
     status_tag = "🚨 HIGH RISK ANOMALY" if is_anomalous else ("⚠️ ELEVATED" if composite_d >= 2.0 else "🟢 NOMINAL")
@@ -573,19 +636,31 @@ def main():
   """CLI entry point for deterministic visual generation and post-search collation."""
   parser = argparse.ArgumentParser(description="360° Entity Behavioral Risk Radar Generator")
   parser.add_argument("--entity", required=True, help="Entity identifier (user or hostname)")
+  parser.add_argument(
+      "--entity-type",
+      default="USER",
+      choices=["USER", "ASSET"],
+      help="Entity type: USER or ASSET",
+  )
+  parser.add_argument(
+      "--scores",
+      help="Convenient comma-separated spoke deviations (e.g. 'auth=0.0,cloud=3.8,workspace=3.2,net=0.8,proc=10.8')",
+  )
   parser.add_argument("--data", help="JSON string or file path containing spoke records")
   parser.add_argument(
       "--format",
-      choices=["data-uri", "svg", "html", "ascii", "markdown", "json"],
-      default="data-uri",
-      help="Output format: data-uri (markdown image), svg, html (generative-ui embed), ascii (terminal), markdown (table), json",
+      choices=["html", "svg", "data-uri", "ascii", "markdown", "json"],
+      default="html",
+      help="Output format: html (generative-ui embed), svg, data-uri (markdown image), ascii (terminal), markdown (table), json",
   )
   parser.add_argument("--scale-mode", choices=["zscore", "cri"], default="zscore", help="Radar scale mode")
   parser.add_argument("--output", help="Optional output file path")
   args = parser.parse_args()
 
-  spoke_items = []
-  if args.data:
+  spokes = []
+  if args.scores:
+    spokes = EntityRadarCollector.parse_scores_argument(args.scores, args.entity_type)
+  elif args.data:
     raw_data = args.data.strip()
     if raw_data.startswith("[") or raw_data.startswith("{"):
       parsed = json.loads(raw_data)
@@ -595,31 +670,32 @@ def main():
         parsed = json.load(f)
         spoke_items = parsed if isinstance(parsed, list) else parsed.get("spokes", [])
 
-  spokes = []
-  for item in spoke_items:
-    spokes.append(
-        MetricSpoke(
-            sector=item.get("sector", "General"),
-            spoke_name=item.get("spoke_name", item.get("name", "Spoke")),
-            metric_table=item.get("metric_table", "metrics.unknown"),
-            observed=float(item.get("observed", 0.0)),
-            baseline_mean=float(item.get("baseline_mean", item.get("mean", 0.0))),
-            baseline_stddev=float(item.get("baseline_stddev", item.get("stddev", 0.0))),
-            z_score=float(item.get("z_score", item.get("z", 0.0))),
-            unit=item.get("unit", "events"),
-            cri_score=int(item.get("cri_score", item.get("cri", 0))),
-        )
-    )
+    for item in spoke_items:
+      spokes.append(
+          MetricSpoke(
+              sector=item.get("sector", "General"),
+              spoke_name=item.get("spoke_name", item.get("name", "Spoke")),
+              metric_table=item.get("metric_table", "metrics.unknown"),
+              observed=float(item.get("observed", 0.0)),
+              baseline_mean=float(item.get("baseline_mean", item.get("mean", 0.0))),
+              baseline_stddev=float(item.get("baseline_stddev", item.get("stddev", 0.0))),
+              z_score=float(item.get("z_score", item.get("z", 0.0))),
+              unit=item.get("unit", "events"),
+              cri_score=int(item.get("cri_score", item.get("cri", 0))),
+          )
+      )
+  else:
+    spokes = EntityRadarCollector.get_canonical_nominal_spokes(args.entity_type)
 
   collector = EntityRadarCollector()
-  payload = collector.build_radar_payload(args.entity, "USER", spokes)
+  payload = collector.build_radar_payload(args.entity, args.entity_type, spokes)
 
-  if args.format == "data-uri":
-    out_str = payload["data_uri_image"]
+  if args.format == "html":
+    out_str = payload["html_widget"]
   elif args.format == "svg":
     out_str = payload["svg_widget"]
-  elif args.format == "html":
-    out_str = payload["html_widget"]
+  elif args.format == "data-uri":
+    out_str = payload["data_uri_image"]
   elif args.format == "ascii":
     out_str = payload["ascii_chart"]
   elif args.format == "markdown":
@@ -627,11 +703,21 @@ def main():
   elif args.format == "json":
     out_str = json.dumps(payload, indent=2)
   else:
-    out_str = payload["data_uri_image"]
+    out_str = payload["html_widget"]
 
   if args.output:
     with open(args.output, "w", encoding="utf-8") as f:
       f.write(out_str)
+
+    # Automatically generate companion file for seamless multi-surface rendering (.html <-> .svg)
+    if args.output.endswith(".html"):
+      companion_path = args.output[:-5] + ".svg"
+      with open(companion_path, "w", encoding="utf-8") as f:
+        f.write(payload["svg_widget"])
+    elif args.output.endswith(".svg"):
+      companion_path = args.output[:-4] + ".html"
+      with open(companion_path, "w", encoding="utf-8") as f:
+        f.write(payload["html_widget"])
 
   print(out_str)
 
