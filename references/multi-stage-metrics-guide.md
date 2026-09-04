@@ -779,4 +779,47 @@ To provide maximum analytical value without compromising mathematical integrity,
    * **Process-to-Network Correlation**: Correlating `/usr/sbin/cron` or `systemd` process launches with outbound network connections within 60 seconds.
 
 ---
+
+## 30. Pre-Flight Clearance Hard Gate, Identity Spot-Check, and ISO 8601 Probe Contracts (Release v1.4.4)
+
+### A. The Hard Pre-Flight Clearance Gate (NO QUERY = NO CLEARANCE)
+A critical guardrail failure occurs when an agent presents a Pre-Flight Hunting Specification Card, omits the YARA-L query preview (due to probe failure or compiler hesitation), and yet proceeds to ask the Step 5 clearance question:
+> *"Would you like to run Mode A (24-Hour Snapshot fleet ranking) or Mode B (14-Day Longitudinal Timeline)?"*
+
+Under the **Hard Pre-Flight Clearance Gate**, this sequence is strictly prohibited:
+1. **Query Preview Is Mandatory for Clearance**: Step 5 clearance question MUST NEVER be asked unless a valid, compilable multi-stage YARA-L query has been successfully probed (200 OK via `udm_search`) and displayed in a ````yara code block under the Pre-Flight Card on that turn.
+2. **Immediate Halt on Query Failure**: If the query cannot be probed or compiled, the agent MUST NOT ask for clearance. The agent must halt immediately, state the compilation or data issue, and ask the analyst for clarification.
+
+### B. Identity Disambiguation & 14-Day UDM Spot-Check
+1. **The Single-Token Trap**:
+   Analyst inputs with single unqualified first names (e.g., `"greg"`, `"frank"`) must NOT be presumed to be valid technical user IDs (`user.userid`). In enterprise Chronicle environments, technical user IDs are corporate emails (`user@company.com`) or standardized usernames (`jsmith`, `srv-backup`).
+2. **Pre-Execution 14-Day UDM Spot-Check**:
+   Before generating a Pre-Flight Hunting Specification Card for a standalone first name:
+   ```python
+   udm_search(
+       query='target.user.userid = "<name>" nocase or principal.user.userid = "<name>" nocase or target.user.user_display_name = "<name>" nocase or principal.user.user_display_name = "<name>" nocase',
+       startTime="<ISO_14D_AGO>",
+       endTime="<ISO_NOW>",
+       maxEvents=5
+   )
+   ```
+3. **Hard Resolution Gate**:
+   - If $\ge 1$ events match: Extract the authoritative `user.userid` and record: `• Target Entity / Scope: <Name> (Verified User ID: <id>)`.
+   - If 0 events match or query fails: **HALT IMMEDIATELY (0 tools called)**. Do NOT guess a username. Do NOT emit a Pre-Flight Card. Ask:
+     > *"I could not resolve an active technical `user.userid` for '<Name>' in recent UDM telemetry. What is their corporate email or technical username?"*
+
+### C. Strict ISO 8601 Timestamps for Compiler Probes
+1. **API Rejection of Relative Time Offsets**:
+   Chronicle's `udm_search` API endpoint strictly requires absolute ISO 8601 UTC timestamps (e.g., `2026-09-04T17:00:00Z`). Passing relative strings such as `"now-10m"` or `"now"` causes the underlying API to fail with an unrecoverable `Internal error encountered`.
+2. **Probe Protocol**:
+   All 1-shot compiler validation probes must compute the current UTC timestamp and a 10-minute historical boundary formatted as explicit ISO 8601 strings:
+   `secops-gus:udm_search(query="<query>", startTime="<ISO_10M_AGO>", endTime="<ISO_NOW>", maxEvents=1)`
+
+### D. Pillar 2 Executed Multi-Stage Query Integrity
+1. **Executed Multi-Stage YARA-L Query Requirement**:
+   In Step 2 of the triage report, Pillar 2 MUST display the literal executed multi-stage YARA-L query passed to `secops-gus:udm_search(query=...)`.
+2. **Prohibition of Raw Event Filters in Pillar 2**:
+   Raw UDM event filters (such as `principal.user.userid = "greg" or target.user.userid = "greg"`) do NOT compute statistical baselines and are strictly prohibited in Pillar 2. For 360 Entity Behavioral Risk Radar hunts, Pillar 2 must present the executed multi-stage sector micro-queries.
+
+---
 *Created and maintained by Greg Kushmerek for Google SecOps Chronicle SIEM threat hunting workflows.*

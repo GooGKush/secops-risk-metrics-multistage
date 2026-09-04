@@ -1183,6 +1183,92 @@ class TestGuardrailContracts(unittest.TestCase):
     from scripts.statistical_validator import StatisticalAntipatternType
     self.assertTrue(hasattr(StatisticalAntipatternType, "MONOLITHIC_RADAR_JOIN"))
 
+  def test_hard_preflight_clearance_gate_contract(self):
+    """SKILL.md, multi-stage guide, and radar guide must strictly enforce NO QUERY = NO CLEARANCE."""
+    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    skill_path = os.path.join(skill_dir, 'SKILL.md')
+    guide_path = os.path.join(skill_dir, 'references', 'multi-stage-metrics-guide.md')
+    radar_guide_path = os.path.join(skill_dir, 'references', 'soar-playbook-radar-integration.md')
+
+    with open(skill_path, 'r', encoding='utf-8') as f:
+      skill_content = f.read()
+    with open(guide_path, 'r', encoding='utf-8') as f:
+      guide_content = f.read()
+    with open(radar_guide_path, 'r', encoding='utf-8') as f:
+      radar_content = f.read()
+
+    # SKILL.md assertions
+    self.assertIn("HARD PRE-FLIGHT CLEARANCE GATE (NO QUERY = NO CLEARANCE)", skill_content)
+    self.assertIn("Clearance Request (Step 5) MUST NEVER BE ASKED unless a valid, compilable multi-stage YARA-L query has been successfully probed", skill_content)
+    self.assertIn("Explicit Clearance Question & Turn Termination (GATED ON STEP 4 QUERY DISPLAY)", skill_content)
+
+    # Reference guide assertions
+    self.assertIn("The Hard Pre-Flight Clearance Gate (NO QUERY = NO CLEARANCE)", guide_content)
+    self.assertIn("Step 5 clearance question MUST NEVER be asked unless a valid, compilable multi-stage YARA-L query has been successfully probed", guide_content)
+    self.assertIn("Turn 1 Pre-Flight Clearance Hard Gate (NO QUERY = NO CLEARANCE)", radar_content)
+
+  def test_iso8601_probe_timestamp_contract(self):
+    """SKILL.md, guide, and radar integration must require ISO 8601 timestamps and reject relative offsets."""
+    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    skill_path = os.path.join(skill_dir, 'SKILL.md')
+    guide_path = os.path.join(skill_dir, 'references', 'multi-stage-metrics-guide.md')
+
+    with open(skill_path, 'r', encoding='utf-8') as f:
+      skill_content = f.read()
+    with open(guide_path, 'r', encoding='utf-8') as f:
+      guide_content = f.read()
+
+    # SKILL.md assertions
+    self.assertIn("1-shot pre-preview compiler probe with ISO 8601 timestamps", skill_content)
+    self.assertIn("<ISO_10M_AGO>", skill_content)
+    self.assertIn("<ISO_NOW>", skill_content)
+    self.assertIn("Relative 'now-10m' is invalid", skill_content)
+
+    # Guide assertions
+    self.assertIn("Strict ISO 8601 Timestamps for Compiler Probes", guide_content)
+    self.assertIn("API Rejection of Relative Time Offsets", guide_content)
+
+  def test_identity_disambiguation_spotcheck_contract(self):
+    """SKILL.md and guide must enforce 14-day UDM spot-checks and immediate halt for unresolved first names."""
+    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    skill_path = os.path.join(skill_dir, 'SKILL.md')
+    guide_path = os.path.join(skill_dir, 'references', 'multi-stage-metrics-guide.md')
+
+    with open(skill_path, 'r', encoding='utf-8') as f:
+      skill_content = f.read()
+    with open(guide_path, 'r', encoding='utf-8') as f:
+      guide_content = f.read()
+
+    # SKILL.md assertions
+    self.assertIn("14-Day UDM Spot-Check", skill_content)
+    self.assertIn("HARD RESOLUTION GATE (ZERO GUESSING & NO SPEC CARD)", skill_content)
+    self.assertIn("NEVER GUESS A USERNAME AND NEVER EMIT PRE-FLIGHT CARD", skill_content)
+    self.assertIn("What is their corporate email or technical username?", skill_content)
+
+    # Guide assertions
+    self.assertIn("Identity Disambiguation & 14-Day UDM Spot-Check", guide_content)
+    self.assertIn("The Single-Token Trap", guide_content)
+
+  def test_pillar2_query_integrity_contract(self):
+    """SKILL.md and guide must require executed multi-stage queries and forbid raw event filters in Pillar 2."""
+    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    skill_path = os.path.join(skill_dir, 'SKILL.md')
+    guide_path = os.path.join(skill_dir, 'references', 'multi-stage-metrics-guide.md')
+
+    with open(skill_path, 'r', encoding='utf-8') as f:
+      skill_content = f.read()
+    with open(guide_path, 'r', encoding='utf-8') as f:
+      guide_content = f.read()
+
+    # SKILL.md assertions
+    self.assertIn("Executed Multi-Stage YARA-L Query", skill_content)
+    self.assertIn("For 360 Radar, display executed sector micro-queries", skill_content)
+    self.assertIn("Raw event filters (e.g. `principal.user.userid = ...`) are STRICTLY PROHIBITED in Pillar 2", skill_content)
+
+    # Guide assertions
+    self.assertIn("Pillar 2 Executed Multi-Stage Query Integrity", guide_content)
+    self.assertIn("Prohibition of Raw Event Filters in Pillar 2", guide_content)
+
 
 if __name__ == '__main__':
   unittest.main()

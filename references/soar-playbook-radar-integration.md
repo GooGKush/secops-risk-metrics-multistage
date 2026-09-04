@@ -204,3 +204,20 @@ To guarantee zero compilation errors and prevent silent drops:
     --format embed
   ```
 * Under `--format embed`, the collector writes both `.html` and companion `.svg` files to disk, and outputs *only* `<agent-embed src="file://..."></agent-embed>` and the companion link into chat. Chat markdown remains 100% free of raw SVG code or ASCII formatting artifacts.
+
+---
+
+## 6. Pre-Flight Clearance & Query Integrity Protocol for 360 Radar (Release v1.4.4)
+
+### A. Turn 1 Pre-Flight Clearance Hard Gate (NO QUERY = NO CLEARANCE)
+When conducting a 360° Entity Behavioral Risk Radar hunt:
+1. **Mandatory Upfront Query Preview**: The agent must display the compilable micro-query template representing the 5-sector decoupled evaluation.
+2. **Strict Compiler Probe Requirement**: Before displaying ````yara in markdown, the probe query must be validated via `secops-gus:udm_search` with ISO 8601 timestamps (`startTime="<ISO_10M_AGO>"`, `endTime="<ISO_NOW>"`). Relative strings like `"now-10m"` are forbidden.
+3. **Hard Pre-Flight Clearance Gate**: If the query cannot be probed or compiled, the clearance question (Step 5) MUST NOT be asked. The agent must halt immediately and report what blocked query compilation.
+
+### B. Turn 2 Execution Integrity (Prohibition of Raw UDM Filters in Pillar 2)
+1. **Executed Multi-Stage Micro-Queries**: In Step 2 (Pillar 2), the agent must display the literal executed multi-stage YARA-L micro-queries passed into `secops-gus:udm_search(query=...)`.
+2. **Raw Filter Prohibition**: Replacing multi-stage YARA-L with a raw event filter (e.g., `principal.user.userid = "greg" or target.user.userid = "greg"`) violates Pillar 2 integrity and produces meaningless all-zero visual coordinates.
+
+---
+*Created and maintained by Greg Kushmerek for Google SecOps Chronicle SIEM threat hunting workflows.*
