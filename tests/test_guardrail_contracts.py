@@ -1156,9 +1156,35 @@ class TestGuardrailContracts(unittest.TestCase):
     self.assertIn("high-prevalence public cloud infrastructure", guide_content)
     self.assertIn("C2_BEACONING_JITTER (CV <= 0.20) & Cron Minute", guide_content)
 
+  def test_monolithic_radar_join_contract(self):
+    """SKILL.md, radar guide, and auditor must document and enforce the monolithic radar join prevention contract."""
+    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    skill_path = os.path.join(skill_dir, 'SKILL.md')
+    radar_guide_path = os.path.join(skill_dir, 'references', 'soar-playbook-radar-integration.md')
+
+    with open(skill_path, 'r', encoding='utf-8') as f:
+      skill_content = f.read()
+    with open(radar_guide_path, 'r', encoding='utf-8') as f:
+      radar_guide_content = f.read()
+
+    # SKILL.md contracts
+    self.assertIn("ZERO MONOLITHIC JOINS — maxJoinCount=4 & Inner-Join Drop", skill_content)
+    self.assertIn("STAT_ANTIPATTERN_MONOLITHIC_RADAR_JOIN", skill_content)
+    self.assertIn("auto-bypass Mode B", skill_content)
+
+    # Radar guide contracts
+    self.assertIn("The Monolithic 5-Stage Join Trap & Decoupled Micro-Query Guarantee", radar_guide_content)
+    self.assertIn("STAT_ANTIPATTERN_MONOLITHIC_RADAR_JOIN", radar_guide_content)
+    self.assertIn("maxJoinCount = 4", radar_guide_content)
+    self.assertIn("Silent Inner-Join Drop", radar_guide_content)
+    self.assertIn("Decoupled 5-Sector Architecture & `radar_collector.py`", radar_guide_content)
+
+    # Auditor enum contract
+    from scripts.statistical_validator import StatisticalAntipatternType
+    self.assertTrue(hasattr(StatisticalAntipatternType, "MONOLITHIC_RADAR_JOIN"))
+
 
 if __name__ == '__main__':
-
   unittest.main()
 
 

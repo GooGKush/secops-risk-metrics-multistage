@@ -159,3 +159,48 @@ flowchart LR
     C -->|Auth Failures| G["Trigger Step-Up MFA Challenge"]
     C -->|Network Egress| H["Isolate Host via EDR (CrowdStrike / Defender)"]
 ```
+
+---
+
+## 🛑 5. The Monolithic 5-Stage Join Trap & Decoupled Micro-Query Guarantee
+
+### Why Monolithic 5-Stage YARA-L Joins Fail in Chronicle SIEM
+When evaluating an entity across 5 orthogonal vectors (Auth, Cloud, Workspace, Net, DNS), attempting to combine all 5 sectors into a single monolithic YARA-L rule is a severe architectural anti-pattern (`STAT_ANTIPATTERN_MONOLITHIC_RADAR_JOIN`):
+
+```yara
+// ❌ ANTI-PATTERN: Monolithic 5-Sector Inner Join (COMPILER ERROR & SILENT DROP)
+stage s1_auth { ... match: $user by 1d ... }
+stage s2_cloud { ... match: $user by 1d ... }
+stage s3_work { ... match: $user by 1d ... }
+stage s4_net { ... match: $user by 1d ... }
+stage s5_dns { ... match: $user by 1d ... }
+
+$user = $s1_auth.user
+$user = $s2_cloud.user
+$user = $s3_work.user
+$user = $s4_net.user
+$user = $s5_dns.user
+match: $user by 1d
+outcome:
+  $d_sq = ($s1_auth.z)^2 + ($s2_cloud.z)^2 + ($s3_work.z)^2 + ($s4_net.z)^2 + ($s5_dns.z)^2
+```
+
+This constructs two fatal failure modes:
+1. **Chronicle Compiler Limit (`maxJoinCount = 4`)**:
+   Chronicle SIEM strictly caps multi-stage joins at `maxJoinCount = 4`. A query attempting to join 5 stages exceeds the compiler limit and triggers an unrecoverable compilation error.
+2. **Silent Inner-Join Drop**:
+   In YARA-L 2.0 DAGs, cross-stage joins are **strict inner joins**. If the target entity had zero cloud resource modifications or zero Google Workspace downloads on that particular date, that stage produces zero rows. Joining with an empty stage drops the entity completely from the query results, yielding 0 rows across all sectors.
+
+### The Decoupled 5-Sector Architecture & `radar_collector.py`
+To guarantee zero compilation errors and prevent silent drops:
+* Execute 5 lightweight, independent sector micro-queries in parallel (each evaluating 1 sector against its 30-day baseline).
+* If a sector returns 0 events for the target entity, record nominal baseline ($Z = 0.00\sigma, \text{CRI} = 0$).
+* Feed the resulting vector scores into the deterministic CLI visualizer:
+  ```bash
+  python3 scripts/radar_collector.py \
+    --entity "<entity_id>" \
+    --scores "auth=<Z1>,cloud=<Z2>,workspace=<Z3>,net=<Z4>,dns=<Z5>" \
+    --output "<artifact_dir>/radar_<entity_id>.html" \
+    --format embed
+  ```
+* Under `--format embed`, the collector writes both `.html` and companion `.svg` files to disk, and outputs *only* `<agent-embed src="file://..."></agent-embed>` and the companion link into chat. Chat markdown remains 100% free of raw SVG code or ASCII formatting artifacts.

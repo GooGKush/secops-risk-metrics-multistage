@@ -15,15 +15,15 @@ Executes **multi-sector statistical outlier hunting** using **30-day Risk Analyt
 
 ## 🔀 Bi-Directional Skill Steering & Handoff Protocol
 * **30-Day Baselines** (`metrics.*`) / **Peer Cohorts** / **Multi-Sector Fusion**: Execute this skill (`secops-risk-metrics-multistage`).
-* **Dual-Layer Defense for Trickle Attacks**: For low-volume trickle attacks (e.g. SUNBURST DNS), do NOT abandon risk metrics: Layer 1 is Mode B Longitudinal CUSUM Drift ($S_t^+ \ge 4.0\sigma$ on `metrics.dns_queries_total`); Layer 2 is handoff to `secops-statistical-hunter` for sub-minute timing jitter ($CV \le 0.20$).
+* **Dual-Layer Defense for Trickle Attacks**: For trickle attacks (e.g. SUNBURST DNS), Layer 1 is Mode B Longitudinal CUSUM Drift ($S_t^+ \ge 4.0\sigma$ on `metrics.dns_queries_total`); Layer 2 is handoff to `secops-statistical-hunter` for timing jitter ($CV \le 0.20$).
 * **Non-Metrics Telemetry Steering Mandate** (Git repos, raw UDM): Emit **Skill Handoff Card** and steer to `secops-statistical-hunter`.
-* **Zero-Code Handoff Invariant**: Under NO circumstances may an agent emit candidate ````yara query blocks inside or alongside a Skill Handoff Card. Handoff cards are strictly conceptual/architectural; code emission belongs exclusively to destination skill once invoked. Violates Tool-Precondition Code Block Embargo.
+* **Zero-Code Handoff Invariant**: Never emit candidate YARA-L query blocks inside or alongside a Skill Handoff Card. Handoff cards are strictly conceptual/architectural; code emission belongs exclusively to destination skill once invoked. Violates Tool-Precondition Code Block Embargo.
 
 ---
 
 ## ⏱️ Evaluation Modes: Snapshot vs. 30-Day Longitudinal Sliding Timeline
 
-1. **Mode A: Current-Day Snapshot (`FLEET_ROLLUP`)**: 24h window vs 30d baseline (`window: 30d`). Evaluates current outliers (1 row/entity).
+1. **Mode A: Current-Day Snapshot (`FLEET_ROLLUP`)**: 24h window vs 30d baseline (`window: 30d`). Evaluates current outliers (1 row/entity). Target dates (e.g. "Aug 12") auto-bypass Mode B.
 2. **Mode B: 30-Day Longitudinal Sliding Timeline (`TIMELINE_BREAKDOWN`)**: Multi-day horizon (`match: $entity by 1d`). Tracks daily evolution and drift.
 
 ---
@@ -55,10 +55,10 @@ When profiling an entity across all vectors (*"visualize all risk vectors"*, *"r
    • 📁 **Workspace**: `metrics.workspace_total_download_actions` (`principal.user.userid`)
    • 🌐 **Network**: `metrics.network_bytes_outbound` (`principal.user.userid`)
    • 🌐 **DNS/Web**: `metrics.http_queries_total` (`principal.user.userid`; assets: `metrics.file_executions_total` with sha256).
-2. **Compilable Micro-Query Template (ZERO CROSS-SECTOR JOINS)**: Decoupled per sector (`stage stage1_extract` matching `$user by 1d` with `max(metrics.*)` and root `$z_score = ($obs - $mu) / ($sigma + 1.0)`). Zero multi-vector inner joins.
+2. **Compilable Micro-Query Template (ZERO MONOLITHIC JOINS — maxJoinCount=4 & Inner-Join Drop)**: Decoupled per sector (`stage stage1_extract` matching `$user by 1d` with `max(metrics.*)` and root `$z_score = ($obs - $mu) / ($sigma + 1.0)`). Monolithic 5-stage inner joins strictly prohibited.
 3. **Visualization Strategy (Single visual surface: Client Tool OR Embed OR Inline SVG OR ASCII)**:
    - **Adaptive Single-Surface Routing (NEVER Render Both ASCII & Visual)**:
-     • *Jetski (`run_command` present)*: Write HTML charts to `<artifact_dir>/<name>.html`, output ONLY `<agent-embed src="file:///<artifact_dir>/<name>.html"></agent-embed>` and link. Radar: `python3 scripts/radar_collector.py --entity "%(entity)s" --scores "auth=<Z1>,cloud=<Z2>,workspace=<Z3>,net=<Z4>,dns=<Z5>" --output "<artifact_dir>/radar_%(entity)s.html" --format embed`. Zero data-uri or raw SVG in chat Markdown. Omit ASCII card.
+     • *Jetski (`run_command` present)*: Output ONLY `<agent-embed src="file:///<artifact_dir>/<name>.html"></agent-embed>` and link. Radar: `python3 scripts/radar_collector.py --entity "%(entity)s" --scores "auth=<Z1>,cloud=<Z2>,workspace=<Z3>,net=<Z4>,dns=<Z5>" --output "<artifact_dir>/radar_%(entity)s.html" --format embed`. Zero data-uri or raw SVG in chat Markdown. Omit ASCII card.
      • *Client Tool (if present)*: If tool declares radar/SVG, invoke with entity and sector scores. Omit ASCII card.
      • *Generic MCP (no tool)*: Emit pure inline `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 620 480">`. Zero data-uri.
      • *CLI / Plaintext*: Render ASCII card ONLY on explicit analyst request.
@@ -104,9 +104,7 @@ Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to bo
    * *Peer Cohort Roster Requirement (Peer Cohort & Roster)*: List cohort entities. If active days $N < 7$, flag `⚠️ Sparse Baseline Caution (N < 7)` in card spine.
    * *Interactive Entity Graph Dimension Mandate*: Express joins in card under `• Entity Graph Dimension: [Exact Filter]` (Domain Rarity, Fleet Prevalence, Binary Rarity, IP Rarity `rolling_max <= 3`, `day_count = 10` platform invariant).
    * *Canonical Preview & Two-Phase Chained Hunt Specification*: Match variables bind to active fields (`target.user.userid` for auth, `principal.user.userid` for cloud/SaaS/net/proc, `principal.asset.hostname` for assets). For cross-entity hunts, emit Two-Phase Chained Hunt Card: Phase 1 (UEBA Outlier Query), Bridge Contract ($host, $timestamp, $user, $caller_ip), and Phase 2 (Targeted Cloud UDM Query).
-5. **Explicit Clearance Question & Turn Termination**: Explicitly ask:
-   > *"Would you like to run **Mode A (24-Hour Snapshot fleet ranking)** or **Mode B (14-Day Longitudinal Timeline)**?"*
-   **STOP CALLING TOOLS IMMEDIATELY AND YIELD THE TURN.**
+5. **Explicit Clearance Question & Turn Termination**: If target date specified (e.g. "Aug 12"), auto-select Mode A and ask: *"Execute this hunt for [Target Date] now?"*. Otherwise ask: *"Would you like to run **Mode A (24-Hour Snapshot fleet ranking)** or **Mode B (14-Day Longitudinal Timeline)**?"*. STOP CALLING TOOLS IMMEDIATELY AND YIELD THE TURN.
 
 ---
 
@@ -144,8 +142,8 @@ Report **MUST STRICTLY CONTAIN ALL 6 NUMBERED PILLARS**:
   - *Compiler Structural Boundary*: Arithmetic (`$a - $b`, `$a / $b`) is STRICTLY PROHIBITED above `match:`. Placeholders bind directly to fields/functions. Derivations reside in `outcome:` below `match:`.
   - *Syntax Invariants*: No `in ("A", "B")` (use `%list` or `or`); no dot-notation properties (`metrics.foo.mean` is INVALID); no member dot-notation in `match:` (`$s1.host` is INVALID, use simple `$host`); no `events:` header inside named stages or root; no `sqrt(...)` (use squared norm `$dist_sq`); no `by 24h` (use `by 1d`); canonical metric names end in `_total`.
   - *Mandatory Companion Dimensions & Entity Affinity*: Cloud CRUD (`metrics.resource_*`) requires `metadata.vendor_name` and `metadata.product_name`. File metrics (`metrics.file_executions_*`) are Host/Binary scoped (`$host, $sha256`) requiring `metadata.event_type` and `principal.process.file.sha256`. NEVER bind `principal.user.userid` to file metrics or force cross-entity joins.
-* **Consultative Pivot & Handoff Protocol (ZERO FORCED JOINS)**: When vectors cross entity boundaries or lack user baselines (e.g. user process launches), NEVER synthesize fake schemas. State boundary and offer 3 paths: 1) Cloud-First 2-Phase Pivot, 2) Asset-First Pivot (baseline workstation on `file_executions_total`), or 3) Handoff to `secops-statistical-hunter` for raw log statistical outlier hunting. Detail in `references/multi-stage-metrics-guide.md`.
-  - *Max 4 Joins Invariant*: YARA-L 2.0 limits queries to <= 4 joins (`maxJoinCount = 4`). Each UEBA stage consumes 1 join; root consumes K-1.
+* **Consultative Pivot & Handoff Protocol (ZERO FORCED JOINS)**: When vectors cross entity boundaries or lack user baselines, NEVER synthesize fake schemas. State boundary and offer 3 paths: 1) Cloud-First 2-Phase Pivot, 2) Asset-First Pivot (`file_executions_total`), or 3) Handoff to `secops-statistical-hunter`. Detail in `references/multi-stage-metrics-guide.md`.
+  - *Max 4 Joins Invariant*: YARA-L 2.0 limits queries to <= 4 joins (`maxJoinCount = 4`). Cross-stage joins are strict inner joins; never fuse >= 3 orthogonal sectors into a single query (`STAT_ANTIPATTERN_MONOLITHIC_RADAR_JOIN`).
 * **Variable Role Classification & Anti-Passive-Decoration Mandate**: Variables must fulfill `[JOIN_KEY]`, `[SCORING_DIMENSION]`, `[ACTIVE_FILTER]`, or `[TRIAGE_DECORATION]`. Primary vectors MUST NEVER act solely as `[TRIAGE_DECORATION]`.
 * **Inner-Join Drop Prevention Standard (PRESERVING FULL POPULATION)**: Multi-stage joins are inner joins. Baseline full fleet in Stage 1 and profile destinations via `array_distinct(target.hostname)`.
 

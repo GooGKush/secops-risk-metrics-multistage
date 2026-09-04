@@ -271,6 +271,66 @@ class TestStatisticalAntipatternAuditor(unittest.TestCase):
         f"Expected UNPROFILED_SERVICE_ACCOUNT, got {violations}",
     )
 
+  def test_catches_monolithic_radar_5stage_join(self):
+    """Detects queries defining > 4 stages exceeding Chronicle maxJoinCount = 4."""
+    bad_query = """
+    stage s1 { metadata.event_type = "USER_LOGIN" $user = target.user.userid match: $user by 1d outcome: $z1 = 1.0 }
+    stage s2 { metadata.event_type = "RESOURCE_CREATION" $user = principal.user.userid match: $user by 1d outcome: $z2 = 1.0 }
+    stage s3 { metadata.event_type = "USER_RESOURCE_ACCESS" $user = principal.user.userid match: $user by 1d outcome: $z3 = 1.0 }
+    stage s4 { metadata.event_type = "NETWORK_CONNECTION" $user = principal.user.userid match: $user by 1d outcome: $z4 = 1.0 }
+    stage s5 { metadata.event_type = "NETWORK_DNS" $user = principal.user.userid match: $user by 1d outcome: $z5 = 1.0 }
+    $user = $s1.user
+    $user = $s2.user
+    $user = $s3.user
+    $user = $s4.user
+    $user = $s5.user
+    match: $user by 1d
+    outcome:
+      $d = max($s1.z1) + max($s2.z2) + max($s3.z3) + max($s4.z4) + max($s5.z5)
+    """
+    violations = StatisticalAntipatternAuditor.audit_query(bad_query)
+    self.assertTrue(
+        any(v.antipattern == StatisticalAntipatternType.MONOLITHIC_RADAR_JOIN for v in violations),
+        f"Expected MONOLITHIC_RADAR_JOIN for >4 stages, got {violations}",
+    )
+
+  def test_catches_cross_sector_inner_join(self):
+    """Detects fusing >= 3 disparate telemetry families into a single root inner join (silent drop hazard)."""
+    bad_query = """
+    stage s_auth {
+      metadata.event_type = "USER_LOGIN"
+      $user = target.user.userid
+      match: $user by 1d
+      outcome:
+        $z_auth = max(metrics.auth_attempts_fail(period: 1d, window: 30d, metric: event_count_sum, agg: avg, target.user.userid: $user))
+    }
+    stage s_cloud {
+      metadata.event_type = "RESOURCE_CREATION"
+      $user = principal.user.userid
+      match: $user by 1d
+      outcome:
+        $z_cloud = max(metrics.resource_creation_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: $user))
+    }
+    stage s_work {
+      metadata.event_type = "USER_RESOURCE_ACCESS"
+      $user = principal.user.userid
+      match: $user by 1d
+      outcome:
+        $z_work = max(metrics.workspace_total_download_actions(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: $user))
+    }
+    $user = $s_auth.user
+    $user = $s_cloud.user
+    $user = $s_work.user
+    match: $user by 1d
+    outcome:
+      $norm = max($s_auth.z_auth) + max($s_cloud.z_cloud) + max($s_work.z_work)
+    """
+    violations = StatisticalAntipatternAuditor.audit_query(bad_query)
+    self.assertTrue(
+        any(v.antipattern == StatisticalAntipatternType.MONOLITHIC_RADAR_JOIN for v in violations),
+        f"Expected MONOLITHIC_RADAR_JOIN for >= 3 telemetry families, got {violations}",
+    )
+
 
 if __name__ == "__main__":
   unittest.main()

@@ -42,6 +42,7 @@ class StatisticalAntipatternType(str, Enum):
   DISTRIBUTION_MISMATCH = "STAT_ANTIPATTERN_DISTRIBUTION_MISMATCH"
   COLLINEAR_VECTOR_FUSION = "STAT_ANTIPATTERN_COLLINEAR_VECTOR_FUSION"
   UNPROFILED_SERVICE_ACCOUNT = "STAT_ANTIPATTERN_UNPROFILED_SERVICE_ACCOUNT"
+  MONOLITHIC_RADAR_JOIN = "STAT_ANTIPATTERN_MONOLITHIC_RADAR_JOIN"
 
 
 @dataclass
@@ -118,6 +119,9 @@ class StatisticalAntipatternAuditor:
     if root_stage_body:
       violations.extend(cls._check_zero_dispersion_hazard("root", root_stage_body))
       violations.extend(cls._check_collinear_vector_fusion(root_stage_body, stages))
+      violations.extend(cls._check_monolithic_radar_join(root_stage_body, stages))
+    elif len(stages) > 4:
+      violations.extend(cls._check_monolithic_radar_join("", stages))
 
     return violations
 
@@ -442,6 +446,67 @@ class StatisticalAntipatternAuditor:
                   f"Enforce cloud service account identity construction: '({sa_var} = /@.*gserviceaccount\\.com$/ nocase "
                   f"or {sa_var} = /^arn:aws:(iam|sts)::.*:(role|assumed-role)\\// nocase)'. "
                   "Profile what follows after the '@' symbol to anchor cloud domain and project boundaries."
+              ),
+          )
+      )
+
+    return violations
+
+  @classmethod
+  def _check_monolithic_radar_join(
+      cls, root_body: str, stages: Dict[str, str]
+  ) -> List[StatisticalViolation]:
+    """Detects monolithic multi-sector inner joins (exceeding join limits or fusing >=3 disparate sectors)."""
+    violations: List[StatisticalViolation] = []
+
+    # Chronicle SIEM strictly enforces maxJoinCount = 4. More than 4 stages joined causes compiler error.
+    if len(stages) > 4:
+      violations.append(
+          StatisticalViolation(
+              antipattern=StatisticalAntipatternType.MONOLITHIC_RADAR_JOIN,
+              stage_name="root",
+              description=(
+                  f"Query defines {len(stages)} stages in a single YARA-L rule. Chronicle SIEM enforces a hard limit "
+                  "of maxJoinCount = 4 (maximum 4 joins across 4 stages). Queries with > 4 stages fail compilation."
+              ),
+              remediation=(
+                  "Decouple 360° Risk Radar into independent sector micro-queries (<= 1 sector per query, or invoke "
+                  "scripts/radar_collector.py). Evaluate sectors independently to prevent monolithic join compilation failures."
+              ),
+          )
+      )
+      return violations
+
+    if not root_body:
+      return violations
+
+    # Check for joining >= 3 stages across disparate telemetry families in root
+    joined_stages = set(re.findall(r"\$([a-zA-Z0-9_]+)\.[a-zA-Z0-9_]+", root_body))
+    if len(joined_stages) < 3:
+      return violations
+
+    families: Set[str] = set()
+    for sname in joined_stages:
+      if sname in stages:
+        sbody = stages[sname]
+        for m_name, fam in cls.METRIC_FAMILIES.items():
+          if f"metrics.{m_name}" in sbody:
+            families.add(fam)
+            break
+
+    if len(families) >= 3:
+      violations.append(
+          StatisticalViolation(
+              antipattern=StatisticalAntipatternType.MONOLITHIC_RADAR_JOIN,
+              stage_name="root",
+              description=(
+                  f"Root stage joins stages across {len(families)} disparate telemetry families ({', '.join(sorted(families))}) "
+                  "into a single inner join. In Chronicle SIEM, multi-stage joins are strict INNER JOINS. If the entity has zero "
+                  "events in even one sector on the evaluation date, the entire join drops to 0 rows (Silent Inner-Join Drop)."
+              ),
+              remediation=(
+                  "Decouple 360° Risk Radar into independent sector micro-queries (<= 1 sector per query, or invoke "
+                  "scripts/radar_collector.py). Evaluate each sector independently with graceful nominal fallback (Z=0.00σ, CRI=0)."
               ),
           )
       )
