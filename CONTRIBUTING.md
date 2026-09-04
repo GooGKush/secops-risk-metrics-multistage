@@ -4,6 +4,24 @@ Contributions to this skill package are highly welcome! Whether you are adding n
 
 ---
 
+## 📐 Progressive-Load First Directive (Skill Maintenance Standard)
+
+When responding to audit recommendations, user feedback, new metrics, or operational guidance, **NEVER default to immediately modifying `SKILL.md`**.
+
+Always adhere to the **Progressive-Load First Directive**:
+1. **Assess Progressive-Load Locations First**:
+   * **Domain Reference Documentation (`references/*.md`)**: Detailed specifications, extended schema catalogs, operational translation tables, forensic playbooks, and mathematical derivations **MUST** be placed in `references/` (e.g., `multi-stage-metrics-guide.md`, `compiler-submission-policy.md`, `metrics-catalog.md`).
+   * **Deterministic Logic & Code Validation (`scripts/`)**: Algorithmic rules, AST validators, parameter assertions, and CLI helpers **MUST** be implemented in `scripts/` (e.g., `preflight_validator.py`, `template_router.py`).
+   * **Query Modules (`templates/`)**: New AST snippets, stage extractors, and math pipelines **MUST** reside in `templates/`.
+2. **Preserve `SKILL.md` as a Lean Orchestrator**:
+   * `SKILL.md` serves strictly as the high-level gatekeeper: trigger definitions, mandatory conversational phase gates (Phase 1A/1B), tool embargoes, and lean routing pointers to reference files.
+   * Modifying `SKILL.md` has a **high bar**: only modify it if introducing a non-negotiable conversational contract or execution gate that the agent must evaluate immediately upon skill invocation.
+3. **Strict Budget & Verification Invariants**:
+   * `SKILL.md` must strictly remain within budget ($\le 250$ lines and $\le 20,480$ bytes), verified via `test_skill_efficiency_and_clarity.py`.
+   * If an addition to `SKILL.md` is genuinely necessary, offload existing descriptive text or secondary guidance to `references/` first to maintain safety margin.
+
+---
+
 ## 🛠️ Contribution Workflow
 
 1. **Stage 1 Extractor Templates (`templates/stage1_extractors/*.yl2`)**:
@@ -52,6 +70,7 @@ wc -c SKILL.md
 * **Universal Dispersion Floor**: All $Z$-score denominators must enforce `($stddev + 1.0)`.
 * **Universal 6-Point Contract**: All Stage 1 extractors must export the standard 6 outcome metrics.
 * **Skill Budget Compliance**: `SKILL.md` must strictly remain within its budget of $\le 250$ lines and $\le 20,480$ bytes.
+* **Progressive-Load Compliance**: New specifications and guidelines must be placed in `references/` or enforced via `scripts/` before touching `SKILL.md`.
 
 ---
 

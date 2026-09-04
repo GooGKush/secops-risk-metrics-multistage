@@ -1,10 +1,44 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.4.1)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.4.2)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v1.4.1 — September 2026  
+**Latest Version**: v1.4.2 — September 2026  
+
+---
+
+## 📢 What's New in v1.4.2 (Minor Point Release)
+
+* **Progressive-Load First Architecture Directive**:
+  - Formalized in `CONTRIBUTING.md` and `references/compiler-submission-policy.md`: agents and developers must never default to immediately modifying `SKILL.md`.
+  - Directs deep architectural specifications, metric catalogs, and extensive mathematical guides to progressive-load files (`references/`, `templates/`, `scripts/`), strictly preserving `SKILL.md` as a lean orchestrator within its hard budget ($\le 250$ lines, $\le 20.0$ KB / 20,480 bytes).
+
+* **Two-Answer Solution for Scheduled Exfiltration & Cron Regularity**:
+  - Codified Section 29 in `references/multi-stage-metrics-guide.md` (*Scheduled & Automated Exfiltration: The Two-Answer Hybrid Workflow*):
+    - **Answer 1 (Low-Prevalence Focus)**: Executes 2-stage query joining raw network connections, 30-day baseline egress (`metrics.network_bytes_outbound`), and Entity Graph IP prevalence (`rolling_max <= 3`, `day_count = 10`), accompanied by mandatory **Prevalence Assumption** disclosure.
+    - **Answer 2 (Consultative Cloud Bridge)**: Provides consultative pivot to inspect high-prevalence public cloud infrastructure (AWS S3, GCS, Cloudflare) via inter-arrival timing regularity ($CV \le 0.20$) and cron-minute analysis, formatted as a compliant Zero-Code Handoff Card to `secops-statistical-hunter`.
+
+* **Canonical Pre-Submission Test Harness Expansion (`PIPE-09-PREVALENCE`)**:
+  - Added test case `PIPE-09-PREVALENCE` ("2-Stage Entity Graph IP Prevalence & Egress Outlier") to `scripts/submission_tests.py`, expanding the canonical pre-submission compiler test suite from 20 to 21 test cases (100% passing).
+  - Verified live compilation against production Google SecOps Chronicle SIEM backend (`gus-sdl`) with 0 errors in 3.8s (`hasJoin: true`).
+  - Added static compiler policy unit test in `tests/test_submission_compiler_policy.py`.
+
+* **Pre-Flight Sparse Baseline Caution**:
+  - Updated `PreFlightValidator` to inspect active period counts and automatically flag `⚠️ Sparse Baseline Caution (N = <active_days> < 7 active periods)` in preflight cards when active history is insufficient.
+
+* **Zero-Code Handoff Invariant & Dual-Layer Trickle Defense**:
+  - Codified strict Zero-Code Handoff Invariant: handoff cards to peer skills are strictly conceptual, and code block emission is prohibited alongside or inside handoff cards.
+  - Codified Dual-Layer Trickle Defense for low-and-slow data exfiltration across longitudinal CUSUM drift (Layer 1) and raw UDM timing jitter (Layer 2).
+
+* **Cloud Repository Scope & Dual-Branch Isolation Enhancements**:
+  - Added `resource_read_total.yl2` and `resource_written_total.yl2` stage 1 extractor templates.
+  - Enhanced `MultiStageTemplateRouter` to auto-route user-entity cloud repository metrics to dual-branch local-baseline isolation.
+  - Added `tests/test_template_router.py`.
+
+* **Verification**:
+  - 100% pass rate across 153 unit tests and 21 submission compiler tests.
+  - `SKILL.md` footprint: 178 lines, 20,396 bytes (within budget).
 
 ---
 

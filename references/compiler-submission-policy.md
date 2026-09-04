@@ -80,7 +80,7 @@ In addition to compiler syntax, all queries submitted to Chronicle must satisfy 
 
 ## 3. Pre-Submission Test Harness (`scripts/submission_tests.py`)
 
-The submission test harness automates compiler verification across 20 canonical test cases categorized into four operational suites:
+The submission test harness automates compiler verification across 21 canonical test cases categorized into four operational suites:
 
 | ID | Suite | Target Metric / Model | Key Compiler Check |
 |:---|:------|:----------------------|:-------------------|
@@ -92,6 +92,7 @@ The submission test harness automates compiler verification across 20 canonical 
 | `PIPE-06-DUAL-SECTOR` | Pipeline Template | Auth + Network Egress | Orthogonal 2-sector Euclidean norm |
 | `PIPE-07-EMPIRICAL-BAYES` | Pipeline Template | `http_queries_total` (Asset) | 3-stage hyperprior shrinkage (stddev²) |
 | `PIPE-08-CLOUD-SCOPE` | Pipeline Template | `resource_read_total` | Dual-branch cloud repository scope & origin outlier |
+| `PIPE-09-PREVALENCE` | Pipeline Template | `network_bytes_outbound` + Entity Graph | 2-stage IP prevalence ($\le 3$) & egress volume |
 | `RADAR-01-AUTH` | Decoupled Radar Spoke | `auth_attempts_fail` | Allowed vs failed login micro-query |
 | `RADAR-02-CLOUD` | Decoupled Radar Spoke | `resource_creation_total` | Multi-dimensional cloud CRUD tracking |
 | `RADAR-03-WORKSPACE` | Decoupled Radar Spoke | `google_workspace_downloads` | High-frequency document hoarding query |
@@ -124,3 +125,56 @@ wc -c SKILL.md
 ```
 
 All commands must exit with return code `0` and 100% pass rates.
+
+---
+
+## 5. Skill Architecture & Progressive-Load First Policy
+
+To prevent context bloat, preserve LLM reasoning capacity, and strictly maintain the $\le 20.0$ KB (20,480 bytes) ceiling on `SKILL.md`, all contributors and AI agents must adhere to the **Progressive-Load First Policy**.
+
+### 5.1 Three-Tier Information Architecture
+Skill components are structured into three distinct tiers based on load timing and lifecycle:
+
+1. **Tier 1: Core Orchestrator (`SKILL.md`)**
+   * **Role**: Lean gatekeeper, conversational contract enforcer, and router.
+   * **Content Allowed**: Trigger keywords, Phase 1A/1B discovery and gating contracts, tool embargoes, pre-output clearance requirements, the 6-pillar reporting schema, and high-level routing pointers.
+   * **Hard Constraints**: $\le 250$ lines and $\le 20,480$ bytes (enforced by `test_skill_efficiency_and_clarity.py`).
+   * **Threshold for Modification**: **Highest**. Never modify `SKILL.md` without first proving that the requirement cannot be fulfilled in Tier 2 or Tier 3.
+
+2. **Tier 2: Progressive Reference Documentation (`references/*.md`)**
+   * **Role**: On-demand domain encyclopedias, implementation guides, and analytical frameworks.
+   * **Content Allowed**: Complete metric catalogs, mathematical proofs, operational SOC playbooks, deep AST compiler invariants, and threat actor behavioral mapping.
+   * **Load Mechanism**: Read on-demand by the agent only when deep domain context is required, keeping the initial system prompt compact.
+
+3. **Tier 3: Grounded Executables & Templates (`scripts/`, `templates/`)**
+   * **Role**: Deterministic automation, validation, and reusable AST logic.
+   * **Content Allowed**: Pre-flight parameter validators, AST builders, radar collectors, triage formatters, and `.yl2` query snippets.
+   * **Load Mechanism**: Executed or inspected programmatically, consuming zero prompt tokens during conversational turns.
+
+### 5.2 Mandatory Pre-Modification Decision Tree
+Whenever an audit finding, user request, or feature proposal suggests adding guidance to this skill:
+
+```
+                      [New Directive / Guidance Proposed]
+                                       │
+                                       ▼
+             Does it alter a Turn-1 conversational gate or tool embargo?
+                                ├─── YES ──► Does it require new wording in SKILL.md?
+                                │             ├─── NO ──► Offload detail to references/
+                                │             └─── YES ─► Add minimal pointer in SKILL.md
+                                │                         AND offload equivalent prose
+                                │                         to references/ to keep size safe
+                                │
+                                └─── NO ───► DIRECTIVE: DO NOT TOUCH SKILL.md
+                                              │
+                                              ├── Deterministic / programmatic? ──► scripts/
+                                              ├── Reusable query syntax?       ──► templates/
+                                              └── Explanatory / specification?  ──► references/
+```
+
+### 5.3 Progressive-Load Enforcement Checklist
+Before submitting any pull request or updating this skill package:
+- [ ] Confirmed that all new specifications, catalog entries, and playbooks are housed in `references/`.
+- [ ] Confirmed that deterministic parameter checks and validations are codified in `scripts/`.
+- [ ] Confirmed that `SKILL.md` was only edited if an essential top-level conversational invariant changed.
+- [ ] Verified `python3 -m unittest tests/test_skill_efficiency_and_clarity.py` passes with zero budget violations.

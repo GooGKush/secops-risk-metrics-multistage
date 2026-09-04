@@ -1,7 +1,7 @@
 # Template Router for Multi-Stage YARA-L Queries (.yl2)
 
 __author__ = "Greg Kushmerek"
-__version__ = "2.1.0"
+__version__ = "2.1.1"
 
 from pathlib import Path
 import re
@@ -34,6 +34,22 @@ class MultiStageTemplateRouter:
         min_baseline_days=min_baseline_days,
         match_mode=match_mode,
     )
+
+    # Enforce Local-Baseline Isolation: multi-database account queries must route to CLOUD_REPOSITORY_SCOPE_DUAL_BRANCH
+    if target_metric in [
+        "resource_read_total",
+        "resource_written_total",
+        "resource_written_success",
+        "resource_written_fail",
+    ] and entity_type == EntityType.USER:
+      return self.build_pipeline_query(
+          PipelineArchitecture.CLOUD_REPOSITORY_SCOPE_DUAL_BRANCH,
+          target_metric=target_metric,
+          entity_type=entity_type,
+          anomaly_threshold=anomaly_threshold,
+          min_baseline_days=min_baseline_days,
+          hypothesis_goal=hypothesis_goal,
+      )
 
     stage1_path = self.template_dir / "stage1_extractors" / f"{target_metric}.yl2"
     if not stage1_path.exists():
@@ -92,6 +108,7 @@ class MultiStageTemplateRouter:
       anomaly_threshold: float = 3.0,
       min_baseline_days: Optional[int] = None,
       hypothesis_goal: Optional[str] = None,
+      service_account: Optional[str] = None,
   ) -> str:
     """Renders 3-Stage and 4-Stage advanced DAG pipelines."""
     if pipeline_type == PipelineArchitecture.MULTI_SECTOR_FUSION_4STAGE:
@@ -160,10 +177,33 @@ class MultiStageTemplateRouter:
       pipeline_file = self.template_dir / "pipelines" / "cloud_repository_scope_dual_branch.yl2"
       if not pipeline_file.exists():
         raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
-      return pipeline_file.read_text().strip() + "\n"
+      raw = pipeline_file.read_text().strip()
+      if service_account:
+        sa_regex_pattern = r"\(\s*\$sa\s*=\s*/@.*?nocase\s*\)"
+        sa_binding = f'    $sa = "{service_account}"'
+        raw = re.sub(sa_regex_pattern, sa_binding, raw, flags=re.DOTALL)
+      if hypothesis_goal:
+        raw = f"// Goal: {hypothesis_goal}\n" + raw
+      return raw + "\n"
 
     else:
       raise ValueError(f"Unsupported pipeline type: {pipeline_type}")
+
+  def build_cloud_repository_scope_query(
+      self,
+      service_account: Optional[str] = None,
+      anomaly_threshold: float = 3.0,
+      hypothesis_goal: Optional[str] = None,
+  ) -> str:
+    """Builds a verified Cloud Repository Scope pipeline guaranteeing target.resource.name binding."""
+    return self.build_pipeline_query(
+        PipelineArchitecture.CLOUD_REPOSITORY_SCOPE_DUAL_BRANCH,
+        target_metric="resource_read_total",
+        entity_type=EntityType.USER,
+        anomaly_threshold=anomaly_threshold,
+        hypothesis_goal=hypothesis_goal,
+        service_account=service_account,
+    )
 
 class ChainedHuntRouter:
   """Builds Two-Phase Chained Hunt query specifications across entity boundaries."""

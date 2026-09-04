@@ -532,6 +532,58 @@ class PreFlightValidator:
         "sparse_callout": sparse_callout,
     }
 
+  @classmethod
+  def render_preflight_card(
+      cls,
+      target_scope: str,
+      peer_cohort: str,
+      statistical_model: str,
+      entity_graph_dimension: str = "N/A",
+      evaluation_mode: str = "Mode A: 24h (Default)",
+      significance_threshold: str = "Z >= 3.0σ (CRI >= 50)",
+      active_days: Optional[int] = None,
+      min_baseline_days: Optional[int] = None,
+  ) -> str:
+    """Renders the canonical PRE-FLIGHT HUNTING SPECIFICATION Card.
+
+    Flags 'Sparse Baseline Caution' whenever active days or min_baseline_days N < 7.
+    """
+    effective_n = active_days if active_days is not None else min_baseline_days
+    is_sparse = effective_n is not None and effective_n < 7
+
+    spine_line = (
+        f"• Baseline Horizon Spine: 30-Day Pre-Computed (period: 1d, 30d) [⚠️ Sparse Baseline Caution: N = {effective_n} < 7]"
+        if is_sparse
+        else "• Baseline Horizon Spine: 30-Day Pre-Computed (period: 1d, 30d)"
+    )
+
+    card = (
+        "```markdown\n"
+        "┌─────────────────────────────────────────────────────────────────┐\n"
+        "│                PRE-FLIGHT HUNTING SPECIFICATION                 │\n"
+        f"│ • Target Entity / Scope:  {target_scope:<38}│\n"
+        f"│ {spine_line:<64}│\n"
+        f"│ • Peer Cohort & Roster:   {peer_cohort:<38}│\n"
+        f"│ • Entity Graph Dimension: {entity_graph_dimension:<38}│\n"
+        f"│ • Evaluation Horizon Mode:{evaluation_mode:<38}│\n"
+        f"│ • Statistical Model:      {statistical_model:<38}│\n"
+        f"│ • Significance Threshold: {significance_threshold:<38}│\n"
+        "└─────────────────────────────────────────────────────────────────┘\n"
+        "```"
+    )
+
+    if is_sparse:
+      callout = (
+          "\n\n> [!WARNING]\n"
+          f"> **⚠️ Sparse Baseline Caution (N = {effective_n} < 7 Active Days)**:\n"
+          f"> Evaluating entities with fewer than 7 active baseline days reduces statistical "
+          "degrees of freedom and inflates false-positive Z-scores. We enforce an active-day floor and recommend "
+          "Empirical Bayes shrinkage to regularize sparse observations."
+      )
+      return card + callout
+
+    return card
+
 
 # Canonical UDM Filter Fields per Metric from Google SecOps YARA-L 2.0 specifications
 MALACHITE_SUPPORTED_FILTERS: Dict[str, Set[str]] = {

@@ -125,6 +125,23 @@ class TestStatisticalAssumptions(unittest.TestCase):
     self.assertAlmostEqual(evidence_weight, 0.667, delta=0.01)
     self.assertAlmostEqual(posterior_expected_rate, 70.0, delta=0.1)
 
+  def test_assumption_4b_shrinkage_behavior_under_extreme_sparsity_n_less_than_3(self):
+    """Asserts that entities with extreme baseline sparsity (N < 3 days) shrink towards fleet prior."""
+    fleet_mu = 20.0
+    fleet_var = 40.0
+    beta_fleet = fleet_mu / fleet_var  # 0.5
+    alpha_fleet = fleet_mu * beta_fleet  # 10.0
+
+    # Entity with 1 single active baseline day (N = 1)
+    obs_count = 5
+    alpha_post = alpha_fleet + obs_count
+    beta_post = beta_fleet + 1.0
+    post_rate = alpha_post / beta_post  # (10 + 5) / 1.5 = 10.0
+
+    self.assertGreater(post_rate, obs_count)
+    self.assertLess(post_rate, fleet_mu)
+    self.assertAlmostEqual(post_rate, 10.0, delta=0.1)
+
 
 if __name__ == '__main__':
   unittest.main()

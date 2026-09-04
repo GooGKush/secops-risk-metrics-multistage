@@ -41,11 +41,11 @@ class TestSubmissionCompilerPolicy(unittest.TestCase):
     cls.matrix = cls.suite.build_canonical_test_matrix()
 
   def test_canonical_matrix_size(self):
-    """Asserts that exactly 20 canonical test cases are defined."""
-    self.assertEqual(len(self.matrix), 20)
+    """Asserts that exactly 21 canonical test cases are defined."""
+    self.assertEqual(len(self.matrix), 21)
 
   def test_all_canonical_cases_pass_static_validation(self):
-    """Validates that all 20 canonical test cases produce clean YARA-L 2.0."""
+    """Validates that all 21 canonical test cases produce clean YARA-L 2.0."""
     for tc in self.matrix:
       with self.subTest(test_id=tc.test_id, name=tc.name):
         query = tc.render()
@@ -57,6 +57,18 @@ class TestSubmissionCompilerPolicy(unittest.TestCase):
             [],
             f"Test case {tc.test_id} failed invariant check with errors: {errors}",
         )
+
+  def test_pipe_09_prevalence_compiler_invariants(self):
+    """Asserts that PIPE-09-PREVALENCE passes AST validation and compiler invariants."""
+    pipe_09 = next(tc for tc in self.matrix if tc.test_id == "PIPE-09-PREVALENCE")
+    query = pipe_09.render()
+    self.assertIn("stage host_egress", query)
+    self.assertIn("stage destination_prevalence", query)
+    self.assertIn("artifact.prevalence.day_count = 10", query)
+    self.assertIn("artifact.prevalence.rolling_max <= 3", query)
+    self.assertIn("metrics.network_bytes_outbound", query)
+    errors = SubmissionTestSuite.validate_static_invariants(query, pipe_09.test_id)
+    self.assertEqual(errors, [])
 
   def test_invariant_detects_forbidden_condition_block(self):
     """Ensures validator catches forbidden 'condition:' blocks in search queries."""

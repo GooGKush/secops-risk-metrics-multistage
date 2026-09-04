@@ -249,6 +249,26 @@ class TestGuardrailContracts(unittest.TestCase):
     self.assertIn("• Entity Graph Dimension:", self.skill_content)
     self.assertIn("Interactive Entity Graph Dimension Mandate", self.skill_content)
 
+  def test_sparse_baseline_caution_in_preflight_card(self):
+    """PreFlightValidator.render_preflight_card must flag 'Sparse Baseline Caution' when active days N < 7."""
+    from scripts.preflight_validator import PreFlightValidator
+    card_sparse = PreFlightValidator.render_preflight_card(
+        target_scope="legacy-oauth-principal",
+        peer_cohort="IAM Service Accounts",
+        statistical_model="Standard Z-Score",
+        active_days=2,
+    )
+    self.assertIn("⚠️ Sparse Baseline Caution", card_sparse)
+    self.assertIn("N = 2 < 7", card_sparse)
+
+    card_nominal = PreFlightValidator.render_preflight_card(
+        target_scope="admin-user",
+        peer_cohort="IT Admins",
+        statistical_model="Standard Z-Score",
+        active_days=25,
+    )
+    self.assertNotIn("Sparse Baseline Caution", card_nominal)
+
   def test_prevalence_10day_platform_invariant_contract(self):
     """SKILL.md must define the 10-day prevalence platform invariant and consultative response protocol."""
     self.assertIn("10-Day Prevalence Platform Invariant", self.skill_content)
@@ -1066,6 +1086,75 @@ class TestGuardrailContracts(unittest.TestCase):
     self.assertIn("Ranked Outlier Summary & Provenance Stamp", skill_content)
     self.assertIn("Stamp execution provenance (events scanned, query execution time, projected schema columns)", skill_content)
     self.assertIn("Data Provenance & Execution Stamping", guide_content)
+
+  def test_zero_code_handoff_and_dual_layer_trickle_defense_contract(self):
+    """SKILL.md and multi-stage guide must mandate zero-code handoff and dual-layer trickle defense."""
+    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    skill_path = os.path.join(skill_dir, 'SKILL.md')
+    guide_path = os.path.join(skill_dir, 'references', 'multi-stage-metrics-guide.md')
+
+    with open(skill_path, 'r', encoding='utf-8') as f:
+      skill_content = f.read()
+    with open(guide_path, 'r', encoding='utf-8') as f:
+      guide_content = f.read()
+
+    # Zero-Code Handoff Invariant
+    self.assertIn("Zero-Code Handoff Invariant", skill_content)
+    self.assertIn("Zero-Code Handoff Invariant", guide_content)
+    self.assertIn("Handoff cards are strictly conceptual", skill_content)
+    self.assertIn("Tool-Precondition Code Block Embargo", skill_content)
+    self.assertIn("applies universally to queries, pivots, and handoff cards", skill_content)
+
+    # Dual-Layer Trickle Defense
+    self.assertIn("Dual-Layer Defense for Trickle Attacks", skill_content)
+    self.assertIn("Mode B Longitudinal CUSUM Drift", skill_content)
+    self.assertIn("metrics.dns_queries_total", skill_content)
+    self.assertIn("secops-statistical-hunter", skill_content)
+    self.assertIn("Dual-Layer Trickle Defense", guide_content)
+    self.assertIn("Layer 1 (Longitudinal CUSUM Drift)", guide_content)
+    self.assertIn("Layer 2 (Ad-Hoc Timing Jitter Handoff)", guide_content)
+
+  def test_progressive_load_first_directive_contract(self):
+    """CONTRIBUTING.md and compiler-submission-policy.md must mandate Progressive-Load First Directive."""
+    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    contrib_path = os.path.join(skill_dir, 'CONTRIBUTING.md')
+    policy_path = os.path.join(skill_dir, 'references', 'compiler-submission-policy.md')
+
+    with open(contrib_path, 'r', encoding='utf-8') as f:
+      contrib_content = f.read()
+    with open(policy_path, 'r', encoding='utf-8') as f:
+      policy_content = f.read()
+
+    # Assert directive present in CONTRIBUTING.md
+    self.assertIn("Progressive-Load First Directive", contrib_content)
+    self.assertIn("NEVER default to immediately modifying `SKILL.md`", contrib_content)
+    self.assertIn("Assess Progressive-Load Locations First", contrib_content)
+    self.assertIn("Preserve `SKILL.md` as a Lean Orchestrator", contrib_content)
+    self.assertIn("Progressive-Load Compliance", contrib_content)
+
+    # Assert policy present in references/compiler-submission-policy.md
+    self.assertIn("Skill Architecture & Progressive-Load First Policy", policy_content)
+    self.assertIn("Three-Tier Information Architecture", policy_content)
+    self.assertIn("Mandatory Pre-Modification Decision Tree", policy_content)
+    self.assertIn("Progressive-Load Enforcement Checklist", policy_content)
+
+  def test_two_answer_scheduled_exfiltration_workflow_contract(self):
+    """multi-stage guide must document the Two-Answer Scheduled Exfiltration Workflow and Prevalence Assumption."""
+    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    guide_path = os.path.join(skill_dir, 'references', 'multi-stage-metrics-guide.md')
+
+    with open(guide_path, 'r', encoding='utf-8') as f:
+      guide_content = f.read()
+
+    # Section 29 assertions
+    self.assertIn("29. Scheduled & Automated Exfiltration: The Two-Answer Hybrid Workflow", guide_content)
+    self.assertIn("NEVER force a purely volumetric daily baseline onto a temporal regularity problem", guide_content)
+    self.assertIn("Answer 1: Immediate Risk Metrics Execution via Low-Prevalence Screening", guide_content)
+    self.assertIn("PIPE-09-PREVALENCE", guide_content)
+    self.assertIn("Prevalence Screening Assumption", guide_content)
+    self.assertIn("Answer 2: Consultative Bridge for High-Prevalence / Living-Off-The-Cloud Targets", guide_content)
+    self.assertIn("high-prevalence public cloud infrastructure", guide_content)
+    self.assertIn("C2_BEACONING_JITTER (CV <= 0.20) & Cron Minute", guide_content)
 
 
 if __name__ == '__main__':

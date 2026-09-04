@@ -244,6 +244,81 @@ class SubmissionTestSuite:
         )
     )
 
+    matrix.append(
+        TestCase(
+            test_id="PIPE-09-PREVALENCE",
+            category="Pipeline Template",
+            name="2-Stage Entity Graph IP Prevalence & Egress Outlier",
+            description="Evaluates outbound network connection volume against 30d baseline joined with Entity Graph external IP prevalence (<= 3 hosts).",
+            generator=lambda: """// Stage 1: Measure outbound network connection activity and 30-day baseline per host and external IP
+stage host_egress {
+    $net.metadata.event_type = "NETWORK_CONNECTION"
+    $net.principal.asset.hostname = $host
+    $net.target.ip = $dst_ip
+
+    // Exclude internal RFC 1918 traffic
+    not net.ip_in_range_cidr($dst_ip, "10.0.0.0/8")
+    not net.ip_in_range_cidr($dst_ip, "172.16.0.0/12")
+    not net.ip_in_range_cidr($dst_ip, "192.168.0.0/16")
+
+  match:
+    $host, $dst_ip by 1d
+
+  outcome:
+    $observed_bytes = sum($net.network.sent_bytes)
+    $hist_avg = max(metrics.network_bytes_outbound(
+        period: 1d, window: 30d, metric: value_sum, agg: avg,
+        principal.asset.hostname: $host
+    ))
+    $hist_stddev = max(metrics.network_bytes_outbound(
+        period: 1d, window: 30d, metric: value_sum, agg: stddev,
+        principal.asset.hostname: $host
+    ))
+    $hist_active_days = max(metrics.network_bytes_outbound(
+        period: 1d, window: 30d, metric: value_sum, agg: num_metric_periods,
+        principal.asset.hostname: $host
+    ))
+}
+
+// Stage 2: Entity Graph Derived Context - External IP Prevalence (<= 3 internal hosts across 10d)
+stage destination_prevalence {
+    $graph.graph.metadata.entity_type = "IP_ADDRESS"
+    $graph.graph.metadata.source_type = "DERIVED_CONTEXT"
+    $graph.graph.entity.ip = $dst_ip
+    $graph.graph.entity.artifact.prevalence.day_count = 10
+    $graph.graph.entity.artifact.prevalence.rolling_max > 0
+    $graph.graph.entity.artifact.prevalence.rolling_max <= 3
+
+  match:
+    $dst_ip
+
+  outcome:
+    $fleet_prevalence = max($graph.graph.entity.artifact.prevalence.rolling_max)
+}
+
+// Root Stage: Join host egress with destination rarity and evaluate statistical deviation
+$host = $host_egress.host
+$dst_ip = $host_egress.dst_ip
+$dst_ip = $destination_prevalence.dst_ip
+
+match:
+  $host, $dst_ip
+
+outcome:
+  $actual_bytes = max($host_egress.observed_bytes)
+  $historical_mean = max($host_egress.hist_avg)
+  $historical_stddev = max($host_egress.hist_stddev)
+  $baseline_active_days = max($host_egress.hist_active_days)
+  $destination_prevalence_10d = max($destination_prevalence.fleet_prevalence)
+  $z_score = ($actual_bytes - $historical_mean) / ($historical_stddev + 1.0)
+
+order:
+  $z_score desc
+""",
+            expected_stages=["host_egress", "destination_prevalence"],
+        )
+    )
+
     # -------------------------------------------------------------------------
     # 3. Decoupled 360° Risk Radar Micro-Queries (4 Cases)
     # -------------------------------------------------------------------------

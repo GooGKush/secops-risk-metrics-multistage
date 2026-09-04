@@ -1,0 +1,52 @@
+// Stage 1: Total Cloud Resource Writes with Local-Baseline Isolation
+stage stage1_extract {
+    metadata.event_type = "RESOURCE_WRITTEN"
+    $sa = principal.user.userid
+    $vendor = metadata.vendor_name
+    $product = metadata.product_name
+    $resource = target.resource.name
+    $ip = principal.ip
+    $resource != ""
+    $sa != ""
+
+  match:
+    $sa, $vendor, $product, $resource, $ip by 1d
+
+  outcome:
+    $observed_val = count(metadata.id)
+    $historical_avg = max(metrics.resource_written_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+        principal.user.userid: $sa,
+        metadata.vendor_name: $vendor,
+        metadata.product_name: $product,
+        target.resource.name: $resource
+    ))
+    $historical_stddev = max(metrics.resource_written_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+        principal.user.userid: $sa,
+        metadata.vendor_name: $vendor,
+        metadata.product_name: $product,
+        target.resource.name: $resource
+    ))
+    $historical_active_days = max(metrics.resource_written_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+        principal.user.userid: $sa,
+        metadata.vendor_name: $vendor,
+        metadata.product_name: $product,
+        target.resource.name: $resource
+    ))
+    $historical_max = max(metrics.resource_written_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: max,
+        principal.user.userid: $sa,
+        metadata.vendor_name: $vendor,
+        metadata.product_name: $product,
+        target.resource.name: $resource
+    ))
+    $historical_sum = max(metrics.resource_written_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: sum,
+        principal.user.userid: $sa,
+        metadata.vendor_name: $vendor,
+        metadata.product_name: $product,
+        target.resource.name: $resource
+    ))
+}

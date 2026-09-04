@@ -193,16 +193,20 @@ class StatisticalAntipatternAuditor:
     """Detects multi-resource access evaluated without local-baseline resource isolation."""
     violations: List[StatisticalViolation] = []
 
-    has_resource_metric = any(
-        m in stage_body for m in [
-            "metrics.resource_read_total",
-            "metrics.resource_written_total",
-            "metrics.resource_creation_total",
-            "metrics.resource_deletion_total",
-        ]
-    )
-    if not has_resource_metric:
-      return violations
+    resource_store_metrics = [
+        "metrics.resource_read_total",
+        "metrics.resource_written_total",
+        "metrics.resource_written_success",
+        "metrics.resource_written_fail",
+    ]
+    matched_metrics = [m for m in resource_store_metrics if m in stage_body]
+    if not matched_metrics:
+      has_legacy_metric = any(
+          m in stage_body
+          for m in ["metrics.resource_creation_total", "metrics.resource_deletion_total"]
+      )
+      if not has_legacy_metric:
+        return violations
 
     match_block = re.search(r"\bmatch:\s*(.*?)(?=\b(?:outcome|condition|order)\s*:|\}|$|\Z)", stage_body, re.DOTALL)
     if not match_block:
@@ -211,27 +215,52 @@ class StatisticalAntipatternAuditor:
     match_content = match_block.group(1)
     event_section = stage_body[:match_block.start()]
 
-    has_resource_target = "target.resource.name" in event_section or "$resource" in event_section
-    if has_resource_target:
-      res_var_match = re.search(r"(\$[a-zA-Z0-9_]+)\s*=\s*target\.resource\.name", event_section)
-      res_var = res_var_match.group(1) if res_var_match else "$resource"
+    has_account_entity = any(
+        term in match_content
+        for term in ["$user", "$sa", "$account", "$principal", "principal.user.userid"]
+    ) or any(
+        re.search(rf"\b{re.escape(var)}\b", match_content)
+        for var in re.findall(r"(\$[a-zA-Z0-9_]+)\s*=\s*principal\.user\.userid", event_section)
+    )
 
-      if res_var not in match_content and "target.resource.name" not in match_content:
-        violations.append(
-            StatisticalViolation(
-                antipattern=StatisticalAntipatternType.DYNAMIC_RANGE_MASKING,
-                stage_name=stage_name,
-                description=(
-                    f"Stage '{stage_name}' queries multi-resource targets but match section '{match_content.strip()}' "
-                    f"omits resource variable '{res_var}'. Aggregating all resources under an account-level baseline "
-                    "allows high-volume routine resources (the 'Elephant') to mask acute exfiltration dumps on sensitive databases (the 'Mouse')."
-                ),
-                remediation=(
-                    f"Include '{res_var}' in match key: 'match: $user, {res_var} by 1d' to implement Local-Baseline Isolation "
-                    "(as implemented in templates/pipelines/cloud_repository_scope_dual_branch.yl2)."
-                ),
-            )
-        )
+    res_var_match = re.search(r"(\$[a-zA-Z0-9_]+)\s*=\s*target\.resource\.name", event_section)
+    res_var = res_var_match.group(1) if res_var_match else "$resource"
+
+    has_resource_in_match = res_var in match_content or "target.resource.name" in match_content
+
+    if matched_metrics and has_account_entity and not has_resource_in_match:
+      violations.append(
+          StatisticalViolation(
+              antipattern=StatisticalAntipatternType.DYNAMIC_RANGE_MASKING,
+              stage_name=stage_name,
+              description=(
+                  f"Stage '{stage_name}' queries cloud data store metric '{matched_metrics[0]}' for an account, "
+                  f"but match section '{match_content.strip()}' omits resource variable '{res_var}'. Aggregating "
+                  "all repositories under an account-level baseline allows high-volume routine resources (the 'Elephant') "
+                  "to mask acute exfiltration dumps on sensitive databases (the 'Mouse')."
+              ),
+              remediation=(
+                  f"Bind '{res_var} = target.resource.name' and include in match: 'match: $sa, $vendor, $product, {res_var}, $ip by 1d' "
+                  "to implement Local-Baseline Isolation (as implemented in templates/pipelines/cloud_repository_scope_dual_branch.yl2)."
+              ),
+          )
+      )
+    elif ("target.resource.name" in event_section or "$resource" in event_section) and not has_resource_in_match:
+      violations.append(
+          StatisticalViolation(
+              antipattern=StatisticalAntipatternType.DYNAMIC_RANGE_MASKING,
+              stage_name=stage_name,
+              description=(
+                  f"Stage '{stage_name}' queries multi-resource targets but match section '{match_content.strip()}' "
+                  f"omits resource variable '{res_var}'. Aggregating all resources under an account-level baseline "
+                  "allows high-volume routine resources (the 'Elephant') to mask acute exfiltration dumps on sensitive databases (the 'Mouse')."
+              ),
+              remediation=(
+                  f"Include '{res_var}' in match key: 'match: $user, {res_var} by 1d' to implement Local-Baseline Isolation "
+                  "(as implemented in templates/pipelines/cloud_repository_scope_dual_branch.yl2)."
+              ),
+          )
+      )
 
     return violations
 

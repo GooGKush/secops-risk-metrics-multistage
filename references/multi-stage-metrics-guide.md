@@ -493,6 +493,12 @@ The pipeline computes two orthogonal anomaly scores:
 ### 3. Canonical Compiler-Verified Pipeline
 This architecture is codified in `templates/pipelines/cloud_repository_scope_dual_branch.yl2` and verified by `PIPE-08-CLOUD-SCOPE`. It consumes only 1 internal UEBA join ($\le 4$ join limit) and enforces mandatory companion dimensions (`metadata.vendor_name`, `metadata.product_name`).
 
+### 4. Multi-Database Account Template Router Binding Contract
+When hunting compromised accounts (e.g. Scattered Spider, OAuth token theft) across multiple databases or cloud object stores:
+1. **Mandatory Dimension Binding**: The template router (`MultiStageTemplateRouter`) programmatically enforces that `target.resource.name: $resource` is bound in both the Stage 1 match key (`$sa, $vendor, $product, $resource, $ip by 1d`) and Root stage match key (`$sa, $product, $resource, $ip, $ws by 1d`).
+2. **Automated Routing**: Calling `build_query()` for `resource_read_total` or `resource_written_total` on an account entity automatically routes to `CLOUD_REPOSITORY_SCOPE_DUAL_BRANCH`.
+3. **Linter Enforcement**: `StatisticalAntipatternAuditor` flags `STAT_ANTIPATTERN_DYNAMIC_RANGE_MASKING` on any query using cloud resource store metrics under an account entity if `target.resource.name` is omitted from the match key, preventing account-level aggregation.
+
 ---
 
 ## 24. Threat Hunting Lifecycles: Fleet/Vector Outlier Hunts vs. 360° Entity Pivot
@@ -648,6 +654,129 @@ To prevent fabricated results or recycled numbers, reports must stamp execution 
 * Scanned event volume.
 * Engine query execution timestamp.
 * Projected schema columns from the `stats` payload.
+
+### D. The Zero-Code Handoff Invariant & Dual-Layer Trickle Defense
+1. **Zero-Code Handoff Invariant**:
+   * Under NO circumstances may an agent emit candidate ```yara query blocks inside or alongside a Skill Handoff Card.
+   * Handoff cards are strictly conceptual and architectural. They specify target telemetry, mathematical model, and rationale, but withhold executable YARA-L code.
+   * Code emission belongs exclusively to the destination skill once invoked (or after handoff clearance and invocation). Emitting unvalidated candidate code for another skill during handoff violates the Tool-Precondition Code Block Embargo, because the source skill cannot validate code designed for the destination skill's grammar.
+2. **Dual-Layer Trickle Defense (Low-Volume Stealth Attacks)**:
+   * When investigating low-volume trickle attacks with randomized jitter (e.g., SUNBURST DNS), an agent must NOT prematurely surrender risk metrics.
+   * **Layer 1 (Longitudinal CUSUM Drift)**: Mode B Longitudinal CUSUM Drift ($S_t^+ \ge 4.0\sigma$ on `metrics.dns_queries_total`) detects cumulative, multi-day low-volume drift ($k = 0.5\sigma$, $h = 4.0\sigma$) over 14–30 days even when daily volume is low.
+   * **Layer 2 (Ad-Hoc Timing Jitter Handoff)**: Handoff to `secops-statistical-hunter` is reserved strictly for evaluating sub-minute or hourly inter-arrival timing jitter ($CV \le 0.20$) on raw connection timestamps (`metadata.event_timestamp.seconds`).
+
+---
+
+## 29. Scheduled & Automated Exfiltration: The Two-Answer Hybrid Workflow
+
+When an analyst asks whether Google SecOps can detect automated or scheduled exfiltration patterns (such as recurring server-to-server outbound transfers, cron-driven data dumps, or periodic sync jobs), the agent must **NEVER force a purely volumetric daily baseline onto a temporal regularity problem**.
+
+A scheduled cron job exfiltrating 5 GB at 02:00 UTC looks identical in daily rollups (`period: 1d`) to standard business operations, and recurring transfers will gradually contaminate a 30-day baseline. Furthermore, pre-computed `metrics.*` tables aggregate event volumes and cannot calculate inter-arrival delta times ($\Delta t$) or coefficient of variation ($CV$).
+
+To provide maximum analytical value without compromising mathematical integrity, the agent must execute the **Two-Answer Consultative Workflow**:
+
+### A. Answer 1: Immediate Risk Metrics Execution via Low-Prevalence Screening
+1. **The Rationale**:
+   Rather than attempting to calculate second-level timing across millions of raw events or relying solely on volume, the agent leverages **Entity Graph Derived Context** to screen for external destinations with isolated enterprise prevalence ($\le 3$ internal hosts over 10 days).
+2. **The Compilable Multi-Stage Query (`PIPE-09-PREVALENCE`)**:
+   The query pairs raw `NETWORK_CONNECTION` events with `metrics.network_bytes_outbound` (for host-level historical context) and joins with `graph.entity.artifact.prevalence` (`rolling_max <= 3`, `day_count = 10`):
+   ```yara
+   // Stage 1: Measure outbound network connection activity and 30-day baseline per host and external IP
+   stage host_egress {
+       $net.metadata.event_type = "NETWORK_CONNECTION"
+       $net.principal.asset.hostname = $host
+       $net.target.ip = $dst_ip
+
+       // Exclude internal RFC 1918 traffic
+       not net.ip_in_range_cidr($dst_ip, "10.0.0.0/8")
+       not net.ip_in_range_cidr($dst_ip, "172.16.0.0/12")
+       not net.ip_in_range_cidr($dst_ip, "192.168.0.0/16")
+
+     match:
+       $host, $dst_ip by 1d
+
+     outcome:
+       $observed_bytes = sum($net.network.sent_bytes)
+       $hist_avg = max(metrics.network_bytes_outbound(
+           period: 1d, window: 30d, metric: value_sum, agg: avg,
+           principal.asset.hostname: $host
+       ))
+       $hist_stddev = max(metrics.network_bytes_outbound(
+           period: 1d, window: 30d, metric: value_sum, agg: stddev,
+           principal.asset.hostname: $host
+       ))
+       $hist_active_days = max(metrics.network_bytes_outbound(
+           period: 1d, window: 30d, metric: value_sum, agg: num_metric_periods,
+           principal.asset.hostname: $host
+       ))
+   }
+
+   // Stage 2: Entity Graph Derived Context - External IP Prevalence (<= 3 internal hosts across 10d)
+   stage destination_prevalence {
+       $graph.graph.metadata.entity_type = "IP_ADDRESS"
+       $graph.graph.metadata.source_type = "DERIVED_CONTEXT"
+       $graph.graph.entity.ip = $dst_ip
+       $graph.graph.entity.artifact.prevalence.day_count = 10
+       $graph.graph.entity.artifact.prevalence.rolling_max > 0
+       $graph.graph.entity.artifact.prevalence.rolling_max <= 3
+
+     match:
+       $dst_ip
+
+     outcome:
+       $fleet_prevalence = max($graph.graph.entity.artifact.prevalence.rolling_max)
+   }
+
+   // Root Stage: Join host egress with destination rarity and evaluate statistical deviation
+   $host = $host_egress.host
+   $dst_ip = $host_egress.dst_ip
+   $dst_ip = $destination_prevalence.dst_ip
+
+   match:
+     $host, $dst_ip
+
+   outcome:
+     $actual_bytes = max($host_egress.observed_bytes)
+     $historical_mean = max($host_egress.hist_avg)
+     $historical_stddev = max($host_egress.hist_stddev)
+     $baseline_active_days = max($host_egress.hist_active_days)
+     $destination_prevalence_10d = max($destination_prevalence.fleet_prevalence)
+     $z_score = ($actual_bytes - $historical_mean) / ($historical_stddev + 1.0)
+
+   order:
+     $z_score desc
+   ```
+3. **Mandatory Prevalence Assumption Callout**:
+   In Pillar 4 (Forensic Vector Breakdown), the report MUST explicitly state:
+   > [!NOTE]
+   > **⚠️ Prevalence Screening Assumption**:  
+   > This query specifically isolates external destinations with low enterprise prevalence ($\le 3$ internal hosts over a 10-day lookback). It effectively detects rogue VPS drop points, isolated C2 servers, and unapproved staging endpoints. **However, it assumes the adversary is not using high-prevalence public cloud infrastructure.**
+
+### B. Answer 2: Consultative Bridge for High-Prevalence / Living-Off-The-Cloud Targets
+1. **The Consultative Gate**:
+   In Pillar 6 (or Next Steps), the agent proactively asks the hunter:
+   > *"Would you also like to evaluate automated exfiltration targeting **high-prevalence public cloud infrastructure** (e.g., AWS S3, Google Cloud Storage, Cloudflare Workers, GitHub, Box, Dropbox) where destination prevalence filtering cannot be used?"*
+2. **The Structured Skill Handoff Card (Zero-Code Handoff Invariant)**:
+   When the hunter requests cloud exfiltration coverage, the agent emits a **Skill Handoff Card** steering to `secops-statistical-hunter`:
+   ```markdown
+   ┌────────────────────────────────────────────────────────────────────────┐
+   │                        SKILL HANDOFF CARD                              │
+   │ • Source Skill:       secops-risk-metrics-multistage                   │
+   │ • Destination Skill:  secops-statistical-hunter                        │
+   │ • Target Telemetry:   Raw UDM_EVENTS (NETWORK_CONNECTION / DNS)        │
+   │ • Statistical Model:  C2_BEACONING_JITTER (CV <= 0.20) & Cron Minute   │
+   │ • Target Scope:       High-Prevalence Cloud (AWS S3, GCS, Cloudflare)  │
+   │ • Candidate Hosts:    [Candidate host IDs from Phase 1 or full fleet]  │
+   │ • Operational Rationale: Evaluates sub-minute inter-arrival variance   │
+   │   (Δt) and minute :00 synchronization over raw timestamps to prove     │
+   │   scheduled automation without relying on volume or prevalence.        │
+   └────────────────────────────────────────────────────────────────────────┘
+   ```
+3. **Handoff Execution**:
+   The agent instructs the destination skill to evaluate:
+   * **Timing Regularity ($CV \le 0.20$)**: Low coefficient of variation on connection intervals proves robotic execution.
+   * **Cron Minute Alignment**: Aggregating `timestamp.get_minute($e.metadata.event_timestamp.seconds, "UTC")` to detect transfers synchronized to exact minute boundaries (`:00`, `:15`, `:30`).
+   * **Process-to-Network Correlation**: Correlating `/usr/sbin/cron` or `systemd` process launches with outbound network connections within 60 seconds.
 
 ---
 *Created and maintained by Greg Kushmerek for Google SecOps Chronicle SIEM threat hunting workflows.*

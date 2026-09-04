@@ -126,6 +126,30 @@ class TestStatisticalAntipatternAuditor(unittest.TestCase):
         f"Expected DYNAMIC_RANGE_MASKING, got {violations}",
     )
 
+  def test_catches_dynamic_range_masking_without_resource_declaration(self):
+    """Detects multi-resource access evaluated under an account when resource variable is not even declared."""
+    bad_query = """
+    stage s1 {
+      metadata.event_type = "RESOURCE_READ"
+      $user = principal.user.userid
+      $v = metadata.vendor_name
+      $p = metadata.product_name
+      match: $user, $v, $p by 1d
+      outcome:
+        $obs = count(metadata.id)
+        $mu = max(metrics.resource_read_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: $user, metadata.vendor_name: $v, metadata.product_name: $p))
+    }
+    $user = $s1.user
+    match: $user by 1d
+    outcome:
+      $z = 2.0
+    """
+    violations = StatisticalAntipatternAuditor.audit_query(bad_query)
+    self.assertTrue(
+        any(v.antipattern == StatisticalAntipatternType.DYNAMIC_RANGE_MASKING for v in violations),
+        f"Expected DYNAMIC_RANGE_MASKING, got {violations}",
+    )
+
   def test_catches_zero_dispersion_hazard(self):
     """Detects division by standard deviation without an additive dispersion floor."""
     bad_query = """
