@@ -61,7 +61,7 @@ outcome:
   $slack_excess = $daily_z - 0.5
 
   // 3. Positive Drift Increments
-  $cusum_drift_score = if($slack_excess > 0, $slack_excess, 0.0)
+  $cusum_drift_score = $slack_excess
 
 order:
   $cusum_drift_score desc

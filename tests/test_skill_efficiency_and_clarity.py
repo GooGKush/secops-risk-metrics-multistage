@@ -11,8 +11,14 @@ import unittest
 class TestSkillEfficiencyAndClarity(unittest.TestCase):
 
   def setUp(self):
-    self.skill_md_path = '/usr/local/google/home/kushmerek/.gemini/skills/secops-risk-metrics-multistage/SKILL.md'
-    self.skill_dir = os.path.dirname(self.skill_md_path)
+    repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    repo_skill_md = os.path.join(repo_dir, 'SKILL.md')
+    if os.path.exists(repo_skill_md):
+      self.skill_md_path = repo_skill_md
+      self.skill_dir = repo_dir
+    else:
+      self.skill_md_path = '/usr/local/google/home/kushmerek/.gemini/skills/secops-risk-metrics-multistage/SKILL.md'
+      self.skill_dir = os.path.dirname(self.skill_md_path)
     self.assertTrue(os.path.exists(self.skill_md_path), "SKILL.md must exist")
     with open(self.skill_md_path, 'r', encoding='utf-8') as f:
       self.skill_content = f.read()
@@ -73,19 +79,19 @@ class TestSkillEfficiencyAndClarity(unittest.TestCase):
 
   def test_step1_preflight_gate_hierarchy(self):
     """SKILL.md must define the essential sub-requirements of Step 1 Pre-Flight Gate."""
-    self.assertIn("MANDATORY STEP 1: PRE-FLIGHT CLEARANCE", self.skill_content)
+    self.assertTrue("MANDATORY STEP 1: PRE-FLIGHT CLEARANCE" in self.skill_content or "State 1: Pre-Flight Clearance" in self.skill_content)
     self.assertIn("Turn 1 Tool Invariant", self.skill_content)
     self.assertIn("PRE-FLIGHT HUNTING SPECIFICATION", self.skill_content)
     self.assertIn("Explicit Clearance Question & Turn Termination", self.skill_content)
 
   def test_step2_six_pillars_hierarchy(self):
     """SKILL.md must define all 6 required pillars of the Step 2 triage report."""
-    self.assertIn("MANDATORY STEP 2: PRESENT FULL 6-SECTION REPORT", self.skill_content)
+    self.assertTrue("MANDATORY STEP 2: PRESENT FULL 6-SECTION REPORT" in self.skill_content or "State 2: Deterministic Multi-Stage Execution" in self.skill_content)
     self.assertIn("Statistical Outlier Report", self.skill_content)
     self.assertIn("Executed Multi-Stage YARA-L Query", self.skill_content)
     self.assertIn("Ranked Outlier Summary", self.skill_content)
     self.assertIn("Forensic Vector Breakdown", self.skill_content)
-    self.assertIn("Immediate 1-Click", self.skill_content)
+    self.assertIn("Chronicle UI Manual Pivot", self.skill_content)
     self.assertIn("Statistical & Mathematical Appendix", self.skill_content)
 
 

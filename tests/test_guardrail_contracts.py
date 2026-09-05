@@ -1270,6 +1270,32 @@ class TestGuardrailContracts(unittest.TestCase):
     self.assertIn("Prohibition of Raw Event Filters in Pillar 2", guide_content)
 
 
+
+  def test_dual_grounding_commandments_contract(self):
+    """SKILL.md must strictly enforce the Dual Grounding Invariants against data and schema fabrication."""
+    self.assertIn("THE DUAL GROUNDING INVARIANTS (THE NON-NEGOTIABLE INTEGRITY CORE)", self.skill_content)
+    self.assertIn("Zero Data Simulation (NEVER Fabricate Data)", self.skill_content)
+    self.assertIn("Zero Schema/Syntax Fantasy (NEVER Hallucinate UDM Fields or YARA-L Grammar)", self.skill_content)
+    self.assertIn("Truth Over Completion", self.skill_content)
+
+  def test_three_state_active_hunt_lifecycle_contract(self):
+    """SKILL.md must define the closed 3-state active hunt engine."""
+    self.assertIn("THE 3-STATE ACTIVE HUNT LIFECYCLE", self.skill_content)
+    self.assertIn("State 1: Pre-Flight Clearance & Specification", self.skill_content)
+    self.assertIn("State 2: Deterministic Multi-Stage Execution & 6-Pillar Report", self.skill_content)
+    self.assertIn("State 3: Iteration, Entity Shifts & Federated Bridge", self.skill_content)
+
+  def test_pillar5_debaiting_contract(self):
+    """Pillar 5 must be titled Chronicle UI Manual Pivot and forbid tool execution to avoid the homonym trap."""
+    self.assertIn("Chronicle UI Manual Pivot (Triage Reference Only)", self.skill_content)
+    self.assertNotIn("Immediate 1-Click Investigation Queries", self.skill_content)
+
+  def test_active_hunt_session_lock_contract(self):
+    """SKILL.md must enforce the Active Hunt Session Lock and multi-turn entity shift routing."""
+    self.assertIn("Active Hunt Session Lock & Boundary (ZERO CROSS-SKILL DRIFT)", self.skill_content)
+    self.assertIn("same query for", self.skill_content)
+    self.assertIn("Re-enter State 1 for new entity", self.skill_content)
+
 if __name__ == '__main__':
   unittest.main()
 

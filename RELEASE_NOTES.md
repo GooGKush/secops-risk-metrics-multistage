@@ -1,10 +1,69 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.4.2)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.5)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v1.4.2 — September 2026  
+**Latest Version**: v1.5 — September 2026  
+
+---
+
+## 📢 What's New in v1.5 (Point Release)
+
+* **Bilateral Cooperative Threat Hunting Architecture**:
+  - Published `references/statistical-hunting-cooperative-framework.md` establishing the bilateral division of labor between `secops-risk-metrics-multistage` (Macro-Analysis: 30-day pre-computed behavioral baselines, peer group analytics, longitudinal CUSUM drift, and 360° risk radars) and `secops-statistical-hunter` (Micro-Analysis: ad-hoc inline MAD, CV beaconing regularity, Poisson rarity, and Tukey fences on raw log streams).
+  - Codified strict Zero-Code Handoff Invariant: cross-skill handoff cards remain strictly conceptual and architectural without emitting uncompiled code blocks.
+
+* **The Dual Grounding Invariants (The Non-Negotiable Integrity Core)**:
+  - **Zero Data Simulation ("Truth Over Completion")**: Strictly prohibits synthesizing baseline statistics in Python scratch scripts, pulling raw event dumps to mock UEBA aggregations, or fabricating results when API returns empty or errors.
+  - **Zero Schema/Syntax Fantasy**: Prohibits hallucinating non-existent UDM fields or unsupported functions (`math.sqrt`). Every query presented must be verified via a 10-minute compile probe (`<ISO_10M_AGO>` to `<ISO_NOW>`) before clearance.
+
+* **The Closed 3-State Active Hunt Engine**:
+  - Replaced sprawling negative prohibitions with a deterministic positive state machine:
+    - **State 1 (Pre-Flight Clearance & Specification)**: 14-day UDM spot-check for single-token identifiers, ISO 8601 live compiler probe, specification card presentation, and hard clearance question (0 execution tools called).
+    - **State 2 (Deterministic Execution & 6-Pillar Reporting)**: Native execution, dynamic SVG radar generation, and mandatory 6-pillar triage report.
+    - **State 3 (Iteration, Entity Shifts & Federated Bridge)**: Re-enters State 1 for new entities or pivots cleanly to `secops-statistical-hunter`.
+
+* **Active Hunt Session Lock & Multi-Turn Boundary (Zero Cross-Skill Drift)**:
+  - Enforces persistent session affinity across follow-up turns ("run same query for user X", "what about user Y", "check network egress on host Z").
+  - Re-enters State 1 for the new entity while locking the statistical hunting persona, strictly prohibiting conversation fall-through to generic search skills (`secops-siem-search`) or unconstrained raw log dumps.
+
+* **Lexical De-Baiting of Pillar 5**:
+  - Renamed Pillar 5 from *"Immediate 1-Click Investigation Queries"* to *"Chronicle UI Manual Pivot (Triage Reference Only)"*.
+  - Formatted the pivot string as a passive markdown blockquote/note instead of an executable code block (`yara`), eliminating the model bait that previously triggered accidental raw UDM search execution.
+
+* **Categorical AST Bug Fixes & Regression Invariants**:
+  - **Prohibition of `if(...)` Conditionals in Outcome Blocks**: Resolved critical AST violation in `templates/stage1_extractors/auth_attempts_total.yl2` (removed legacy `$failed_logins = sum(if(...))`) and regularized `templates/pipelines/longitudinal_cusum_2stage.yl2` to linear arithmetic (`$cusum_drift_score = $slack_excess`).
+  - **Division-by-Zero Regularization Floor**: Enforced mandatory `+ 1.0` dispersion floor across all outcome divisors (`($obs - $avg) / ($std + 1.0)`).
+  - **Pillar 2 Verbatim Query Fidelity**: Enforced the Literal Query Display Mandate (ZERO FAKED YARA-L QUERIES), guaranteeing Pillar 2 displays the exact query string executed against Chronicle.
+  - **Regression Matrix Alignment**: Directly aligns with regression invariants in `secops-regress` (`REG-P0-01` through `REG-P1-10`).
+
+* **Expanded Evaluation Suite (`evals/evals.json`)**:
+  - Added Eval 6 (`eval_active_hunt_session_lock`), Eval 7 (`eval_pillar5_non_executable_manual_pivot`), and Eval 8 (`eval_zero_conditional_ast_conformance`) for continuous regression verification.
+
+---
+
+## 📢 What's New in v1.4.4 (Point Release)
+
+* **Identity Disambiguation & Single-Token 14-Day UDM Spot-Check**:
+  - Prohibits guessing usernames for single-token prompts ("Frank", "admin") and enforces automated 14-day UDM lookbacks against `user_display_name`.
+  - Halts immediately if unresolved, preventing execution without explicit user confirmation (`REG-P1-06`).
+
+* **Pre-Flight Query Preview & ISO 8601 Timestamp Bounds**:
+  - Requires pre-flight query previews in Turn 1 with explicit dynamic ISO 8601 timestamps (`startTime: 10m ago`, `endTime: now`) and strict code block embargo until compilation succeeds (`REG-P0-01`).
+
+* **Hard Clearance Gate Invariant**:
+  - Enforced Turn 1 tool invariant: pre-flight preview only, terminating the turn without calling `udm_search` until explicit user clearance is granted in Turn 2 (`REG-P0-02`).
+
+---
+
+## 📢 What's New in v1.4.3 (Point Release)
+
+* **Decoupled 360° Risk Radar Architecture**:
+  - Enforced parallel independent 2-stage queries (<= 5 micro-queries) across the 5 canonical risk sectors, preventing silent inner-join drops for quiet accounts (`REG-P0-03`).
+
+* **Target-Date Auto-Bypass & Historical Scoping**:
+  - Auto-bypasses interactive user prompts when explicit historical target dates or forensic incident windows are specified in the prompt.
 
 ---
 

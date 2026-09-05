@@ -10,7 +10,6 @@ stage stage1_extract {
 
   outcome:
     $observed_val = count(metadata.id)
-    $failed_logins = sum(if(security_result.action != "ALLOW", 1, 0))
     $distinct_source_ips = count_distinct(principal.ip)
     $distinct_user_agents = count_distinct(network.http.user_agent)
 

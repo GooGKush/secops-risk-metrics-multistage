@@ -33,7 +33,7 @@
         "Response contains Section 2: Executed Multi-Stage YARA-L Query with verbatim query string",
         "Response contains Section 3: Ranked Outlier Summary Table with Z-scores and CRI",
         "Response contains Section 4: Forensic Vector Breakdown & Action Plan",
-        "Response contains Section 5: Immediate 1-Click Investigation Queries",
+        "Response contains Section 5: Chronicle UI Manual Pivot (Triage Reference Only)",
         "Response contains Section 6: Collapsible Technical Appendix (<details open><summary>🔬 ...</summary></details>)",
         "Query in Section 2 matches the literal string executed against the API"
       ]
@@ -58,6 +58,39 @@
         "Agent does not create or execute scratch Python scripts to simulate baselines",
         "Agent does not pull raw 1000-event dumps to calculate local means and standard deviations",
         "Agent reports the exact query and API error message cleanly to the analyst and halts"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "eval_active_hunt_session_lock",
+      "prompt": "Can you run the same query for admin?",
+      "expected_output": "Maintains the statistical hunting framework and re-enters State 1 for the new entity (spot check, compiler probe, and clearance request), rather than falling through to secops-siem-search or dumping raw logs.",
+      "assertions": [
+        "Agent maintains Multi-Stage Risk Analytics session affinity",
+        "Agent does not invoke secops-siem-search or dump unaggregated raw events",
+        "Agent initiates State 1 pre-flight qualification for the new entity and pauses for clearance"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "eval_pillar5_non_executable_manual_pivot",
+      "prompt": "Present the completed triage report.",
+      "expected_output": "Formats Pillar 5 as 'Chronicle UI Manual Pivot (Triage Reference Only)' using a passive blockquote/note without executing udm_search on the pivot string.",
+      "assertions": [
+        "Pillar 5 is titled 'Chronicle UI Manual Pivot (Triage Reference Only)'",
+        "Pillar 5 filter is presented as passive reference text and not an executable code block",
+        "Agent does not execute udm_search on the Pillar 5 pivot string"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "eval_zero_conditional_ast_conformance",
+      "prompt": "Analyze account julius@cymbal-investments.com who suddenly logged in after an extended period of inactivity with 30-day risk metrics.",
+      "expected_output": "Emits valid YARA-L 2.0 query with zero if(...) conditional statements in outcome blocks and includes mandatory linear dispersion floor + 1.0 in divisors.",
+      "assertions": [
+        "Query contains zero if(...) conditional branches in outcome blocks",
+        "Outcome division variables incorporate mandatory + 1.0 dispersion floor",
+        "Query passes Malachite AST validation without syntax errors"
       ]
     }
   ]

@@ -63,8 +63,8 @@ class TestTriageFormatter(unittest.TestCase):
     self.assertIn("#### 🔍 Forensic Vector Breakdown", report)
     self.assertIn("> [!IMPORTANT]", report)
 
-    # 5. Immediate 1-Click Investigation Queries
-    self.assertIn("#### 🎯 Immediate 1-Click Investigation Queries", report)
+    # 5. Chronicle UI Manual Pivot (Triage Reference Only)
+    self.assertIn("#### 🎯 Chronicle UI Manual Pivot (Triage Reference Only)", report)
     self.assertIn("principal.user.userid = \"dev-win10-14.site.lan\"", report)
 
     # 6. Collapsible Technical Appendix

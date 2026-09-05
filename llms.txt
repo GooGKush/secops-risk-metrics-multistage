@@ -37,7 +37,7 @@ Key instructions for agents:
      2. Executed Multi-Stage YARA-L Query (Literal executed code)
      3. Ranked Outlier Summary Table (with Z-Scores and Calibrated Risk Index CRI [0-100])
      4. Forensic Vector Breakdown & Action Plan
-     5. Immediate 1-Click Investigation Queries
+     5. Chronicle UI Manual Pivot (Triage Reference Only)
      6. Collapsible Technical Appendix (<details open><summary>🔬 ...</summary></details>)
 
 9. LOSSLESS CLEAN HAND-OFF & 1:1 SYNTHETIC UDM INGESTION:
