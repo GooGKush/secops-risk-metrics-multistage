@@ -1,14 +1,14 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.5.1)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.5.2)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v1.5.1 — September 2026  
+**Latest Version**: v1.5.2 — September 2026  
 
 ---
 
-## 📢 What's New in `feat/dual-plane-hybrid-hunting` (Branch Release)
+## 📢 What's New in v1.5.2 (Point Release) — Dual-Plane Hybrid Enrichment Pipeline
 
 * **Dual-Plane Macro Baseline & Micro Telemetry Correlation Pipeline**:
   - Bridges the macro-analytic baseline plane (30-day pre-computed historical distributions from `metrics.*`) with raw micro-analytic UDM telemetry (in-flight event properties such as User-Agent string diversity, TLS ciphers, URI paths, and process lineage) in a unified, single-query Malachite execution.
