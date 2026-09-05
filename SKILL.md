@@ -16,7 +16,7 @@ Executes **multi-sector statistical outlier hunting** using **30-day Risk Analyt
 ## 🔀 Bi-Directional Skill Steering & Handoff Protocol
 * **30-Day Baselines** (`metrics.*`) / **Peer Cohorts** / **Multi-Sector Fusion**: Execute this skill (`secops-risk-metrics-multistage`).
 * **Dual-Layer Defense for Trickle Attacks**: Trickle attacks: Layer 1 is Mode B Longitudinal CUSUM Drift ($S_t^+ \ge 4.0\sigma$ on `metrics.dns_queries_total`); Layer 2 is handoff to `secops-statistical-hunter` ($CV \le 0.20$).
-* **Architectural Boundary for Sub-Second Timing Jitter**: 30-day metrics tables (`metrics.*`) cannot compute sub-second connection deltas or inter-arrival jitter. For inter-arrival connection jitter, beaconing intervals, or raw network connection deltas (e.g. SUNBURST C2 timing), this crosses the architectural boundary; immediately emit Skill Handoff Card to `secops-statistical-hunter` and yield turn (0 tools called).
+* **Architectural Boundary for Sub-Second Timing Jitter**: 30-day metrics tables (`metrics.*`) cannot compute sub-second connection deltas or jitter. For inter-arrival jitter, beaconing intervals, or raw network connection deltas (SUNBURST C2), emit Skill Handoff Card to `secops-statistical-hunter` and yield turn (0 tools called).
 * **Non-Metrics Telemetry Steering Mandate** (Git repos, raw UDM): Emit **Skill Handoff Card** and steer to `secops-statistical-hunter`.
 * **Zero-Code Handoff Invariant**: Never emit candidate YARA-L query blocks inside or alongside a Skill Handoff Card. Handoff cards are strictly conceptual; code emission belongs to destination skill.
 
@@ -53,13 +53,12 @@ Phase 1B (Query Preview & Spec Card) is **ONLY UNLOCKED** when **BOTH** are expl
 ### 🕸️ 360° Entity Behavioral Risk Radar (All-Vectors / Radial Profiling)
 When profiling an entity across all vectors (*"visualize all risk vectors"*, *"360 health check"*):
 1. **Mandatory 5-Sector Roster**: Present canonical metric functions: Auth (`metrics.auth_attempts_success`, `target.user.userid`), Cloud (`metrics.resource_creation_total`, `principal.user.userid`), Workspace (`metrics.workspace_total_download_actions`), Network (`metrics.network_bytes_outbound`), DNS/Web (`metrics.http_queries_total`).
-2. **Compilable Micro-Query Template (ZERO MONOLITHIC JOINS — maxJoinCount=4 & Inner-Join Drop)**: Decoupled per sector (`stage stage1_extract` matching `$user by 1d` with `max(metrics.*)`).
-3. **Visualization Strategy (Single visual surface: Client Tool OR Embed OR Inline SVG OR ASCII)**:
+2. **Compilable Micro-Query Template (ZERO MONOLITHIC JOINS — maxJoinCount=4 & Inner-Join Drop)**: Decoupled per sector (`stage stage1_extract` matching `$user by 1d` with `max(metrics.*)`). Never concatenate 5 sectors into a monolithic multi-stage block (breaches 4-join limit). Previews require bound `$user` and terminal root stage. On clearance, MUST execute `udm_search` or `radar_collector.py` (zero-tool clearance is prohibited).
+3. **Visualization Strategy (Single visual surface: Client Tool OR Embed OR ASCII)**:
    - **Adaptive Single-Surface Routing (NEVER Render Both ASCII & Visual)**:
      • *Jetski (`run_command` present)*: Output ONLY `<agent-embed src="file:///<artifact_dir>/<name>.html"></agent-embed>` and link via `scripts/radar_collector.py`. Zero data-uri or raw SVG in chat Markdown. Omit ASCII card.
      • *Client Tool (if present)*: If tool declares radar/SVG, invoke with entity and sector scores. Omit ASCII card.
-     • *Generic MCP (no tool)*: Emit pure inline `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 620 480">`. Zero data-uri.
-     • *CLI*: Render ASCII card ONLY on explicit analyst request.
+     • *Generic MCP / CLI*: Zero raw SVG in chat (violates REG-P2-11). Render ASCII card ONLY on explicit request.
    - **Canonical Layout**: Rings $+1\sigma$ to $+4\sigma$; spokes: Auth, Cloud, Workspace, Net, DNS. Dual Scales: Raw Z-score and CRI ($+3.0\sigma$ / CRI 50 perimeter).
 
 ### ☁️ Cloud Data Store Scope & Anti-Narrowing Invariant
@@ -104,7 +103,7 @@ Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to bo
 
 *Pre-Output Tool Execution Guard*: On clearance, execute pipeline (360° Radar: 5 sector queries). Emit findings into 6 numbered pillars. Zero `json_chart`.
 Report **MUST STRICTLY CONTAIN ALL 6 NUMBERED PILLARS**:
-1. **Statistical Outlier Report**: `[Target Metric]` ([Statistical Model]) with 30-day baseline (`window: 30d`). Single visual surface: `<agent-embed>` in Jetski; client visual tool or inline <svg> in generic MCP; ASCII on explicit request. Unicode magnitude bars (`▰▰▰▰▱▱▱▱`) in table.
+1. **Statistical Outlier Report**: `[Target Metric]` ([Statistical Model]) with 30-day baseline (`window: 30d`). Single visual surface: `<agent-embed>` in Jetski; client tool if present; ASCII on request. Unicode magnitude bars (`▰▰▰▰▱▱▱▱`) in table.
 2. **Executed Multi-Stage YARA-L Query**: Literal executed multi-stage YARA-L query passed into `secops-gus:udm_search(query=...)`. Labeled 'Executed Multi-Stage YARA-L Query' (never 'Rule'). For 360 Radar, display executed sector micro-queries. Raw event filters (e.g. `principal.user.userid = ...`) are STRICTLY PROHIBITED in Pillar 2.
 3. **Ranked Outlier Summary & Provenance Stamp**: Columns: `Entity`, `24h Observed`, `30d Mean (μ)`, `30d StdDev (σ)`, `Z-Score`, `CRI Score`, `Visual Magnitude`. Stamp execution provenance (events scanned, query execution time, projected schema columns).
 4. **Forensic Vector Breakdown**: Threat translation, attack scenarios, SOC playbook.
