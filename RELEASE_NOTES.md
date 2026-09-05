@@ -1,10 +1,20 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.5)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.5.1)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v1.5 — September 2026  
+**Latest Version**: v1.5.1 — September 2026  
+
+---
+
+## 📢 What's New in v1.5.1 (Point Release)
+
+* **Federated Threat Hunt Handoff Protocol (`secops-threat-hunt-handoff-v1`)**:
+  - Solves the consultative demarcation paralysis observed in STHE scenario `ADV-CUST-01-SCHEDULED-EXFIL` and regression test `REG-P1-07-SCHEDULED-EXFIL-2ANS`.
+  - Added `scripts/federated_handoff.py` implementing typed request construction (`build_handoff_payload`), CLI dispatcher (`dispatch_to_endpoint`), and consultative card rendering (`format_handoff_card`).
+  - Formalized Section 6 of `references/statistical-hunting-cooperative-framework.md` documenting the envelope schema, intent routing, endpoint contract, and the **Step-Out Directive** (`STEP_OUT_CONFIRMED`).
+  - Added unit test suite `tests/test_federated_handoff.py` with 4 tests verifying typed envelope generation, card rendering, and live endpoint ACK dispatch (168/168 tests passing).
 
 ---
 

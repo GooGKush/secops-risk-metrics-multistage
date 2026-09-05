@@ -122,3 +122,97 @@ All behaviors in the cooperative framework are bound by two absolute invariants:
 Prompt bloat and fall-through frequently stem from semantic homonym traps:
 * **The Pillar 5 Trap**: Naming Pillar 5 *"Immediate 1-Click Investigation Queries"* baited the model into executing raw UDM searches when asked for the *"same query"*.
 * **The Fix**: Renaming to *"Chronicle UI Manual Pivot (Triage Reference Only)"* and formatting filters as non-executable reference strings eliminates the bait at the lexical level without requiring defensive negative rules.
+
+---
+
+## 6. The Federated Handoff Protocol (`secops-threat-hunt-handoff-v1`)
+
+### 6.1 The Consultative Demarcation Problem
+When a macro-behavioral risk analysis identifies that a threat vector requires micro-mathematical proof (e.g., proving scheduled cron regularity or micro-second beaconing jitter on raw logs), an agent operating within `secops-risk-metrics-multistage` faces an architectural boundary:
+1. Pre-computed 30-day UEBA metrics aggregate volumes, standard deviations, and Z-scores; they cannot calculate event-to-event inter-arrival times or micro-timing dispersion ($CV \le 0.20$).
+2. The Zero-Code Handoff Invariant strictly prohibits emitting unvalidated, uncompiled raw YARA-L queries on behalf of another skill.
+3. Without a machine-readable protocol, the agent degrades into **consultative paralysis**—emitting an informative lecture explaining why 30-day baselines are insufficient, but failing to advance the threat hunt.
+
+### 6.2 The Protocol Architecture
+To resolve consultative demarcation, the skills communicate via the formal `secops-threat-hunt-handoff-v1` protocol. This replaces natural language essays with a structured API payload, an ingestion endpoint, and a mutual ACK contract:
+
+```
+[ secops-risk-metrics-multistage ]
+                 │
+                 │ 1. Emits Handoff Payload (JSON Envelope)
+                 ▼
+[ Endpoint: multistage_query_builder.py --ingest_handoff ]
+                 │
+                 │ 2. Validates Protocol & Maps Intent
+                 │ 3. Compiles Golden Pipeline Template (c2_beaconing_jitter_2stage.yl2)
+                 │ 4. Generates ACK (HANDOFF_ACK_ACCEPTED)
+                 ▼
+[ secops-statistical-hunter ] ──► Assumes execution ownership
+                 │
+                 │ 5. STEP_OUT_CONFIRMED Directive
+                 ▼
+[ secops-risk-metrics-multistage ] ──► Immediately yields turn (0 tools called)
+```
+
+### 6.3 The Request Envelope Schema
+The initiating skill (`secops-risk-metrics-multistage`) constructs the JSON payload via `scripts/federated_handoff.py`:
+
+```json
+{
+  "protocol": "secops-threat-hunt-handoff-v1",
+  "source_skill": "secops-risk-metrics-multistage",
+  "target_skill": "secops-statistical-hunter",
+  "intent": "SCHEDULED_EXFILTRATION_TIMING",
+  "target_entity": {
+    "type": "HOSTNAME",
+    "value": "site-rev-proxy.lan"
+  },
+  "search_window": {
+    "lookback": "24h"
+  },
+  "statistical_model": {
+    "name": "SCHEDULED_EXFILTRATION_TIMING",
+    "sensitivity": "BALANCED",
+    "parameters": {
+      "max_cv": 0.20,
+      "min_observations": 10
+    }
+  },
+  "status": "PENDING_DISPATCH"
+}
+```
+
+### 6.4 The Ingestion Endpoint
+The receiving skill (`secops-statistical-hunter`) exposes an ingestion endpoint in `scripts/multistage_query_builder.py`:
+
+```bash
+python3 scripts/multistage_query_builder.py --ingest_handoff '<JSON_PAYLOAD>'
+```
+
+The endpoint performs:
+1. **Schema Validation**: Verifies `protocol == "secops-threat-hunt-handoff-v1"` and ensures all mandatory envelope fields (`source_skill`, `target_skill`, `intent`, `target_entity`, `search_window`, `statistical_model`) are populated.
+2. **Intent Mapping**: Maps high-level security intents to statistical query pipelines:
+   * `SCHEDULED_EXFILTRATION_TIMING` ──► `C2_BEACONING_JITTER` (Inter-arrival time delta, mean, stddev, and $CV \le 0.20$).
+   * `DATA_EXFILTRATION_SPIKE` ──► `EXFILTRATION_IQR_OUTLIER`.
+   * `OFF_HOURS_BURST` ──► `POISSON_RARE_TIMING`.
+3. **Template Compilation**: Merges entity identifiers and time parameters into the receiving skill's pre-compiled, syntax-validated multi-stage YARA-L template (e.g., `c2_beaconing_jitter_2stage.yl2`).
+4. **ACK Emission**: Returns the standardized acknowledgment payload:
+
+```json
+{
+  "status": "HANDOFF_ACK_ACCEPTED",
+  "action": "STEP_OUT_CONFIRMED",
+  "source_skill": "secops-risk-metrics-multistage",
+  "target_skill": "secops-statistical-hunter",
+  "model_routed": "C2_BEACONING_JITTER",
+  "compiled_query": "stage host_intervals ...",
+  "step_out_directive": "SOURCE_SKILL_STEP_OUT_CONFIRMED: Yield turn immediately. Hand off execution ownership to secops-statistical-hunter."
+}
+```
+
+### 6.5 The Step-Out Invariant
+Upon dispatching the payload or presenting the Federated Handoff Card containing `HANDOFF_ACK_ACCEPTED`:
+* The source skill (`secops-risk-metrics-multistage`) **MUST NOT** attempt to execute the compiled query.
+* The source skill **MUST NOT** emit speculative commentary, disclaimers, or mock calculations.
+* The source skill **MUST** cleanly yield execution ownership to `secops-statistical-hunter`.
+
