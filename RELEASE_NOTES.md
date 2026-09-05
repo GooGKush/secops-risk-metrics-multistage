@@ -8,6 +8,20 @@
 
 ---
 
+## 📢 What's New in `feat/dual-plane-hybrid-hunting` (Branch Release)
+
+* **Dual-Plane Macro Baseline & Micro Telemetry Correlation Pipeline**:
+  - Bridges the macro-analytic baseline plane (30-day pre-computed historical distributions from `metrics.*`) with raw micro-analytic UDM telemetry (in-flight event properties such as User-Agent string diversity, TLS ciphers, URI paths, and process lineage) in a unified, single-query Malachite execution.
+  - Added template `templates/pipelines/hybrid_metric_raw_enrichment_2stage.yl2` fusing `metrics.network_bytes_outbound` with raw `NETWORK_HTTP` user agent diversity on `$entity by 1d`.
+  - Consumes only 2 joins total, guaranteeing strict compliance with Chronicle SIEM's join ceiling ($\le 4$ joins) and eliminating the risk of query rejection or silent inner-join drops.
+  - Added `HYBRID_METRIC_RAW_ENRICHMENT_2STAGE` architecture to `scripts/preflight_validator.py` and `scripts/template_router.py`.
+  - Supported `RAW_TELEMETRY_ENRICHMENT` and `DUAL_PLANE_CORRELATION` intents in `scripts/federated_handoff.py`.
+  - Added Section 7 (*Dual-Plane Macro Baseline + Micro Telemetry Enrichment*) to `references/statistical-hunting-cooperative-framework.md` and Section 31 to `references/multi-stage-metrics-guide.md`.
+  - Comprehensive unit test coverage with `tests/test_hybrid_pipelines.py` (171/171 tests passing).
+  - Validated on `secops-regress` with invariant `REG-P1-11-HYBRID-DUAL-PLANE` (100% invariant pass rate, 200 OK Chronicle compiler) and on `secops-sthe` with attack scenario `ADV-CUST-08-HYBRID-DUAL-PLANE` (Score 96/100).
+
+---
+
 ## 📢 What's New in v1.5.1 (Point Release)
 
 * **Federated Threat Hunt Handoff Protocol (`secops-threat-hunt-handoff-v1`)**:

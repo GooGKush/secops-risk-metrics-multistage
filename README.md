@@ -37,6 +37,7 @@ secops-risk-metrics-multistage/
 │   │   ├── dual_sector_fusion_3stage.yl2
 │   │   ├── hierarchical_empirical_bayes_3stage.yl2
 │   │   ├── longitudinal_cusum_2stage.yl2
+│   │   ├── hybrid_metric_raw_enrichment_2stage.yl2
 │   │   ├── mad_modified_z_2stage.yl2
 │   │   ├── multi_sector_fusion_4stage.yl2
 │   │   ├── poisson_rarity_2stage.yl2
@@ -61,6 +62,7 @@ secops-risk-metrics-multistage/
 ├── scripts/                              # Verification, execution, collector, & formatting utilities
 │   ├── chart_generator.py                # Formats hunt outputs into Vega-Lite & Chart.js specs
 │   ├── data_reduction.py                 # Multi-stage DAG syntax reduction engine
+│   ├── federated_handoff.py              # Cross-skill bilateral threat hunt handoff protocol
 │   ├── preflight_validator.py            # Pre-flight syntax and outcome contract validator
 │   ├── radar_collector.py                # 5-Sector 360° radar SVG/HTML generator & score collector
 │   ├── submission_tests.py               # Canonical 19-case compiler verification test harness
@@ -71,8 +73,10 @@ secops-risk-metrics-multistage/
     ├── test_complex_multistage_syntax.py
     ├── test_cri_and_math.py
     ├── test_exhaustive_matrix_syntax.py
+    ├── test_federated_handoff.py
     ├── test_global_context_syntax.py
     ├── test_guardrail_contracts.py
+    ├── test_hybrid_pipelines.py
     ├── test_radar_collector.py
     ├── test_skill_efficiency_and_clarity.py
     ├── test_statistical_assumptions.py
@@ -96,8 +100,8 @@ secops-risk-metrics-multistage/
 4. **Identity Governance & Zero-Guessing Hard Resolution Gate**:
    * Strictly bans heuristic username synthesis. Uses a 14-day UDM lookback window (`startTime: 14d ago, maxEvents: 5`) and compound name matching (`user_display_name` and `first_name`/`last_name`) across `principal.user` and `target.user`.
    * Halts immediately and yields the turn if an identity cannot be resolved from telemetry, prompting the analyst for their technical user ID before proceeding.
-5. **14 Mathematical Outlier Models**:
-   * Standard $Z$-Score, Robust MAD, Coefficient of Variation ($CV$), Hourly Temporal $Z$-Score, Poisson Dispersion (Fano Factor), Discrete Poisson Rarity, Poisson-Gamma Conjugate Updating, Beta-Binomial Failure Rate Regularization, 3-Stage Dual-Baseline Delta-$Z$, 3-Stage Hierarchical Empirical Bayes, 4-Stage Multi-Sector Fusion, 360° Omnibus Entity Radar, Longitudinal CUSUM Drift, and Entity Graph Prevalence Rarity.
+5. **15 Mathematical Outlier Models & Hybrid Pipelines**:
+   * Standard $Z$-Score, Robust MAD, Coefficient of Variation ($CV$), Hourly Temporal $Z$-Score, Poisson Dispersion (Fano Factor), Discrete Poisson Rarity, Poisson-Gamma Conjugate Updating, Beta-Binomial Failure Rate Regularization, 3-Stage Dual-Baseline Delta-$Z$, 3-Stage Hierarchical Empirical Bayes, 4-Stage Multi-Sector Fusion, 360° Omnibus Entity Radar, Longitudinal CUSUM Drift, Entity Graph Prevalence Rarity, and Dual-Plane Macro Baseline & Micro Telemetry Enrichment.
 6. **Interactive Step 1 Pre-Flight Safety Protocol**:
    * Enforces zero search execution on Turn 1, explains methodologies with physical cyber analogies, presents structured Pre-Flight Specification Cards, and renders literal YARA-L query previews before clearance.
 7. **Calibrated Risk Index (CRI [0–100])**:
