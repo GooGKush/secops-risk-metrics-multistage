@@ -33,18 +33,29 @@ def build_handoff_payload(
   if not request_id:
     request_id = f"req-{uuid.uuid4().hex[:8]}"
 
-  if not justification:
-    justification = (
-        "Volumetric 30-day baseline cannot detect sub-second interval regularity "
-        "or scheduled cron exfiltration; delegating to micro-timing variance analysis."
-    )
-
   model_params = parameters or {}
+  if not justification:
+    if any(kw in intent.upper() for kw in ["ENRICHMENT", "RAW_TELEMETRY", "DUAL_PLANE"]):
+      justification = (
+          "Macro 30-day baseline flagged a statistically significant volume outlier; "
+          "delegating to targeted raw telemetry probe for micro-forensic signature enrichment."
+      )
+    else:
+      justification = (
+          "Volumetric 30-day baseline cannot detect sub-second interval regularity "
+          "or scheduled cron exfiltration; delegating to micro-timing variance analysis."
+      )
+
   if any(kw in intent.upper() for kw in ["C2", "EXFIL", "TIMING", "JITTER"]):
     if "max_cv" not in model_params:
       model_params["max_cv"] = 0.20
     if "min_observations" not in model_params:
       model_params["min_observations"] = 10
+  elif any(kw in intent.upper() for kw in ["ENRICHMENT", "RAW_TELEMETRY", "DUAL_PLANE"]):
+    if "enrichment_vector" not in model_params:
+      model_params["enrichment_vector"] = "NETWORK_HTTP_USER_AGENT"
+    if "max_signature_diversity" not in model_params:
+      model_params["max_signature_diversity"] = 2
 
   payload = {
       "protocol": SUPPORTED_PROTOCOL,

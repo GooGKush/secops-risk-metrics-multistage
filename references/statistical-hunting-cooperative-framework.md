@@ -216,3 +216,61 @@ Upon dispatching the payload or presenting the Federated Handoff Card containing
 * The source skill **MUST NOT** emit speculative commentary, disclaimers, or mock calculations.
 * The source skill **MUST** cleanly yield execution ownership to `secops-statistical-hunter`.
 
+---
+
+## 7. Dual-Plane Macro Baseline + Micro Telemetry Enrichment
+
+### 7.1 The Threat Landscape: The "Elephant & Script" Egress Trap
+A persistent gap in SOC alert triage is distinguishing routine high-volume operations (e.g. daily database backups, operating system updates) from targeted malicious data exfiltration:
+1. **Volumetric Baselining Alone**: Pre-computed metrics detect that a host transferred $+3.5\sigma$ anomalous bytes, but cannot determine whether the transfer was performed by a standard browser or an automated exfiltration script (`curl`, `python-requests`).
+2. **Raw Telemetry Alone**: Millions of raw HTTP events exist enterprise-wide. Searching for scripted user agents produces excessive noise without knowing which hosts breached their historical volume baseline.
+3. **The Solution**: Synthesize both planes into a unified detection funnel.
+
+### 7.2 Pattern A: Intra-Query Golden Template (`hybrid_metric_raw_enrichment_2stage.yl2`)
+When the exfiltration protocol is known in advance (e.g. hunting specifically for HTTP data theft), Chronicle SIEM supports joining `metrics.*` in Stage 1 with raw `UDM_EVENTS` in Stage 2 within a single multi-stage YARA-L 2.0 query:
+
+* **Stage 1 (Macro Sieve)**:
+  ```yara
+  stage stage1_macro_baseline {
+      metadata.event_type = "NETWORK_CONNECTION"
+      principal.asset.hostname = $entity
+    match:
+      $entity by 1d
+    outcome:
+      $observed_val = sum(network.sent_bytes)
+      $hist_mean = max(metrics.network_bytes_outbound(...))
+      $hist_stddev = max(metrics.network_bytes_outbound(...))
+      $z_score = ($observed_val - $hist_mean) / ($hist_stddev + 1.0)
+  }
+  ```
+* **Stage 2 (Micro Signature)**:
+  ```yara
+  stage stage2_raw_telemetry {
+      metadata.event_type = "NETWORK_HTTP"
+      principal.asset.hostname = $entity
+    match:
+      $entity by 1d
+    outcome:
+      $distinct_signatures = count_distinct(target.user_agent)
+      $sample_signatures = array_distinct(target.user_agent)
+  }
+  ```
+* **Root Stage (Fusion)**:
+  ```yara
+  $entity = $stage1_macro_baseline.entity
+  $entity = $stage2_raw_telemetry.entity
+  match:
+    $entity by 1d
+  condition:
+    $macro_z_score >= 3.0 and $signature_diversity <= 2
+  ```
+* **Join Budget**: 1 metric table lookup in Stage 1 + 1 inter-stage join in Root = **2 joins total** (Chronicle limit: $\text{maxJoinCount} \le 4$).
+* **The Inner-Join Drop Hazard**: If an attacker exfiltrates over raw TCP, SFTP, or DNS, Stage 2 yields 0 events. Because the Root Stage performs an inner join on `$entity by 1d`, the host is dropped from results. **When transport protocol is unverified, Pattern B must be used.**
+
+### 7.3 Pattern B: Two-Phase Federated Funnel (`RAW_TELEMETRY_ENRICHMENT`)
+For enterprise-wide sweeps where transport vector is unconstrained:
+1. **Phase 1 (Macro Sieve)**: `secops-risk-metrics-multistage` evaluates 50,000 enterprise hosts against 30-day baselines in seconds and isolates the 2 hosts with $Z \ge 3.5\sigma$.
+2. **The Bridge Dispatch**: The skill constructs a `secops-threat-hunt-handoff-v1` payload with `intent: "RAW_TELEMETRY_ENRICHMENT"` and `target_entities: ["host-a", "host-b"]`.
+3. **Phase 2 (Targeted Forensic Probe)**: `secops-statistical-hunter` queries raw telemetry strictly for the candidate entities, evaluating User-Agent entropy, URI distribution, or unsigned process launches without whole-fleet noise.
+4. **Resilience**: If HTTP yields 0 events, the finding survives: the report confirms the $+3.5\sigma$ volume anomaly and notes non-HTTP egress channels.
+

@@ -186,6 +186,65 @@ class MultiStageTemplateRouter:
         raw = f"// Goal: {hypothesis_goal}\n" + raw
       return raw + "\n"
 
+    elif pipeline_type == PipelineArchitecture.HYBRID_METRIC_RAW_ENRICHMENT_2STAGE:
+      if not target_metric:
+        target_metric = "network_bytes_outbound"
+      audit = PreFlightValidator.audit(
+          target_metric=target_metric,
+          entity_type=entity_type,
+          min_baseline_days=min_baseline_days,
+      )
+      pipeline_file = self.template_dir / "pipelines" / "hybrid_metric_raw_enrichment_2stage.yl2"
+      if not pipeline_file.exists():
+        raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
+      raw = pipeline_file.read_text().strip()
+      metric_type_arg = "metric: total_bytes" if "bytes" in target_metric else "metric: event_count_sum"
+
+      macro_entity_field = audit["target_field"]
+      macro_event_type = audit["required_event_type"]
+      macro_observed_agg = "sum(network.sent_bytes)" if "outbound" in target_metric else ("sum(network.received_bytes)" if "inbound" in target_metric else "count(metadata.id)")
+      macro_event_filter = ""
+
+      raw_event_type = "NETWORK_HTTP"
+      raw_entity_field = "principal.asset.hostname" if entity_type == EntityType.ASSET else "principal.user.userid"
+      raw_event_filter = ""
+      raw_signature_field = "target.user_agent"
+      max_signature_diversity = 2
+      min_raw_events = 5
+
+      rendered = raw.replace("{{macro_event_type}}", macro_event_type)
+      rendered = rendered.replace("{{macro_entity_field}}", macro_entity_field)
+      rendered = rendered.replace("{{macro_event_filter}}", macro_event_filter)
+      rendered = rendered.replace("{{macro_observed_agg}}", macro_observed_agg)
+
+      rendered = rendered.replace(
+          "{{target_metric_func_avg}}",
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: avg, {audit['target_field']}: $entity)"
+      )
+      rendered = rendered.replace(
+          "{{target_metric_func_stddev}}",
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: stddev, {audit['target_field']}: $entity)"
+      )
+      rendered = rendered.replace(
+          "{{target_metric_func_active_days}}",
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: num_metric_periods, {audit['target_field']}: $entity)"
+      )
+
+      rendered = rendered.replace("{{raw_event_type}}", raw_event_type)
+      rendered = rendered.replace("{{raw_entity_field}}", raw_entity_field)
+      rendered = rendered.replace("{{raw_event_filter}}", raw_event_filter)
+      rendered = rendered.replace("{{raw_signature_field}}", raw_signature_field)
+
+      rendered = rendered.replace("{{anomaly_threshold}}", str(anomaly_threshold))
+      rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
+      rendered = rendered.replace("{{max_signature_diversity}}", str(max_signature_diversity))
+      rendered = rendered.replace("{{min_raw_events}}", str(min_raw_events))
+
+      if hypothesis_goal:
+        rendered = f"// Goal: {hypothesis_goal}\n" + rendered
+
+      return rendered + "\n"
+
     else:
       raise ValueError(f"Unsupported pipeline type: {pipeline_type}")
 
@@ -203,6 +262,22 @@ class MultiStageTemplateRouter:
         anomaly_threshold=anomaly_threshold,
         hypothesis_goal=hypothesis_goal,
         service_account=service_account,
+    )
+
+  def build_hybrid_enrichment_query(
+      self,
+      target_metric: str = "network_bytes_outbound",
+      entity_type: EntityType = EntityType.ASSET,
+      anomaly_threshold: float = 3.0,
+      hypothesis_goal: Optional[str] = None,
+  ) -> str:
+    """Builds a verified Dual-Plane Hybrid Metric & Raw Telemetry Enrichment pipeline."""
+    return self.build_pipeline_query(
+        PipelineArchitecture.HYBRID_METRIC_RAW_ENRICHMENT_2STAGE,
+        target_metric=target_metric,
+        entity_type=entity_type,
+        anomaly_threshold=anomaly_threshold,
+        hypothesis_goal=hypothesis_goal,
     )
 
 class ChainedHuntRouter:

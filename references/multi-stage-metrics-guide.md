@@ -822,4 +822,24 @@ Under the **Hard Pre-Flight Clearance Gate**, this sequence is strictly prohibit
    Raw UDM event filters (such as `principal.user.userid = "greg" or target.user.userid = "greg"`) do NOT compute statistical baselines and are strictly prohibited in Pillar 2. For 360 Entity Behavioral Risk Radar hunts, Pillar 2 must present the executed multi-stage sector micro-queries.
 
 ---
+
+## 31. Dual-Plane Macro Baseline & Micro Telemetry Correlation (Release v1.6.0)
+
+### A. The "Elephant & Script" Threat Model
+Threat actors frequently leverage automated scripts or tools (`curl`, `python-requests`, PowerShell WebClient) to exfiltrate bulk data from enterprise servers.
+* **Macro Risk Metrics**: Efficiently detect that host $H$ pushed $+3.5\sigma$ anomalous bytes today relative to its 30-day baseline via `metrics.network_bytes_outbound`.
+* **Micro Telemetry Forensics**: Raw `NETWORK_HTTP` logs verify whether that volume was driven by an interactive browser with rich User-Agent diversity ($N \ge 10$) or an automated script ($N \le 2$).
+
+### B. Pattern A: Intra-Query Golden Template (`hybrid_metric_raw_enrichment_2stage.yl2`)
+When the exfiltration channel is known in advance to be HTTP, both planes can be joined in a single YARA-L 2.0 query:
+* **Stage 1 (Macro Baseline)**: Scopes to `NETWORK_CONNECTION`, queries `metrics.network_bytes_outbound`, and groups by `$entity by 1d`.
+* **Stage 2 (Micro Signature)**: Scopes to `NETWORK_HTTP`, groups by `$entity by 1d`, and aggregates `distinct_signatures = count_distinct(target.user_agent)`.
+* **Root Stage (Fusion)**: Inner-joins `$entity by 1d` and enforces `$macro_z_score >= 3.0 and $signature_diversity <= 2`.
+* **Join Budget**: 1 metric lookup + 1 stage join = **2 joins total** (safe under Chronicle limit $\le 4$).
+
+### C. Pattern B: Two-Phase Federated Funnel (`RAW_TELEMETRY_ENRICHMENT`)
+* **The Inner-Join Cliff**: If an adversary exfiltrates over raw TCP, SFTP, or DNS, Stage 2 yields 0 events, dropping the host from a Pattern A query entirely.
+* **The Two-Phase Funnel**: When protocol is unconstrained, Phase 1 evaluates 50,000 hosts via `metrics.*` in seconds. The top outlier hosts are emitted in a `secops-threat-hunt-handoff-v1` payload with `intent: "RAW_TELEMETRY_ENRICHMENT"`, handing off to `secops-statistical-hunter` for targeted micro-forensic probes.
+
+---
 *Created and maintained by Greg Kushmerek for Google SecOps Chronicle SIEM threat hunting workflows.*

@@ -1,0 +1,75 @@
+// ============================================================================
+// ARCHITECTURE: 2-STAGE DUAL-PLANE HYBRID METRIC & RAW FORENSIC ENRICHMENT
+// Skill: secops-risk-metrics-multistage
+// Purpose: Fuses macro-volumetric 30-day baseline deviation with micro-telemetry
+//          raw event signatures (e.g. low User-Agent diversity, scripted clients,
+//          or unsigned binaries) in a single unified multi-stage query.
+// Join Budget: 1 metric lookup (Stage 1) + 1 stage join (Root) = 2 joins total (<= 4).
+// Invariant: Both stages MUST share identical match key ($entity) and window (by 1d).
+// ============================================================================
+
+// Stage 1: Macro 30-Day Volumetric Baseline Outlier Sieve (metrics.*)
+stage stage1_macro_baseline {
+    metadata.event_type = "{{macro_event_type}}"
+    {{macro_entity_field}} = $entity
+    $entity != ""
+    {{macro_event_filter}}
+
+  match:
+    $entity by 1d
+
+  outcome:
+    $observed_val = {{macro_observed_agg}}
+    $hist_mean = max({{target_metric_func_avg}})
+    $hist_stddev = max({{target_metric_func_stddev}})
+    $hist_active_days = max({{target_metric_func_active_days}})
+
+    $diff = $observed_val - $hist_mean
+    $denom = $hist_stddev + 1.0
+    $z_score = $diff / $denom
+}
+
+// Stage 2: Parallel Micro-Analysis on Raw Telemetry (UDM_EVENTS)
+stage stage2_raw_telemetry {
+    metadata.event_type = "{{raw_event_type}}"
+    {{raw_entity_field}} = $entity
+    $entity != ""
+    {{raw_event_filter}}
+
+  match:
+    $entity by 1d
+
+  outcome:
+    $raw_event_count = count(metadata.id)
+    $distinct_signatures = count_distinct({{raw_signature_field}})
+    $sample_signatures = array_distinct({{raw_signature_field}})
+}
+
+// Stage 3 (Root Stage): Fuses Macro Volumetric Anomaly with Micro Telemetry Signature
+$entity = $stage1_macro_baseline.entity
+$entity = $stage2_raw_telemetry.entity
+
+match:
+  $entity by 1d
+
+outcome:
+  $macro_observed = max($stage1_macro_baseline.observed_val)
+  $macro_baseline_mean = max($stage1_macro_baseline.hist_mean)
+  $macro_baseline_stddev = max($stage1_macro_baseline.hist_stddev)
+  $macro_z_score = max($stage1_macro_baseline.z_score)
+  $active_baseline_days = max($stage1_macro_baseline.hist_active_days)
+
+  $raw_events = max($stage2_raw_telemetry.raw_event_count)
+  $signature_diversity = max($stage2_raw_telemetry.distinct_signatures)
+  $signatures_observed = array_distinct($stage2_raw_telemetry.sample_signatures)
+
+condition:
+  // Macro: Must breach historical baseline threshold
+  $macro_z_score >= {{anomaly_threshold}}
+  and $active_baseline_days >= {{min_baseline_days}}
+  // Micro: Scripted client / low-diversity payload signature
+  and $signature_diversity <= {{max_signature_diversity}}
+  and $raw_events >= {{min_raw_events}}
+
+order:
+  $macro_z_score desc
