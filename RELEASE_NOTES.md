@@ -1,17 +1,42 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.5.2)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.5.3)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v1.5.2 — September 2026  
+**Latest Version**: v1.5.3 — September 2026  
+
+---
+
+## 📢 What's New in v1.5.3 (Feature Release) — Canonical 2-Stage Hybrid Archetypes & 6 Mathematical Models
+
+* **Family of 3 Canonical 2-Stage Hybrid Pipeline Archetypes**:
+  - Operationalizes 6 advanced mathematical models bridging 30-day macro baselines (`metrics.*`) with in-flight micro telemetry (`UDM_EVENTS`) natively in Chronicle SIEM via `secops-gus:udm_search`:
+    1. **Archetype 1 (`hybrid_metric_entropy_concentration_2stage.yl2`)**:
+       - *Model 1 (Diversity Deficit / Entropy Proxy)*: Linear diversity ratio $k / (N + 1.0)$ detecting extreme repetition and scripted target concentration.
+       - *Model 2 (Concentration Index / Elephant Flow HHI)*: Peak-to-sum ratio $\text{Peak} / (\text{Sum} + 1.0)$ isolating bulk exfiltration flows from diffuse browsing.
+    2. **Archetype 2 (`hybrid_metric_orthogonal_space_2stage.yl2`)**:
+       - *Model 3 (Joint Bayesian Likelihood Odds)*: Additive weighted score $(0.6 \cdot Z_1) + (0.4 \cdot Z_2)$ fusing sub-threshold multi-evidence signals.
+       - *Model 4 (Two-Part Hurdle / Cold-Start Awakening)*: Discrete hurdle check ($\text{Active Days} \le 2 \land \text{Breadth} \ge 3 \land N \ge 1$) for dormant accounts.
+       - *Model 5 (2D Euclidean Threat Distance)*: Squared distance norm $D^2 = Z_1^2 + Z_2^2 \ge 16.0$ ($\implies D \ge 4.0\sigma$) in compliance with Common Compiler restrictions.
+    3. **Archetype 3 (`hybrid_metric_fleet_prevalence_2stage.yl2`)**:
+       - *Model 6 (Cross-Sectional Odds Ratio / Patch Tuesday Shield)*: Token-centric match topology (`$token by 1d`) dampening personal Z-scores by fleet prevalence $1.0 / (k_{\text{fleet}} + 1.0)$.
+* **Strict Join Ceiling Budget & Common Compiler Compliance**:
+  - Every pipeline consumes exactly **2 joins** (1 `metrics.*` function lookup in Stage 1 + 1 inter-stage join in Root), well within Chronicle's ceiling ($\le 4$).
+  - 100% compliant with the Chronicle **Common Compiler**: zero non-linear expressions in `outcome:`, continuous regularization floors (`+ 1.0`), and zero `^`, `sqrt()`, or bare scalar `if()`.
+* **Expanded Federated Handoff & Router Integration**:
+  - Added pipeline builders to `scripts/template_router.py`: `build_hybrid_entropy_concentration_query`, `build_hybrid_orthogonal_space_query`, and `build_hybrid_fleet_prevalence_query`.
+  - Added intent support and automated parameter provisioning in `scripts/federated_handoff.py` for `DIVERSITY_DEFICIT`, `ELEPHANT_FLOW_CONCENTRATION`, `ORTHOGONAL_THREAT_SPACE`, `BAYESIAN_JOINT_ODDS`, `TWO_PART_HURDLE`, and `FLEET_PREVALENCE_NORMALIZATION`.
+  - Added corresponding intent routing in peer skill `secops-statistical-hunter` (`scripts/multistage_query_builder.py`).
+  - Added Section 32 to `references/multi-stage-metrics-guide.md`.
+  - Expanded unit test coverage in `tests/test_hybrid_pipelines.py` (175/175 tests passing).
 
 ---
 
 ## 📢 What's New in v1.5.2 (Point Release) — Dual-Plane Hybrid Enrichment Pipeline
 
 * **Dual-Plane Macro Baseline & Micro Telemetry Correlation Pipeline**:
-  - Bridges the macro-analytic baseline plane (30-day pre-computed historical distributions from `metrics.*`) with raw micro-analytic UDM telemetry (in-flight event properties such as User-Agent string diversity, TLS ciphers, URI paths, and process lineage) in a unified, single-query Malachite execution.
+  - Bridges the macro-analytic baseline plane (30-day pre-computed historical distributions from `metrics.*`) with raw micro-analytic UDM telemetry (in-flight event properties such as User-Agent string diversity, TLS ciphers, URI paths, and process lineage) in a unified, single-query Common Compiler execution.
   - Added template `templates/pipelines/hybrid_metric_raw_enrichment_2stage.yl2` fusing `metrics.network_bytes_outbound` with raw `NETWORK_HTTP` user agent diversity on `$entity by 1d`.
   - Consumes only 2 joins total, guaranteeing strict compliance with Chronicle SIEM's join ceiling ($\le 4$ joins) and eliminating the risk of query rejection or silent inner-join drops.
   - Added `HYBRID_METRIC_RAW_ENRICHMENT_2STAGE` architecture to `scripts/preflight_validator.py` and `scripts/template_router.py`.

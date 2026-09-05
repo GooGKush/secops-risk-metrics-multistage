@@ -245,6 +245,182 @@ class MultiStageTemplateRouter:
 
       return rendered + "\n"
 
+    elif pipeline_type == PipelineArchitecture.HYBRID_METRIC_ENTROPY_CONCENTRATION_2STAGE:
+      if not target_metric:
+        target_metric = "network_bytes_outbound"
+      audit = PreFlightValidator.audit(
+          target_metric=target_metric,
+          entity_type=entity_type,
+          min_baseline_days=min_baseline_days,
+      )
+      pipeline_file = self.template_dir / "pipelines" / "hybrid_metric_entropy_concentration_2stage.yl2"
+      if not pipeline_file.exists():
+        raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
+      raw = pipeline_file.read_text().strip()
+      metric_type_arg = "metric: total_bytes" if "bytes" in target_metric else "metric: event_count_sum"
+
+      macro_entity_field = audit["target_field"]
+      macro_event_type = audit["required_event_type"]
+      macro_observed_agg = "sum(network.sent_bytes)" if "outbound" in target_metric else ("sum(network.received_bytes)" if "inbound" in target_metric else "count(metadata.id)")
+      macro_event_filter = ""
+
+      raw_event_type = "NETWORK_HTTP"
+      raw_entity_field = "principal.asset.hostname" if entity_type == EntityType.ASSET else "principal.user.userid"
+      raw_event_filter = ""
+      raw_vocab_field = "target.url"
+      raw_intensity_field = "network.sent_bytes" if "outbound" in target_metric else "1"
+
+      rendered = raw.replace("{{macro_event_type}}", macro_event_type)
+      rendered = rendered.replace("{{macro_entity_field}}", macro_entity_field)
+      rendered = rendered.replace("{{macro_event_filter}}", macro_event_filter)
+      rendered = rendered.replace("{{macro_observed_agg}}", macro_observed_agg)
+
+      rendered = rendered.replace(
+          "{{target_metric_func_avg}}",
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: avg, {audit['target_field']}: $entity)"
+      )
+      rendered = rendered.replace(
+          "{{target_metric_func_stddev}}",
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: stddev, {audit['target_field']}: $entity)"
+      )
+      rendered = rendered.replace(
+          "{{target_metric_func_active_days}}",
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: num_metric_periods, {audit['target_field']}: $entity)"
+      )
+
+      rendered = rendered.replace("{{raw_event_type}}", raw_event_type)
+      rendered = rendered.replace("{{raw_entity_field}}", raw_entity_field)
+      rendered = rendered.replace("{{raw_event_filter}}", raw_event_filter)
+      rendered = rendered.replace("{{raw_vocab_field}}", raw_vocab_field)
+      rendered = rendered.replace("{{raw_intensity_field}}", raw_intensity_field)
+
+      rendered = rendered.replace("{{anomaly_threshold}}", str(anomaly_threshold))
+      rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
+      rendered = rendered.replace("{{max_diversity_ratio}}", "0.10")
+      rendered = rendered.replace("{{min_concentration_ratio}}", "0.75")
+      rendered = rendered.replace("{{min_raw_events}}", "5")
+
+      if hypothesis_goal:
+        rendered = f"// Goal: {hypothesis_goal}\n" + rendered
+
+      return rendered + "\n"
+
+    elif pipeline_type == PipelineArchitecture.HYBRID_METRIC_ORTHOGONAL_SPACE_2STAGE:
+      if not target_metric:
+        target_metric = "network_bytes_outbound"
+      audit = PreFlightValidator.audit(
+          target_metric=target_metric,
+          entity_type=entity_type,
+          min_baseline_days=min_baseline_days,
+      )
+      pipeline_file = self.template_dir / "pipelines" / "hybrid_metric_orthogonal_space_2stage.yl2"
+      if not pipeline_file.exists():
+        raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
+      raw = pipeline_file.read_text().strip()
+      metric_type_arg = "metric: total_bytes" if "bytes" in target_metric else "metric: event_count_sum"
+
+      macro_entity_field = audit["target_field"]
+      macro_event_type = audit["required_event_type"]
+      macro_observed_agg = "sum(network.sent_bytes)" if "outbound" in target_metric else "count(metadata.id)"
+      macro_event_filter = ""
+
+      raw_event_type = "NETWORK_CONNECTION"
+      raw_entity_field = "principal.asset.hostname" if entity_type == EntityType.ASSET else "principal.user.userid"
+      raw_event_filter = ""
+      raw_breadth_field = "target.ip"
+
+      rendered = raw.replace("{{macro_event_type}}", macro_event_type)
+      rendered = rendered.replace("{{macro_entity_field}}", macro_entity_field)
+      rendered = rendered.replace("{{macro_event_filter}}", macro_event_filter)
+      rendered = rendered.replace("{{macro_observed_agg}}", macro_observed_agg)
+
+      rendered = rendered.replace(
+          "{{target_metric_func_avg}}",
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: avg, {audit['target_field']}: $entity)"
+      )
+      rendered = rendered.replace(
+          "{{target_metric_func_stddev}}",
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: stddev, {audit['target_field']}: $entity)"
+      )
+      rendered = rendered.replace(
+          "{{target_metric_func_active_days}}",
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: num_metric_periods, {audit['target_field']}: $entity)"
+      )
+
+      rendered = rendered.replace("{{raw_event_type}}", raw_event_type)
+      rendered = rendered.replace("{{raw_entity_field}}", raw_entity_field)
+      rendered = rendered.replace("{{raw_event_filter}}", raw_event_filter)
+      rendered = rendered.replace("{{raw_breadth_field}}", raw_breadth_field)
+
+      rendered = rendered.replace("{{min_threat_distance_sq}}", "16.0")
+      rendered = rendered.replace("{{min_joint_odds}}", "2.5")
+      rendered = rendered.replace("{{min_raw_hits}}", "3")
+      rendered = rendered.replace("{{max_dormant_days}}", "2")
+      rendered = rendered.replace("{{min_breadth_count}}", "3")
+
+      if hypothesis_goal:
+        rendered = f"// Goal: {hypothesis_goal}\n" + rendered
+
+      return rendered + "\n"
+
+    elif pipeline_type == PipelineArchitecture.HYBRID_METRIC_FLEET_PREVALENCE_2STAGE:
+      if not target_metric:
+        target_metric = "file_executions_total"
+      audit = PreFlightValidator.audit(
+          target_metric=target_metric,
+          entity_type=entity_type,
+          min_baseline_days=min_baseline_days,
+      )
+      pipeline_file = self.template_dir / "pipelines" / "hybrid_metric_fleet_prevalence_2stage.yl2"
+      if not pipeline_file.exists():
+        raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
+      raw = pipeline_file.read_text().strip()
+      metric_type_arg = "metric: event_count_sum"
+
+      macro_entity_field = "principal.asset.hostname" if entity_type == EntityType.ASSET else "principal.user.userid"
+      macro_event_type = audit["required_event_type"]
+      macro_token_field = "principal.process.file.sha256"
+      macro_observed_agg = "count(metadata.id)"
+      macro_event_filter = ""
+
+      raw_event_type = "PROCESS_LAUNCH"
+      raw_token_field = "principal.process.file.sha256"
+      raw_event_filter = ""
+      fleet_entity_field = "principal.asset.hostname"
+
+      rendered = raw.replace("{{macro_event_type}}", macro_event_type)
+      rendered = rendered.replace("{{macro_entity_field}}", macro_entity_field)
+      rendered = rendered.replace("{{macro_token_field}}", macro_token_field)
+      rendered = rendered.replace("{{macro_event_filter}}", macro_event_filter)
+      rendered = rendered.replace("{{macro_observed_agg}}", macro_observed_agg)
+
+      rendered = rendered.replace(
+          "{{target_metric_func_avg}}",
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: avg, metadata.event_type: \"PROCESS_LAUNCH\", {macro_entity_field}: $entity, principal.process.file.sha256: $token)"
+      )
+      rendered = rendered.replace(
+          "{{target_metric_func_stddev}}",
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: stddev, metadata.event_type: \"PROCESS_LAUNCH\", {macro_entity_field}: $entity, principal.process.file.sha256: $token)"
+      )
+      rendered = rendered.replace(
+          "{{target_metric_func_active_days}}",
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: num_metric_periods, metadata.event_type: \"PROCESS_LAUNCH\", {macro_entity_field}: $entity, principal.process.file.sha256: $token)"
+      )
+
+      rendered = rendered.replace("{{raw_event_type}}", raw_event_type)
+      rendered = rendered.replace("{{raw_token_field}}", raw_token_field)
+      rendered = rendered.replace("{{raw_event_filter}}", raw_event_filter)
+      rendered = rendered.replace("{{fleet_entity_field}}", fleet_entity_field)
+
+      rendered = rendered.replace("{{personal_threshold}}", str(anomaly_threshold))
+      rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
+      rendered = rendered.replace("{{max_fleet_adopters}}", "3")
+
+      if hypothesis_goal:
+        rendered = f"// Goal: {hypothesis_goal}\n" + rendered
+
+      return rendered + "\n"
+
     else:
       raise ValueError(f"Unsupported pipeline type: {pipeline_type}")
 
@@ -274,6 +450,54 @@ class MultiStageTemplateRouter:
     """Builds a verified Dual-Plane Hybrid Metric & Raw Telemetry Enrichment pipeline."""
     return self.build_pipeline_query(
         PipelineArchitecture.HYBRID_METRIC_RAW_ENRICHMENT_2STAGE,
+        target_metric=target_metric,
+        entity_type=entity_type,
+        anomaly_threshold=anomaly_threshold,
+        hypothesis_goal=hypothesis_goal,
+    )
+
+  def build_hybrid_entropy_concentration_query(
+      self,
+      target_metric: str = "network_bytes_outbound",
+      entity_type: EntityType = EntityType.ASSET,
+      anomaly_threshold: float = 3.0,
+      hypothesis_goal: Optional[str] = None,
+  ) -> str:
+    """Builds a verified Dual-Plane Hybrid Entropy & Concentration pipeline (Diversity Deficit & Elephant Flow)."""
+    return self.build_pipeline_query(
+        PipelineArchitecture.HYBRID_METRIC_ENTROPY_CONCENTRATION_2STAGE,
+        target_metric=target_metric,
+        entity_type=entity_type,
+        anomaly_threshold=anomaly_threshold,
+        hypothesis_goal=hypothesis_goal,
+    )
+
+  def build_hybrid_orthogonal_space_query(
+      self,
+      target_metric: str = "network_bytes_outbound",
+      entity_type: EntityType = EntityType.ASSET,
+      anomaly_threshold: float = 3.0,
+      hypothesis_goal: Optional[str] = None,
+  ) -> str:
+    """Builds a verified Dual-Plane Hybrid Orthogonal Space pipeline (2D Threat Space & Joint Odds)."""
+    return self.build_pipeline_query(
+        PipelineArchitecture.HYBRID_METRIC_ORTHOGONAL_SPACE_2STAGE,
+        target_metric=target_metric,
+        entity_type=entity_type,
+        anomaly_threshold=anomaly_threshold,
+        hypothesis_goal=hypothesis_goal,
+    )
+
+  def build_hybrid_fleet_prevalence_query(
+      self,
+      target_metric: str = "file_executions_total",
+      entity_type: EntityType = EntityType.ASSET,
+      anomaly_threshold: float = 3.0,
+      hypothesis_goal: Optional[str] = None,
+  ) -> str:
+    """Builds a verified Dual-Plane Hybrid Fleet Prevalence Normalization pipeline (Patch Tuesday Shield)."""
+    return self.build_pipeline_query(
+        PipelineArchitecture.HYBRID_METRIC_FLEET_PREVALENCE_2STAGE,
         target_metric=target_metric,
         entity_type=entity_type,
         anomaly_threshold=anomaly_threshold,

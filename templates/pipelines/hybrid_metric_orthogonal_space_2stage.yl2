@@ -1,0 +1,92 @@
+// ============================================================================
+// ARCHITECTURE: 2-STAGE DUAL-PLANE HYBRID ORTHOGONAL THREAT SPACE PIPELINE
+// Skill: secops-risk-metrics-multistage
+// Common Compiler Conformance: YARA-L 2.0 Multi-Stage DAG Engine
+// Models Supported:
+//   3. Joint Bayesian Likelihood Odds (Sub-Threshold Fusion)
+//   4. Two-Part Hurdle Model (Cold-Start / Dormant Entity Awakening)
+//   5. 2D Euclidean Threat Distance (Intensity vs. Breadth Coordinate Space)
+// Join Budget: 1 metric lookup (Stage 1) + 1 stage join (Root) = 2 joins total (<= 4).
+// Match Topology: Symmetrical entity match ($entity by 1d).
+// ============================================================================
+
+// Stage 1: Macro Baseline (Axis 1: Historical Intensity / Prior State)
+stage stage1_macro_intensity {
+    metadata.event_type = "{{macro_event_type}}"
+    {{macro_entity_field}} = $entity
+    $entity != ""
+    {{macro_event_filter}}
+
+  match:
+    $entity by 1d
+
+  outcome:
+    $observed_intensity = {{macro_observed_agg}}
+    $hist_mean = max({{target_metric_func_avg}})
+    $hist_stddev = max({{target_metric_func_stddev}})
+    $hist_active_days = max({{target_metric_func_active_days}})
+
+    $diff_intensity = $observed_intensity - $hist_mean
+    $denom_intensity = $hist_stddev + 1.0
+    $z_intensity = $diff_intensity / $denom_intensity
+}
+
+// Stage 2: Micro Telemetry (Axis 2: Contemporary Breadth / Forensic Hits)
+stage stage2_micro_breadth {
+    metadata.event_type = "{{raw_event_type}}"
+    {{raw_entity_field}} = $entity
+    $entity != ""
+    {{raw_event_filter}}
+
+  match:
+    $entity by 1d
+
+  outcome:
+    $raw_hits = count(metadata.id)
+    $distinct_breadth = count_distinct({{raw_breadth_field}})
+    $distinct_targets = array_distinct({{raw_breadth_field}})
+}
+
+// Stage 3 (Root Stage): Common Compiler Fusion for Orthogonal Distance & Joint Odds
+$entity = $stage1_macro_intensity.entity
+$entity = $stage2_micro_breadth.entity
+
+match:
+  $entity by 1d
+
+outcome:
+  $z_intensity = max($stage1_macro_intensity.z_intensity)
+  $hist_days = max($stage1_macro_intensity.hist_active_days)
+  $obs_intensity = max($stage1_macro_intensity.observed_intensity)
+
+  $raw_hits = max($stage2_micro_breadth.raw_hits)
+  $breadth_count = max($stage2_micro_breadth.distinct_breadth)
+  $sample_targets = array_distinct($stage2_micro_breadth.distinct_targets)
+
+  // Standardized Micro Breadth Score (Zero-dispersion safe)
+  $z_breadth = ($breadth_count - 1.0) / (2.0 + 1.0)
+
+  // Model 5: 2D Euclidean Threat Distance Norm (Squared distance)
+  // D_squared = (Z_intensity * Z_intensity) + (Z_breadth * Z_breadth)
+  $intensity_sq = $z_intensity * $z_intensity
+  $breadth_sq = $z_breadth * $z_breadth
+  $threat_distance_sq = $intensity_sq + $breadth_sq
+
+  // Model 3: Joint Bayesian Additive Log-Odds Score
+  $joint_odds_score = (0.6 * $z_intensity) + (0.4 * $z_breadth)
+
+condition:
+  // Evaluates either Sub-Threshold Joint Odds, Hurdle Awakening, or Euclidean Distance
+  (
+    // Path A: 2D Euclidean Threshold
+    $threat_distance_sq >= {{min_threat_distance_sq}}
+  ) or (
+    // Path B: Sub-threshold multi-evidence fusion
+    $joint_odds_score >= {{min_joint_odds}} and $raw_hits >= {{min_raw_hits}}
+  ) or (
+    // Path C: Two-Part Hurdle (Dormant entity awakening with high-impact activity)
+    $hist_days <= {{max_dormant_days}} and $breadth_count >= {{min_breadth_count}} and $raw_hits >= 1
+  )
+
+order:
+  $threat_distance_sq desc

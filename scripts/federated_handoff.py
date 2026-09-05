@@ -18,6 +18,23 @@ from typing import Any, Dict, Optional
 
 SUPPORTED_PROTOCOL = "secops-threat-hunt-handoff-v1"
 
+SUPPORTED_INTENTS = [
+    "SCHEDULED_EXFILTRATION_TIMING",
+    "C2_BEACONING_JITTER",
+    "POISSON_BURST_CLUSTERING",
+    "POISSON_RARE_SURGE",
+    "ZSCORE_PROCESS_SURGE",
+    "DATA_EXFILTRATION_SPIKE",
+    "DUAL_BASELINE_DELTA_Z",
+    "RAW_TELEMETRY_ENRICHMENT",
+    "DIVERSITY_DEFICIT",
+    "ELEPHANT_FLOW_CONCENTRATION",
+    "ORTHOGONAL_THREAT_SPACE",
+    "BAYESIAN_JOINT_ODDS",
+    "TWO_PART_HURDLE",
+    "FLEET_PREVALENCE_NORMALIZATION",
+]
+
 
 def build_handoff_payload(
     intent: str,
@@ -34,8 +51,34 @@ def build_handoff_payload(
     request_id = f"req-{uuid.uuid4().hex[:8]}"
 
   model_params = parameters or {}
+  intent_upper = intent.upper()
   if not justification:
-    if any(kw in intent.upper() for kw in ["ENRICHMENT", "RAW_TELEMETRY", "DUAL_PLANE"]):
+    if any(kw in intent_upper for kw in ["DIVERSITY", "ENTROPY"]):
+      justification = (
+          "Macro 30-day baseline flagged volumetric anomaly; delegating to micro-entropy / "
+          "lexical diversity probe to detect scripted target concentration (Diversity Deficit)."
+      )
+    elif any(kw in intent_upper for kw in ["CONCENTRATION", "ELEPHANT"]):
+      justification = (
+          "Macro 30-day baseline flagged bulk transfer; delegating to micro-concentration "
+          "ratio analysis to detect single-destination Elephant Flows."
+      )
+    elif any(kw in intent_upper for kw in ["ORTHOGONAL", "DISTANCE", "EUCLIDEAN", "JOINT_ODDS"]):
+      justification = (
+          "Macro 30-day baseline intensity requires orthogonal coordinate projection with "
+          "contemporary micro-breadth hits in a dual-plane threat space."
+      )
+    elif any(kw in intent_upper for kw in ["HURDLE", "DORMANT"]):
+      justification = (
+          "Dormant entity awakening flagged; delegating to two-part hurdle model to evaluate "
+          "zero-state cold start combined with immediate high-impact activity."
+      )
+    elif any(kw in intent_upper for kw in ["FLEET_PREVALENCE", "PATCH_TUESDAY"]):
+      justification = (
+          "Macro surge detected for token/binary; delegating to fleet-wide prevalence probe "
+          "to normalize against enterprise-wide administrative rollouts."
+      )
+    elif any(kw in intent_upper for kw in ["ENRICHMENT", "RAW_TELEMETRY", "DUAL_PLANE"]):
       justification = (
           "Macro 30-day baseline flagged a statistically significant volume outlier; "
           "delegating to targeted raw telemetry probe for micro-forensic signature enrichment."
@@ -46,12 +89,32 @@ def build_handoff_payload(
           "or scheduled cron exfiltration; delegating to micro-timing variance analysis."
       )
 
-  if any(kw in intent.upper() for kw in ["C2", "EXFIL", "TIMING", "JITTER"]):
+  if any(kw in intent_upper for kw in ["C2", "EXFIL", "TIMING", "JITTER"]):
     if "max_cv" not in model_params:
       model_params["max_cv"] = 0.20
     if "min_observations" not in model_params:
       model_params["min_observations"] = 10
-  elif any(kw in intent.upper() for kw in ["ENRICHMENT", "RAW_TELEMETRY", "DUAL_PLANE"]):
+  elif any(kw in intent_upper for kw in ["DIVERSITY", "ENTROPY"]):
+    if "max_diversity_ratio" not in model_params:
+      model_params["max_diversity_ratio"] = 0.10
+    if "raw_vocab_field" not in model_params:
+      model_params["raw_vocab_field"] = "target.url"
+  elif any(kw in intent_upper for kw in ["CONCENTRATION", "ELEPHANT"]):
+    if "min_concentration_ratio" not in model_params:
+      model_params["min_concentration_ratio"] = 0.75
+  elif any(kw in intent_upper for kw in ["ORTHOGONAL", "DISTANCE", "EUCLIDEAN"]):
+    if "min_threat_distance_sq" not in model_params:
+      model_params["min_threat_distance_sq"] = 16.0
+  elif any(kw in intent_upper for kw in ["JOINT_ODDS", "BAYESIAN_ODDS"]):
+    if "min_joint_odds" not in model_params:
+      model_params["min_joint_odds"] = 2.5
+  elif any(kw in intent_upper for kw in ["HURDLE", "DORMANT"]):
+    if "max_dormant_days" not in model_params:
+      model_params["max_dormant_days"] = 2
+  elif any(kw in intent_upper for kw in ["FLEET_PREVALENCE", "PATCH_TUESDAY"]):
+    if "max_fleet_adopters" not in model_params:
+      model_params["max_fleet_adopters"] = 3
+  elif any(kw in intent_upper for kw in ["ENRICHMENT", "RAW_TELEMETRY", "DUAL_PLANE"]):
     if "enrichment_vector" not in model_params:
       model_params["enrichment_vector"] = "NETWORK_HTTP_USER_AGENT"
     if "max_signature_diversity" not in model_params:

@@ -1,0 +1,87 @@
+// ============================================================================
+// ARCHITECTURE: 2-STAGE DUAL-PLANE HYBRID ENTROPY & CONCENTRATION PIPELINE
+// Skill: secops-risk-metrics-multistage
+// Common Compiler Conformance: YARA-L 2.0 Multi-Stage DAG Engine
+// Models Supported:
+//   1. Information-Theoretic Diversity Deficit (Entropy Proxy)
+//   2. Concentration Index & "Elephant Flow" Isolation (HHI / Gini Proxy)
+// Join Budget: 1 metric lookup (Stage 1) + 1 stage join (Root) = 2 joins total (<= 4).
+// Match Topology: Symmetrical entity match ($entity by 1d).
+// ============================================================================
+
+// Stage 1: Macro-Volumetric 30-Day Baseline Outlier Sieve (metrics.*)
+stage stage1_macro_baseline {
+    metadata.event_type = "{{macro_event_type}}"
+    {{macro_entity_field}} = $entity
+    $entity != ""
+    {{macro_event_filter}}
+
+  match:
+    $entity by 1d
+
+  outcome:
+    $observed_val = {{macro_observed_agg}}
+    $hist_mean = max({{target_metric_func_avg}})
+    $hist_stddev = max({{target_metric_func_stddev}})
+    $hist_active_days = max({{target_metric_func_active_days}})
+
+    $diff = $observed_val - $hist_mean
+    $denom = $hist_stddev + 1.0
+    $z_score = $diff / $denom
+}
+
+// Stage 2: Parallel Micro-Forensics Telemetry on Raw Event Cardinality & Peak
+stage stage2_micro_forensics {
+    metadata.event_type = "{{raw_event_type}}"
+    {{raw_entity_field}} = $entity
+    $entity != ""
+    {{raw_event_filter}}
+
+  match:
+    $entity by 1d
+
+  outcome:
+    $raw_event_count = count(metadata.id)
+    $distinct_destinations = count_distinct({{raw_vocab_field}})
+    $peak_single_transfer = max({{raw_intensity_field}})
+    $sum_raw_transfers = sum({{raw_intensity_field}})
+}
+
+// Stage 3 (Root Stage): Common Compiler Fusion for Diversity Deficit & Concentration
+$entity = $stage1_macro_baseline.entity
+$entity = $stage2_micro_forensics.entity
+
+match:
+  $entity by 1d
+
+outcome:
+  $macro_observed = max($stage1_macro_baseline.observed_val)
+  $macro_mean = max($stage1_macro_baseline.hist_mean)
+  $macro_stddev = max($stage1_macro_baseline.hist_stddev)
+  $macro_z = max($stage1_macro_baseline.z_score)
+  $active_baseline_days = max($stage1_macro_baseline.hist_active_days)
+
+  $raw_events = max($stage2_micro_forensics.raw_event_count)
+  $vocab_cardinality = max($stage2_micro_forensics.distinct_destinations)
+  $peak_transfer = max($stage2_micro_forensics.peak_single_transfer)
+  $sum_transfers = max($stage2_micro_forensics.sum_raw_transfers)
+
+  // Linear Diversity Ratio: k / (N + 1.0)
+  $diversity_ratio = $vocab_cardinality / ($raw_events + 1.0)
+
+  // Linear Concentration Ratio: Peak / (Sum + 1.0) (Elephant Flow Proxy)
+  $concentration_ratio = $peak_transfer / ($sum_transfers + 1.0)
+
+  // Combined Threat Score: High volume anomaly weighted by entropy collapse
+  $threat_score = $macro_z * (1.0 + $concentration_ratio)
+
+condition:
+  // Macro: Volume must breach 30d baseline threshold
+  $macro_z >= {{anomaly_threshold}}
+  and $active_baseline_days >= {{min_baseline_days}}
+  // Micro: Diversity collapse (scripted exfil) OR extreme concentration (elephant flow)
+  and ($diversity_ratio <= {{max_diversity_ratio}} or $concentration_ratio >= {{min_concentration_ratio}})
+  and $raw_events >= {{min_raw_events}}
+
+order:
+  $threat_score desc

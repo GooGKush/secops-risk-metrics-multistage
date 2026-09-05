@@ -842,4 +842,40 @@ When the exfiltration channel is known in advance to be HTTP, both planes can be
 * **The Two-Phase Funnel**: When protocol is unconstrained, Phase 1 evaluates 50,000 hosts via `metrics.*` in seconds. The top outlier hosts are emitted in a `secops-threat-hunt-handoff-v1` payload with `intent: "RAW_TELEMETRY_ENRICHMENT"`, handing off to `secops-statistical-hunter` for targeted micro-forensic probes.
 
 ---
+
+## 32. Family of 3 Canonical 2-Stage Hybrid Pipeline Archetypes (Mathematical Models 1–6)
+
+To operationalize advanced statistical models without tripping Chronicle's join limit ($\le 4$) or Common Compiler outcome restrictions, Google SecOps utilizes a family of **three canonical 2-stage hybrid pipeline archetypes**. Each archetype executes as a single, native multi-stage YARA-L 2.0 query inside Chronicle SIEM (`secops-gus:udm_search`), consuming exactly **2 joins** (1 `metrics.*` pre-computed baseline lookup + 1 Root inter-stage join).
+
+### Archetype 1: Entropy & Concentration (`hybrid_metric_entropy_concentration_2stage.yl2`)
+* **Match Topology**: Symmetrical entity match (`$entity by 1d`).
+* **Telemetry Join**: Macro network baseline (`NETWORK_CONNECTION` + `metrics.*`) $\bowtie$ Micro request vocabulary (`NETWORK_HTTP` or `NETWORK_DNS`).
+* **Model 1: Information-Theoretic Diversity Deficit (Entropy Proxy)**:
+  $$\text{Diversity Ratio} = \frac{k_{\text{distinct}}}{N_{\text{raw}} + 1.0}$$
+  A low ratio ($\le 0.10$) reveals extreme repetition (e.g., automated scripts hitting 1–2 endpoints across thousands of requests), exposing entropy collapse without non-linear logarithms.
+* **Model 2: Concentration Index & "Elephant Flow" Isolation (HHI / Gini Proxy)**:
+  $$\text{Concentration Ratio} = \frac{\text{Peak Single Event Transfer}}{\sum \text{Raw Transfers} + 1.0}$$
+  A high ratio ($\ge 0.75$) isolates massive single-destination transfers (elephant flows) from diffuse distributed web traffic.
+
+### Archetype 2: Orthogonal Threat Space (`hybrid_metric_orthogonal_space_2stage.yl2`)
+* **Match Topology**: Symmetrical entity match (`$entity by 1d`).
+* **Telemetry Join**: Macro historical intensity baseline $\bowtie$ Contemporary forensic breadth hits.
+* **Model 3: Joint Bayesian Additive Log-Odds Score**:
+  $$\text{Joint Odds} = (0.6 \cdot Z_{\text{intensity}}) + (0.4 \cdot Z_{\text{breadth}})$$
+  Fuses two sub-threshold anomalies ($Z \approx 2.2\sigma$) that individually escape alerting into a high-confidence compound detection.
+* **Model 4: Two-Part Hurdle Model (Dormant Account / Cold-Start Awakening)**:
+  $$\text{Condition: } \text{Active Days} \le 2 \land \text{Breadth} \ge 3 \land N_{\text{raw}} \ge 1$$
+  Accounts for zero-inflated distributions by checking the discrete hurdle (was entity dormant?) before measuring contemporary burst volume.
+* **Model 5: 2D Euclidean Threat Distance Norm**:
+  $$D^2 = Z_{\text{intensity}}^2 + Z_{\text{breadth}}^2 \ge 16.0 \quad (\implies D \ge 4.0\sigma)$$
+  Evaluates geometric distance from nominal behavior in coordinate space while strictly complying with the Common Compiler's rejection of square root functions (`sqrt()`).
+
+### Archetype 3: Fleet Prevalence Normalization (`hybrid_metric_fleet_prevalence_2stage.yl2`)
+* **Match Topology**: Token-centric match key (`$token by 1d`), joining an entity's anomalous execution to fleet-wide breadth.
+* **Telemetry Join**: Personal process execution baseline (`metrics.file_executions_total`) $\bowtie$ Fleet-wide host execution count on the same binary hash (`principal.process.file.sha256`).
+* **Model 6: Cross-Sectional Odds Ratio (Patch Tuesday / Corporate Rollout Shield)**:
+  $$\text{Dampener} = \frac{1.0}{k_{\text{fleet}} + 1.0}, \quad \text{Normalized Score} = Z_{\text{personal}} \cdot \text{Dampener}$$
+  If 500 endpoints execute an updated binary today, the prevalence dampener collapses the score to $\sim 0.002$, neutralizing false positive fleet-wide alerts. If only 1–2 endpoints execute the binary, full anomaly weight ($\ge 0.33$) is preserved.
+
+---
 *Created and maintained by Greg Kushmerek for Google SecOps Chronicle SIEM threat hunting workflows.*

@@ -1,0 +1,83 @@
+// ============================================================================
+// ARCHITECTURE: 2-STAGE DUAL-PLANE FLEET PREVALENCE NORMALIZATION PIPELINE
+// Skill: secops-risk-metrics-multistage
+// Common Compiler Conformance: YARA-L 2.0 Multi-Stage DAG Engine
+// Models Supported:
+//   6. Cross-Sectional Odds Ratio (Corporate Rollout Shield / Patch Tuesday Filter)
+// Join Budget: 1 metric lookup (Stage 1) + 1 stage join (Root) = 2 joins total (<= 4).
+// Match Topology: Token-centric match key ($token by 1d) joining personal anomaly to fleet breadth.
+// ============================================================================
+
+// Stage 1: Individual Entity Baseline Surge & Micro-Token Extraction (metrics.*)
+stage stage1_personal_surge {
+    metadata.event_type = "{{macro_event_type}}"
+    {{macro_entity_field}} = $entity
+    $entity != ""
+    {{macro_token_field}} = $token
+    $token != ""
+    {{macro_event_filter}}
+
+  match:
+    $entity, $token by 1d
+
+  outcome:
+    $observed_val = {{macro_observed_agg}}
+    $hist_mean = max({{target_metric_func_avg}})
+    $hist_stddev = max({{target_metric_func_stddev}})
+    $hist_active_days = max({{target_metric_func_active_days}})
+
+    $diff = $observed_val - $hist_mean
+    $denom = $hist_stddev + 1.0
+    $personal_z = $diff / $denom
+    $surging_entity = array_distinct($entity)
+}
+
+// Stage 2: Enterprise-Wide Concurrent Fleet Adoption on Micro-Token (UDM_EVENTS)
+stage stage2_fleet_prevalence {
+    metadata.event_type = "{{raw_event_type}}"
+    {{raw_token_field}} = $token
+    $token != ""
+    {{raw_event_filter}}
+
+  match:
+    $token by 1d
+
+  outcome:
+    $fleet_adopters = count_distinct({{fleet_entity_field}})
+    $total_fleet_events = count(metadata.id)
+    $sample_fleet_hosts = array_distinct({{fleet_entity_field}})
+}
+
+// Stage 3 (Root Stage): Common Compiler Prevalence Normalization
+$token = $stage1_personal_surge.token
+$token = $stage2_fleet_prevalence.token
+
+match:
+  $token by 1d
+
+outcome:
+  $token_name = max($token)
+  $personal_z = max($stage1_personal_surge.personal_z)
+  $active_baseline_days = max($stage1_personal_surge.hist_active_days)
+  $affected_hosts = array_distinct($stage1_personal_surge.surging_entity)
+
+  $fleet_adopters = max($stage2_fleet_prevalence.fleet_adopters)
+  $total_events = max($stage2_fleet_prevalence.total_fleet_events)
+
+  // Linear Prevalence Dampening Factor: 1.0 / (k_fleet + 1.0)
+  // If 500 hosts adopt the hash today, dampener collapses to ~0.002
+  // If only 1 host executed the hash, dampener remains 0.5 (full anomaly weight preserved)
+  $prevalence_dampener = 1.0 / ($fleet_adopters + 1.0)
+
+  // Normalized Outlier Odds: Personal Z-score dampened by fleet prevalence
+  $normalized_odds_score = $personal_z * $prevalence_dampener
+
+condition:
+  // Personal host must breach historical baseline
+  $personal_z >= {{personal_threshold}}
+  and $active_baseline_days >= {{min_baseline_days}}
+  // Fleet Prevalence Filter: Binary/token must NOT be an enterprise-wide rollout
+  and $fleet_adopters <= {{max_fleet_adopters}}
+
+order:
+  $normalized_odds_score desc
