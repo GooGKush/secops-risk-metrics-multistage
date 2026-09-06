@@ -1040,6 +1040,15 @@ class MalachiteASTValidator:
       last_stage_end = max(last_stage_end, match.end())
     root_body = query_text[last_stage_end:]
 
+    if stage1_matches:
+      has_root_match = bool(re.search(r"\bmatch:\s*", root_body))
+      has_root_outcome_or_cond = bool(re.search(r"\b(?:outcome|condition):\s*", root_body))
+      if not (has_root_match and has_root_outcome_or_cond):
+        errors.append(
+            "MISSING_ROOT_STAGE: Multi-stage query defines named 'stage ... { }' blocks but lacks an unwrapped terminal root stage "
+            "(with 'match:' and 'outcome:'/'condition:'). Named stages cannot execute without a terminal root stage."
+        )
+
     # Check root stage metric filter fields
     root_metric_calls = re.findall(r"metrics\.([a-zA-Z0-9_]+)\s*\(([^)]+)\)", root_body, re.DOTALL)
     for m_name, args_body in root_metric_calls:

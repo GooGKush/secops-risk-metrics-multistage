@@ -1,14 +1,14 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.5.3)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.5.4-dev)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v1.5.3 — September 2026  
+**Latest Version**: v1.5.4-dev — September 2026  
 
 ---
 
-## 📢 What's New in v1.5.3 (Feature Release) — Canonical 2-Stage Hybrid Archetypes & 6 Mathematical Models
+## 📢 What's New in v1.5.4 (Feature Release) — Canonical 2-Stage Hybrid Archetypes & 6 Mathematical Models
 
 * **Family of 3 Canonical 2-Stage Hybrid Pipeline Archetypes**:
   - Operationalizes 6 advanced mathematical models bridging 30-day macro baselines (`metrics.*`) with in-flight micro telemetry (`UDM_EVENTS`) natively in Chronicle SIEM via `secops-gus:udm_search`:
@@ -30,6 +30,21 @@
   - Added corresponding intent routing in peer skill `secops-statistical-hunter` (`scripts/multistage_query_builder.py`).
   - Added Section 32 to `references/multi-stage-metrics-guide.md`.
   - Expanded unit test coverage in `tests/test_hybrid_pipelines.py` (175/175 tests passing).
+
+---
+
+## 📢 What's New in v1.5.3 (Point Release) — 360° Radar Reality Enforcement & AST Root Stage Gate
+
+* **360° Behavioral Risk Radar Reality Enforcement**:
+  - Closed prompt loopholes that allowed language models to bypass live tool execution on Turn 2 clearance by simulating 6-sector scores and emitting raw `<svg>` tags in chat stream.
+  - Mandated that 360° radar clearance MUST execute `scripts/radar_collector.py` via `run_command` or 5 decoupled `udm_search` queries (strictly prohibiting zero-tool clearance and raw `<svg>` output, complying with `REG-P2-11`).
+* **AST Pre-Flight Validator Root Stage Gate**:
+  - Added `MISSING_ROOT_STAGE` check in `scripts/preflight_validator.py` (`MalachiteASTValidator.validate_query`): rejects multi-stage queries containing named `stage ... { }` blocks that lack an unwrapped terminal root stage with `match:` and `outcome:`/`condition:`.
+  - Enforced bound match variable validation across all stages, preventing uncompiled YARA-L 2.0 multi-stage pseudo-queries from passing pre-flight checks.
+* **Radar Collector & Guardrail Unit Tests**:
+  - Added `test_reject_monolithic_radar_join_and_missing_root_stage` in `tests/test_radar_collector.py` verifying AST validator rejection of monolithic 5-stage queries lacking root stages and having unbound match variables.
+  - Preserved strict 20 KB skill budget (20,474 bytes, 165 lines).
+  - All regression invariants passed: `REG-P0-03-RADAR-JOIN-LIMIT` and `REG-P2-11-SINGLE-SURFACE-VIZ`.
 
 ---
 

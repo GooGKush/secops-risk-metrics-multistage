@@ -321,6 +321,82 @@ class TestRadarCollector(unittest.TestCase):
     self.assertIn("Unicode magnitude bars", content)
     self.assertIn("agent-embed", content)
 
+  def test_reject_monolithic_radar_join_and_missing_root_stage(self):
+    """AST validator must reject monolithic multi-stage radar queries lacking a root stage and having unbound match variables."""
+    pseudo_query = '''
+// Sector 1: Authentication Baseline & Anomaly Extraction
+stage stage_auth {
+  $e.metadata.event_type = "USER_LOGIN"
+  $e.security_result.action = "ALLOW"
+  $e.target.user.userid = "admin"
+  match:
+    $user by 1d
+  outcome:
+    $obs_auth = count_distinct($e.metadata.id)
+    $avg_auth = max(metrics.auth_attempts_success(period: 1d, window: 30d, metric: event_count_sum, agg: avg, target.user.userid: $user))
+    $std_auth = max(metrics.auth_attempts_success(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, target.user.userid: $user))
+    $z_auth   = ($obs_auth - $avg_auth) / ($std_auth + 1.0)
+}
+
+// Sector 2: Cloud Admin & Resource Creation Baseline
+stage stage_cloud {
+  $e.metadata.event_type = "RESOURCE_CREATION"
+  $e.principal.user.userid = "admin"
+  match:
+    $user by 1d
+  outcome:
+    $obs_cloud = count_distinct($e.metadata.id)
+    $avg_cloud = max(metrics.resource_creation_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: $user))
+    $std_cloud = max(metrics.resource_creation_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: $user))
+    $z_cloud   = ($obs_cloud - $avg_cloud) / ($std_cloud + 1.0)
+}
+
+// Sector 3: Workspace Data Exfiltration Baseline
+stage stage_workspace {
+  $e.metadata.event_type = "USER_UNCATEGORIZED"
+  $e.metadata.product_name = "Google Workspace"
+  $e.principal.user.userid = "admin"
+  match:
+    $user by 1d
+  outcome:
+    $obs_ws = count_distinct($e.metadata.id)
+    $avg_ws = max(metrics.workspace_total_download_actions(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: $user))
+    $std_ws = max(metrics.workspace_total_download_actions(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: $user))
+    $z_ws   = ($obs_ws - $avg_ws) / ($std_ws + 1.0)
+}
+
+// Sector 4: Network Egress Outbound Bytes Baseline
+stage stage_net {
+  $e.metadata.event_type = "NETWORK_CONNECTION"
+  $e.principal.user.userid = "admin"
+  match:
+    $user by 1d
+  outcome:
+    $obs_net = sum($e.network.sent_bytes)
+    $avg_net = max(metrics.network_bytes_outbound(period: 1d, window: 30d, metric: sum_bytes, agg: avg, principal.user.userid: $user))
+    $std_net = max(metrics.network_bytes_outbound(period: 1d, window: 30d, metric: sum_bytes, agg: stddev, principal.user.userid: $user))
+    $z_net   = ($obs_net - $avg_net) / ($std_net + 1.0)
+}
+
+// Sector 5: DNS Query Volume Baseline
+stage stage_dns {
+  $e.metadata.event_type = "NETWORK_DNS"
+  $e.principal.user.userid = "admin"
+  match:
+    $user by 1d
+  outcome:
+    $obs_dns = count_distinct($e.metadata.id)
+    $avg_dns = max(metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: $user))
+    $std_dns = max(metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: $user))
+    $z_dns   = ($obs_dns - $avg_dns) / ($std_dns + 1.0)
+}
+'''
+    errors = MalachiteASTValidator.validate_query(pseudo_query)
+    error_str = " ".join(errors)
+    self.assertIn("STAGE_LIMIT_EXCEEDED", error_str)
+    self.assertIn("UNBOUND_MATCH_VARIABLE", error_str)
+    self.assertIn("MISSING_ROOT_STAGE", error_str)
+
 
 if __name__ == "__main__":
   unittest.main()
