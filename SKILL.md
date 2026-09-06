@@ -51,20 +51,18 @@ Phase 1B is **ONLY UNLOCKED** when **BOTH** are explicitly defined:
 ### 🕸️ 360° Entity Behavioral Risk Radar (All-Vectors / Radial Profiling)
 When profiling an entity across all vectors (*"visualize all risk vectors"*, *"360 health check"*):
 1. **Mandatory 5-Sector Roster**: Canonical metric functions: Auth (`metrics.auth_attempts_success`, `target.user.userid`), Cloud (`metrics.resource_creation_total`, `principal.user.userid`), Workspace (`metrics.workspace_total_download_actions`), Network (`metrics.network_bytes_outbound`), DNS/Web (`metrics.http_queries_total`).
-2. **Compilable Micro-Query Template (ZERO MONOLITHIC JOINS — maxJoinCount=4 & Inner-Join Drop)**: Decoupled per sector. Always bind genuine UDM event types (e.g. `$b.metadata.event_type = "USER_LOGIN"`) and invoke real metric functions from the catalog (`stage auth_risk` matching `$user by 1d` + `order: $z desc`). The 360 report is exempt from displaying all independent queries in preview/Pillar 2: display one representative sector query in ```yara, noting that sectors evaluate via identical decoupled micro-queries.
+2. **Compilable Micro-Query Template (ZERO MONOLITHIC JOINS — maxJoinCount=4 & Inner-Join Drop)**: Decoupled per sector (consult `templates/stage1_extractors/` or `references/multi-stage-metrics-guide.md`). Always bind genuine UDM event types (e.g. `$b.metadata.event_type = "USER_LOGIN"`) and invoke real metric functions (`stage auth_risk` matching `$user by 1d` with `order: $z desc`). The 360 report is exempt from displaying all independent queries in preview/Pillar 2: display one representative sector query in ```yara, noting that sectors evaluate via identical decoupled micro-queries.
 3. **Visualization Strategy (Single visual surface: Client Tool OR Embed OR ASCII)**:
    - **Adaptive Single-Surface Routing (NEVER Render Both ASCII & Visual)**:
      • *Jetski (`run_command` present)*: Output ONLY `<agent-embed src="file:///<artifact_dir>/<name>.html"></agent-embed>` and link via `scripts/radar_collector.py`. Zero data-uri or raw SVG in chat Markdown.
-     • *Client Tool (if present)*: If tool declares radar/SVG, invoke with entity and sector scores.
-     • *Generic MCP / CLI*: Zero raw SVG in chat. Render ASCII card ONLY on explicit request.
+     • *Client Tool*: If tool declares radar/SVG, invoke with entity & sector scores.
+     • *CLI/MCP*: Zero raw SVG in chat. Render ASCII card ONLY on explicit request.
    - **Canonical Layout**: Rings $+1\sigma$ to $+4\sigma$; spokes: Auth, Cloud, Workspace, Net, DNS. Scales: Z and CRI ($+3.0\sigma$).
 4. **Post-Flight 5-Sector Verification & Euclidean Join Audit**:
-   Upon Turn 2 execution, the agent MUST affirm:
-   - *5 Metrics-Based Queries Formulated & Executed*: All 5 sectors (Auth, Cloud, Workspace, Net, DNS) queried against 30d baselines via `udm_search` or `radar_collector.py`. Quiet sectors evaluate to nominal ($Z=0.00\sigma$).
-   - *Euclidean Threat Space Join*: Join 5 sector Z-scores into composite Threat Distance $D = \sqrt{\sum_{i=1}^5 Z_i^2}$, render all 5 in Pillar 3/4 tables, and evaluate CRI ($D \ge 3.0\sigma \implies \text{CRI} \ge 50$). Never wrap math in bold (`**$+2.93\sigma$**` invalid; write `$+2.93\sigma$`).
+   On Turn 2, affirm all 5 sectors (Auth, Cloud, Workspace, Net, DNS) queried against 30d baselines via `udm_search` or `radar_collector.py` (quiet sectors $Z=0.00\sigma$). Join 5 sector Z-scores into Threat Distance $D = \sqrt{\sum_{i=1}^5 Z_i^2}$, render in Pillar 3/4 tables, and evaluate CRI ($D \ge 3.0\sigma \implies \text{CRI} \ge 50$). Never wrap math in bold (`**$+2.93\sigma$**` invalid; write `$+2.93\sigma$`).
 
-### ☁️ Cloud Data Store Scope & Anti-Narrowing Invariant
-* **Anti-Narrowing Invariant for Cloud Data Stores**: When hunting service account cloud repository access (`resource_read_*`, `resource_written_*`), NEVER narrow to a single product: use `templates/pipelines/cloud_repository_scope_dual_branch.yl2` with `($sa, $vendor, $product, $resource, $ip by 1d)`.
+### ☁️ Cloud Telemetry Scope & Anti-Narrowing Invariant
+* **Anti-Narrowing Invariant for Cloud Data Stores**: When hunting service account cloud repository access (`resource_read_*`, `resource_written_*`), NEVER narrow to a single product: use `templates/pipelines/cloud_repository_scope_dual_branch.yl2` with `($sa, $vendor, $product, $resource, $ip by 1d)`. UDM parses `GCP_CLOUDAUDIT` into full lifecycle: CRUD (`RESOURCE_*`), user actions (`USER_RESOURCE_ACCESS/UPDATE_CONTENT/UPDATE_PERMISSIONS`), and IAM (`USER_CHANGE_PERMISSIONS`). Reads use `RESOURCE_READ` or `USER_RESOURCE_ACCESS` (never `USER_RESOURCE_READ`). Consult `references/metrics-catalog.md`.
 
 ### 🎯 CTI & Threat Report Mapping (Reports, URLs, CVEs, Threat Actors)
 When analyst provides a threat report:
@@ -73,7 +71,7 @@ When analyst provides a threat report:
 
 ### 🔍 Phase 1B: Pre-Flight Spec & Query Preview (Once Scope & Vectors are Established)
 Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to both"*, or via CTI mapping):
-1. **Turn 1 Tool Invariant**: Zero file inspection (`view_file`, `list_dir`). Permitted: name resolution spot-check and 1-shot pre-preview compiler probe (`udm_search`).
+1. **Turn 1 Tool Invariant**: Zero external inspection; `references/` & `templates/` permitted for syntax lookup. Permitted: name resolution spot-check and 1-shot pre-preview compiler probe (`udm_search`).
 2. **Identity Disambiguation & Confirmation Protocol (ZERO GUESSING & IMMEDIATE HALT)**:
    - *Technical IDs vs Display Names*: Display names (with spaces) are NOT `user.userid`. Standalone first names (e.g. `greg`, `frank`) MUST be spot-checked in UDM before hunting.
    - *14-Day UDM Spot-Check*: `udm_search(query='target.user.userid = "<name>" nocase or principal.user.userid = "<name>" nocase', startTime: "<ISO_14D_AGO>", endTime: "<ISO_NOW>", maxEvents: 5)`.
@@ -91,7 +89,7 @@ Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to bo
    • Statistical Model:      [Model, e.g. Multi-Sector Fusion]
    • Significance Threshold: [Z >= 3.0σ (CRI >= 50) / D >= 3.5σ]
    ```
-   * *Mandatory Upfront Query Preview Protocol (Mandatory Query Preview)* & *Tool-Precondition Code Block Embargo*: Execute 1-shot pre-preview compiler probe with ISO 8601 timestamps: `secops-gus:udm_search(query="<single_event_udm_filter>", startTime="<ISO_10M_AGO>", endTime="<ISO_NOW>", maxEvents=1)`. (Relative 'now-10m' is invalid). Pass a single-event UDM predicate (e.g. `metadata.event_type = "PROCESS_LAUNCH"` or `metadata.event_type = "USER_LOGIN"`); multi-stage YARA-L in `udm_search` is PROHIBITED (causes 400 rejection). Parameters require `camelCase` (`query`, `startTime`, `endTime`, `maxEvents`); 0 events is a valid probe. Display query in markdown ONLY if probe compiles cleanly (200 OK). Emitting ```yara without an immediate preceding successful probe is STRICTLY PROHIBITED (applies universally to queries, pivots, and handoff cards). If probe fails, auto-correct or trigger Consultative Pivot.
+   * *Mandatory Upfront Query Preview Protocol (Mandatory Query Preview)* & *Tool-Precondition Code Block Embargo*: Execute 1-shot pre-preview compiler probe with ISO 8601 timestamps: `secops-gus:udm_search(query="<single_event_udm_filter>", startTime="<ISO_10M_AGO>", endTime="<ISO_NOW>", maxEvents=1)`. (Relative 'now-10m' is invalid). Pass single-event filter (e.g. `metadata.event_type = "PROCESS_LAUNCH"` or `metadata.event_type = "USER_LOGIN"`); multi-stage YARA-L in `udm_search` is PROHIBITED (causes 400). Parameters require `camelCase` (`query`, `startTime`, `endTime`, `maxEvents`); 0 events is a valid probe. Display query in markdown ONLY if probe compiles cleanly (200 OK). Emitting ```yara without an immediate preceding successful probe is STRICTLY PROHIBITED (applies universally to queries, pivots, and handoff cards). If probe fails, auto-correct or trigger Consultative Pivot.
    * *HARD PRE-FLIGHT CLEARANCE GATE (NO QUERY = NO CLEARANCE)*: Clearance Request (Step 5) MUST NEVER BE ASKED unless a valid, compilable multi-stage YARA-L query has been successfully probed (200 OK) and displayed under the Pre-Flight Card on that turn. If query cannot be probed, HALT immediately.
    * *Peer Cohort Roster Requirement (Peer Cohort & Roster)*: List cohort entities. If active days $N < 7$, flag `⚠️ Sparse Baseline Caution (N < 7)` in card spine.
    * *Interactive Entity Graph Dimension Mandate*: Express joins under `• Entity Graph Dimension: [Exact Filter]` (Domain Rarity, Fleet Prevalence, Binary Rarity, IP Rarity `rolling_max <= 3`, `day_count = 10` platform invariant).
@@ -102,7 +100,7 @@ Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to bo
 
 ### 📊 State 2: Deterministic Multi-Stage Execution & 6-Pillar Report (After Clearance) (MANDATORY STEP 2: PRESENT FULL 6-SECTION REPORT)
 
-1. **Turn 2 Telemetry Retrieval Mandate**: On clearance, execute single-event search via `udm_search(query="<single_event_udm_filter>")` for entity counts. Multi-stage YARA-L in `udm_search` is STRICTLY PROHIBITED (causes 400 rejection); candidate multi-stage YARA-L belongs exclusively in Pillar 2. Zero `json_chart`.
+1. **Turn 2 Telemetry Retrieval Mandate**: On clearance, execute single-event `udm_search(query="<single_event_udm_filter>")`. Multi-stage YARA-L in `udm_search` is PROHIBITED (causes 400); multi-stage belongs in Pillar 2. Zero `json_chart`.
 2. **Deterministic 6-Pillar Report Structure**: Synthesize findings into the complete report containing ALL 6 canonical numbered pillars:
 #### 1. Statistical Outlier Report: `[Target Metric]` ([Statistical Model]) (`window: 30d`). Single visual surface: `<agent-embed>` in Jetski; Client Tool (if present); ASCII on request. Unicode magnitude bars (`▰▰▰▰▱▱▱▱`).
 #### 2. Executed Multi-Stage YARA-L Query: The formal multi-stage YARA-L 2.0 query formulated for the hunt. For 360 Radar, display executed sector micro-queries. Raw event filters (e.g. `principal.user.userid = ...`) are STRICTLY PROHIBITED in Pillar 2.
@@ -150,7 +148,7 @@ Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to bo
 * **Strict Nomenclature Mandate**: Ad-hoc hunt logic is a Query, never a Rule (CRITICAL NOMENCLATURE VIOLATION).
 * **Zero Gratuitous Entity Graph Injection (ON-DEMAND / ALGORITHMIC GROUNDING ONLY)**: Entity Graph constructs must NEVER be injected gratuitously or speculatively. Include ONLY on Direct Customer Request (On-Demand) or Algorithmic Grounding.
 * **Interactive Entity Graph Rarity & Context Discovery & 10-Day Prevalence Platform Invariant**: When requested, bind Entity Graph dimensions (Domain Rarity, Fleet Prevalence, Binary Rarity, IP Rarity; `day_count = 10`) into Stage 2.
-* **KaTeX & Typography Invariants (ZERO PARSE FAILURES)**: No bold math (`**$+4.16\sigma$**` invalid; write clean `$+4.16\sigma$`); Unicode `(μ)`, `(σ)` in tables. Formulas: `$$\text{CRI} = \min(100, \max(0, \frac{Z}{3.0} \times 50))$$` and `$$D = \sqrt{\sum_{i=1}^5 Z_i^2}$$.` Flush-left `$$` on own lines.
+* **Typography Invariants**: No bold math (`**$+4.16\sigma$**` invalid; write clean `$+4.16\sigma$`); Unicode `(μ)`, `(σ)` in tables. `$$\text{CRI} = \min(100, \max(0, \frac{Z}{3.0} \times 50))$$` and `$$D = \sqrt{\sum_{i=1}^5 Z_i^2}$$.` Flush-left `$$` on own lines.
 
 ---
 
@@ -162,5 +160,5 @@ Unsolicited case creation is a **CRITICAL PROCESS POLLUTION VIOLATION**. Trigger
 ---
 
 ## 📂 Modular References & Template Architecture
-* **`references/`**: `statistical-hunting-cooperative-framework.md`, `metrics-catalog.md`, `statistical-models-taxonomy.md`, `calibrated-risk-index-guide.md`, `multi-stage-metrics-guide.md`, `clean-handoff-udm-schema.md`, `soar-playbook-radar-integration.md`, `compiler-submission-policy.md`
-* **Pipelines & Scripts**: `templates/pipelines/`, `templates/stage1_extractors/`, `scripts/` (`template_router.py`, `radar_collector.py`, `submission_tests.py`)
+* **`references/`**: `clean-handoff-udm-schema.md`, `soar-playbook-radar-integration.md`, `metrics-catalog.md`, `multi-stage-metrics-guide.md`, `compiler-submission-policy.md`
+* **Pipelines & Scripts**: `templates/pipelines/`, `templates/stage1_extractors/`, `scripts/` (`template_router.py`, `radar_collector.py`)

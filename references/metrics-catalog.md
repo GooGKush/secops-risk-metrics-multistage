@@ -111,9 +111,12 @@ This catalog details all 38 active pre-computed behavioral risk metrics availabl
 
 ---
 
-## 7. Cloud Resource Lifecycle (CRUD)
-* **Log Scope:** `metadata.event_type = "RESOURCE_CREATION" | "RESOURCE_DELETION" | "RESOURCE_READ" | "RESOURCE_WRITTEN"`
+## 7. Cloud Resource Lifecycle & Cloud Audit Telemetry Spectrum
 * **Backing Log Types:** `GCP_CLOUDAUDIT`, `AWS_CLOUDTRAIL`, `AZURE_ACTIVITY`
+* **Pre-Computed Baseline Scope:** `metadata.event_type = "RESOURCE_CREATION" | "RESOURCE_DELETION" | "RESOURCE_READ" | "RESOURCE_WRITTEN"`
+
+### 7.1 Pre-Computed UEBA Metric Functions
+Chronicle Malachite maintains 30-day pre-computed baseline tables for 4 core infrastructure CRUD operations:
 
 | Metric Function Family | Operations Covered | Supported Dimensions (Entity Types & Required Attributes) |
 | :--- | :--- | :--- |
@@ -129,7 +132,47 @@ This catalog details all 38 active pre-computed behavioral risk metrics availabl
 > `compilation error: validating ueba functions: unsupported filters for metric RESOURCE_*`  
 > Always match `$v = metadata.vendor_name, $p = metadata.product_name` in the event/match section and pass `metadata.vendor_name: $v, metadata.product_name: $p` into the metric function call.
 
-### Service Account Cloud Repository & Origin IP Monitoring
+### 7.2 Full UDM Event Spectrum for Cloud Audit Logs (`GCP_CLOUDAUDIT`)
+While pre-computed baselines cover high-volume CRUD, threat hunting and behavioral detections across cloud environments must NOT be artificially restricted to only 4 enums. Real-world cloud audit telemetry parsed into Chronicle UDM spans user-level actions, permissions tampering, credential modifications, and administrative operations.
+
+The following empirical distribution reflects a 30-day telemetry profile from the live `gus-sdl` production tenant:
+
+| UDM Event Type (`metadata.event_type`) | Observed 30d Volume | Operational Role | Threat Detection & Hunting Focus |
+| :--- | :--- | :--- | :--- |
+| `GENERIC_EVENT` | 30,999 | Control plane & routine cloud operations | Broad background automation, service-to-service calls |
+| `RESOURCE_WRITTEN` | 2,575 | System/generic resource modifications | High-volume writes, data store ingestion surges |
+| `RESOURCE_CREATION` | 980 | System/generic resource provisioning | VM deployment spikes, container spinning |
+| `RESOURCE_DELETION` | 936 | System/generic resource teardown | Mass deletions, resource decommissioning |
+| `USER_RESOURCE_UPDATE_CONTENT` | 559 | User modifying resource data/content | Direct object tampering, database/bucket overwrites |
+| `USER_UNCATEGORIZED` | 537 | Uncategorized user-initiated audit activity | Non-standard API actions, unmapped cloud services |
+| `USER_RESOURCE_UPDATE_PERMISSIONS` | 378 | User modifying resource-level IAM/ACL | Bucket IAM modification, Secret Manager access grant |
+| `USER_CHANGE_PERMISSIONS` | 150 | User/IAM role binding changes | Project/folder/org-level IAM role escalation |
+| `RESOURCE_READ` | 124 | System/generic resource reads | Data inspection, baseline read monitoring |
+| `USER_LOGIN` | 96 | Cloud Console / OAuth session initiation | Anomalous console access, suspicious token creation |
+| `STATUS_UNCATEGORIZED` | 64 | Uncategorized status changes | Status monitoring events |
+| `USER_CREATION` | 62 | Service account or user creation | Rogue service account creation, backdoor identity |
+| `USER_CHANGE_PASSWORD` | 60 | Credential / key creation or rotation | Service account key generation, credential access |
+| `USER_RESOURCE_DELETION` | 60 | User deleting specific resources | Targeted sabotage, evidence wiping |
+| `USER_RESOURCE_ACCESS` | 43 | User accessing/reading resources | Secret inspection, targeted object retrieval |
+| `GROUP_MODIFICATION` | 32 | Cloud Identity / IAM group membership | Group-based privilege escalation |
+| `USER_RESOURCE_CREATION` | 30 | User creating specific resources | Shadow infrastructure, rogue compute instances |
+
+> [!WARNING]
+> **Critical UDM Enum Naming Rule for Cloud & User Activity**:
+> 1. **Resource Access / Read**: Use `RESOURCE_READ` (system/generic) or `USER_RESOURCE_ACCESS` (user-initiated).  
+>    *`USER_RESOURCE_READ` is **NOT** a valid UDM enum*. In Chronicle UDM, user-initiated read operations are mapped to `USER_RESOURCE_ACCESS`. Guessing `USER_RESOURCE_READ` will cause immediate query validation failure.
+> 2. **Resource Modification / Write**: Use `RESOURCE_WRITTEN` or `USER_RESOURCE_UPDATE_CONTENT`.
+> 3. **Resource Provisioning**: Use `RESOURCE_CREATION` or `USER_RESOURCE_CREATION`.
+> 4. **Resource Deletion**: Use `RESOURCE_DELETION` or `USER_RESOURCE_DELETION`.
+> 5. **Permissions & Privilege Changes**: Use `USER_RESOURCE_UPDATE_PERMISSIONS` (resource-level ACLs) or `USER_CHANGE_PERMISSIONS` (project/org IAM bindings).
+> 6. **Credential Lifecycle**: Use `USER_CHANGE_PASSWORD` (covers service account key creation/rotation).
+
+### 7.3 Multi-Stage Correlation Across Cloud Telemetry
+In multi-stage YARA-L threat hunting:
+* **Stage 1 (Volumetric Anomaly Discovery)**: Evaluates pre-computed 30-day baseline tables (`metrics.resource_*`) to detect statistical volume outliers ($Z \ge 3.0\sigma$) across service accounts or users.
+* **Stage 2 (Tactical Correlation & Behavioral Verification)**: Correlates identified outliers against specific, high-fidelity security events such as `USER_RESOURCE_UPDATE_PERMISSIONS` (privilege escalation), `USER_CHANGE_PASSWORD` (key generation), or `USER_RESOURCE_ACCESS` (secret exfiltration).
+
+### 7.4 Service Account Cloud Repository & Origin IP Monitoring
 * **Actor & Principal Role**: Service accounts in cloud IAM (e.g. `*.iam.gserviceaccount.com`, AWS IAM Role ARN) are tracked via `principal.user.userid`.
 * **Expected Host Origin Invariant (`principal.ip`)**: Cloud CRUD and Google Workspace are the **only** metric families in Chronicle allowing direct baseline filtering on `principal.ip` (the caller IP).
 * **Data Repository Scope**: Cloud data repositories (GCS buckets, BigQuery datasets, AWS S3 buckets, Azure Blobs) are bound to `target.resource.name` with `metadata.product_name` (`"Cloud Storage"`, `"BigQuery"`, `"S3"`).

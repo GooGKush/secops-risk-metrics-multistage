@@ -499,6 +499,28 @@ When hunting compromised accounts (e.g. Scattered Spider, OAuth token theft) acr
 2. **Automated Routing**: Calling `build_query()` for `resource_read_total` or `resource_written_total` on an account entity automatically routes to `CLOUD_REPOSITORY_SCOPE_DUAL_BRANCH`.
 3. **Linter Enforcement**: `StatisticalAntipatternAuditor` flags `STAT_ANTIPATTERN_DYNAMIC_RANGE_MASKING` on any query using cloud resource store metrics under an account entity if `target.resource.name` is omitted from the match key, preventing account-level aggregation.
 
+### 5. Multi-Tier Cloud Telemetry Spectrum & UDM Enum Taxonomy (`GCP_CLOUDAUDIT`)
+Threat hunting across cloud audit logs must not be constrained to basic CRUD operations (`RESOURCE_READ`, `RESOURCE_WRITTEN`, `RESOURCE_CREATION`, `RESOURCE_DELETION`). Real-world cloud audit telemetry parsed into Chronicle UDM contains critical user actions, IAM manipulations, and credential modifications.
+
+#### Empirical 30-Day Distribution (Tenant: `gus-sdl`):
+* `GENERIC_EVENT` (30,999): High-volume control-plane and routine API automation.
+* `RESOURCE_WRITTEN` (2,575) & `USER_RESOURCE_UPDATE_CONTENT` (559): System bulk writes vs. user content tampering.
+* `RESOURCE_CREATION` (980) & `USER_RESOURCE_CREATION` (30): System infrastructure vs. user-initiated resources.
+* `RESOURCE_DELETION` (936) & `USER_RESOURCE_DELETION` (60): System teardowns vs. targeted user asset deletion.
+* `USER_RESOURCE_UPDATE_PERMISSIONS` (378): Critical vector for resource-level IAM/ACL tampering (buckets, secrets).
+* `USER_CHANGE_PERMISSIONS` (150): Project/organization level IAM role assignments and privilege escalation.
+* `RESOURCE_READ` (124) & `USER_RESOURCE_ACCESS` (43): System data queries vs. user secret/object access.
+* `USER_LOGIN` (96): Cloud Console / OAuth session establishment.
+* `USER_CREATION` (62) & `USER_CHANGE_PASSWORD` (60): Service account creation and service account key generation.
+* `GROUP_MODIFICATION` (32): Group-based privilege escalation.
+* `USER_UNCATEGORIZED` (537) & `STATUS_UNCATEGORIZED` (64): Uncategorized operations.
+
+#### Critical UDM Enum Naming Rule:
+* **Reading/Accessing Resources**: In Chronicle UDM, user-initiated read operations are parsed as `USER_RESOURCE_ACCESS` (or system-level `RESOURCE_READ`). **`USER_RESOURCE_READ` DOES NOT EXIST IN UDM** and will be rejected by the compiler.
+* **Modifying Content**: `RESOURCE_WRITTEN` (generic) or `USER_RESOURCE_UPDATE_CONTENT` (user).
+* **Modifying Permissions**: `USER_RESOURCE_UPDATE_PERMISSIONS` (resource ACL) or `USER_CHANGE_PERMISSIONS` (IAM role).
+* **Credential Minting**: `USER_CHANGE_PASSWORD` (used for service account key creation in GCP Cloud Audit).
+
 ---
 
 ## 24. Threat Hunting Lifecycles: Fleet/Vector Outlier Hunts vs. 360° Entity Pivot
