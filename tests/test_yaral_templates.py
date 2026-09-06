@@ -8,8 +8,13 @@ import unittest
 class TestYaraLTemplates(unittest.TestCase):
 
   def setUp(self):
+    import os
+    repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    templates_dir = os.path.join(repo_dir, 'templates')
+    if not os.path.exists(templates_dir):
+      templates_dir = os.path.expanduser('~/.gemini/skills/secops-risk-metrics-multistage/templates')
     self.template_files = glob.glob(
-        '/usr/local/google/home/kushmerek/.gemini/skills/secops-risk-metrics-multistage/templates/**/*.yl2',
+        os.path.join(templates_dir, '**/*.yl2'),
         recursive=True
     )
     self.assertGreater(len(self.template_files), 0, "Template directory must contain .yl2 files")
@@ -62,8 +67,10 @@ class TestYaraLTemplates(unittest.TestCase):
 
   def test_malachite_validator_flags_cramming_and_hallucination(self):
     """MalachiteASTValidator must detect single-stage multi-vector cramming and fake metric functions."""
-    import sys
-    sys.path.insert(0, '/usr/local/google/home/kushmerek/.gemini/skills/secops-risk-metrics-multistage')
+    import sys, os
+    repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if repo_dir not in sys.path:
+      sys.path.insert(0, repo_dir)
     from scripts.preflight_validator import MalachiteASTValidator
 
     bad_query = (
@@ -85,8 +92,10 @@ class TestYaraLTemplates(unittest.TestCase):
 
   def test_stage_count_contract_enforcement(self):
     """MalachiteASTValidator must enforce exact stage counts per architecture and stage parity per telemetry sector."""
-    import sys
-    sys.path.insert(0, '/usr/local/google/home/kushmerek/.gemini/skills/secops-risk-metrics-multistage')
+    import sys, os
+    repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if repo_dir not in sys.path:
+      sys.path.insert(0, repo_dir)
     from scripts.preflight_validator import MalachiteASTValidator
 
     # Query claiming to be 4-stage Multi-Sector Fusion but only defining 1 named stage

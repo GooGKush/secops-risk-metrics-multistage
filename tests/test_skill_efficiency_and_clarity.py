@@ -17,7 +17,7 @@ class TestSkillEfficiencyAndClarity(unittest.TestCase):
       self.skill_md_path = repo_skill_md
       self.skill_dir = repo_dir
     else:
-      self.skill_md_path = '/usr/local/google/home/kushmerek/.gemini/skills/secops-risk-metrics-multistage/SKILL.md'
+      self.skill_md_path = os.path.expanduser('~/.gemini/skills/secops-risk-metrics-multistage/SKILL.md')
       self.skill_dir = os.path.dirname(self.skill_md_path)
     self.assertTrue(os.path.exists(self.skill_md_path), "SKILL.md must exist")
     with open(self.skill_md_path, 'r', encoding='utf-8') as f:
@@ -40,7 +40,7 @@ class TestSkillEfficiencyAndClarity(unittest.TestCase):
   def test_referential_link_integrity(self):
     """Every reference document, template directory, and script referenced in SKILL.md must exist on disk."""
     file_links = re.findall(
-        r'file:///usr/local/google/home/kushmerek/\.gemini/skills/secops-risk-metrics-multistage/([a-zA-Z0-9_\-\./]+)',
+        r'file:///[^`\s]+?/\.gemini/skills/secops-risk-metrics-multistage/([a-zA-Z0-9_\-\./]+)',
         self.skill_content
     )
     backtick_links = re.findall(
