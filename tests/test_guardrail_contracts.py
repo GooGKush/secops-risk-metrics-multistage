@@ -1296,6 +1296,22 @@ class TestGuardrailContracts(unittest.TestCase):
     self.assertIn("same query for", self.skill_content)
     self.assertIn("Re-enter State 1 for new entity", self.skill_content)
 
+  def test_metrics_catalog_matches_code_generator(self):
+    """Code-as-Single-Source-of-Truth: references/metrics-catalog.md must strictly match scripts/generate_references.py."""
+    from scripts.generate_references import generate_metrics_catalog
+    repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    catalog_path = os.path.join(repo_dir, "references", "metrics-catalog.md")
+    self.assertTrue(os.path.exists(catalog_path), f"Missing {catalog_path}")
+    with open(catalog_path, "r", encoding="utf-8") as f:
+      disk_content = f.read()
+    generated_content = generate_metrics_catalog()
+    self.assertEqual(
+        disk_content,
+        generated_content,
+        "Drift detected between scripts/preflight_validator.py and references/metrics-catalog.md. "
+        "Run `python3 scripts/generate_references.py` to regenerate the documentation from code.",
+    )
+
 if __name__ == '__main__':
   unittest.main()
 

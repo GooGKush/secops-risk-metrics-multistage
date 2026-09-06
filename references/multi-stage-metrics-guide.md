@@ -1,5 +1,9 @@
 # Multi-Stage Risk Metrics Implementation Guide
 
+> ⚡ **JETSKI / WORKSPACE AGENT DIRECTIVE**:
+> If you have local Python/shell capabilities (`run_command`), do not manually handcraft or assemble multi-stage queries from this guide.
+> Invoke `python3 scripts/template_router.py build --metric <name> --model <model>` or reference the compiler-verified templates in `templates/` directly.
+
 This guide details how to construct multi-stage YARA-L DAG queries that use pre-computed risk metrics as Stage 1 and execute statistical calculations in Stage 2+.
 
 ---
@@ -743,7 +747,7 @@ To provide maximum analytical value without compromising mathematical integrity,
        $graph.graph.entity.artifact.prevalence.rolling_max <= 3
 
      match:
-       $dst_ip
+       $dst_ip by 1d
 
      outcome:
        $fleet_prevalence = max($graph.graph.entity.artifact.prevalence.rolling_max)
@@ -755,7 +759,7 @@ To provide maximum analytical value without compromising mathematical integrity,
    $dst_ip = $destination_prevalence.dst_ip
 
    match:
-     $host, $dst_ip
+     $host, $dst_ip by 1d
 
    outcome:
      $actual_bytes = max($host_egress.observed_bytes)

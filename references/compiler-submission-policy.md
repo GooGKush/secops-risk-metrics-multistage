@@ -76,6 +76,11 @@ In addition to compiler syntax, all queries submitted to Chronicle must satisfy 
 5. **Orthogonal Sector Fusion**: Multi-sector Euclidean threat norms ($D = \sqrt{\sum Z_i^2}$) must fuse strictly independent behavioral vector families (Auth, Cloud CRUD, Workspace, Network, Endpoint), never collinear intra-family metrics.
 6. **Cloud Service Account Identity Profiling**: When querying service account scope (binding `$sa` or `$service_account`), queries must enforce cloud identity construction (`/@.*gserviceaccount\.com$/` or `arn:aws:iam`) rather than relying on null checks (`$sa != ""`), preventing Windows Active Directory computer accounts (`HOST$`) and local OS services (`LOCAL SERVICE`) from polluting cloud repository analytics.
 
+7. **Mandatory Match Block Time Window Invariant**
+* **Stage & Root Match Windows**: Every stage `match:` block and the root `match:` block in multi-stage queries MUST specify an explicit time window (e.g. `by 1d`, `by 4h`, `over 10d`).
+* **Chronicle Compiler Rejection**: Omitting the time window in any `match:` block (e.g., bare `match: $dst_ip` or `match: $host, $dst_ip` without `by 1d`) causes Chronicle's compiler to reject the query with `Request contains an invalid argument` (`FAIL_COMPILER`).
+* **Rule of Thumb**: Always suffix stage and root match variables with `by 1d` (or the corresponding temporal unit matching the stage period).
+
 ---
 
 ## 3. Pre-Submission Test Harness (`scripts/submission_tests.py`)

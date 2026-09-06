@@ -67,6 +67,8 @@ class TestSubmissionCompilerPolicy(unittest.TestCase):
     self.assertIn("artifact.prevalence.day_count = 10", query)
     self.assertIn("artifact.prevalence.rolling_max <= 3", query)
     self.assertIn("metrics.network_bytes_outbound", query)
+    self.assertIn("$dst_ip by 1d", query)
+    self.assertIn("$host, $dst_ip by 1d", query)
     errors = SubmissionTestSuite.validate_static_invariants(query, pipe_09.test_id)
     self.assertEqual(errors, [])
 

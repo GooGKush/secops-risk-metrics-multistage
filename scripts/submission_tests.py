@@ -290,7 +290,7 @@ stage destination_prevalence {
     $graph.graph.entity.artifact.prevalence.rolling_max <= 3
 
   match:
-    $dst_ip
+    $dst_ip by 1d
 
   outcome:
     $fleet_prevalence = max($graph.graph.entity.artifact.prevalence.rolling_max)
@@ -302,7 +302,7 @@ $dst_ip = $host_egress.dst_ip
 $dst_ip = $destination_prevalence.dst_ip
 
 match:
-  $host, $dst_ip
+  $host, $dst_ip by 1d
 
 outcome:
   $actual_bytes = max($host_egress.observed_bytes)

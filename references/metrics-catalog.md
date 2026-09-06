@@ -1,3 +1,9 @@
+<!-- AUTO-GENERATED FROM scripts/preflight_validator.py. DO NOT EDIT MANUALLY. -->
+
+> ⚡ **JETSKI / WORKSPACE AGENT DIRECTIVE**:
+> If you have local Python/shell capabilities (`run_command`), do not manually parse this Markdown or assemble AST queries.
+> Invoke `python3 scripts/template_router.py build --metric <name> --model <model>` to generate compiler-verified queries directly.
+
 # Google SecOps Risk Metrics Reference Catalog (38 Metrics)
 
 This catalog details all 38 active pre-computed behavioral risk metrics available in Google SecOps UEBA & Risk Analytics.
@@ -41,61 +47,58 @@ This catalog details all 38 active pre-computed behavioral risk metrics availabl
 
 | Metric Function | Description | Supported Dimensions (Entity Types) |
 | :--- | :--- | :--- |
-| `metrics.auth_attempts_total` | All login events (success & fail) | `principal.user.userid`, `target.user.userid`, `principal.asset.hostname`, `principal.asset.ip`, `target.asset.hostname`, `target.application`, `http_user_agent` |
-| `metrics.auth_attempts_success` | Logins where `security_result.action = "ALLOW"` | Same as total |
-| `metrics.auth_attempts_fail` | Logins where `security_result.action != "ALLOW"` | Same as total |
-| `metrics.workspace_auth_attempts_total` | Google Workspace login events | `principal.user.userid`, `target.user.userid` |
+| `metrics.auth_attempts_success` | Successful logins | `target.user.userid`, `principal.asset.hostname`, `principal.asset.ip` |
+| `metrics.auth_attempts_fail` | Failed login attempts | `target.user.userid`, `principal.asset.hostname`, `principal.asset.ip` |
+| `metrics.auth_attempts_total` | All login attempts | `target.user.userid`, `principal.asset.hostname`, `principal.asset.ip` |
 
 ---
 
-## 2. Network Bytes & Volume
+## 2. Network Connections & Firewalls
 * **Log Scope:** `metadata.event_type = "NETWORK_CONNECTION"`
-* **Backing Log Types:** `PALO_ALTO_FIREWALL`, `ZEEK`, `ZSCALER`, `NETFLOW`, `FORTINET_FIREWALL`, `CHECKPOINT_FIREWALL`
-* **Device IP Filter Note:** Use `principal.asset.ip` (not `principal.ip`) for source device IP filtering.
-
-| Metric Function | Value Measured (`value_sum`) | Supported Dimensions (Entity Types) |
-| :--- | :--- | :--- |
-| `metrics.network_bytes_outbound` | `network.sent_bytes` | `principal.asset.hostname`, `principal.asset.ip`, `principal.user.userid`, `principal.ip_geo_artifact.location.country_or_region` |
-| `metrics.network_bytes_inbound` | `network.received_bytes` | `principal.asset.hostname`, `principal.asset.ip`, `principal.user.userid` |
-| `metrics.network_bytes_total` | Inbound + Outbound bytes | `principal.asset.hostname`, `principal.asset.ip`, `principal.user.userid` |
-
----
-
-## 3. Network Flows & Connections
-* **Log Scope:** `metadata.event_type = "NETWORK_CONNECTION"`
-* **Backing Log Types:** NetFlow, VPC Flow Logs, Firewall connection sessions
+* **Backing Log Types:** `ZEEK`, `PALO_ALTO_FIREWALL`, `CISCO_ASA`, `FORTINET_FIREWALL`, `CHECKPOINT`, `AWS_VPC_FLOW`, `GCP_VPC_FLOW`
 
 | Metric Function | Description | Supported Dimensions (Entity Types) |
 | :--- | :--- | :--- |
-| `metrics.network_flows_outbound` | Outbound flow count | `principal.asset.hostname`, `principal.asset.ip`, `principal.user.userid` |
+| `metrics.network_bytes_inbound` | Inbound traffic volume | `principal.asset.hostname`, `principal.asset.ip`, `principal.user.userid` |
+| `metrics.network_bytes_outbound` | Outbound traffic volume | `principal.asset.hostname`, `principal.asset.ip`, `principal.user.userid` |
+| `metrics.network_bytes_total` | Total bidirectional volume | `principal.asset.hostname`, `principal.asset.ip`, `principal.user.userid` |
 | `metrics.network_flows_inbound` | Inbound flow count | `principal.asset.hostname`, `principal.asset.ip`, `principal.user.userid` |
+| `metrics.network_flows_outbound` | Outbound flow count | `principal.asset.hostname`, `principal.asset.ip`, `principal.user.userid` |
 | `metrics.network_flows_total` | Total connection flows | `principal.asset.hostname`, `principal.asset.ip`, `principal.user.userid` |
 
 ---
 
-## 4. DNS Queries & Egress Bytes
+## 3. DNS Queries
 * **Log Scope:** `metadata.event_type = "NETWORK_DNS"`
-* **Backing Log Types:** `INFOBLOX`, `BIND`, `COREDNS`, `WINDOWS_DNS`, `ZEEK_DNS`
+* **Backing Log Types:** `INFOBLOX_DNS`, `BIND_DNS`, `WINDOWS_DNS`, `ZEEK_DNS`, `COREDNS`
 
 | Metric Function | Description | Supported Dimensions (Entity Types) |
 | :--- | :--- | :--- |
-| `metrics.dns_queries_total` | Total DNS queries | `principal.asset.hostname`, `principal.asset.ip`, `principal.user.userid`, `network.dns_domain` |
-| `metrics.dns_queries_success` | Response code 0 (NOERROR) | Same as total |
-| `metrics.dns_queries_fail` | Response code > 0 (NXDOMAIN/SERVFAIL) | Same as total |
-| `metrics.dns_bytes_outbound` | Bytes over port 53/3000 | `principal.asset.hostname`, `principal.asset.ip`, `target.ip` |
+| `metrics.dns_queries_total` | Total DNS queries issued | `principal.asset.hostname`, `principal.asset.ip`, `principal.user.userid` |
+| `metrics.dns_bytes_inbound` | Received DNS response volume | `principal.asset.hostname`, `principal.asset.ip`, `principal.user.userid` |
+| `metrics.dns_bytes_outbound` | Sent DNS query volume | `principal.asset.hostname`, `principal.asset.ip`, `principal.user.userid` |
+| `metrics.dns_bytes_total` | Bidirectional DNS volume | `principal.asset.hostname`, `principal.asset.ip`, `principal.user.userid` |
 
 ---
 
-## 5. File & Process Executions
+## 4. Endpoint & Process Executions
 * **Log Scope:** `metadata.event_type = "PROCESS_LAUNCH"`
-* **Backing Log Types:** `CROWDSTRIKE`, `SENTINELONE`, `MICROSOFT_DEFENDER`, `CARBON_BLACK`
+* **Backing Log Types:** `CROWDSTRIKE`, `MICROSOFT_DEFENDER_ATF`, `SENTINELONE`, `CARBONBLACK`, `SYSMON`
 
 | Metric Function | Description | Supported Dimensions (Entity Types) |
 | :--- | :--- | :--- |
-| `metrics.file_executions_total` | Total process launches | `metadata.event_type` + `principal.process.file.sha256` + [`principal.asset.hostname` \| `principal.user.userid` \| `principal.asset.ip`] *(Note: `metadata.event_type` is mandatory)* |
-| `metrics.file_executions_success` | Successful launches | Same as total |
-| `metrics.file_executions_fail` | Blocked / failed executions | Same as total |
-| `metrics.alert_event_name_count` | EDR alert counts | `principal.asset.hostname`, `security_result.rule_name`, `principal.user.userid` |
+| `metrics.file_executions_total` | Total executions of a hash | `principal.asset.hostname`, `principal.asset.ip`, `target.process.file.sha256` |
+| `metrics.process_launches_total` | Total processes launched | `principal.asset.hostname`, `principal.asset.ip`, `principal.user.userid` |
+
+---
+
+## 5. User Concurrency & Session Drift
+* **Log Scope:** `metadata.event_type = "USER_LOGIN"`
+
+| Metric Function | Description | Supported Dimensions (Entity Types) |
+| :--- | :--- | :--- |
+| `metrics.user_distinct_assets` | Distinct assets accessed by user | `target.user.userid` |
+| `metrics.asset_distinct_users` | Distinct users logging into asset | `principal.asset.hostname`, `principal.asset.ip` |
 
 ---
 
