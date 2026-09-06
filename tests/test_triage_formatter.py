@@ -1,9 +1,13 @@
 """Unit tests for the 6-Pillar CommonMark Triage Formatter."""
 
+import os
 import sys
 import unittest
 
-sys.path.insert(0, '/usr/local/google/home/kushmerek/.gemini/skills/secops-risk-metrics-multistage')
+REPO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if REPO_DIR not in sys.path:
+  sys.path.insert(0, REPO_DIR)
+
 from scripts.triage_formatter import CommonMarkTriageFormatter
 
 

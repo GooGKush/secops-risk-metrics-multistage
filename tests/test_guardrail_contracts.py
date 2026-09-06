@@ -6,7 +6,13 @@ Author: Greg Kushmerek
 
 import json
 import os
+import sys
 import unittest
+
+REPO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if REPO_DIR not in sys.path:
+  sys.path.insert(0, REPO_DIR)
+
 from scripts.preflight_validator import MalachiteASTValidator
 
 
@@ -18,7 +24,7 @@ class TestGuardrailContracts(unittest.TestCase):
     if os.path.exists(repo_skill_md):
       self.skill_md_path = repo_skill_md
     else:
-      self.skill_md_path = '/usr/local/google/home/kushmerek/.gemini/skills/secops-risk-metrics-multistage/SKILL.md'
+      self.skill_md_path = os.path.expanduser('~/.gemini/skills/secops-risk-metrics-multistage/SKILL.md')
     self.assertTrue(os.path.exists(self.skill_md_path), "SKILL.md must exist")
     with open(self.skill_md_path, 'r', encoding='utf-8') as f:
       self.skill_content = f.read()
@@ -58,8 +64,10 @@ class TestGuardrailContracts(unittest.TestCase):
     )
 
   def test_evals_contain_zero_simulation_scenario(self):
-    """evals.json must define an evaluation scenario for handling API errors with clean stop rather than Python simulation."""
-    evals_path = '/usr/local/google/home/kushmerek/.gemini/skills/secops-risk-metrics-multistage/evals/evals.json'
+    repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    evals_path = os.path.join(repo_dir, 'evals', 'evals.json')
+    if not os.path.exists(evals_path):
+      evals_path = os.path.expanduser('~/.gemini/skills/secops-risk-metrics-multistage/evals/evals.json')
     self.assertTrue(os.path.exists(evals_path), "evals.json must exist")
     with open(evals_path, 'r', encoding='utf-8') as f:
       evals_data = json.load(f)
@@ -74,8 +82,6 @@ class TestGuardrailContracts(unittest.TestCase):
 
   def test_postflight_auditor_flags_raw_event_dump_and_remediates(self):
     """PostFlightExecutionAuditor must detect raw log dumps and generate canonical retry queries."""
-    import sys
-    sys.path.insert(0, '/usr/local/google/home/kushmerek/.gemini/skills/secops-risk-metrics-multistage')
     from scripts.preflight_validator import PostFlightExecutionAuditor, AuditStatus, EntityType, StatisticalModel
 
     raw_event_payload = {"events": [{"name": f"ev-{i}", "udm": {"metadata": {"eventType": "USER_LOGIN"}}} for i in range(50)]}
@@ -98,8 +104,6 @@ class TestGuardrailContracts(unittest.TestCase):
 
   def test_postflight_auditor_passes_valid_metrics_query(self):
     """PostFlightExecutionAuditor must approve valid native multi-stage Risk Metrics executions."""
-    import sys
-    sys.path.insert(0, '/usr/local/google/home/kushmerek/.gemini/skills/secops-risk-metrics-multistage')
     from scripts.preflight_validator import PostFlightExecutionAuditor, AuditStatus
 
     valid_query = (
@@ -134,8 +138,6 @@ class TestGuardrailContracts(unittest.TestCase):
 
   def test_postflight_auditor_rejects_hallucinated_metric_name(self):
     """PostFlightExecutionAuditor must catch non-existent metric tables."""
-    import sys
-    sys.path.insert(0, '/usr/local/google/home/kushmerek/.gemini/skills/secops-risk-metrics-multistage')
     from scripts.preflight_validator import PostFlightExecutionAuditor
 
     fake_metric_query = (
@@ -159,8 +161,6 @@ class TestGuardrailContracts(unittest.TestCase):
 
   def test_formatter_prompts_user_to_retry_or_exit_on_audit_failure(self):
     """CommonMarkTriageFormatter must ask user whether to retry or exit on audit failure."""
-    import sys
-    sys.path.insert(0, '/usr/local/google/home/kushmerek/.gemini/skills/secops-risk-metrics-multistage')
     from scripts.preflight_validator import AuditStatus, PostFlightAuditResult
     from scripts.triage_formatter import CommonMarkTriageFormatter
 
