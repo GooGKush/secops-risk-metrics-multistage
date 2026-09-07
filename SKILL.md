@@ -49,17 +49,7 @@ Phase 1B is **ONLY UNLOCKED** when **BOTH** are explicitly defined:
 > If analyst specifies entities but omits telemetry vector, **THE AGENT MUST NOT DEFAULT TO `metrics.auth_attempts_*` OR `USER_LOGIN`**. Yield turn and ask: *"Across which behavioral vector(s) would you like to evaluate [Target Entities]?"*
 
 ### 🕸️ 360° Entity Behavioral Risk Radar (All-Vectors / Radial Profiling)
-When profiling an entity across all vectors (*"visualize all risk vectors"*, *"360 health check"*), consult `references/360-behavioral-radar-guide.md`:
-1. **Mandatory 5-Sector Roster**: Canonical metric functions: Auth (`metrics.auth_attempts_success`), Cloud (`metrics.resource_creation_total`), Workspace (`metrics.workspace_total_download_actions`), Net (`metrics.network_bytes_outbound`), DNS (`metrics.http_queries_total`).
-2. **Compilable Micro-Query Template (ZERO MONOLITHIC JOINS — maxJoinCount=4 & Inner-Join Drop)**: Decoupled per sector (`templates/stage1_extractors/` or `references/multi-stage-metrics-guide.md`). Bind genuine UDM event types (`$b.metadata.event_type = "USER_LOGIN"`) and real metric functions (`stage auth_risk` matching `$user by 1d` with `order: $z desc`). Preview and Pillar 2 MUST display ONLY this single representative sector query in ```yara (never join 2+ sectors; joins cause silent inner-join drops).
-3. **Visualization Strategy (Single visual surface: Embed OR Inline SVG OR Tool)**:
-   - **Adaptive Single-Surface Routing (NEVER Render Both ASCII & Visual)**:
-     • *Jetski (`run_command` present)*: Output ONLY `<agent-embed src="file:///<artifact_dir>/<name>.html"></agent-embed>` and link via `scripts/radar_collector.py`. Zero data-uri or raw SVG in chat Markdown.
-     • *MCP / Webview (no `run_command`)*: Emit inline `<svg viewBox="0 0 620 480">` in chat Markdown. Render ASCII ONLY on explicit request.
-     • *Client Tool*: If tool declares radar/SVG, invoke with entity & sector scores.
-   - **Canonical Layout**: Rings $+1\sigma$ to $+4\sigma$; spokes: Auth, Cloud, Workspace, Net, DNS. Scales: Z and CRI ($+3.0\sigma$).
-4. **Post-Flight 5-Sector Verification & Euclidean Join Audit**:
-   On Turn 2, affirm 5 sectors (Auth, Cloud, Workspace, Net, DNS) queried against 30d baselines via `udm_search` or `radar_collector.py` (quiet sectors $Z=0.00\sigma$, $\text{CRI}=0$). Join 5 sector Z-scores into Threat Distance $D = \sqrt{\sum_{i=1}^5 Z_i^2}$, render in Pillar 3/4 tables, and evaluate CRI ($D \ge 3.0\sigma \implies \text{CRI} \ge 50$). Never wrap math in bold (`**$+2.93\sigma$**` invalid; write `$+2.93\sigma$`). Consult `references/360-behavioral-radar-guide.md`.
+When profiling an entity across all vectors (*"visualize all risk vectors"*, *"360 health check"*), adopt the exact report architecture and syntax specified in `references/360-behavioral-radar-guide.md` (ZERO MONOLITHIC JOINS — maxJoinCount=4 & Inner-Join Drop; STAT_ANTIPATTERN_MONOLITHIC_RADAR_JOIN; auto-bypass Mode B; Jetski (`run_command` present): `<agent-embed>` with Zero data-uri or raw SVG in chat Markdown; MCP / Webview: pure inline `<svg>`).
 
 ### ☁️ Cloud Telemetry Scope & Anti-Narrowing Invariant
 * **Anti-Narrowing Invariant for Cloud Data Stores**: When hunting service account cloud repository access (`resource_read_*`, `resource_written_*`), NEVER narrow to a single product: use `templates/pipelines/cloud_repository_scope_dual_branch.yl2` with `($sa, $vendor, $product, $resource, $ip by 1d)`. UDM parses `GCP_CLOUDAUDIT` into full lifecycle: CRUD (`RESOURCE_*`), user actions (`USER_RESOURCE_ACCESS/UPDATE_CONTENT/UPDATE_PERMISSIONS`), and IAM (`USER_CHANGE_PERMISSIONS`). Reads use `RESOURCE_READ` or `USER_RESOURCE_ACCESS` (never `USER_RESOURCE_READ`). Consult `references/metrics-catalog.md`.
@@ -160,5 +150,5 @@ Unsolicited case creation is a **CRITICAL PROCESS POLLUTION VIOLATION**. Trigger
 ---
 
 ## 📂 Modular References & Template Architecture
-* **`references/`**: `clean-handoff-udm-schema.md`, `soar-playbook-radar-integration.md`, `metrics-catalog.md`, `multi-stage-metrics-guide.md`, `compiler-submission-policy.md`
+* **`references/`**: `360-behavioral-radar-guide.md`, `clean-handoff-udm-schema.md`, `soar-playbook-radar-integration.md`, `metrics-catalog.md`, `multi-stage-metrics-guide.md`, `compiler-submission-policy.md`
 * **Pipelines & Scripts**: `templates/pipelines/`, `templates/stage1_extractors/`, `scripts/` (`template_router.py`, `radar_collector.py`)
