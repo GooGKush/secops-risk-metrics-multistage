@@ -51,12 +51,11 @@ Phase 1B is **ONLY UNLOCKED** when **BOTH** are explicitly defined:
 ### 🕸️ 360° Entity Behavioral Risk Radar (All-Vectors / Radial Profiling)
 When profiling an entity across all vectors (*"visualize all risk vectors"*, *"360 health check"*), consult `references/360-behavioral-radar-guide.md`:
 1. **Mandatory 5-Sector Roster**: Canonical metric functions: Auth (`metrics.auth_attempts_success`), Cloud (`metrics.resource_creation_total`), Workspace (`metrics.workspace_total_download_actions`), Net (`metrics.network_bytes_outbound`), DNS (`metrics.http_queries_total`).
-2. **Compilable Micro-Query Template (ZERO MONOLITHIC JOINS — maxJoinCount=4 & Inner-Join Drop)**: Decoupled per sector (`templates/stage1_extractors/` or `references/multi-stage-metrics-guide.md`). Bind genuine UDM event types (`$b.metadata.event_type = "USER_LOGIN"`) and invoke real metric functions (`stage auth_risk` matching `$user by 1d` with `order: $z desc`). Preview/Pillar 2 displays one representative sector query in ```yara, noting sectors evaluate via decoupled micro-queries.
-3. **Visualization Strategy (Single visual surface: Client Tool OR Embed OR ASCII)**:
+2. **Compilable Micro-Query Template (ZERO MONOLITHIC JOINS — maxJoinCount=4 & Inner-Join Drop)**: Decoupled per sector (`templates/stage1_extractors/` or `references/multi-stage-metrics-guide.md`). Bind genuine UDM event types (`$b.metadata.event_type = "USER_LOGIN"`) and real metric functions (`stage auth_risk` matching `$user by 1d` with `order: $z desc`). Preview and Pillar 2 MUST display ONLY this single representative sector query in ```yara (never join 2+ sectors; joins cause silent inner-join drops).
+3. **Visualization Strategy (Single visual surface: Embed OR Inline SVG OR Tool)**:
    - **Adaptive Single-Surface Routing (NEVER Render Both ASCII & Visual)**:
      • *Jetski (`run_command` present)*: Output ONLY `<agent-embed src="file:///<artifact_dir>/<name>.html"></agent-embed>` and link via `scripts/radar_collector.py`. Zero data-uri or raw SVG in chat Markdown.
-     • *Web/Browser*: Declarative JSON payload; browser V8 computes Euclidean join ($D = \sqrt{\sum Z_i^2}$) & SVG. Zero LLM math errors.
-     • *MCP/CLI (no `run_command`)*: Emit inline `<svg>` in chat Markdown (or 5-Sector Scorecard). Render ASCII ONLY on explicit request.
+     • *MCP / Webview (no `run_command`)*: Emit inline `<svg viewBox="0 0 620 480">` in chat Markdown. Render ASCII ONLY on explicit request.
      • *Client Tool*: If tool declares radar/SVG, invoke with entity & sector scores.
    - **Canonical Layout**: Rings $+1\sigma$ to $+4\sigma$; spokes: Auth, Cloud, Workspace, Net, DNS. Scales: Z and CRI ($+3.0\sigma$).
 4. **Post-Flight 5-Sector Verification & Euclidean Join Audit**:
