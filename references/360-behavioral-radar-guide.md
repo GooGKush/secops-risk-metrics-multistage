@@ -78,14 +78,14 @@ Pre-computed metric tables (`metrics.*`) are indexed strictly by technical logon
    (target.user.userid = "<InputName>" nocase or principal.user.userid = "<InputName>" nocase or target.user.user_display_name = "<InputName>" nocase or principal.user.user_display_name = "<InputName>" nocase)
    ```
    *Time range*: Last 14 days (`startTime: <ISO_14D_AGO>`, `endTime: <ISO_NOW>`, `maxEvents: 5`).
-2. **Resolution Gate**: If matched, extract canonical `user.userid` (e.g., `"Frank Kolzig"` $\to$ `frank.kolzig`). If 0 events match, halt and request the user's technical username or email.
+2. **Resolution Gate**: If matched, extract canonical `user.userid` (e.g., `"Jane Doe"` $\to$ `jdoe`). If 0 events match, halt and request the user's technical username or email.
 
 ### 3.2 Standard Pre-Flight Specification Card
 On Turn 1, emit the card and single-representative preview query, then yield the turn:
 
 ```markdown
 PRE-FLIGHT HUNTING SPECIFICATION:
-• Target Entity / Scope:  [Target User or Host, e.g. frank.kolzig (Frank Kolzig)]
+• Target Entity / Scope:  [Target User or Host, e.g. <target_entity_id> (Jane Doe)]
 • Baseline Horizon Spine: 30-Day Pre-Computed (period: 1d, 30d)
 • Peer Cohort & Roster:   [Department / Peer Group, e.g. Information Technology]
 • Entity Graph Dimension: N/A (360° Omnidirectional Behavioral Radar)
@@ -293,7 +293,7 @@ In environments with local script execution, invoke `scripts/radar_collector.py`
 
 ```bash
 python3 scripts/radar_collector.py \
-  --entity "frank.kolzig" \
+  --entity "<target_entity_id>" \
   --entity-type USER \
   --data '[
     {"sector": "IAM & Authentication", "spoke_name": "Authentication Attempts", "metric_table": "metrics.auth_attempts_total", "observed": 6.0, "baseline_mean": 4.2, "baseline_stddev": 1.8, "z_score": 0.64, "unit": "logins"},
@@ -303,22 +303,28 @@ python3 scripts/radar_collector.py \
     {"sector": "DNS & Web Activity", "spoke_name": "DNS & Web Activity", "metric_table": "metrics.dns_queries_fail", "observed": 4.0, "baseline_mean": 3.5, "baseline_stddev": 1.2, "z_score": 0.23, "unit": "queries"}
   ]' \
   --format embed \
-  --output /path/to/artifacts/radar_frank_kolzig.html
+  --output /path/to/artifacts/radar_<entity_id>.html
 ```
 
 ---
 
 ## 📋 7. Complete Deterministic 6-Pillar Report Template
 
+> [!IMPORTANT]
+> **Risk Metrics Data Invariant**:
+> Pre-computed metric baseline tables (`metrics.*`) track pre-aggregated volumetric counts and byte sums over rolling 30-day horizons.
+> They do **not** ingest or expose qualitative event fields such as `security_result.severity`, alert descriptions, or specific process executable names (`cmd.exe`, `mimikatz.exe`, `vssadmin.exe`).
+> Behavioral Threat Translation in Pillar 4 must be grounded strictly in multi-sector volumetric deviations ($Z$-scores, $\mu$, $\sigma$, $D$, CRI). If an investigation requires inspecting raw process launches or command lines, that is an ad-hoc Phase 2 UDM drill-down or SOAR playbook handoff, not part of the risk metrics tables themselves.
+
 ### 7.1 Tier 1 / Tier 2 Rich Report (Visual Radar)
 
 ````markdown
 #### 1. Statistical Outlier Report: 360° Entity Behavioral Risk Radar (Multi-Sector Fusion) (window: 30d)
 
-<agent-embed src="file:///path/to/artifacts/radar_frank_kolzig.html"></agent-embed>
-[📊 Open 360° Risk Radar (SVG/HTML)](file:///path/to/artifacts/radar_frank_kolzig.html)
+<agent-embed src="file:///path/to/artifacts/radar_<entity_id>.html"></agent-embed>
+[📊 Open 360° Risk Radar (SVG/HTML)](file:///path/to/artifacts/radar_<entity_id>.html)
 
-* **Target Entity**: `frank.kolzig` (Windows Administrator, Information Technology)
+* **Target Entity**: `<target_entity_id>` (Information Technology)
 * **Composite Threat Distance**: $D = 0.68\sigma$
 * **Calibrated Risk Index**: $\text{CRI} = 18 / 100$ (🟢 Nominal Volumetric Baseline)
 * **Evaluated Horizon**: Mode A (24-Hour Snapshot vs. 30-Day Pre-Computed Baseline)
@@ -333,27 +339,27 @@ python3 scripts/radar_collector.py \
 // Sector 1: IAM & Authentication
 stage auth_risk {
     metadata.event_type = "USER_LOGIN"
-    target.user.userid = "frank.kolzig"
+    target.user.userid = "<target_entity_id>"
     $user = target.user.userid
   match: $user by 1d
   outcome:
     $obs = count(metadata.id)
-    $avg = max(metrics.auth_attempts_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, target.user.userid: "frank.kolzig"))
-    $std = max(metrics.auth_attempts_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, target.user.userid: "frank.kolzig"))
+    $avg = max(metrics.auth_attempts_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, target.user.userid: "<target_entity_id>"))
+    $std = max(metrics.auth_attempts_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, target.user.userid: "<target_entity_id>"))
     $z = ($obs - $avg) / ($std + 1.0)
 }
 // Sector 2: Cloud Infrastructure CRUD
 stage cloud_risk {
     metadata.event_type = "RESOURCE_CREATION"
-    principal.user.userid = "frank.kolzig"
+    principal.user.userid = "<target_entity_id>"
     $user = principal.user.userid
     metadata.vendor_name = $v
     metadata.product_name = $p
   match: $user, $v, $p by 1d
   outcome:
     $obs = count(metadata.id)
-    $avg = max(metrics.resource_creation_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: "frank.kolzig", metadata.vendor_name: $v, metadata.product_name: $p))
-    $std = max(metrics.resource_creation_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: "frank.kolzig", metadata.vendor_name: $v, metadata.product_name: $p))
+    $avg = max(metrics.resource_creation_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: "<target_entity_id>", metadata.vendor_name: $v, metadata.product_name: $p))
+    $std = max(metrics.resource_creation_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: "<target_entity_id>", metadata.vendor_name: $v, metadata.product_name: $p))
     $z = ($obs - $avg) / ($std + 1.0)
 }
 // (Sectors 3, 4, and 5 evaluated via decoupled Workspace, Network, and DNS micro-queries)
@@ -385,21 +391,23 @@ PROVENANCE STAMP:
 #### 4. Forensic Vector Breakdown
 
 ##### Behavioral Threat Translation
-While macroscopic volumetric baselines across the cloud, network, and SaaS planes remain nominal ($D = 0.68\sigma$), raw endpoint logs reveal **active hostile administrative utilities executed under this credential context**:
-* **Active Directory NTDS Staging**: `vssadmin create shadow /for=C:` and `cmd.exe /c copy x:\windows\ntds\ntds.dit c:\ntds.dit`
-* **In-Memory Credential Dumping**: `mimikatz "privilege::debug" "sekurlsa::logonpasswords" exit`
+All five evaluated behavioral sectors remain within expected historical variance ($\pm 1.0\sigma$). The target entity exhibits nominal volumetric activity consistent with historical 30-day baseline profiles:
+* **IAM & Authentication**: 6 observed logins vs. 30d baseline mean of 4.2 ($\sigma = 1.8$, $Z = +0.64\sigma$), representing normal routine access.
+* **DNS & Web Activity**: 4 queries vs. 30d baseline mean of 3.5 ($\sigma = 1.2$, $Z = +0.23\sigma$), within expected lookup volume.
+* **Cloud, Workspace, and Network Planes**: Zero observed actions across the 24h evaluation window matching zero-baseline history ($Z = +0.00\sigma$).
+* **Composite Threat Distance**: Multi-sector Euclidean distance $D = 0.68\sigma$ ($\text{CRI} = 18 / 100$) indicates volumetric quiescence across all vectors with zero acute surges.
 
 ##### SOC Playbook & Immediate Remediation Recommendations
-* **Account Containment**: Revoke all active Kerberos TGT sessions for `frank.kolzig` and force an administrative password reset.
-* **Asset Isolation**: Isolate host `activedir.stackedpads.local` to preserve volatile memory.
-* **Dual KRBTGT Reset**: Initiate domain-wide `krbtgt` password rotation.
+* **Nominal Hygiene**: No automated containment or account restriction warranted based on 30-day volumetric baseline telemetry.
+* **Baseline Health**: Entity maintains healthy operational baseline alignment across cloud, SaaS, authentication, and network telemetry.
+* **External Alert Handoff**: If this entity is flagged by an independent external alert (e.g. EDR/SIEM detection), pivot to raw event telemetry via Phase 2 UDM hunting or host memory triage.
 
 ---
 
 #### 5. Chronicle UI Manual Pivot (Triage Reference Only)
 
 ```sql
-(target.user.userid = "frank.kolzig" or principal.user.userid = "frank.kolzig") and metadata.event_type = "PROCESS_LAUNCH"
+(target.user.userid = "<target_entity_id>" or principal.user.userid = "<target_entity_id>")
 ```
 
 ---
