@@ -56,7 +56,7 @@ When profiling an entity across all vectors (*"visualize all risk vectors"*, *"3
    - **Adaptive Single-Surface Routing (NEVER Render Both ASCII & Visual)**:
      • *Jetski (`run_command` present)*: Output ONLY `<agent-embed src="file:///<artifact_dir>/<name>.html"></agent-embed>` and link via `scripts/radar_collector.py`. Zero data-uri or raw SVG in chat Markdown.
      • *Web/Browser*: Declarative JSON payload; browser V8 computes Euclidean join ($D = \sqrt{\sum Z_i^2}$) & SVG. Zero LLM math errors.
-     • *CLI/MCP*: Zero raw SVG in chat. Emit 5-Sector Terminal Scorecard ($k$-of-5 hurdle). Render ASCII card ONLY on explicit request.
+     • *MCP/CLI (no `run_command`)*: Emit inline `<svg>` in chat Markdown (or 5-Sector Scorecard). Render ASCII ONLY on explicit request.
      • *Client Tool*: If tool declares radar/SVG, invoke with entity & sector scores.
    - **Canonical Layout**: Rings $+1\sigma$ to $+4\sigma$; spokes: Auth, Cloud, Workspace, Net, DNS. Scales: Z and CRI ($+3.0\sigma$).
 4. **Post-Flight 5-Sector Verification & Euclidean Join Audit**:
@@ -103,7 +103,7 @@ Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to bo
 
 1. **Turn 2 Telemetry Retrieval Mandate**: On clearance, execute single-event `udm_search(query="<single_event_udm_filter>")`. Multi-stage YARA-L in `udm_search` is PROHIBITED (causes 400); multi-stage belongs in Pillar 2. Zero `json_chart`.
 2. **Deterministic 6-Pillar Report Structure**: Synthesize findings into the complete 6-pillar report:
-#### 1. Statistical Outlier Report: `[Target Metric]` ([Statistical Model]) (`window: 30d`). Single visual surface: `<agent-embed>` in Jetski; Client Tool (if present); ASCII on request. Unicode magnitude bars (`▰▰▰▰▱▱▱▱`).
+#### 1. Statistical Outlier Report: `[Target Metric]` ([Statistical Model]) (`window: 30d`). Single visual surface: `<agent-embed>` in Jetski; `<svg>` in MCP; Client Tool (if present); ASCII on request. Unicode magnitude bars (`▰▰▰▰▱▱▱▱`).
 #### 2. Executed Multi-Stage YARA-L Query: Formal multi-stage YARA-L 2.0 query for the hunt. For 360 Radar, display executed sector micro-queries. Raw event filters (e.g. `principal.user.userid = ...`) are STRICTLY PROHIBITED in Pillar 2.
 #### 3. Ranked Outlier Summary & Provenance Stamp: Columns: `Entity`, `24h Observed`, `30d Mean (μ)`, `30d StdDev (σ)`, `Z-Score`, `CRI Score`, `Visual Magnitude`. Stamp execution provenance (events scanned, query execution time, projected schema columns).
 #### 4. Forensic Vector Breakdown: Threat translation, scenarios, SOC playbook.

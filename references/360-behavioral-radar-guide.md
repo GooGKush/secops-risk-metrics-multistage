@@ -323,6 +323,7 @@ python3 scripts/radar_collector.py \
 
 <agent-embed src="file:///path/to/artifacts/radar_<entity_id>.html"></agent-embed>
 [📊 Open 360° Risk Radar (SVG/HTML)](file:///path/to/artifacts/radar_<entity_id>.html)
+*(In Generic MCP environments lacking `run_command`, emit pure inline `<svg viewBox="0 0 620 480">...</svg>` directly in Pillar 1 instead of `<agent-embed>`)*
 
 * **Target Entity**: `<target_entity_id>` (Information Technology)
 * **Composite Threat Distance**: $D = 0.68\sigma$
