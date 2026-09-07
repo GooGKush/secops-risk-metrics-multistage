@@ -98,36 +98,20 @@ PRE-FLIGHT HUNTING SPECIFICATION:
 ```yara
 // Representative Sector Micro-Query: IAM & Authentication
 // (Evaluated alongside Cloud, Workspace, Network, and DNS decoupled micro-queries)
-stage auth_fail {
+stage auth_risk {
     metadata.event_type = "USER_LOGIN"
-    security_result.action = "BLOCK"
     target.user.userid = "%(entity_id)s"
     $user = target.user.userid
   match:
     $user by 1d
   outcome:
-    $fail_obs = count(metadata.id)
-    $fail_avg = max(metrics.auth_attempts_fail(period: 1d, window: 30d, metric: event_count_sum, agg: avg, target.user.userid: "%(entity_id)s"))
-    $fail_std = max(metrics.auth_attempts_fail(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, target.user.userid: "%(entity_id)s"))
+    $obs = count(metadata.id)
+    $avg = max(metrics.auth_attempts_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, target.user.userid: "%(entity_id)s"))
+    $std = max(metrics.auth_attempts_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, target.user.userid: "%(entity_id)s"))
+    $z = ($obs - $avg) / ($std + 1.0)
 }
-stage auth_success {
-    metadata.event_type = "USER_LOGIN"
-    security_result.action = "ALLOW"
-    target.user.userid = "%(entity_id)s"
-    $user = target.user.userid
-  match:
-    $user by 1d
-  outcome:
-    $succ_obs = count(metadata.id)
-    $succ_avg = max(metrics.auth_attempts_success(period: 1d, window: 30d, metric: event_count_sum, agg: avg, target.user.userid: "%(entity_id)s"))
-    $succ_std = max(metrics.auth_attempts_success(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, target.user.userid: "%(entity_id)s"))
-}
-$user = $auth_fail.user
-$user = $auth_success.user
-match: $user by 1d
-outcome:
-  $z_fail = (max($auth_fail.fail_obs) - max($auth_fail.fail_avg)) / (max($auth_fail.fail_std) + 1.0)
-  $z_succ = (max($auth_success.succ_obs) - max($auth_success.succ_avg)) / (max($auth_success.succ_std) + 1.0)
+
+order: $z desc
 ```
 
 *Yield Turn Prompt*:
@@ -135,39 +119,43 @@ outcome:
 
 ---
 
-## 🔍 4. Phase 2: The 5 Invariate Canonical Sector Queries
+## 🔍 4. Phase 2: The 5 Invariate Canonical Sector Queries & Z-Score Standard
 
-On clearance, the agent evaluates the target across all five orthogonal sectors.
+For 360° behavioral radar profiling, each sector evaluates a single **universal total activity baseline** ($X_{\text{total}}$ vs. $\mu_{\text{total}}$). The only calculation needed per sector is the standard parametric Z-score:
+$$Z_i = \frac{\text{Observed}_i - \mu_i}{\sigma_i + 1.0}$$
+
+Zero conditional event filtering (`security_result.action`) and zero conditional aggregations (`count(if(...))`) are evaluated. Each sector operates as an independent micro-query, and the five sector Z-scores are joined client-side in the report presentation layer to compute the Euclidean distance:
+$$D = \sqrt{\sum_{i=1}^5 Z_i^2}$$
 
 ### 4.1 USER Entity Sector Specifications
 
 #### Sector 1: IAM & Authentication
 * **Telemetry Filter**: `metadata.event_type = "USER_LOGIN" and (target.user.userid = "%(entity_id)s" or principal.user.userid = "%(entity_id)s")`
-* **Metrics Functions**: `metrics.auth_attempts_fail`, `metrics.auth_attempts_success`, `metrics.auth_attempts_total`
+* **Metrics Function**: `metrics.auth_attempts_total`
 * **Dimension Scope**: `target.user.userid`
 * **Spoke Unit**: `logins`
 
 #### Sector 2: Cloud Infrastructure & IAM CRUD
 * **Telemetry Filter**: `(metadata.event_type = "RESOURCE_CREATION" or metadata.event_type = "RESOURCE_DELETION" or metadata.event_type = "RESOURCE_WRITTEN" or metadata.event_type = "RESOURCE_PERMISSIONS_CHANGE") and (principal.user.userid = "%(entity_id)s" or target.user.userid = "%(entity_id)s")`
-* **Metrics Functions**: `metrics.resource_creation_total`, `metrics.resource_deletion_total`, `metrics.resource_written_total`
+* **Metrics Function**: `metrics.resource_creation_total`
 * **Dimension Scope**: `principal.user.userid`, `metadata.vendor_name`, `metadata.product_name`
 * **Spoke Unit**: `actions`
 
 #### Sector 3: Workspace Data Hoarding & Exfiltration
 * **Telemetry Filter**: `metadata.event_type = "USER_RESOURCE_ACCESS" and (principal.user.userid = "%(entity_id)s" or target.user.userid = "%(entity_id)s")`
-* **Metrics Functions**: `metrics.workspace_total_download_actions`, `metrics.workspace_total_change_actions`
+* **Metrics Function**: `metrics.workspace_total_download_actions`
 * **Dimension Scope**: `principal.user.userid`
 * **Spoke Unit**: `downloads`
 
 #### Sector 4: Network Egress Volume
 * **Telemetry Filter**: `metadata.event_type = "NETWORK_CONNECTION" and (principal.user.userid = "%(entity_id)s" or target.user.userid = "%(entity_id)s")`
-* **Metrics Functions**: `metrics.network_bytes_outbound`, `metrics.network_flows_outbound`
+* **Metrics Function**: `metrics.network_bytes_outbound`
 * **Dimension Scope**: `principal.user.userid`
 * **Spoke Unit**: `bytes` (or `MB`)
 
 #### Sector 5: DNS & Web Activity
 * **Telemetry Filter**: `(metadata.event_type = "NETWORK_DNS" or metadata.event_type = "NETWORK_HTTP") and (principal.user.userid = "%(entity_id)s" or target.user.userid = "%(entity_id)s")`
-* **Metrics Functions**: `metrics.dns_queries_fail`, `metrics.http_queries_total`
+* **Metrics Function**: `metrics.dns_queries_total`
 * **Dimension Scope**: `principal.user.userid`
 * **Spoke Unit**: `queries`
 
@@ -178,9 +166,9 @@ When the entity is a Host (`ASSET`), telemetry scope maps as follows:
 
 | Sector | Telemetry Filter | Metrics Table | Primary Dimension |
 | :--- | :--- | :--- | :--- |
-| **Authentication** | `metadata.event_type = "USER_LOGIN"` | `metrics.auth_attempts_fail` | `principal.asset.hostname` |
+| **Authentication** | `metadata.event_type = "USER_LOGIN"` | `metrics.auth_attempts_total` | `principal.asset.hostname` |
 | **Network Egress** | `metadata.event_type = "NETWORK_CONNECTION"` | `metrics.network_bytes_outbound` | `principal.asset.hostname` |
-| **DNS Resolution** | `metadata.event_type = "NETWORK_DNS"` | `metrics.dns_queries_fail` | `principal.asset.hostname` |
+| **DNS Resolution** | `metadata.event_type = "NETWORK_DNS"` | `metrics.dns_queries_total` | `principal.asset.hostname` |
 | **Cloud CRUD** | `metadata.event_type = "RESOURCE_CREATION"` | `metrics.resource_creation_total` | `principal.asset.hostname` |
 | **Process Launches** | `metadata.event_type = "PROCESS_LAUNCH"` | `metrics.process_launches_total` | `principal.asset.hostname` |
 
