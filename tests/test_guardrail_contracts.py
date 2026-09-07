@@ -1312,6 +1312,41 @@ class TestGuardrailContracts(unittest.TestCase):
         "Run `python3 scripts/generate_references.py` to regenerate the documentation from code.",
     )
 
+  def test_360_behavioral_radar_guide_contract(self):
+    """SKILL.md and 360 guide must define the 3 adaptive execution tiers, decoupled micro-queries, and Euclidean join."""
+    repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    skill_path = os.path.join(repo_dir, 'SKILL.md')
+    guide_path = os.path.join(repo_dir, 'references', '360-behavioral-radar-guide.md')
+
+    self.assertTrue(os.path.exists(guide_path), f"Missing {guide_path}")
+    with open(skill_path, 'r', encoding='utf-8') as f:
+      skill_content = f.read()
+    with open(guide_path, 'r', encoding='utf-8') as f:
+      guide_content = f.read()
+
+    # SKILL.md reference assertion
+    self.assertIn("references/360-behavioral-radar-guide.md", skill_content)
+
+    # Guide architectural contracts
+    self.assertIn("360° Entity Behavioral Risk Radar: Canonical Architecture & Execution Playbook", guide_content)
+    self.assertIn("The Decoupled Execution Mandate (Zero Monolithic Joins)", guide_content)
+    self.assertIn("maxJoinCount = 4", guide_content)
+
+    # 3 Adaptive Execution Tiers
+    self.assertIn("Tier 1: Rich Web / Browser Client", guide_content)
+    self.assertIn("Tier 2: File-Enabled Terminal / Jetski Environment", guide_content)
+    self.assertIn("Tier 3: Pure Headless / Command-Line Client", guide_content)
+    self.assertIn("5-Sector Terminal Scorecard", guide_content)
+
+    # Affirmative Quiet-Sector Defaults
+    self.assertIn("Deterministic Nominal Baseline for Quiet Sectors", guide_content)
+    self.assertIn("Z = 0.00\\sigma", guide_content)
+
+    # Math Join Engine
+    self.assertIn("Euclidean Threat Distance", guide_content)
+    self.assertIn("Calibrated Risk Index", guide_content)
+
+
 if __name__ == '__main__':
   unittest.main()
 

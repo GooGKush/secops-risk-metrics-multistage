@@ -9,7 +9,7 @@ compatibility: Requires Google SecOps with Risk Analytics and SecOps GUS MCP.
 
 # SecOps Risk Metrics Multi-Stage Statistical Hunter (`secops-risk-metrics-multistage`)
 
-Executes **multi-sector statistical outlier hunting** using **30-day Risk Analytics metrics (`metrics.*`)**.
+Executes multi-sector statistical outlier hunting using 30-day Risk Analytics metrics (`metrics.*`).
 
 ---
 
@@ -18,7 +18,7 @@ Executes **multi-sector statistical outlier hunting** using **30-day Risk Analyt
 * **Dual-Layer Defense for Trickle Attacks**: Layer 1 is Mode B Longitudinal CUSUM Drift ($S_t^+ \ge 4.0\sigma$ on `metrics.dns_queries_total`); Layer 2 is handoff to `secops-statistical-hunter` ($CV \le 0.20$).
 * **Sub-Second Jitter Boundary**: Metrics tables (`metrics.*`) cannot compute sub-second deltas. For beaconing jitter or raw connection deltas, emit Skill Handoff Card to `secops-statistical-hunter` and yield turn (0 tools called).
 * **Non-Metrics Telemetry Steering Mandate** (Git repos, raw UDM): Emit **Skill Handoff Card** and steer to `secops-statistical-hunter`.
-* **Zero-Code Handoff Invariant**: Never emit candidate YARA-L alongside a Skill Handoff Card; Handoff cards are strictly conceptual; code belongs to destination skill.
+* **Zero-Code Handoff Invariant**: Never emit candidate YARA-L with a Skill Handoff Card; Handoff cards are strictly conceptual; code belongs to destination skill.
 
 ---
 
@@ -49,29 +49,30 @@ Phase 1B is **ONLY UNLOCKED** when **BOTH** are explicitly defined:
 > If analyst specifies entities but omits telemetry vector, **THE AGENT MUST NOT DEFAULT TO `metrics.auth_attempts_*` OR `USER_LOGIN`**. Yield turn and ask: *"Across which behavioral vector(s) would you like to evaluate [Target Entities]?"*
 
 ### 🕸️ 360° Entity Behavioral Risk Radar (All-Vectors / Radial Profiling)
-When profiling an entity across all vectors (*"visualize all risk vectors"*, *"360 health check"*):
-1. **Mandatory 5-Sector Roster**: Canonical metric functions: Auth (`metrics.auth_attempts_success`, `target.user.userid`), Cloud (`metrics.resource_creation_total`, `principal.user.userid`), Workspace (`metrics.workspace_total_download_actions`), Network (`metrics.network_bytes_outbound`), DNS/Web (`metrics.http_queries_total`).
-2. **Compilable Micro-Query Template (ZERO MONOLITHIC JOINS — maxJoinCount=4 & Inner-Join Drop)**: Decoupled per sector (consult `templates/stage1_extractors/` or `references/multi-stage-metrics-guide.md`). Always bind genuine UDM event types (e.g. `$b.metadata.event_type = "USER_LOGIN"`) and invoke real metric functions (`stage auth_risk` matching `$user by 1d` with `order: $z desc`). The 360 report is exempt from displaying all independent queries in preview/Pillar 2: display one representative sector query in ```yara, noting that sectors evaluate via identical decoupled micro-queries.
+When profiling an entity across all vectors (*"visualize all risk vectors"*, *"360 health check"*), consult `references/360-behavioral-radar-guide.md`:
+1. **Mandatory 5-Sector Roster**: Canonical metric functions: Auth (`metrics.auth_attempts_success`), Cloud (`metrics.resource_creation_total`), Workspace (`metrics.workspace_total_download_actions`), Net (`metrics.network_bytes_outbound`), DNS (`metrics.http_queries_total`).
+2. **Compilable Micro-Query Template (ZERO MONOLITHIC JOINS — maxJoinCount=4 & Inner-Join Drop)**: Decoupled per sector (`templates/stage1_extractors/` or `references/multi-stage-metrics-guide.md`). Bind genuine UDM event types (`$b.metadata.event_type = "USER_LOGIN"`) and invoke real metric functions (`stage auth_risk` matching `$user by 1d` with `order: $z desc`). Preview/Pillar 2 displays one representative sector query in ```yara, noting sectors evaluate via decoupled micro-queries.
 3. **Visualization Strategy (Single visual surface: Client Tool OR Embed OR ASCII)**:
    - **Adaptive Single-Surface Routing (NEVER Render Both ASCII & Visual)**:
      • *Jetski (`run_command` present)*: Output ONLY `<agent-embed src="file:///<artifact_dir>/<name>.html"></agent-embed>` and link via `scripts/radar_collector.py`. Zero data-uri or raw SVG in chat Markdown.
+     • *Web/Browser*: Declarative JSON payload; browser V8 computes Euclidean join ($D = \sqrt{\sum Z_i^2}$) & SVG. Zero LLM math errors.
+     • *CLI/MCP*: Zero raw SVG in chat. Emit 5-Sector Terminal Scorecard ($k$-of-5 hurdle). Render ASCII card ONLY on explicit request.
      • *Client Tool*: If tool declares radar/SVG, invoke with entity & sector scores.
-     • *CLI/MCP*: Zero raw SVG in chat. Render ASCII card ONLY on explicit request.
    - **Canonical Layout**: Rings $+1\sigma$ to $+4\sigma$; spokes: Auth, Cloud, Workspace, Net, DNS. Scales: Z and CRI ($+3.0\sigma$).
 4. **Post-Flight 5-Sector Verification & Euclidean Join Audit**:
-   On Turn 2, affirm all 5 sectors (Auth, Cloud, Workspace, Net, DNS) queried against 30d baselines via `udm_search` or `radar_collector.py` (quiet sectors $Z=0.00\sigma$). Join 5 sector Z-scores into Threat Distance $D = \sqrt{\sum_{i=1}^5 Z_i^2}$, render in Pillar 3/4 tables, and evaluate CRI ($D \ge 3.0\sigma \implies \text{CRI} \ge 50$). Never wrap math in bold (`**$+2.93\sigma$**` invalid; write `$+2.93\sigma$`).
+   On Turn 2, affirm 5 sectors (Auth, Cloud, Workspace, Net, DNS) queried against 30d baselines via `udm_search` or `radar_collector.py` (quiet sectors $Z=0.00\sigma$, $\text{CRI}=0$). Join 5 sector Z-scores into Threat Distance $D = \sqrt{\sum_{i=1}^5 Z_i^2}$, render in Pillar 3/4 tables, and evaluate CRI ($D \ge 3.0\sigma \implies \text{CRI} \ge 50$). Never wrap math in bold (`**$+2.93\sigma$**` invalid; write `$+2.93\sigma$`). Consult `references/360-behavioral-radar-guide.md`.
 
 ### ☁️ Cloud Telemetry Scope & Anti-Narrowing Invariant
 * **Anti-Narrowing Invariant for Cloud Data Stores**: When hunting service account cloud repository access (`resource_read_*`, `resource_written_*`), NEVER narrow to a single product: use `templates/pipelines/cloud_repository_scope_dual_branch.yl2` with `($sa, $vendor, $product, $resource, $ip by 1d)`. UDM parses `GCP_CLOUDAUDIT` into full lifecycle: CRUD (`RESOURCE_*`), user actions (`USER_RESOURCE_ACCESS/UPDATE_CONTENT/UPDATE_PERMISSIONS`), and IAM (`USER_CHANGE_PERMISSIONS`). Reads use `RESOURCE_READ` or `USER_RESOURCE_ACCESS` (never `USER_RESOURCE_READ`). Consult `references/metrics-catalog.md`.
 
 ### 🎯 CTI & Threat Report Mapping (Reports, URLs, CVEs, Threat Actors)
 When analyst provides a threat report:
-1. **Map to UEBA Metric Tables**: Map attack stages to pre-computed tables (`metrics.*`).
+1. **Map to UEBA Metric Tables**: Map attack stages to tables (`metrics.*`).
 2. **Transition Directly to Phase 1B**: Emit **Pre-Flight Hunting Specification Card** and **Literal Query Preview** on Turn 1. **YIELD THE TURN (0 tools called)**.
 
 ### 🔍 Phase 1B: Pre-Flight Spec & Query Preview (Once Scope & Vectors are Established)
 Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to both"*, or via CTI mapping):
-1. **Turn 1 Tool Invariant**: Zero external inspection; `references/` & `templates/` permitted for syntax lookup. Permitted: name resolution spot-check and 1-shot pre-preview compiler probe (`udm_search`).
+1. **Turn 1 Tool Invariant**: Zero external inspection; `references/` & `templates/` permitted for syntax lookup. Permitted: name spot-check and 1-shot pre-preview compiler probe (`udm_search`).
 2. **Identity Disambiguation & Confirmation Protocol (ZERO GUESSING & IMMEDIATE HALT)**:
    - *Technical IDs vs Display Names*: Display names (with spaces) are NOT `user.userid`. Standalone first names (e.g. `greg`, `frank`) MUST be spot-checked in UDM before hunting.
    - *14-Day UDM Spot-Check*: `udm_search(query='target.user.userid = "<name>" nocase or principal.user.userid = "<name>" nocase', startTime: "<ISO_14D_AGO>", endTime: "<ISO_NOW>", maxEvents: 5)`.
@@ -101,17 +102,17 @@ Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to bo
 ### 📊 State 2: Deterministic Multi-Stage Execution & 6-Pillar Report (After Clearance) (MANDATORY STEP 2: PRESENT FULL 6-SECTION REPORT)
 
 1. **Turn 2 Telemetry Retrieval Mandate**: On clearance, execute single-event `udm_search(query="<single_event_udm_filter>")`. Multi-stage YARA-L in `udm_search` is PROHIBITED (causes 400); multi-stage belongs in Pillar 2. Zero `json_chart`.
-2. **Deterministic 6-Pillar Report Structure**: Synthesize findings into the complete report containing ALL 6 canonical numbered pillars:
+2. **Deterministic 6-Pillar Report Structure**: Synthesize findings into the complete 6-pillar report:
 #### 1. Statistical Outlier Report: `[Target Metric]` ([Statistical Model]) (`window: 30d`). Single visual surface: `<agent-embed>` in Jetski; Client Tool (if present); ASCII on request. Unicode magnitude bars (`▰▰▰▰▱▱▱▱`).
-#### 2. Executed Multi-Stage YARA-L Query: The formal multi-stage YARA-L 2.0 query formulated for the hunt. For 360 Radar, display executed sector micro-queries. Raw event filters (e.g. `principal.user.userid = ...`) are STRICTLY PROHIBITED in Pillar 2.
+#### 2. Executed Multi-Stage YARA-L Query: Formal multi-stage YARA-L 2.0 query for the hunt. For 360 Radar, display executed sector micro-queries. Raw event filters (e.g. `principal.user.userid = ...`) are STRICTLY PROHIBITED in Pillar 2.
 #### 3. Ranked Outlier Summary & Provenance Stamp: Columns: `Entity`, `24h Observed`, `30d Mean (μ)`, `30d StdDev (σ)`, `Z-Score`, `CRI Score`, `Visual Magnitude`. Stamp execution provenance (events scanned, query execution time, projected schema columns).
 #### 4. Forensic Vector Breakdown: Threat translation, scenarios, SOC playbook.
 #### 5. Chronicle UI Manual Pivot (Triage Reference Only): Passive UDM filter for Chronicle UI (tool execution is STRICTLY PROHIBITED).
 #### 6. Collapsible Technical Appendix (Statistical & Mathematical Appendix): Formulation ($N=30d$), CRI, $D = \sqrt{\sum Z^2}$.
 
 ### 🔁 State 3: Iteration, Entity Shifts & Federated Bridge (Active Hunt Session Lock & Boundary (ZERO CROSS-SKILL DRIFT))
-* **Entity Shift Handling**: When analyst asks to *"run same for user X"*, *"what about admin?"*, *"check user Y"*, retain Active Hunt Session Lock and Re-enter State 1 for new entity.
-* **Federated Bridge to `secops-statistical-hunter`**: When analyst requests micro-math (MAD, CV beaconing jitter, Tukey fences on raw logs), emit Skill Handoff Card to `secops-statistical-hunter`.
+* **Entity Shift Handling**: When analyst asks to *"run same for user X"*, *"what about admin?"*, retain Active Hunt Session Lock and Re-enter State 1 for new entity.
+* **Federated Bridge to `secops-statistical-hunter`**: When analyst requests micro-math (MAD, CV beaconing jitter, Tukey fences), emit Skill Handoff Card to `secops-statistical-hunter`.
 * **Clean Escalation**: Unsolicited case creation is prohibited; promotion occurs on explicit confirmation.
 
 ---
@@ -127,7 +128,7 @@ Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to bo
 * **Zero Local Script Invocations During Hunting (ZERO RUN_COMMAND VALIDATION)**: Post-search `run_command` (`scripts/radar_collector.py`) permitted SOLELY for Pillar 1 rendering.
 * **Hermetic Skill Boundary (ZERO CROSS-SKILL DRIFT)**: Once active, the agent MUST NOT read, import, or search other skills. This skill is 100% self-contained.
 * **Multi-Turn Continuity & Follow-Up Mandate**: On follow-up turns shifting entity or time ("same query for"), MAINTAIN Active Hunt Session Lock & Boundary (ZERO CROSS-SKILL DRIFT). NEVER fall through to `secops-siem-search` or execute Pillar 5; NEVER degrade to raw log dumps. Re-enter State 1 for new entity.
-* **Atomic Pipeline Execution Mandate (ZERO PIECEMEAL FRACTURING & DRIFT)**: Single-vector hunts formulate the single atomic YARA-L query for Pillar 2 and dispatch targeted UDM search to `udm_search(query="<event_filter>")`. Cross-entity hunts use Two-Phase Chained Hunt Specification (Phase 1 UEBA ──► Bridge Contract ──► Phase 2 UDM). Fracturing into piecemeal raw searches is STRICTLY PROHIBITED. 360° Radar queries 5 canonical sector functions in parallel.
+* **Atomic Pipeline Execution Mandate (ZERO PIECEMEAL FRACTURING & DRIFT)**: Single-vector hunts formulate the single atomic YARA-L query for Pillar 2 and dispatch targeted UDM search to `udm_search(query="<event_filter>")`. Cross-entity hunts use Two-Phase Chained Hunt Specification (Phase 1 UEBA ──► Bridge Contract ──► Phase 2 UDM). Fracturing into piecemeal raw searches is STRICTLY PROHIBITED. 360° Radar queries 5 canonical sectors in parallel.
 * **Literal Query Display Mandate (ZERO FAKED YARA-L QUERIES)**: Pillar 2 must contain the literal multi-stage YARA-L query matching the pre-flight candidate preview.
 * **Post-Flight Audit & RAW_LOG_DUMP_DETECTED Rule**: If `udm_search` returns `"events"` without `"stats"`, abort 6-Pillar formatting. Present auto-corrected query (via `MultiStageTemplateRouter`) or ask: *"Execute this auto-corrected query now, or exit?"*
 
@@ -136,9 +137,9 @@ Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to bo
 * **Zero-Hallucination Compiler Grammar Contract**:
   - *Entity Role & Match Binding Invariant*: Variables in `match:` MUST bind in event predicates (`target.user.userid` for logins; `principal.user.userid` for cloud/SaaS/net/proc; `principal.asset.hostname` for assets).
   - *Compiler Structural Boundary*: Arithmetic (`$a - $b`, `$a / $b`) STRICTLY PROHIBITED above `match:`. Derivations reside in `outcome:` below `match:`.
-  - *Syntax Invariants*: No `in ("A", "B")` (use `%list`/`or`); no member dot-notation in `match:`; no `events:` header; no `sqrt(...)` (use `$dist_sq`); no `by 24h` (use `by 1d`); no `if(...)` in outcome; dispersion floor `+ 1.0` in outcome divisors (`($obs - $avg) / ($std + 1.0)`); valid enums in `references/clean-handoff-udm-schema.md`.
+  - *Syntax Invariants*: No `in ("A", "B")` (use `%list`/`or`); no member dot-notation in `match:`; no `events:`; no `sqrt(...)` (use `$dist_sq`); no `by 24h` (use `by 1d`); no `if(...)` in outcome; dispersion floor `+ 1.0` in outcome divisors (`($obs - $avg) / ($std + 1.0)`); enums in `references/clean-handoff-udm-schema.md`.
   - *Mandatory Companion Dimensions & Entity Affinity*: Cloud CRUD (`metrics.resource_*`) requires `metadata.vendor_name` and `metadata.product_name`. File metrics (`metrics.file_executions_*`) are Host/Binary scoped (`$host, $sha256`) requiring `metadata.event_type`. NEVER bind `principal.user.userid` to file metrics or force cross-entity joins.
-* **Consultative Pivot & Handoff Protocol (ZERO FORCED JOINS)**: When vectors cross entity boundaries or lack user baselines, NEVER synthesize fake schemas. State boundary and offer 3 paths: 1) Cloud-First 2-Phase Pivot, 2) Asset-First Pivot (`file_executions_total`), or 3) Handoff to `secops-statistical-hunter`. 
+* **Consultative Pivot & Handoff Protocol (ZERO FORCED JOINS)**: When vectors cross entity boundaries or lack user baselines, NEVER synthesize fake schemas. State boundary and offer 3 paths: 1) Cloud-First 2-Phase Pivot, 2) Asset-First Pivot (`file_executions_total`), or 3) Handoff to `secops-statistical-hunter`.
   - *Max 4 Joins Invariant*: Limits queries to <= 4 joins (`maxJoinCount = 4`). Never fuse >= 3 orthogonal sectors into a single query (`STAT_ANTIPATTERN_MONOLITHIC_RADAR_JOIN`).
 * **Variable Role Classification & Anti-Passive-Decoration Mandate**: Variables must be `[JOIN_KEY]`, `[SCORING_DIMENSION]`, `[ACTIVE_FILTER]`, or `[TRIAGE_DECORATION]`. Primary vectors MUST NEVER act solely as `[TRIAGE_DECORATION]`.
 * **Inner-Join Drop Prevention Standard (PRESERVING FULL POPULATION)**: Multi-stage joins are inner joins. Baseline full fleet in Stage 1 and profile destinations via `array_distinct(target.hostname)`.
