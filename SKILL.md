@@ -51,7 +51,7 @@ Phase 1B is **ONLY UNLOCKED** when **BOTH** are explicitly defined:
 ### 🕸️ 360° Entity Behavioral Risk Radar & Multi-Sector Threat Fusion
 When profiling multiple sectors (*"multi-sector fusion"*, *"visualize all risk vectors"*, *"360 health check"*), see `references/360-behavioral-radar-guide.md`.
 * **Architecture**: Decoupled micro-queries (`templates/pipelines/radar_360_decoupled_sector.yl2`) evaluating 5 canonical sectors (Authentication, Cloud, Workspace, Network, DNS).
-* **Query Continuity**: In Turn 1 candidate preview and Turn 2 Pillar 2 (Mode A or Mode B), display exclusively the single representative sector micro-query (`stage auth_risk` with `order: $z desc`). Auto-bypass Mode B.
+* **Query Continuity**: In candidate preview and Pillar 2, display exclusively the single representative sector micro-query (`stage auth_risk` with `order: $z desc`). Auto-bypass Mode B.
 * **Native Reporting**: In Jetski (`run_command` present), author HTML widgets via `write_to_file` and embed via `<agent-embed>`; in MCP / Webview / agentapi, render pure inline `<svg>` in Pillar 1. Zero data-uri or raw SVG in chat Markdown. Client Tool (if present).
 
 ### ☁️ Cloud Telemetry Scope & Anti-Narrowing Invariant
@@ -69,7 +69,7 @@ Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to bo
    - *Technical IDs vs Display Names*: Display names (with spaces) are NOT `user.userid`. First names (`frank`) must be spot-checked in UDM.
    - *14-Day UDM Spot-Check*: `udm_search(query='target.user.userid = "<name>" nocase or principal.user.userid = "<name>" nocase', startTime: "<ISO_14D_AGO>", endTime: "<ISO_NOW>", maxEvents: 5)`.
    - *HARD RESOLUTION GATE (ZERO GUESSING & NO SPEC CARD)*: If 0 events match or query fails, **NEVER GUESS A USERNAME AND NEVER EMIT PRE-FLIGHT CARD**. **HALT IMMEDIATELY (0 tools called)**, asking: *"I could not resolve an active technical `user.userid` for '<Name>' in recent UDM telemetry. What is their corporate email or technical username?"*
-     
+3. **Clarification Resumption Protocol**: Upon receiving the clarified username, present the Pre-Flight Hunting Specification Card and candidate query preview, then request Mode A/B clearance.
 4. **Structured PRE-FLIGHT HUNTING SPECIFICATION Card & Mandatory Query Preview**:
    ```markdown
    PRE-FLIGHT HUNTING SPECIFICATION:
@@ -93,7 +93,7 @@ Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to bo
 
 ### 📊 State 2: Deterministic Multi-Stage Execution & 6-Pillar Report (After Clearance) (MANDATORY STEP 2: PRESENT FULL 6-SECTION REPORT)
 
-1. **Turn 2 Telemetry Retrieval Mandate**: On clearance, execute single-event `udm_search(query="<single_event_udm_filter>")`. Multi-stage YARA-L in `udm_search` is PROHIBITED (causes 400); multi-stage belongs in Pillar 2. Zero `json_chart`.
+1. **Execution Telemetry Retrieval Mandate**: On explicit Mode A/B clearance, execute single-event `udm_search(query="<single_event_udm_filter>")`. Multi-stage YARA-L in `udm_search` is PROHIBITED (causes 400); multi-stage belongs in Pillar 2. Zero `json_chart`.
 2. **Deterministic 6-Pillar Report Structure**: Synthesize findings into the complete 6-pillar report:
 #### 1. Statistical Outlier Report: `[Target Metric]` ([Statistical Model]) (`window: 30d`). Single visual surface: `<agent-embed>` in Jetski (`run_command` present); `<svg>` in MCP; Client Tool (if present); ASCII on request. Zero data-uri or raw SVG in chat Markdown. Unicode magnitude bars (`▰▰▰▰▱▱▱▱`).
 #### 2. Executed Multi-Stage YARA-L Query: Verbatim mirror approved Turn 1 candidate query block. For 360 Radar, display executed sector micro-queries (representative micro-query `stage auth_risk` with `order: $z desc`; never `events:`, `$e.`, `rule ... { ... }`, or `math.sqrt`). Raw event filters (e.g. `principal.user.userid = ...`) are STRICTLY PROHIBITED in Pillar 2.
@@ -120,7 +120,7 @@ Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to bo
 * **Hermetic Skill Boundary (ZERO CROSS-SKILL DRIFT)**: Once active, the agent MUST NOT read, import, or search other skills. This skill is 100% self-contained.
 * **Multi-Turn Continuity & Follow-Up Mandate**: On follow-up turns shifting entity or time ("same query for"), MAINTAIN Active Hunt Session Lock & Boundary (ZERO CROSS-SKILL DRIFT). NEVER fall through to `secops-siem-search` or execute Pillar 5; NEVER degrade to raw log dumps. Re-enter State 1 for new entity.
 * **Atomic Pipeline Execution Mandate (ZERO PIECEMEAL FRACTURING & DRIFT)**: Formulate single atomic YARA-L query for Pillar 2 and dispatch targeted UDM search to `udm_search(query="<event_filter>")`. Cross-entity hunts use Two-Phase Chained Hunt Specification (Phase 1 UEBA ──► Bridge Contract ──► Phase 2 UDM). Fracturing into piecemeal searches is STRICTLY PROHIBITED. 360° Radar queries 5 canonical sectors in parallel.
-* **Literal Query Display Mandate (ZERO FAKED YARA-L QUERIES)**: Pillar 2 must contain the literal, verbatim multi-stage YARA-L query block displayed in the Turn 1 pre-flight preview without freehand modifications. NEVER re-generate queries freehand in Turn 2 (avoids drift into prohibited legacy syntax `events:`, `$e.`, un-regularized `/ $std`, or `re.match`). Re-use the exact approved Turn 1 candidate code block.
+* **Literal Query Display Mandate (ZERO FAKED YARA-L QUERIES)**: Pillar 2 must contain the literal, verbatim multi-stage YARA-L query block displayed in pre-flight preview without freehand modifications. Re-use the exact approved candidate query without freehand edits.
 * **Post-Flight Audit & RAW_LOG_DUMP_DETECTED Rule**: If `udm_search` returns `"events"` without `"stats"`, abort 6-Pillar formatting. Present auto-corrected query (via `MultiStageTemplateRouter`) or ask: *"Execute this auto-corrected query now, or exit?"*
 
 ### 2. Compiler & Architectural Invariants
