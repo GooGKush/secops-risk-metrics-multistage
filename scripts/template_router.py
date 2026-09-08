@@ -23,10 +23,14 @@ class MultiStageTemplateRouter:
       target_metric: str,
       entity_type: EntityType,
       statistical_model: StatisticalModel,
-      anomaly_threshold: float,
+      anomaly_threshold: float = 3.0,
       min_baseline_days: Optional[int] = None,
       match_mode: MatchMode = MatchMode.TIMELINE_BREAKDOWN,
       hypothesis_goal: Optional[str] = None,
+      min_threshold: Optional[float] = None,
+      max_threshold: Optional[float] = None,
+      condition_expression: Optional[str] = None,
+      apply_threshold_condition: bool = False,
   ) -> str:
     audit = PreFlightValidator.audit(
         target_metric=target_metric,
@@ -87,6 +91,26 @@ class MultiStageTemplateRouter:
     stage2_rendered = stage2_raw.replace("{{anomaly_threshold}}", str(anomaly_threshold))
     stage2_rendered = stage2_rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
 
+    # Noise Level & Significance Threshold Conditioning
+    if apply_threshold_condition and min_threshold is None and max_threshold is None:
+      min_threshold = anomaly_threshold
+
+    order_match = re.search(r'order:\s*\n\s*([$][a-zA-Z0-9_]+)', stage2_rendered)
+    score_var = order_match.group(1) if order_match else "$personal_z"
+
+    if condition_expression:
+      cond_block = f"condition:\n  {condition_expression}\n\n"
+      stage2_rendered = re.sub(r'(\border:\s*)', f"{cond_block}\\1", stage2_rendered, count=1)
+    elif min_threshold is not None and max_threshold is not None:
+      cond_block = f"condition:\n  {score_var} >= {min_threshold} and {score_var} < {max_threshold}\n\n"
+      stage2_rendered = re.sub(r'(\border:\s*)', f"{cond_block}\\1", stage2_rendered, count=1)
+    elif min_threshold is not None:
+      cond_block = f"condition:\n  {score_var} >= {min_threshold}\n\n"
+      stage2_rendered = re.sub(r'(\border:\s*)', f"{cond_block}\\1", stage2_rendered, count=1)
+    elif max_threshold is not None:
+      cond_block = f"condition:\n  {score_var} <= {max_threshold}\n\n"
+      stage2_rendered = re.sub(r'(\border:\s*)', f"{cond_block}\\1", stage2_rendered, count=1)
+
     header = (
         "// ============================================================================\n"
         "// METHODOLOGY & HUNTING GOAL\n"
@@ -109,10 +133,19 @@ class MultiStageTemplateRouter:
       min_baseline_days: Optional[int] = None,
       hypothesis_goal: Optional[str] = None,
       service_account: Optional[str] = None,
+      min_threshold: Optional[float] = None,
+      max_threshold: Optional[float] = None,
+      condition_expression: Optional[str] = None,
   ) -> str:
     """Renders 3-Stage and 4-Stage advanced DAG pipelines."""
     if pipeline_type == PipelineArchitecture.MULTI_SECTOR_FUSION_4STAGE:
       pipeline_file = self.template_dir / "pipelines" / "multi_sector_fusion_4stage.yl2"
+      if not pipeline_file.exists():
+        raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
+      return pipeline_file.read_text().strip() + "\n"
+
+    elif pipeline_type == PipelineArchitecture.RADAR_360_DECOUPLED_SECTOR:
+      pipeline_file = self.template_dir / "pipelines" / "radar_360_decoupled_sector.yl2"
       if not pipeline_file.exists():
         raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
       return pipeline_file.read_text().strip() + "\n"
@@ -184,7 +217,29 @@ class MultiStageTemplateRouter:
         raw = re.sub(sa_regex_pattern, sa_binding, raw, flags=re.DOTALL)
       if hypothesis_goal:
         raw = f"// Goal: {hypothesis_goal}\n" + raw
-      return raw + "\n"
+      rendered = raw
+
+      # Noise Level & Significance Threshold Conditioning
+      if condition_expression:
+        cond_block = f"condition:\n  {condition_expression}\n\n"
+        rendered = re.sub(r'(\border:\s*)', f"{cond_block}\\1", rendered, count=1)
+      elif min_threshold is not None and max_threshold is not None:
+        order_match = re.search(r'order:\s*\n\s*([$][a-zA-Z0-9_]+)', rendered)
+        score_var = order_match.group(1) if order_match else "$composite_risk"
+        cond_block = f"condition:\n  {score_var} >= {min_threshold} and {score_var} < {max_threshold}\n\n"
+        rendered = re.sub(r'(\border:\s*)', f"{cond_block}\\1", rendered, count=1)
+      elif min_threshold is not None:
+        order_match = re.search(r'order:\s*\n\s*([$][a-zA-Z0-9_]+)', rendered)
+        score_var = order_match.group(1) if order_match else "$composite_risk"
+        cond_block = f"condition:\n  {score_var} >= {min_threshold}\n\n"
+        rendered = re.sub(r'(\border:\s*)', f"{cond_block}\\1", rendered, count=1)
+      elif max_threshold is not None:
+        order_match = re.search(r'order:\s*\n\s*([$][a-zA-Z0-9_]+)', rendered)
+        score_var = order_match.group(1) if order_match else "$composite_risk"
+        cond_block = f"condition:\n  {score_var} <= {max_threshold}\n\n"
+        rendered = re.sub(r'(\border:\s*)', f"{cond_block}\\1", rendered, count=1)
+
+      return rendered + "\n"
 
     elif pipeline_type == PipelineArchitecture.HYBRID_METRIC_RAW_ENRICHMENT_2STAGE:
       if not target_metric:
@@ -419,6 +474,38 @@ class MultiStageTemplateRouter:
       if hypothesis_goal:
         rendered = f"// Goal: {hypothesis_goal}\n" + rendered
 
+      # Noise Level & Significance Threshold Conditioning
+      if condition_expression:
+        cond_block = f"condition:\n  {condition_expression}\n\n"
+        if "\ncondition:\n" in rendered:
+          rendered = re.sub(r'\ncondition:\s*\n.*?\n(?=order:)', f"\n{cond_block}", rendered, flags=re.DOTALL)
+        else:
+          rendered = re.sub(r'(\border:\s*)', f"{cond_block}\\1", rendered, count=1)
+      elif min_threshold is not None and max_threshold is not None:
+        order_match = re.search(r'order:\s*\n\s*([$][a-zA-Z0-9_]+)', rendered)
+        score_var = order_match.group(1) if order_match else "$composite_risk"
+        cond_block = f"condition:\n  {score_var} >= {min_threshold} and {score_var} < {max_threshold}\n\n"
+        if "\ncondition:\n" in rendered:
+          rendered = re.sub(r'\ncondition:\s*\n.*?\n(?=order:)', f"\n{cond_block}", rendered, flags=re.DOTALL)
+        else:
+          rendered = re.sub(r'(\border:\s*)', f"{cond_block}\\1", rendered, count=1)
+      elif min_threshold is not None:
+        order_match = re.search(r'order:\s*\n\s*([$][a-zA-Z0-9_]+)', rendered)
+        score_var = order_match.group(1) if order_match else "$composite_risk"
+        cond_block = f"condition:\n  {score_var} >= {min_threshold}\n\n"
+        if "\ncondition:\n" in rendered:
+          rendered = re.sub(r'\ncondition:\s*\n.*?\n(?=order:)', f"\n{cond_block}", rendered, flags=re.DOTALL)
+        else:
+          rendered = re.sub(r'(\border:\s*)', f"{cond_block}\\1", rendered, count=1)
+      elif max_threshold is not None:
+        order_match = re.search(r'order:\s*\n\s*([$][a-zA-Z0-9_]+)', rendered)
+        score_var = order_match.group(1) if order_match else "$composite_risk"
+        cond_block = f"condition:\n  {score_var} <= {max_threshold}\n\n"
+        if "\ncondition:\n" in rendered:
+          rendered = re.sub(r'\ncondition:\s*\n.*?\n(?=order:)', f"\n{cond_block}", rendered, flags=re.DOTALL)
+        else:
+          rendered = re.sub(r'(\border:\s*)', f"{cond_block}\\1", rendered, count=1)
+
       return rendered + "\n"
 
     else:
@@ -429,6 +516,9 @@ class MultiStageTemplateRouter:
       service_account: Optional[str] = None,
       anomaly_threshold: float = 3.0,
       hypothesis_goal: Optional[str] = None,
+      min_threshold: Optional[float] = None,
+      max_threshold: Optional[float] = None,
+      condition_expression: Optional[str] = None,
   ) -> str:
     """Builds a verified Cloud Repository Scope pipeline guaranteeing target.resource.name binding."""
     return self.build_pipeline_query(
@@ -438,6 +528,9 @@ class MultiStageTemplateRouter:
         anomaly_threshold=anomaly_threshold,
         hypothesis_goal=hypothesis_goal,
         service_account=service_account,
+        min_threshold=min_threshold,
+        max_threshold=max_threshold,
+        condition_expression=condition_expression,
     )
 
   def build_hybrid_enrichment_query(
@@ -553,6 +646,9 @@ class ChainedHuntRouter:
         "\n"
         "condition:\n"
         f"  $process_z >= {anomaly_threshold}\n"
+        "\n"
+        "order:\n"
+        "  $process_z desc\n"
     )
 
   @staticmethod

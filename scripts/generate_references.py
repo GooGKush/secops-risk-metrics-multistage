@@ -38,9 +38,9 @@ def generate_metrics_catalog() -> str:
   lines = [
       "<!-- AUTO-GENERATED FROM scripts/preflight_validator.py. DO NOT EDIT MANUALLY. -->",
       "",
-      "> ⚡ **JETSKI / WORKSPACE AGENT DIRECTIVE**:",
-      "> If you have local Python/shell capabilities (`run_command`), do not manually parse this Markdown or assemble AST queries.",
-      "> Invoke `python3 scripts/template_router.py build --metric <name> --model <model>` to generate compiler-verified queries directly.",
+      "> ⚡ **JETSKI / WORKSPACE & MCP AGENT DIRECTIVE**:",
+      "> Query templates in `templates/pipelines/` and `templates/stage1_extractors/` provide pre-validated AST structures.",
+      "> Do NOT execute local Python scripts during hunting. Inspect templates and assemble queries natively via view_file.",
       "",
       "# Google SecOps Risk Metrics Reference Catalog (38 Metrics)",
       "",

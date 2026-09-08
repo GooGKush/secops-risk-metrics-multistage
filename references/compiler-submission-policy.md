@@ -64,8 +64,15 @@ Extensive live compilation testing against Google SecOps customer instances has 
   6. `$historical_sum`
 * **Downstream Reference Integrity**: Any variable referenced as `$stage_name.variable` in a downstream stage or root outcome MUST be explicitly exported in `$stage_name`'s `outcome:` block. Undeclared references produce immediate compiler failure.
 * **Stage Name Grammar**: Stage identifiers must NOT begin with `$`. Use `stage stage1_extract`, never `stage $stage1_extract`.
-* **Outcome Variable Ceiling**: A single stage outcome block may define at most **20 outcome variables**.
-* **Search Query Structure**: Multi-stage search queries must terminate with `order: <var> [desc|asc]`. They must **NEVER** contain a `condition:` block (which is reserved exclusively for detection rules).
+* **Search Query Structure & Root Stage `condition:`**:
+  - Multi-stage search queries execute continuous linear arithmetic in `outcome:`, evaluate discrete boolean hurdle filters, sensitivity bands, and noise threshold gates in `condition:`, and terminate with `order: <var> [desc|asc]` to rank qualifying outliers.
+  - **Outcome vs. Condition Role Separation**: Outcome blocks evaluate linear algebraic expressions without conditional branching (`if(...)` is prohibited in `outcome:`). Boolean filtering, hurdle activation, and threshold ranges reside strictly in `condition:`.
+  - **Noise Level Tuning & Band Filtering**:
+    - High-Confidence Gating: `condition: $z_score >= 3.0` (or custom `$z_score >= 3.5` / `4.0`)
+    - Borderline / Investigative Band: `condition: $z_score >= 2.0 and $z_score < 3.0`
+    - Directional Suppression: `condition: $z_score <= -3.0`
+    - Multi-Evidence Fusion: `condition: $threat_dist_sq >= 16.0 or ($joint_odds >= 2.5 and $raw_hits >= 3)`
+  - **Grammar Ordering**: `condition:` must be placed strictly after `outcome:` and strictly before `order:`. Placing `condition:` after `order:` causes compiler rejection.
 
 ### 2.6 Statistical Invariant & Antipattern Auditing (`scripts/statistical_validator.py`)
 In addition to compiler syntax, all queries submitted to Chronicle must satisfy the 6 Statistical Invariants:

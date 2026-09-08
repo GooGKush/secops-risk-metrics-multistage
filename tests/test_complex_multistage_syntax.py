@@ -224,8 +224,8 @@ order:
     self.assertIn("match:\n  $user, $vendor, $product, $ws by 1d", sample_query)
     self.assertIn("outcome:\n  $c_obs = max($stage_create.create_obs)", sample_query)
 
-    # Validate zero condition keyword in search root stage
-    self.assertNotIn("condition:", sample_query)
+    # Validate root stage ordering
+    self.assertIn("order:\n  $d_cloud_sq desc", sample_query)
 
   def test_all_38_metrics_catalog_dimension_completeness(self):
     """Verifies that all 38 active metrics in the catalog have valid event types, dimensions, and log types."""

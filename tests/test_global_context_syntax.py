@@ -75,7 +75,7 @@ class GlobalContextMultiStageSyntaxTest(unittest.TestCase):
     """
     self.assertIn('$whois.graph.metadata.source_type = "GLOBAL_CONTEXT"', query)
     self.assertIn("metrics.network_bytes_outbound", query)
-    self.assertNotIn("condition:", query)
+    self.assertIn("order:", query)
 
   def test_query_2_whois_expired_domain_hijacking(self):
     query = """
@@ -126,7 +126,7 @@ class GlobalContextMultiStageSyntaxTest(unittest.TestCase):
     """
     self.assertIn('$whois.graph.metadata.source_type = "GLOBAL_CONTEXT"', query)
     self.assertIn("metrics.http_queries_total", query)
-    self.assertNotIn("condition:", query)
+    self.assertIn("order:", query)
 
   def test_query_3_gcti_rat_process_burst(self):
     query = """
@@ -178,7 +178,7 @@ class GlobalContextMultiStageSyntaxTest(unittest.TestCase):
     """
     self.assertIn('$gcti.graph.metadata.threat.threat_feed_name = "Remote Access Tools"', query)
     self.assertIn("metrics.file_executions_total", query)
-    self.assertNotIn("condition:", query)
+    self.assertIn("order:", query)
 
   def test_query_4_safebrowsing_dwell_and_egress_fusion(self):
     query = """
@@ -248,7 +248,7 @@ class GlobalContextMultiStageSyntaxTest(unittest.TestCase):
     self.assertIn('$safebrowse.graph.metadata.product_name = "Google Safe Browsing"', query)
     self.assertIn('$seen.graph.metadata.source_type = "DERIVED_CONTEXT"', query)
     self.assertIn("metrics.network_bytes_outbound", query)
-    self.assertNotIn("condition:", query)
+    self.assertIn("order:", query)
 
   def test_query_5_gcti_tor_exit_nodes(self):
     query = """
@@ -300,7 +300,7 @@ class GlobalContextMultiStageSyntaxTest(unittest.TestCase):
     """
     self.assertIn('$gcti.graph.metadata.threat.threat_feed_name = "Tor Exit Nodes"', query)
     self.assertIn("metrics.network_flows_outbound", query)
-    self.assertNotIn("condition:", query)
+    self.assertIn("order:", query)
 
   def test_validator_catches_multiple_ecg_events_in_single_stage(self):
     """MalachiteASTValidator must reject queries with >1 Entity Context Graph events in a single stage."""

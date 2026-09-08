@@ -73,7 +73,7 @@ class TestSubmissionCompilerPolicy(unittest.TestCase):
     self.assertEqual(errors, [])
 
   def test_invariant_detects_forbidden_condition_block(self):
-    """Ensures validator catches forbidden 'condition:' blocks in search queries."""
+    """Ensures validator catches misplaced 'condition:' blocks occurring after 'order:' in search queries."""
     bad_query = """
     stage s1 {
       metadata.event_type = "USER_LOGIN"

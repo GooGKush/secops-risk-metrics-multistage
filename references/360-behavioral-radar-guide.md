@@ -7,7 +7,7 @@ This guide is the definitive, authoritative reference for executing the **360° 
 ## 🏛️ 1. Architecture & Execution Topology
 
 ### 1.1 The Operational Objective
-The 360° Entity Behavioral Risk Radar profiles an entity across **all five canonical enterprise telemetry sectors** against 30-day pre-computed historical baselines (`metrics.*`) to detect coordinated multi-stage lateral movement, insider threat escalation, and anomalous baseline departures.
+The 360° Entity Behavioral Risk Radar (also referred to as Multi-Sector Threat Fusion) profiles an entity across **all five canonical enterprise telemetry sectors** against 30-day pre-computed historical baselines (`metrics.*`) to detect coordinated multi-stage lateral movement, insider threat escalation, and anomalous baseline departures.
 
 ```
                          [ 1. IAM & Authentication ]
@@ -59,12 +59,16 @@ Because MCP clients operate across varied environments (web browsers, IDEs, desk
 * **Benefit**: **Zero arithmetic hallucination**. Floating-point square roots and sigmoids are computed with 100% precision by the browser.
 
 ### Tier 2: File-Enabled Terminal / Jetski Environment
-* **Execution**: The agent invokes `python3 scripts/radar_collector.py` via local shell. The script writes `radar_<entity>.html` and companions, outputting `<agent-embed>` or file links.
-* **Benefit**: Seamless artifact generation with persistent audit trails.
+* **Execution**: The agent writes `radar_<entity>.html` directly to the artifact directory using `write_to_file` and embeds `<agent-embed src="file://.../radar_<entity>.html"></agent-embed>`. Zero local shell or Python execution required.
+* **Benefit**: Clean iframe visual presentation conforming to platform generative UI standards with zero security exposure.
 
-### Tier 3: Pure Headless / Command-Line Client (Zero-Math Scorecard)
-* **Execution**: In a terminal that lacks webview and shell access, the agent presents the **Deterministic 5-Sector Terminal Scorecard** evaluating discrete event counts and a **$k$-of-5 Sector Hurdle**.
-* **Benefit**: Fully grounded, verifiable intelligence using direct discrete event counts.
+### Tier 3: Pure Headless / Command-Line Client & Programmatic Environments (agentapi, generic MCP)
+* **Execution**: In programmatic or terminal environments without local shell execution (`agentapi`, headless MCP), the agent renders directly in Markdown:
+  - **Pillar 1**: Inline `<svg>` radar chart (Surface Option B).
+  - **Pillar 2**: The canonical decoupled representative micro-query (`stage auth_risk` with `order: $z desc`).
+  - **Pillars 3–6**: Grounded 5-sector matrix, CRI summary, and forensic vector breakdown.
+  *(Alternatively, in text-only terminals without SVG capability, the agent presents the Deterministic 5-Sector Terminal Scorecard evaluating discrete event counts and a $k$-of-5 Sector Hurdle).*
+* **Benefit**: Zero external shell dependencies, fully compliant with programmatic and zero-auth execution models.
 
 ---
 
@@ -276,23 +280,35 @@ For web and Electron MCP clients, embed this self-contained script. The client b
 
 ---
 
-### 6.3 Python Collector Invocation (Tier 2 Environments)
-In environments with local script execution, invoke `scripts/radar_collector.py`:
+### 6.3 Native HTML Artifact Generation (Tier 2 Environments)
+In environments supporting generative UI iframe embeds (e.g. Jetski Web), the agent writes `radar_<entity_id>.html` directly using `write_to_file`:
 
-```bash
-python3 scripts/radar_collector.py \
-  --entity "<target_entity_id>" \
-  --entity-type USER \
-  --data '[
-    {"sector": "IAM & Authentication", "spoke_name": "Authentication Attempts", "metric_table": "metrics.auth_attempts_total", "observed": 6.0, "baseline_mean": 4.2, "baseline_stddev": 1.8, "z_score": 0.64, "unit": "logins"},
-    {"sector": "Cloud Infrastructure", "spoke_name": "Cloud Resource CRUD", "metric_table": "metrics.resource_creation_total", "observed": 0.0, "baseline_mean": 0.0, "baseline_stddev": 0.0, "z_score": 0.0, "unit": "events"},
-    {"sector": "Workspace Data", "spoke_name": "Workspace & SaaS Exfil", "metric_table": "metrics.workspace_total_download_actions", "observed": 0.0, "baseline_mean": 0.0, "baseline_stddev": 0.0, "z_score": 0.0, "unit": "actions"},
-    {"sector": "Network Egress", "spoke_name": "Network Egress", "metric_table": "metrics.network_bytes_outbound", "observed": 0.0, "baseline_mean": 0.0, "baseline_stddev": 0.0, "z_score": 0.0, "unit": "bytes"},
-    {"sector": "DNS & Web Activity", "spoke_name": "DNS & Web Activity", "metric_table": "metrics.dns_queries_fail", "observed": 4.0, "baseline_mean": 3.5, "baseline_stddev": 1.2, "z_score": 0.23, "unit": "queries"}
-  ]' \
-  --format embed \
-  --output /path/to/artifacts/radar_<entity_id>.html
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>360° Risk Radar</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 16px; background: #ffffff; }
+  </style>
+</head>
+<body>
+  <svg viewBox="0 0 620 480" width="100%" height="480">
+    <!-- Concentric threshold circles and spokes -->
+    <circle cx="310" cy="240" r="31.25" fill="none" stroke="#e0e0e0" stroke-width="1"/>
+    <circle cx="310" cy="240" r="62.5" fill="none" stroke="#e0e0e0" stroke-width="1"/>
+    <circle cx="310" cy="240" r="93.75" fill="none" stroke="#d93025" stroke-width="1.5" stroke-dasharray="4,4"/>
+    <circle cx="310" cy="240" r="125" fill="none" stroke="#bdc1c6" stroke-width="1"/>
+    <text x="313" y="150" font-size="10" font-weight="600" fill="#d93025">+3.0σ (Significance Boundary)</text>
+    <!-- Polygon representing the 5 sectors -->
+    <polygon points="310,130 360,220 310,240 310,240 310,240" fill="rgba(217,48,37,0.25)" stroke="#d93025" stroke-width="2"/>
+  </svg>
+</body>
+</html>
 ```
+And embeds in chat:
+`<agent-embed src="file:///path/to/artifacts/radar_<entity_id>.html"></agent-embed>`
 
 ---
 
@@ -303,29 +319,19 @@ python3 scripts/radar_collector.py \
 > Pre-computed metric baseline tables (`metrics.*`) model pre-aggregated volumetric counts and byte sums over rolling 30-day horizons.
 > Behavioral Threat Translation in Pillar 4 is grounded in multi-sector volumetric deviations ($Z$-scores, $\mu$, $\sigma$, $D$, CRI). Qualitative inspection of specific process launches or command lines is conducted through ad-hoc Phase 2 UDM drill-down or SOAR playbook handoff.
 
-### 7.1 Tier 1 / Tier 2 Rich Report (Visual Radar)
+### 7.1 Complete Forensic Report Template
 
 ````markdown
 #### 1. Statistical Outlier Report: 360° Entity Behavioral Risk Radar (Multi-Sector Fusion) (window: 30d)
 
-<!-- Surface Option A: Jetski Web (run_command available) -->
+<!-- Single-Surface Visual Routing:
+     - In Jetski Web workspace: generate HTML artifact via write_to_file and embed:
+       <agent-embed src="file:///path/to/artifacts/radar_<entity_id>.html"></agent-embed>
+       [📊 Open 360° Risk Radar (SVG/HTML)](file:///path/to/artifacts/radar_<entity_id>.html)
+     - In MCP clients / webviews: render inline <svg viewBox="0 0 620 480" width="100%" height="480" ...>
+-->
 <agent-embed src="file:///path/to/artifacts/radar_<entity_id>.html"></agent-embed>
 [📊 Open 360° Risk Radar (SVG/HTML)](file:///path/to/artifacts/radar_<entity_id>.html)
-
-<!-- Surface Option B: Generic MCP / Webview (no local shell) -->
-<svg viewBox="0 0 620 480" width="100%" height="480" xmlns="http://www.w3.org/2000/svg" style="background:#ffffff; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
-  <circle cx="310" cy="240" r="31.25" fill="none" stroke="#e0e0e0" stroke-width="1"/>
-  <circle cx="310" cy="240" r="62.5" fill="none" stroke="#e0e0e0" stroke-width="1"/>
-  <circle cx="310" cy="240" r="93.75" fill="none" stroke="#d93025" stroke-width="1.5" stroke-dasharray="4,4"/>
-  <circle cx="310" cy="240" r="125" fill="none" stroke="#bdc1c6" stroke-width="1"/>
-  <text x="313" y="150" font-size="10" font-weight="600" fill="#d93025">+3.0σ (Significance Boundary)</text>
-  <line x1="310" y1="240" x2="310" y2="115" stroke="#dadce0" stroke-width="1.5"/>
-  <line x1="310" y1="240" x2="428.9" y2="201.4" stroke="#dadce0" stroke-width="1.5"/>
-  <line x1="310" y1="240" x2="383.5" y2="341.1" stroke="#dadce0" stroke-width="1.5"/>
-  <line x1="310" y1="240" x2="236.5" y2="341.1" stroke="#dadce0" stroke-width="1.5"/>
-  <line x1="310" y1="240" x2="191.1" y2="201.4" stroke="#dadce0" stroke-width="1.5"/>
-  <polygon points="310,130 360,220 310,240 310,240 310,240" fill="rgba(217,48,37,0.25)" stroke="#d93025" stroke-width="2"/>
-</svg>
 
 * **Target Entity**: `<target_entity_id>` (Information Technology)
 * **Composite Threat Distance**: $D = 0.68\sigma$
@@ -336,7 +342,7 @@ python3 scripts/radar_collector.py \
 
 #### 2. Executed Multi-Stage YARA-L Query Architecture
 
-*(The 360° evaluation architecture decouples orthogonal behavioral sectors into independent micro-queries against their respective 30-day pre-computed metric tables. Pillar 2 displays exclusively the single representative sector micro-query; remaining sectors evaluate via identical decoupled parallel queries.)*
+*(The 360° evaluation architecture decouples orthogonal behavioral sectors into independent micro-queries against their respective 30-day pre-computed metric tables. For both Mode A and Mode B, Pillar 2 displays exclusively the single representative sector micro-query; remaining sectors evaluate via identical decoupled parallel queries. Declare event predicates directly in the stage body without section headers.)*
 
 ```yara
 // Representative Sector Micro-Query: IAM & Authentication
@@ -358,8 +364,8 @@ order: $z desc
 ```
 
 > [!NOTE]
-> **Single-Sector Micro-Query Standard**:
-> Chronicle SIEM evaluates orthogonal telemetry planes independently. The 360° report displays exclusively this single representative micro-query in Pillar 2, while all 5 sector Z-scores are joined in the report presentation layer (Pillars 1, 3, 4, and 6) to compute Euclidean distance $D$ and CRI.
+> **Single-Sector Micro-Query Standard (Mode A & Mode B)**:
+> Chronicle SIEM evaluates orthogonal telemetry planes independently. In both Mode A (24h snapshot) and Mode B (14d longitudinal timeline), the 360° report displays exclusively this single representative micro-query (`stage auth_risk` with `order: $z desc`) in Pillar 2. All 5 sector Z-scores are joined in the report presentation layer (Pillars 1, 3, 4, and 6) to compute Euclidean distance $D$ and CRI. Never emit a detection rule (`rule ... { ... }`) or `math.sqrt` in Pillar 2.
 
 ---
 

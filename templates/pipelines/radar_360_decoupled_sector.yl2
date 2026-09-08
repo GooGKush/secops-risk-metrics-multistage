@@ -1,0 +1,31 @@
+// ============================================================================
+// ARCHITECTURE: 360° ENTITY BEHAVIORAL RISK RADAR (DECOUPLED SECTOR MICRO-QUERY)
+// Skill: secops-risk-metrics-multistage
+// Sector: IAM & Authentication (Representative Canonical Spoke)
+// Execution: Evaluated independently alongside Cloud, Workspace, Network, and DNS
+// Topology: Client-Side Euclidean Join (D = sqrt(sum Z_i^2))
+// Platform Limit: maxJoinCount = 4 (Zero Monolithic Joins)
+// ============================================================================
+
+stage auth_risk {
+    metadata.event_type = "USER_LOGIN"
+    target.user.userid = $user
+    $user != ""
+
+  match:
+    $user by 1d
+
+  outcome:
+    $obs = count(metadata.id)
+    $avg = max(metrics.auth_attempts_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+        target.user.userid: $user
+    ))
+    $std = max(metrics.auth_attempts_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+        target.user.userid: $user
+    ))
+    $z = ($obs - $avg) / ($std + 1.0)
+}
+
+order: $z desc

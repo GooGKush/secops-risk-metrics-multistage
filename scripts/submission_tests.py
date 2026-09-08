@@ -410,9 +410,13 @@ order:
     """Rigorous offline validation of Malachite YARA-L 2.0 syntax invariants."""
     errors: List[str] = []
 
-    # 1. Zero 'condition:' keyword in search queries
-    if re.search(r'\bcondition:\s*', query):
-      errors.append("Illegal 'condition:' block present in multi-stage search query")
+    # 1. Root stage condition blocks are valid in Malachite Common Compiler for hurdle models.
+    # Validate section ordering: condition: must precede order:.
+    if re.search(r'\border:\s*.*?\bcondition:\s*', query, re.DOTALL):
+      errors.append("Illegal section ordering: 'condition:' must precede 'order:' in YARA-L grammar")
+    # Validate that outcome blocks do not contain conditional 'if(...)'.
+    if re.search(r'\bif\s*\(', query):
+      errors.append("Illegal 'if(...)' expression in query (use condition: for hurdle gating)")
 
     # 2. Zero un-namespaced math functions or math.exp
     if "math.exp" in query:

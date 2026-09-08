@@ -38,9 +38,8 @@ class ExhaustiveMatrixSyntaxTest(unittest.TestCase):
     self.router = MultiStageTemplateRouter()
 
   def _assert_query_grammar_invariants(self, query: str, context: str):
-    """Rigorous grammar invariant assertion helper."""
-    # 1. Zero 'condition:' keyword in multi-stage search queries
-    self.assertNotIn("condition:", query, f"[{context}] Search query must not contain 'condition:' block")
+    # 1. Zero 'if(...)' in outcome expressions (Malachite Common Compiler invariant)
+    self.assertNotIn("if(", query, f"[{context}] Query must not contain 'if(...)' expressions")
 
     # 2. Zero dummy placeholders ($day_bucket, $hour_bucket) before 'by'
     self.assertNotIn("$day_bucket", query, f"[{context}] Must not contain $day_bucket dummy variable")

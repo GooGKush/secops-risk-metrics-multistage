@@ -1,8 +1,8 @@
 # Multi-Stage Risk Metrics Implementation Guide
 
-> ⚡ **JETSKI / WORKSPACE AGENT DIRECTIVE**:
-> If you have local Python/shell capabilities (`run_command`), do not manually handcraft or assemble multi-stage queries from this guide.
-> Invoke `python3 scripts/template_router.py build --metric <name> --model <model>` or reference the compiler-verified templates in `templates/` directly.
+> ⚡ **JETSKI / WORKSPACE & MCP AGENT DIRECTIVE**:
+> Reference the compiler-verified templates in `templates/` directly via `view_file`.
+> Do NOT execute local Python scripts during hunting. All query assembly and execution is native.
 
 This guide details how to construct multi-stage YARA-L DAG queries that use pre-computed risk metrics as Stage 1 and execute statistical calculations in Stage 2+.
 
@@ -113,17 +113,119 @@ Certain pre-computed Risk Metrics require specific auxiliary UDM fields as dimen
 
 ---
 
-## 6. Threshold Tuning and Ordering in Multi-Stage Search
+## 6. Threshold Tuning, Hurdle Gating, and Ordering in Multi-Stage Search
 
 > [!IMPORTANT]
-> **Zero `condition:` Block in Multi-Stage Search**:
-> In Google SecOps / Chronicle Malachite, multi-stage queries (`stage ... { }`) are **Search pipelines** executed in UDM Search, **not** streaming detection rules.
-> - Multi-stage search queries **terminate with `order:`** (e.g. `order: $personal_z desc`).
-> - Adding a `condition:` block to a multi-stage search query causes a **fatal compilation/syntax error** in the Chronicle editor.
-> - Filtering and tuning are achieved through:
->   1. **Stage 1 Event Predicates**: Pre-filter events before aggregation (e.g. `network.sent_bytes > 0`, `$event_type = "PROCESS_LAUNCH"`).
->   2. **Root Stage Ordering**: Surface the highest-severity statistical anomalies at the top of the search table via `order: $personal_z desc` or `order: $composite_threat_norm_sq desc`.
->   3. **Post-Aggregation Visual Thresholds**: In analysts' dashboards and tabular results, entities are evaluated against standard statistical cutoffs ($Z \ge 3.0\sigma$, $\text{CRI} \ge 50$).
+> **Root Stage Hurdle & Threshold Gating via `condition:`**:
+> In the Google SecOps / Chronicle Malachite Common Compiler, the root stage of a multi-stage query is parsed as a `yl2_block`, which natively supports `condition:` for post-aggregation filtering (`HAVING`) alongside `order:`.
+> - **Discrete Boolean Hurdles & Threshold Gating**: Place all statistical threshold cutoffs, hurdle models (e.g. dormant account awakening, sub-threshold multi-evidence fusion, Euclidean distance thresholds), and minimum baseline maturity checks (`$active_days >= 7`) under `condition:`.
+> - **Continuous Linear Outcome Calculations**: Outcome blocks must contain only continuous mathematical expressions (e.g. Z-scores, ratios, squared distances) without conditional branching (`if(...)`, which is prohibited in outcome grammar).
+> - **Final Outlier Sorting**: Queries terminate with `order: <metric> [desc|asc]` to rank qualifying breached entities.
+
+### 6.1 Noise Level Tuning & Sensitivity Bands via `condition:`
+
+Threat hunting requires adaptable sensitivity depending on operational objectives. Analysts frequently need to isolate different statistical tiers:
+1. **High-Confidence Extreme Outliers ($Z \ge 3.0\sigma$ or $Z \ge 4.0\sigma$)**: Used for immediate high-priority triage on large fleets where analysts want zero background chatter.
+2. **Borderline / Investigative Band ($2.0\sigma \le Z < 3.0\sigma$)**: Critical for proactive threat hunting. Advanced persistent threats (APTs) and living-off-the-land (LOL) campaigns deliberately avoid extreme volumetric spikes to blend into standard deviations. Filtering specifically for the $2.0\sigma \le Z < 3.0\sigma$ band uncovers low-and-slow behavioral drift before full adversary exfiltration.
+3. **Directional Outliers / Quiet Failures ($Z \le -3.0\sigma$)**: Detects anomalous cessation of telemetry, such as security agent uninstalls, heartbeat drop-offs, or disabled audit pipelines.
+4. **Multi-Evidence Hybrid Hurdles**: Fuses Euclidean distance thresholds ($D^2 \ge 16.0$) with sub-threshold additive log-odds scores and raw evidence counts.
+
+#### Syntax & Operator Support in Root Stage `condition:`
+The Malachite compiler accepts compound boolean expressions in the root stage `condition:` block:
+* **Relational Operators**: `>`, `>=`, `<`, `<=`, `==`, `!=`
+* **Logical Operators**: `and`, `or`, `not`
+* **Grouping**: Parentheses `(...)` for nested logic
+* **Universal Grammar Placement**: Must be placed **strictly after `outcome:`** and **strictly before `order:`**.
+
+#### Concrete Root Stage Gating Examples
+
+##### Example 1: Standard High-Confidence Gating ($Z \ge 3.0\sigma$)
+```yara
+// Root Stage: High-confidence outlier filter
+$host = $stage1_extract.host
+$ws = $stage1_extract.window_start
+
+match:
+  $host, $ws by 1d
+
+outcome:
+  $obs = max($stage1_extract.observed_val)
+  $mu = max($stage1_extract.historical_avg)
+  $sigma = max($stage1_extract.historical_stddev)
+  $personal_z = ($obs - $mu) / ($sigma + 1.0)
+
+condition:
+  $personal_z >= 3.0
+
+order:
+  $personal_z desc
+```
+
+##### Example 2: Borderline / Investigative Band ($2.0\sigma \le Z < 3.0\sigma$)
+```yara
+// Root Stage: Emerging behavioral drift (Investigative Band)
+$user = $stage1_extract.user
+$ws = $stage1_extract.window_start
+
+match:
+  $user, $ws by 1d
+
+outcome:
+  $obs = max($stage1_extract.observed_val)
+  $mu = max($stage1_extract.historical_avg)
+  $sigma = max($stage1_extract.historical_stddev)
+  $personal_z = ($obs - $mu) / ($sigma + 1.0)
+
+condition:
+  $personal_z >= 2.0 and $personal_z < 3.0
+
+order:
+  $personal_z desc
+```
+
+##### Example 3: Multi-Evidence Hybrid Hurdle Fusion
+```yara
+// Root Stage: 2D Euclidean Distance or Sub-Threshold Joint Odds Hurdle
+$entity = $stage1_macro.entity
+$entity = $stage2_micro.entity
+
+match:
+  $entity by 1d
+
+outcome:
+  $z_intensity = max($stage1_macro.z_score)
+  $raw_hits = max($stage2_micro.raw_hits)
+  $z_breadth = max($stage2_micro.z_breadth)
+  $threat_distance_sq = ($z_intensity * $z_intensity) + ($z_breadth * $z_breadth)
+  $joint_odds = (0.6 * $z_intensity) + (0.4 * $z_breadth)
+
+condition:
+  $threat_distance_sq >= 16.0 or ($joint_odds >= 2.5 and $raw_hits >= 3)
+
+order:
+  $threat_distance_sq desc
+```
+
+##### Example 4: Baseline Maturity + Volume + Significance Hurdle
+```yara
+// Root Stage: Suppress noise on immature or unestablished accounts
+$entity = $stage1_extract.entity
+$ws = $stage1_extract.window_start
+
+match:
+  $entity, $ws by 1d
+
+outcome:
+  $personal_z = max($stage1_extract.z_score)
+  $active_baseline_days = max($stage1_extract.hist_active_days)
+  $observed_volume = max($stage1_extract.observed_val)
+
+condition:
+  $personal_z >= 3.0 and $active_baseline_days >= 7 and $observed_volume >= 5
+
+order:
+  $personal_z desc
+```
 
 ---
 
@@ -205,8 +307,8 @@ Google SecOps's **Common Compiler** (SIEM Search Engine) governs Multi-Stage UDM
      outcome:
        $fusion_threat_score = ...
      ```
-3. **Zero `condition:` Block in Multi-Stage Search**:
-   * The `condition:` keyword is strictly reserved for streaming detection rules. Multi-stage search queries execute their scalar transformations inside the Root Stage `outcome:` section and order results via `order:`.
+3. **Hurdle Gating in Root Stage `condition:`**:
+   * Root stage queries execute continuous scalar transformations inside `outcome:`, evaluate multi-evidence hurdle boundaries and statistical significance thresholds inside `condition:`, and rank qualifying results via `order:`.
 
 ---
 
@@ -895,6 +997,83 @@ To operationalize advanced statistical models without tripping Chronicle's join 
 * **Model 5: 2D Euclidean Threat Distance Norm**:
   $$D^2 = Z_{\text{intensity}}^2 + Z_{\text{breadth}}^2 \ge 16.0 \quad (\implies D \ge 4.0\sigma)$$
   Evaluates geometric distance from nominal behavior in coordinate space while strictly complying with the Common Compiler's rejection of square root functions (`sqrt()`).
+* **Canonical YARA-L 2.0 Multi-Stage Search DAG**:
+  ```yara
+  // Stage 1: Macro Baseline (Axis 1: Historical Intensity)
+  stage stage1_macro_intensity {
+      metadata.event_type = "RESOURCE_READ"
+      principal.asset.hostname = $host
+      $host != ""
+
+    match:
+      $host by 1d
+
+    outcome:
+      $observed_intensity = count(metadata.id)
+      $hist_mean = max(metrics.resource_read_total(
+          period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+          principal.asset.hostname: $host
+      ))
+      $hist_stddev = max(metrics.resource_read_total(
+          period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+          principal.asset.hostname: $host
+      ))
+      $hist_active_days = max(metrics.resource_read_total(
+          period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+          principal.asset.hostname: $host
+      ))
+
+      $diff_intensity = $observed_intensity - $hist_mean
+      $denom_intensity = $hist_stddev + 1.0
+      $z_intensity = $diff_intensity / $denom_intensity
+  }
+
+  // Stage 2: Micro Telemetry (Axis 2: Contemporary Forensic Breadth)
+  stage stage2_micro_breadth {
+      metadata.event_type = "RESOURCE_READ"
+      principal.asset.hostname = $host
+      $host != ""
+      target.resource.name != ""
+
+    match:
+      $host by 1d
+
+    outcome:
+      $raw_hits = count(metadata.id)
+      $distinct_databases = count_distinct(target.resource.name)
+      $database_sample = array_distinct(target.resource.name)
+  }
+
+  // Root Stage: Common Compiler Orthogonal Threat Space Fusion
+  $host = $stage1_macro_intensity.host
+  $host = $stage2_micro_breadth.host
+
+  match:
+    $host by 1d
+
+  outcome:
+    $z_intensity = max($stage1_macro_intensity.z_intensity)
+    $hist_days = max($stage1_macro_intensity.hist_active_days)
+    $raw_hits = max($stage2_micro_breadth.raw_hits)
+    $breadth_count = max($stage2_micro_breadth.distinct_databases)
+
+    // Standardized Micro Breadth Score (Zero-dispersion floor safe)
+    $z_breadth = ($breadth_count - 1.0) / (2.0 + 1.0)
+
+    // Model 5: 2D Euclidean Threat Distance (Squared Norm)
+    $intensity_sq = $z_intensity * $z_intensity
+    $breadth_sq = $z_breadth * $z_breadth
+    $threat_distance_sq = $intensity_sq + $breadth_sq
+
+    // Model 3: Joint Bayesian Additive Log-Odds Score
+    $joint_odds_score = (0.6 * $z_intensity) + (0.4 * $z_breadth)
+
+    // Continuous Linear Outcome Regularization
+    $z = (0.5 * $joint_odds_score) + (0.5 * $threat_distance_sq)
+
+  order:
+    $z desc
+  ```
 
 ### Archetype 3: Fleet Prevalence Normalization (`hybrid_metric_fleet_prevalence_2stage.yl2`)
 * **Match Topology**: Token-centric match key (`$token by 1d`), joining an entity's anomalous execution to fleet-wide breadth.
