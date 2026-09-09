@@ -738,7 +738,7 @@ Before outputting any candidate multi-stage YARA-L query in the Phase 1B Pre-Fli
 ### A. Template-First Assembly via `MultiStageTemplateRouter`
 To eliminate runtime syntax failures and semantic distortions, multi-stage queries are deterministically assembled from canonical templates:
 1. **Stage 1 Extractors (`templates/stage1_extractors/`)**: Provide guaranteed 6-point outcome tuples (`$observed_val`, `$historical_avg`, `$historical_stddev`, `$historical_active_days`, `$historical_max`, `$historical_sum`) with immutable entity bindings.
-2. **Stage 2 Math Models (`templates/stage2_math_models/`)**: Provide clean AST implementations of standard $Z$, MAD, Poisson, CV, and Bayesian models.
+2. **Stage 2 Math Models (`templates/stage2_math_models/`)**: Provide clean AST implementations of all 14 models: Standard $Z$, Robust MAD, Discrete Poisson Rarity, Fano Factor Dispersion, Coefficient of Variation, Hourly Temporal $Z$, Bayesian Gamma & Beta-Binomial, Longitudinal CUSUM, Two-Part Hurdle, Asymmetric Directional ReLU, Piecewise Winsorized CRI, Fleet Prevalence Shield, and Adaptive Context Sensitivity.
 3. **Pre-Composed Pipelines (`templates/pipelines/`)**: End-to-end validated pipelines for complex multi-stage hunts (e.g. `cloud_repository_scope_dual_branch.yl2`, `mad_modified_z_2stage.yl2`).
 
 ### B. The `RAW_LOG_DUMP_DETECTED` Post-Flight Inspection Rule

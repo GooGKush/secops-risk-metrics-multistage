@@ -42,7 +42,8 @@ class ExhaustiveMatrixSyntaxTest(unittest.TestCase):
     for m in re.finditer(r"\bif\s*\(([^)]+)\)", query):
       args = [a.strip() for a in m.group(1).split(",")]
       self.assertGreaterEqual(len(args), 3, f"[{context}] if(...) missing required else-clause: {m.group(0)}")
-      self.assertFalse(re.search(r"[\+\-\*\/]", args[1]), f"[{context}] if(...) has compound arithmetic in then-clause: {m.group(0)}")
+      then_clause = re.sub(r"^\s*[-+]\s*", "", args[1])
+      self.assertFalse(re.search(r"[\+\-\*\/]", then_clause), f"[{context}] if(...) has compound arithmetic in then-clause: {m.group(0)}")
 
     # 2. Zero dummy placeholders ($day_bucket, $hour_bucket) before 'by'
     self.assertNotIn("$day_bucket", query, f"[{context}] Must not contain $day_bucket dummy variable")
@@ -78,6 +79,14 @@ class ExhaustiveMatrixSyntaxTest(unittest.TestCase):
         StatisticalModel.POISSON,
         StatisticalModel.COEFFICIENT_OF_VARIATION,
         StatisticalModel.BAYESIAN_GAMMA,
+        StatisticalModel.BAYESIAN_BETA_BINOMIAL,
+        StatisticalModel.HOURLY_TEMPORAL_ZSCORE,
+        StatisticalModel.LONGITUDINAL_CUSUM,
+        StatisticalModel.TWO_PART_HURDLE,
+        StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z,
+        StatisticalModel.PIECEWISE_CRI,
+        StatisticalModel.FLEET_PREVALENCE_SHIELD,
+        StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD,
     ]
     match_modes = [MatchMode.TIMELINE_BREAKDOWN, MatchMode.FLEET_ROLLUP]
 
@@ -104,7 +113,12 @@ class ExhaustiveMatrixSyntaxTest(unittest.TestCase):
           self._assert_query_grammar_invariants(query, context)
           tested_permutations += 1
 
-    self.assertGreater(tested_permutations, 50, f"Must test at least 50 permutations (tested: {tested_permutations})")
+    expected_permutations = len(METRIC_CATALOG) * len(math_models) * len(match_modes)
+    self.assertEqual(
+        tested_permutations,
+        expected_permutations,
+        f"Must exhaustively test all {expected_permutations} permutations (tested: {tested_permutations})"
+    )
 
   def test_advanced_pipeline_templates_grammar(self):
     """Validates syntax and invariants across all advanced multi-stage pipeline templates."""

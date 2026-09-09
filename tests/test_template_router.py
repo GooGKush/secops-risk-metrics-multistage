@@ -114,6 +114,32 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
     self.assertIn("condition:\n  $composite_risk >= 2.0 and $composite_risk < 3.5", query)
     self.assertIn("order:\n  $composite_risk desc", query)
 
+  def test_stage2_new_models_routing_and_antipattern_cleanliness(self):
+    """Verifies that all 6 new Stage 2 math models route correctly and have zero statistical violations."""
+    test_models = [
+        (StatisticalModel.LONGITUDINAL_CUSUM, "cusum_drift_score"),
+        (StatisticalModel.TWO_PART_HURDLE, "hurdle_threat_score"),
+        (StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z, "upper_tail_z"),
+        (StatisticalModel.PIECEWISE_CRI, "cri_score"),
+        (StatisticalModel.FLEET_PREVALENCE_SHIELD, "shielded_z"),
+        (StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD, "sensitivity_excess"),
+    ]
+
+    for model, order_var in test_models:
+      query = self.router.build_query(
+          target_metric="network_bytes_outbound",
+          entity_type=EntityType.ASSET,
+          statistical_model=model,
+          anomaly_threshold=2.5,
+      )
+      self.assertIn(f"order:\n  ${order_var} desc", query)
+      violations = StatisticalAntipatternAuditor.audit_query(query)
+      self.assertEqual(
+          violations,
+          [],
+          f"Model {model.value} produced unexpected statistical violations: {violations}",
+      )
+
 
 if __name__ == "__main__":
   unittest.main()

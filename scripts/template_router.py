@@ -69,6 +69,12 @@ class MultiStageTemplateRouter:
         StatisticalModel.HOURLY_TEMPORAL_ZSCORE: "hourly_temporal_zscore.yl2",
         StatisticalModel.BAYESIAN_GAMMA: "poisson_gamma_bayesian.yl2",
         StatisticalModel.BAYESIAN_BETA_BINOMIAL: "beta_binomial_bayesian.yl2",
+        StatisticalModel.LONGITUDINAL_CUSUM: "longitudinal_cusum.yl2",
+        StatisticalModel.TWO_PART_HURDLE: "two_part_hurdle.yl2",
+        StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z: "asymmetric_directional_z.yl2",
+        StatisticalModel.PIECEWISE_CRI: "piecewise_cri.yl2",
+        StatisticalModel.FLEET_PREVALENCE_SHIELD: "fleet_prevalence_shield.yl2",
+        StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD: "adaptive_context_threshold.yl2",
     }
     stage2_path = self.template_dir / "stage2_math_models" / stage2_file_map[statistical_model]
     if not stage2_path.exists():

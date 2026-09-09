@@ -1,0 +1,26 @@
+// Root Stage: Context-Modulated Adaptive Sensitivity (Off-Hours Sensitivity Tightening)
+$entity = $stage1_extract.entity
+$ws = $stage1_extract.window_start
+
+match:
+  $entity, $ws by 1d
+
+outcome:
+  $observed = max($stage1_extract.observed_val)
+  $hist_avg = max($stage1_extract.historical_avg)
+  $hist_stddev = max($stage1_extract.historical_stddev)
+  $active_days = max($stage1_extract.historical_active_days)
+  $hist_max = max($stage1_extract.historical_max)
+
+  // 1. Personal Historical Z-Score
+  $diff = $observed - $hist_avg
+  $safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)
+  $personal_z = $diff / $safe_stddev
+
+  // 2. Off-Hours Determination
+  $is_off_hours = if($active_days <= 5, 1.0, 0.0)
+  $dynamic_threshold = if($is_off_hours > 0, 1.75, 3.00)
+  $sensitivity_excess = $personal_z - $dynamic_threshold
+
+order:
+  $sensitivity_excess desc

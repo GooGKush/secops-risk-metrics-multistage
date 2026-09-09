@@ -1,0 +1,40 @@
+// Stage 1: Security Rule & EDR Alert Count & 30d Baseline
+stage stage1_extract {
+    metadata.event_type = "SCAN_UNCATEGORIZED"
+    principal.asset.hostname = $host
+    security_result.rule_name = $rule_name
+    $host != ""
+    $rule_name != ""
+
+  match:
+    $host, $rule_name by 1d
+
+  outcome:
+    $observed_val = count(metadata.id)
+
+    $historical_avg = max(metrics.alert_event_name_count(
+        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+        principal.asset.hostname: $host,
+        security_result.rule_name: $rule_name
+    ))
+    $historical_stddev = max(metrics.alert_event_name_count(
+        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+        principal.asset.hostname: $host,
+        security_result.rule_name: $rule_name
+    ))
+    $historical_active_days = max(metrics.alert_event_name_count(
+        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+        principal.asset.hostname: $host,
+        security_result.rule_name: $rule_name
+    ))
+    $historical_max = max(metrics.alert_event_name_count(
+        period: 1d, window: 30d, metric: event_count_sum, agg: max,
+        principal.asset.hostname: $host,
+        security_result.rule_name: $rule_name
+    ))
+    $historical_sum = max(metrics.alert_event_name_count(
+        period: 1d, window: 30d, metric: event_count_sum, agg: sum,
+        principal.asset.hostname: $host,
+        security_result.rule_name: $rule_name
+    ))
+}

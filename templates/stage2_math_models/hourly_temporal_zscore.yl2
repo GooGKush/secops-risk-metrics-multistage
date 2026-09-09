@@ -17,10 +17,12 @@ outcome:
 
   // 1. Intra-Day Hourly Z-Score
   $hourly_diff = $observed_hour - $avg_hourly
-  $hourly_z = $hourly_diff / ($stddev_hourly + 1.0)
+  $safe_stddev_hourly = if($stddev_hourly > 0, $stddev_hourly, 1.0)
+  $hourly_z = $hourly_diff / $safe_stddev_hourly
 
   // 2. Intra-Day Fold Surge Ratio
-  $hourly_surge_ratio = $observed_hour / ($avg_hourly + 1.0)
+  $safe_avg_hourly = if($avg_hourly > 0, $avg_hourly, 1.0)
+  $hourly_surge_ratio = $observed_hour / $safe_avg_hourly
 
 order:
   $hourly_z desc

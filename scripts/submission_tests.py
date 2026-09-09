@@ -381,6 +381,12 @@ order:
         ("ROUTER-06-BETA-BINOMIAL", "auth_attempts_total", EntityType.USER, StatisticalModel.BAYESIAN_BETA_BINOMIAL, "Beta-Binomial conjugate Bayesian model"),
         ("ROUTER-07-HOURLY-Z", "file_executions_total", EntityType.ASSET, StatisticalModel.HOURLY_TEMPORAL_ZSCORE, "Hourly temporal Z-score on process launches"),
         ("ROUTER-08-FANO", "auth_attempts_fail", EntityType.USER, StatisticalModel.VARIANCE, "Variance-to-mean Fano factor on auth failures"),
+        ("ROUTER-09-CUSUM", "network_bytes_outbound", EntityType.ASSET, StatisticalModel.LONGITUDINAL_CUSUM, "Longitudinal CUSUM drift on egress bytes"),
+        ("ROUTER-10-HURDLE", "auth_attempts_total", EntityType.USER, StatisticalModel.TWO_PART_HURDLE, "Two-part hurdle model for zero-inflated auth"),
+        ("ROUTER-11-ASYMMETRIC-Z", "file_executions_total", EntityType.ASSET, StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z, "Asymmetric directional upper-tail surge on process executions"),
+        ("ROUTER-12-PIECEWISE-CRI", "network_bytes_outbound", EntityType.ASSET, StatisticalModel.PIECEWISE_CRI, "Piecewise Winsorized Calibrated Risk Index"),
+        ("ROUTER-13-FLEET-SHIELD", "network_bytes_outbound", EntityType.ASSET, StatisticalModel.FLEET_PREVALENCE_SHIELD, "Fleet prevalence concurrency discount shield"),
+        ("ROUTER-14-ADAPTIVE-THRESH", "auth_attempts_total", EntityType.USER, StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD, "Adaptive context-modulated sensitivity tightening"),
     ]
 
     for rid, metric, etype, model, desc in router_cases:
@@ -419,8 +425,10 @@ order:
       args = [a.strip() for a in m.group(1).split(",")]
       if len(args) < 3:
         errors.append(f"Illegal 'if(...)' expression in query: missing required 'else' clause: {m.group(0)}")
-      elif re.search(r"[\+\-\*\/]", args[1]):
-        errors.append(f"Illegal 'if(...)' expression in query: compound arithmetic in 'then' clause: {m.group(0)}")
+      else:
+        then_clause = re.sub(r"^\s*[-+]\s*", "", args[1])
+        if re.search(r"[\+\-\*\/]", then_clause):
+          errors.append(f"Illegal 'if(...)' expression in query: compound arithmetic in 'then' clause: {m.group(0)}")
 
     # 2. Zero un-namespaced math functions or math.exp
     if "math.exp" in query:

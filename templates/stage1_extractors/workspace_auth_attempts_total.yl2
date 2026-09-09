@@ -1,0 +1,35 @@
+// Stage 1: Google Workspace Authentication Attempts & 30d Baseline
+stage stage1_extract {
+    metadata.event_type = "USER_LOGIN"
+    metadata.vendor_name = "Google Workspace"
+    target.user.userid = $user
+    $user != ""
+
+  match:
+    $user by 1d
+
+  outcome:
+    $observed_val = count(metadata.id)
+    $distinct_source_ips = count_distinct(principal.ip)
+
+    $historical_avg = max(metrics.workspace_auth_attempts_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+        target.user.userid: $user
+    ))
+    $historical_stddev = max(metrics.workspace_auth_attempts_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+        target.user.userid: $user
+    ))
+    $historical_active_days = max(metrics.workspace_auth_attempts_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+        target.user.userid: $user
+    ))
+    $historical_max = max(metrics.workspace_auth_attempts_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: max,
+        target.user.userid: $user
+    ))
+    $historical_sum = max(metrics.workspace_auth_attempts_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: sum,
+        target.user.userid: $user
+    ))
+}

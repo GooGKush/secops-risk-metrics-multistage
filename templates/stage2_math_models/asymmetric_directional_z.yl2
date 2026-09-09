@@ -1,0 +1,24 @@
+// Root Stage: Asymmetric Directional Z-Score (Upper-Tail Surge Only)
+$entity = $stage1_extract.entity
+$ws = $stage1_extract.window_start
+
+match:
+  $entity, $ws by 1d
+
+outcome:
+  $observed = max($stage1_extract.observed_val)
+  $hist_avg = max($stage1_extract.historical_avg)
+  $hist_stddev = max($stage1_extract.historical_stddev)
+  $active_days = max($stage1_extract.historical_active_days)
+  $hist_max = max($stage1_extract.historical_max)
+
+  // 1. One-Sided Excess Deviation (ReLU Activation: zero out drops below baseline mean)
+  $diff = $observed - $hist_avg
+  $excess_surge = if($diff > 0, $diff, 0.0)
+
+  // 2. Upper-Tail Z-Score
+  $safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)
+  $upper_tail_z = $excess_surge / $safe_stddev
+
+order:
+  $upper_tail_z desc

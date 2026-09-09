@@ -1,0 +1,27 @@
+// Root Stage: Longitudinal CUSUM Drift Accumulation (Preserving Daily Timeline)
+$entity = $stage1_extract.entity
+$ws = $stage1_extract.window_start
+
+match:
+  $entity, $ws by 1d
+
+outcome:
+  $observed = max($stage1_extract.observed_val)
+  $hist_avg = max($stage1_extract.historical_avg)
+  $hist_stddev = max($stage1_extract.historical_stddev)
+  $active_days = max($stage1_extract.historical_active_days)
+  $hist_max = max($stage1_extract.historical_max)
+
+  // 1. Daily Drift Above Baseline Mean
+  $raw_drift = $observed - $hist_avg
+
+  // 2. Allowable Slack k = 0.5 * sigma
+  $safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)
+  $slack_allowance = 0.5 * $safe_stddev
+
+  // 3. Half-Rectified Page CUSUM Drift Increment: max(0, raw_drift - slack)
+  $slack_excess = $raw_drift - $slack_allowance
+  $cusum_drift_score = if($slack_excess > 0, $slack_excess, 0.0)
+
+order:
+  $cusum_drift_score desc
