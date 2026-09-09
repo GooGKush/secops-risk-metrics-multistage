@@ -55,9 +55,10 @@ outcome:
   $active_days = max($stage1_extract.historical_active_days)
   $events_count = max($stage1_extract.observed_events)
 
-  // 1. Parametric Standard Z-Score with Universal Dispersion Floor (+ 1.0)
+  // 1. Parametric Standard Z-Score with Conditional Zero-Dispersion Safeguard
   $deviation = $observed_val - $baseline_mean
-  $personal_z = $deviation / ($baseline_stddev + 1.0)
+  $safe_stddev = if($baseline_stddev > 0, $baseline_stddev, 1.0)
+  $personal_z = $deviation / $safe_stddev
 
 order:
   $personal_z desc

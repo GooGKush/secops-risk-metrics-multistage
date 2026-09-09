@@ -293,7 +293,9 @@ class StatisticalAntipatternAuditor:
       if is_z_or_score and is_dispersion_denom and not lhs_var.lower().startswith("$beta"):
         has_dispersion_floor = bool(
             re.search(r"\+\s*(?:1(?:\.0*)?|0\.[0-9]+)", denom) or
-            re.search(r"max\s*\([^,]+,\s*(?:1(?:\.0*)?|0\.[0-9]+)\)", denom)
+            re.search(r"max\s*\([^,]+,\s*(?:1(?:\.0*)?|0\.[0-9]+)\)", denom) or
+            "safe" in denom.lower() or
+            re.search(rf"\${re.escape(denom.lstrip('$'))}\s*=\s*if\s*\(", stage_body)
         )
         if not has_dispersion_floor:
           violations.append(

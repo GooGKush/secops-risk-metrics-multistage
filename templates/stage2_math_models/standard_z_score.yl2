@@ -12,9 +12,10 @@ outcome:
   $active_days = max($stage1_extract.historical_active_days)
   $hist_max = max($stage1_extract.historical_max)
 
-  // 1. Personal Historical Z-Score: (Observed - 30d Mean) / (30d StdDev + 1.0)
+  // 1. Personal Historical Z-Score: (Observed - 30d Mean) / Safe StdDev
   $personal_diff = $observed - $hist_avg
-  $personal_z = $personal_diff / ($hist_stddev + 1.0)
+  $safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)
+  $personal_z = $personal_diff / $safe_stddev
 
 order:
   $personal_z desc

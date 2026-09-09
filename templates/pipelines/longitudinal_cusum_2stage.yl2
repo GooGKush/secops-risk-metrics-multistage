@@ -60,8 +60,8 @@ outcome:
   // 2. Reference Allowance Slack (k = 0.5 sigma) to absorb routine baseline fluctuations
   $slack_excess = $daily_z - 0.5
 
-  // 3. Positive Drift Increments
-  $cusum_drift_score = $slack_excess
+  // 3. Positive Drift Increments (Half-Rectified Page's CUSUM Slack: max(0, slack))
+  $cusum_drift_score = if($slack_excess > 0, $slack_excess, 0.0)
 
 order:
   $cusum_drift_score desc

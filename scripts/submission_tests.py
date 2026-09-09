@@ -414,9 +414,13 @@ order:
     # Validate section ordering: condition: must precede order:.
     if re.search(r'\border:\s*.*?\bcondition:\s*', query, re.DOTALL):
       errors.append("Illegal section ordering: 'condition:' must precede 'order:' in YARA-L grammar")
-    # Validate that outcome blocks do not contain conditional 'if(...)'.
-    if re.search(r'\bif\s*\(', query):
-      errors.append("Illegal 'if(...)' expression in query (use condition: for hurdle gating)")
+    # Validate that outcome blocks do not contain illegal 'if(...)' with compound expressions or missing else.
+    for m in re.finditer(r"\bif\s*\(([^)]+)\)", query):
+      args = [a.strip() for a in m.group(1).split(",")]
+      if len(args) < 3:
+        errors.append(f"Illegal 'if(...)' expression in query: missing required 'else' clause: {m.group(0)}")
+      elif re.search(r"[\+\-\*\/]", args[1]):
+        errors.append(f"Illegal 'if(...)' expression in query: compound arithmetic in 'then' clause: {m.group(0)}")
 
     # 2. Zero un-namespaced math functions or math.exp
     if "math.exp" in query:

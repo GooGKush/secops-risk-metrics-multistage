@@ -66,7 +66,7 @@ Extensive live compilation testing against Google SecOps customer instances has 
 * **Stage Name Grammar**: Stage identifiers must NOT begin with `$`. Use `stage stage1_extract`, never `stage $stage1_extract`.
 * **Search Query Structure & Root Stage `condition:`**:
   - Multi-stage search queries execute continuous linear arithmetic in `outcome:`, evaluate discrete boolean hurdle filters, sensitivity bands, and noise threshold gates in `condition:`, and terminate with `order: <var> [desc|asc]` to rank qualifying outliers.
-  - **Outcome vs. Condition Role Separation**: Outcome blocks evaluate linear algebraic expressions without conditional branching (`if(...)` is prohibited in `outcome:`). Boolean filtering, hurdle activation, and threshold ranges reside strictly in `condition:`.
+  - **Outcome vs. Condition Role Separation**: Outcome blocks evaluate mathematical derivations, ratios, and conditional assignments (`if(condition, then_clause, else_clause)` is supported in `outcome:`, provided the `then` clause contains only placeholders, fields, or constants, and the `else` clause is provided). Boolean filtering, population hurdles, and threshold ranges for result inclusion reside in `condition:`.
   - **Noise Level Tuning & Band Filtering**:
     - High-Confidence Gating: `condition: $z_score >= 3.0` (or custom `$z_score >= 3.5` / `4.0`)
     - Borderline / Investigative Band: `condition: $z_score >= 2.0 and $z_score < 3.0`
@@ -78,7 +78,7 @@ Extensive live compilation testing against Google SecOps customer instances has 
 In addition to compiler syntax, all queries submitted to Chronicle must satisfy the 6 Statistical Invariants:
 1. **Scope Symmetry (Zero Part-of-the-Whole Bias)**: Stages filtering observed events to specific products or attributes must bind the identical dimensions in `metrics.*` or decouple into 2-stage context fusion.
 2. **Dynamic Range Isolation ("Elephant and Mouse" Prevention)**: Multi-resource data access must slice dynamically by `($user, $resource by 1d)` to evaluate local-baseline isolation and prevent high-volume routine traffic from masking acute targeted exfiltration.
-3. **Universal Dispersion Flooring**: All outcome divisions by standard deviation ($\sigma$) or MAD must incorporate an additive scalar floor (`+ 1.0`) to prevent division by zero or NaN on quiet accounts.
+3. **Universal Dispersion Safeguards**: All outcome divisions by standard deviation ($\sigma$) or MAD must incorporate safe division via conditional safeguards (`$safe_std = if($std > 0, $std, 0.001)`) or an additive scalar floor (`+ 1.0`) to prevent division by zero or NaN on quiet accounts.
 4. **Distribution Domain Integrity**: Discrete count metrics (e.g. `auth_attempts_fail`) evaluated with continuous Gaussian Z-scores require active baseline days gating ($N \ge 3$) or Poisson rarity modeling.
 5. **Orthogonal Sector Fusion**: Multi-sector Euclidean threat norms ($D = \sqrt{\sum Z_i^2}$) must fuse strictly independent behavioral vector families (Auth, Cloud CRUD, Workspace, Network, Endpoint), never collinear intra-family metrics.
 6. **Cloud Service Account Identity Profiling**: When querying service account scope (binding `$sa` or `$service_account`), queries must enforce cloud identity construction (`/@.*gserviceaccount\.com$/` or `arn:aws:iam`) rather than relying on null checks (`$sa != ""`), preventing Windows Active Directory computer accounts (`HOST$`) and local OS services (`LOCAL SERVICE`) from polluting cloud repository analytics.

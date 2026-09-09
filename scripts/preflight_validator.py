@@ -883,8 +883,12 @@ class MalachiteASTValidator:
     # 1B. Global Invalid Tokens & Math Functions
     if "^" in query_text:
       errors.append("INVALID_EXPONENT_OPERATOR: '^' is invalid in YARA-L. Use '$var * $var' for squared terms.")
-    if re.search(r"\bif\s*\(", query_text):
-      errors.append("INVALID_IF_CONDITIONAL: 'if(...)' is invalid in YARA-L outcome expressions.")
+    for m in re.finditer(r"\bif\s*\(([^)]+)\)", query_text):
+      args = [a.strip() for a in m.group(1).split(",")]
+      if len(args) < 3:
+        errors.append(f"INVALID_IF_CONDITIONAL: 'if(...)' is missing required else-clause: {m.group(0)}")
+      elif re.search(r"[\+\-\*\/]", args[1]):
+        errors.append(f"INVALID_IF_CONDITIONAL: 'if(...)' contains compound arithmetic in then-clause. Chronicle compiler only allows placeholders, fields, and constants in then clause: {m.group(0)}")
     if re.search(r"\bsqrt\s*\(", query_text):
       errors.append("INVALID_SQRT_FUNCTION: 'sqrt(...)' is invalid in YARA-L outcome expressions. Compute squared norm and order by '$norm_sq desc'.")
     if re.search(r"\b[a-zA-Z0-9_]+\.\$[a-zA-Z0-9_]+", query_text):

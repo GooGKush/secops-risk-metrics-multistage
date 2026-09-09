@@ -119,7 +119,7 @@ Certain pre-computed Risk Metrics require specific auxiliary UDM fields as dimen
 > **Root Stage Hurdle & Threshold Gating via `condition:`**:
 > In the Google SecOps / Chronicle Malachite Common Compiler, the root stage of a multi-stage query is parsed as a `yl2_block`, which natively supports `condition:` for post-aggregation filtering (`HAVING`) alongside `order:`.
 > - **Discrete Boolean Hurdles & Threshold Gating**: Place all statistical threshold cutoffs, hurdle models (e.g. dormant account awakening, sub-threshold multi-evidence fusion, Euclidean distance thresholds), and minimum baseline maturity checks (`$active_days >= 7`) under `condition:`.
-> - **Continuous Linear Outcome Calculations**: Outcome blocks must contain only continuous mathematical expressions (e.g. Z-scores, ratios, squared distances) without conditional branching (`if(...)`, which is prohibited in outcome grammar).
+> - **Mathematical Derivations & Safe Divisors**: Outcome blocks evaluate mathematical derivations, ratios, and safe conditional divisors (`if(condition, then_clause, else_clause)` is supported in `outcome:`, provided the `then` clause contains only placeholders, fields, or constants, and the `else` clause is provided).
 > - **Final Outlier Sorting**: Queries terminate with `order: <metric> [desc|asc]` to rank qualifying breached entities.
 
 ### 6.1 Noise Level Tuning & Sensitivity Bands via `condition:`

@@ -38,8 +38,11 @@ class ExhaustiveMatrixSyntaxTest(unittest.TestCase):
     self.router = MultiStageTemplateRouter()
 
   def _assert_query_grammar_invariants(self, query: str, context: str):
-    # 1. Zero 'if(...)' in outcome expressions (Malachite Common Compiler invariant)
-    self.assertNotIn("if(", query, f"[{context}] Query must not contain 'if(...)' expressions")
+    # 1. Compiler-compliant if(...) in outcome expressions (no compound then-clause, required else-clause)
+    for m in re.finditer(r"\bif\s*\(([^)]+)\)", query):
+      args = [a.strip() for a in m.group(1).split(",")]
+      self.assertGreaterEqual(len(args), 3, f"[{context}] if(...) missing required else-clause: {m.group(0)}")
+      self.assertFalse(re.search(r"[\+\-\*\/]", args[1]), f"[{context}] if(...) has compound arithmetic in then-clause: {m.group(0)}")
 
     # 2. Zero dummy placeholders ($day_bucket, $hour_bucket) before 'by'
     self.assertNotIn("$day_bucket", query, f"[{context}] Must not contain $day_bucket dummy variable")

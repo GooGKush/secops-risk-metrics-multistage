@@ -16,7 +16,7 @@ Executes multi-sector statistical outlier hunting using 30-day Risk Analytics me
 ## 🔀 Bi-Directional Skill Steering & Handoff Protocol
 * **30-Day Baselines** (`metrics.*`) / **Peer Cohorts** / **Multi-Sector Fusion**: Execute this skill (`secops-risk-metrics-multistage`).
 * **Dual-Layer Defense for Trickle Attacks**: Layer 1 is Mode B Longitudinal CUSUM Drift ($S_t^+ \ge 4.0\sigma$ on `metrics.dns_queries_total`); Layer 2 is handoff to `secops-statistical-hunter` ($CV \le 0.20$).
-* **Sub-Second Jitter Boundary**: Metrics tables (`metrics.*`) cannot compute sub-second deltas. For beaconing jitter or raw connection deltas, emit Skill Handoff Card to `secops-statistical-hunter` and yield turn (0 tools called).
+* **Sub-Second Jitter Boundary**: Metrics tables cannot compute sub-second deltas. For beaconing jitter, emit Skill Handoff Card to `secops-statistical-hunter` and yield turn (0 tools called).
 * **Non-Metrics Telemetry Steering Mandate** (Git repos, raw UDM): Emit **Skill Handoff Card** and steer to `secops-statistical-hunter`.
 * **Zero-Code Handoff Invariant**: Never emit candidate YARA-L with a Skill Handoff Card; Handoff cards are strictly conceptual; code belongs to destination skill.
 
@@ -58,9 +58,8 @@ When profiling multiple sectors (*"multi-sector fusion"*, *"visualize all risk v
 * **Cloud Telemetry Scope & Anti-Narrowing Invariant**: In service account cloud repository access (`resource_read_*`, `resource_written_*`), NEVER narrow to 1 product; use `templates/pipelines/cloud_repository_scope_dual_branch.yl2` with `($sa, $vendor, $product, $resource, $ip by 1d)`. Reads use `RESOURCE_READ` or `USER_RESOURCE_ACCESS` (never `USER_RESOURCE_READ`). See `references/metrics-catalog.md`.
 
 ### 🎯 CTI & Threat Report Mapping (Reports, URLs, CVEs, Threat Actors)
-When analyst provides a threat report:
-1. **Map to UEBA Metric Tables**: Map attack stages to tables (`metrics.*`).
-2. **Transition Directly to Phase 1B**: Emit **Pre-Flight Hunting Specification Card** and **Literal Query Preview** on Turn 1. **YIELD THE TURN (0 tools called)**.
+1. **Map to UEBA Metric Tables**: Map to tables (`metrics.*`).
+2. **Transition Directly to Phase 1B**: Emit Pre-Flight Card & Literal Query Preview. **YIELD THE TURN (0 tools called)**.
 
 ### 🔍 Phase 1B: Pre-Flight Spec & Query Preview (Once Scope & Vectors are Established)
 Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to both"*, or via CTI mapping):
@@ -81,13 +80,13 @@ Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to bo
    • Statistical Model:      [Model, e.g. Multi-Sector Fusion]
    • Significance Threshold: [Z >= 3.0σ (High Confidence) | 2.0σ <= Z < 3.0σ (Investigative Band) | D >= 3.5σ]
    ```
-   * *Mandatory Upfront Query Preview Protocol (Mandatory Query Preview)* & *Tool-Precondition Code Block Embargo*: Execute 1-shot pre-preview compiler probe with ISO 8601 timestamps: `secops-gus:udm_search(query="<single_event_udm_filter>", startTime="<ISO_10M_AGO>", endTime="<ISO_NOW>", maxEvents=1)`. (Relative 'now-10m' is invalid). Multi-stage YARA-L in `udm_search` is PROHIBITED (causes 400). Display query in markdown ONLY if probe compiles cleanly (200 OK). Emitting ```yara without an immediate preceding successful probe is STRICTLY PROHIBITED (applies universally to queries, pivots, and handoff cards). If probe fails, trigger Consultative Pivot.
+   * *Mandatory Upfront Query Preview Protocol (Mandatory Query Preview)* & *Tool-Precondition Code Block Embargo*: Execute 1-shot pre-preview compiler probe with ISO 8601 timestamps: `secops-gus:udm_search(query="<single_event_udm_filter>", startTime="<ISO_10M_AGO>", endTime="<ISO_NOW>", maxEvents=1)`. (Relative 'now-10m' is invalid). Multi-stage YARA-L in `udm_search` is PROHIBITED (causes 400). Display query in markdown ONLY if probe compiles cleanly (200 OK). Emitting ```yara without an immediate preceding successful probe is STRICTLY PROHIBITED (applies universally to queries, pivots, and handoff cards).
    * *HARD PRE-FLIGHT CLEARANCE GATE (NO QUERY = NO CLEARANCE)*: Clearance Request (Step 5) MUST NEVER BE ASKED unless a valid, compilable multi-stage YARA-L query has been successfully probed (200 OK) and displayed under the Pre-Flight Card on that turn. If query cannot be probed, HALT immediately.
    * *Peer Cohort Roster Requirement (Peer Cohort & Roster)*: List cohort entities. If active days $N < 7$, flag `⚠️ Sparse Baseline Caution (N < 7)` in card spine.
    * *Interactive Entity Graph Dimension Mandate*: Express joins under `• Entity Graph Dimension: [Exact Filter]` (Domain Rarity, Fleet Prevalence, Binary Rarity, IP Rarity `rolling_max <= 3`, `day_count = 10` platform invariant).
    * *Noise Level & Significance Threshold Steering (Active Root-Stage Condition Gating)*: Default: $Z \ge 3.0\sigma$ / $D \ge 3.5\sigma$. Guide analyst that sensitivity is tunable: High Confidence ($Z \ge 3.0\sigma$), Investigative Band ($2.0\sigma \le Z < 3.0\sigma$), Directional ($Z \le -3.0\sigma$), or Multi-Vector ($D^2 \ge 16.0$). Enforced in root-stage `condition:` (e.g. `condition: $z >= 2.0 and $z < 3.0`) before `order:`.
    * *Canonical Preview & Two-Phase Chained Hunt Specification*: Cross-entity hunts emit Two-Phase Chained Hunt Specification: Phase 1 (UEBA Outlier), Bridge Contract ($host, $timestamp, $user, $caller_ip), and Phase 2 (Targeted Cloud UDM Query).
-5. **Explicit Clearance Question & Turn Termination (GATED ON STEP 4 QUERY DISPLAY)**: Once verified query preview is displayed: If target date specified (e.g. "Aug 12"), auto-select Mode A and ask: *"Would you like me to proceed with executing this hunt for [Target Date] now?"*. Otherwise ask: *"Would you like me to proceed with **Mode A (24-Hour Snapshot fleet ranking)** or **Mode B (14-Day Longitudinal Timeline)**? (Adjust noise level/significance threshold—e.g. filter between 2σ and 3σ, or above 3σ—before execution if desired.)"*. STOP CALLING TOOLS IMMEDIATELY AND YIELD THE TURN. Clearance question MUST be the final sentence of Turn 1. Calling execution tools or emitting 6-pillar report on Turn 1 is STRICTLY PROHIBITED.
+5. **Explicit Clearance Question & Turn Termination (GATED ON STEP 4 QUERY DISPLAY)**: If target date specified, auto-select Mode A and ask: *"Proceed with executing for [Target Date] now?"*. Otherwise ask: *"Would you like me to proceed with **Mode A (24-Hour Snapshot fleet ranking)** or **Mode B (14-Day Longitudinal Timeline)**? (Adjust noise level/significance threshold before execution if desired.)"*. STOP CALLING TOOLS IMMEDIATELY AND YIELD THE TURN. Clearance question MUST be the final sentence of Turn 1. Calling execution tools or emitting 6-pillar report on Turn 1 is STRICTLY PROHIBITED.
 
 ---
 
@@ -101,6 +100,10 @@ Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to bo
 #### 4. Forensic Vector Breakdown: Threat translation, scenarios, SOC playbook.
 #### 5. Chronicle UI Manual Pivot (Triage Reference Only): Passive UDM filter for Chronicle UI (tool execution is STRICTLY PROHIBITED).
 #### 6. Collapsible Technical Appendix (Statistical & Mathematical Appendix): Formulation ($N=30d$), CRI, $D = \sqrt{\sum Z^2}$.
+3. **Zero-Telemetry Clean Hunt Exemption (True Negative Audit Summary)**: When post-clearance `udm_search` returns 0 events (`{}`/`[]`), emit a 2-Section Clean Hunt Audit:
+   - `#### 1. Statistical Outlier Report: [Target Metric] (Nominal Baseline)`: 0 observed events ($Z = 0.00\sigma, \text{CRI} = 0$, 🟢 **Nominal Fleet Baseline**).
+   - `#### 2. Executed Multi-Stage YARA-L Query`: Literal query and scope.
+   - **Pillars 3, 4, 5, and 6 are explicitly waived** (no speculative scenarios, pivots, or empty tables).
 
 ### 🔁 State 3: Iteration, Entity Shifts & Federated Bridge (Active Hunt Session Lock & Boundary (ZERO CROSS-SKILL DRIFT))
 * **Entity Shift Handling**: When analyst asks to *"run same for user X"*, *"what about admin?"*, retain Active Hunt Session Lock and Re-enter State 1 for new entity.
@@ -119,7 +122,7 @@ Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to bo
 * **Native Execution Guarantee (ZERO PYTHON SIMULATION SCRIPTING)**: Zero Local Script Invocations During Hunting (ZERO RUN_COMMAND VALIDATION). Local arithmetic simulation is a CRITICAL COMPLIANCE VIOLATION. Author natively via SecOps GUS MCP, `write_to_file`, Markdown.
 * **Hermetic Skill Boundary (ZERO CROSS-SKILL DRIFT)**: Once active, the agent MUST NOT read, import, or search other skills. This skill is 100% self-contained.
 * **Multi-Turn Continuity & Follow-Up Mandate**: On follow-up turns shifting entity or time ("same query for"), MAINTAIN Active Hunt Session Lock & Boundary (ZERO CROSS-SKILL DRIFT). NEVER fall through to `secops-siem-search` or execute Pillar 5; NEVER degrade to raw log dumps. Re-enter State 1 for new entity.
-* **Atomic Pipeline Execution Mandate (ZERO PIECEMEAL FRACTURING & DRIFT)**: Formulate single atomic YARA-L query for Pillar 2 and dispatch targeted UDM search to `udm_search(query="<event_filter>")`. Cross-entity hunts use Two-Phase Chained Hunt Specification (Phase 1 UEBA ──► Bridge Contract ──► Phase 2 UDM). Fracturing into piecemeal searches is STRICTLY PROHIBITED. 360° Radar queries 5 canonical sectors in parallel.
+* **Atomic Pipeline Execution Mandate (ZERO PIECEMEAL FRACTURING & DRIFT)**: Formulate single atomic YARA-L query for Pillar 2 and dispatch targeted UDM search to `udm_search(query="<event_filter>")`. Fracturing into piecemeal searches is STRICTLY PROHIBITED. 360° Radar queries 5 canonical sectors in parallel.
 * **Literal Query Display Mandate (ZERO FAKED YARA-L QUERIES)**: Pillar 2 must contain the literal, verbatim multi-stage YARA-L query block displayed in pre-flight preview without freehand modifications. Re-use the exact approved candidate query without freehand edits.
 * **Post-Flight Audit & RAW_LOG_DUMP_DETECTED Rule**: If `udm_search` returns `"events"` without `"stats"`, abort 6-Pillar formatting. Present auto-corrected query (via `MultiStageTemplateRouter`) or ask: *"Execute this auto-corrected query now, or exit?"*
 
@@ -128,7 +131,7 @@ Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to bo
 * **Zero-Hallucination Compiler Grammar Contract**:
   - *Entity Role & Match Binding Invariant*: Match blocks accept ONLY simple bound variable identifiers ($host by 1d, $user by 1d), NEVER member access or dot-notation ($e.principal.asset.hostname in match: is invalid). Variables in match: MUST bind first in event predicates ($host = principal.asset.hostname; $user = target.user.userid; $entity = principal.user.userid).
   - *Compiler Structural Boundary*: Arithmetic (`$a - $b`, `$a / $b`) STRICTLY PROHIBITED above `match:`. Derivations reside in `outcome:` below `match:`.
-  - *Syntax Invariants*: No `in ("A", "B")` (use `%list`/`or`); no member dot-notation in `match:`; no `events:`; no `sqrt(...)` (use `$dist_sq`); no `by 24h` (use `by 1d`); no `if(...)` or `count(if(...))` in outcome; dispersion floor `+ 1.0` in outcome divisors (`($obs - $avg) / ($std + 1.0)`); enums in `references/clean-handoff-udm-schema.md`.
+  - *Syntax Invariants*: No `in ("A", "B")` (use `%list`/`or`); no member dot-notation in `match:`; no `events:`; no `sqrt(...)` (use `$dist_sq`); no `by 24h` (use `by 1d`); `if(cond, then, else)` in `outcome:` requires 3 args and placeholder/constant in then-clause; safe divisors via `$safe_std = if($std > 0, $std, 0.001)` or `+ 1.0`; enums in `references/clean-handoff-udm-schema.md`.
   - *Mandatory Companion Dimensions & Entity Affinity*: Cloud CRUD (`metrics.resource_*`) requires `metadata.vendor_name` and `metadata.product_name`. File metrics (`metrics.file_executions_*`) are Host/Binary scoped (`$host, $sha256`) requiring `metadata.event_type`. NEVER bind `principal.user.userid` to file metrics or force cross-entity joins.
 * **Consultative Pivot & Handoff Protocol (ZERO FORCED JOINS)**: When vectors cross entity boundaries or lack user baselines, NEVER synthesize fake schemas. State boundary and offer 3 paths: 1) Cloud-First 2-Phase Pivot, 2) Asset-First Pivot (`file_executions_total`), or 3) Handoff to `secops-statistical-hunter`.
   - *Max 4 Joins Invariant (ZERO MONOLITHIC JOINS — maxJoinCount=4 & Inner-Join Drop)*: Limits queries to <= 4 joins (`maxJoinCount = 4`). Never fuse >= 3 orthogonal sectors into a single query (`STAT_ANTIPATTERN_MONOLITHIC_RADAR_JOIN`; auto-bypass Mode B).
@@ -136,15 +139,15 @@ Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to bo
 * **Inner-Join Drop Prevention Standard (PRESERVING FULL POPULATION)**: Multi-stage joins are inner joins. Baseline full fleet in Stage 1 and profile destinations via `array_distinct(target.hostname)`.
 * **Noise Level Tuning & Sensitivity Gating via Root-Stage `condition:`**:
   - Malachite Common Compiler natively supports `condition:` in root stage (`yl2_block`) for post-aggregation filtering (`HAVING`) before `order:`.
-  - Compound expressions (`and`, `or`, parentheses, `<`, `<=`, `>`, `>=`) valid: High-Confidence (`condition: $z_score >= 3.0`), Investigative Band (`condition: $z_score >= 2.0 and $z_score < 3.0`), Directional Drop (`condition: $z_score <= -3.0`), Multi-Evidence (`condition: $threat_distance_sq >= 16.0 or ($joint_odds >= 2.5 and $raw_hits >= 3)`), Baseline Maturity (`condition: $z_score >= 3.0 and $active_days >= 7`).
-  - Invariant: `condition:` must be placed strictly AFTER `outcome:` and BEFORE `order:`. Outcome evaluates continuous arithmetic; discrete boolean hurdles and noise gates belong under `condition:`.
+  - Compound expressions (`and`, `or`, parentheses, `<`, `<=`, `>`, `>=`) valid: High-Confidence (`condition: $z_score >= 3.0`), Investigative Band (`condition: $z_score >= 2.0 and $z_score < 3.0`), Multi-Evidence (`condition: $threat_distance_sq >= 16.0`).
+  - Invariant: `condition:` placed strictly AFTER `outcome:` and BEFORE `order:`. Discrete boolean hurdles belong under `condition:`.
 
 ### 3. Scope, Steering, Typography & Parsimony
 * **Pure Threat Hunting Scope (SEARCH-ONLY — ZERO RULE CREATION / DEPLOYMENT)**: Zero Streaming Detection Rule Syntax (`create_rule` and `validate_rule` are STRICTLY PROHIBITED). Output ad-hoc Multi-Stage YARA-L (`stage ...` + Root) for threat hunting. Outputting streaming rules is a **CRITICAL NOMENCLATURE & ARCHITECTURAL VIOLATION**.
 * **Strict Nomenclature Mandate**: Ad-hoc hunt logic is a Query, never a Rule (CRITICAL NOMENCLATURE VIOLATION).
 * **Zero Gratuitous Entity Graph Injection (ON-DEMAND / ALGORITHMIC GROUNDING ONLY)**: Entity Graph constructs must NEVER be injected gratuitously or speculatively. Include ONLY on Direct Customer Request (On-Demand) or Algorithmic Grounding.
 * **Interactive Entity Graph Rarity & Context Discovery & 10-Day Prevalence Platform Invariant**: When requested, bind Entity Graph dimensions (Domain Rarity, Fleet Prevalence, Binary Rarity, IP Rarity; `day_count = 10`) into Stage 2.
-* **Typography Invariants**: No bold math (`**$+4.16\sigma$**` invalid; write clean `$+4.16\sigma$`); Unicode `(μ)`, `(σ)` in tables. `$$\text{CRI} = \min(100, \max(0, \frac{Z}{3.0} \times 50))$$` and `$$D = \sqrt{\sum_{i=1}^5 Z_i^2}$$.` Flush-left `$$` on own lines.
+* **Typography Invariants**: No bold math (write clean `$+4.16\sigma$`); Unicode `(μ)`, `(σ)` in tables. `$$\text{CRI} = \min(100, \max(0, \frac{Z}{3.0} \times 50))$$` and `$$D = \sqrt{\sum_{i=1}^5 Z_i^2}$$.` Flush-left `$$` on own lines.
 
 ---
 

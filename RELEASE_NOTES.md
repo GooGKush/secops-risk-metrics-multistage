@@ -1,10 +1,41 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.6.0)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.7.2)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v1.6.0 — September 2026  
+**Latest Version**: v1.7.2 — September 2026  
+
+---
+
+## 📢 What's New in v1.7.2 (Minor Point Release) — First-Class `if()` Conditional Logic in Outcome & Half-Rectified CUSUM Drift
+
+* **First-Class `if()` Conditional Logic in YARA-L 2.0 `outcome:` Blocks**:
+  - Empirically verified through live Chronicle compiler AST probing (`gus-sdl`) that `if(condition, then_clause, else_clause)` is fully supported in `outcome:` blocks across both detection rules and multi-stage hunting queries.
+  - Replaced the legacy blanket ban on `if()` in `outcome:` across all validators (`scripts/preflight_validator.py`, `scripts/submission_tests.py`), regression test judges (`judges/ast_judge.py`), and documentation (`SKILL.md`, `compiler-submission-policy.md`, `multi-stage-metrics-guide.md`).
+  - Formalized and strictly enforce the Chronicle Common Compiler grammar invariants for `if()`:
+    1. **Simple Then-Clause Requirement**: The `then` clause cannot contain compound arithmetic operators (`+`, `-`, `*`, `/`). Expressions must be computed in intermediate placeholders or constants: `$safe_std = if($std > 0, $std, 1.0)` is valid; `if($std > 0, $diff / $std, 0.0)` will fail compilation.
+    2. **Mandatory Type-Matched Else-Clause**: The `else` clause cannot be omitted and must match the data type of the `then` clause (e.g. `1.0` and `0.0` for floats, `0` for integers).
+
+* **Zero-Dispersion Safeguard Refactoring (Retiring the `+ 1.0` Blunting Hack)**:
+  - Refactored canonical mathematical templates (`templates/pipelines/standard_z_score_2stage.yl2`, `templates/stage2_math_models/standard_z_score.yl2`) to leverage conditional safe denominators:
+    ```yara
+    $safe_stddev = if($baseline_stddev > 0, $baseline_stddev, 1.0)
+    $personal_z = $deviation / $safe_stddev
+    ```
+  - Eliminates the artificial `+ 1.0` blunting hack ($Z = \Delta / (\sigma + 1.0)$) that previously dampened legitimate variance and suppressed statistical significance on high-frequency, active entities.
+
+* **Restoration of Page's Half-Rectified Cumulative Sum (CUSUM) Drift**:
+  - In `templates/pipelines/longitudinal_cusum_2stage.yl2`, restored canonical Page's CUSUM half-rectification:
+    ```yara
+    $slack_excess = $raw_drift - $slack_allowance
+    $cusum_drift_score = if($slack_excess > 0, $slack_excess, 0.0)
+    ```
+  - Prevents negative score accumulation on quiescent or below-slack periods while accurately accumulating subtle, low-and-slow persistent drift above allowable slack.
+
+* **100% Clean Dual-Engine Regression Suite Passing**:
+  - Full regression test suite (`secops-regress`) executed across all 22 tests in dual-engine mode (`agentapi` + `direct-mcp`) with 8 parallel worker slots: **22 of 22 tests passed (100% invariant parity, 0 failing)**.
+  - 182 of 182 unit tests passed.
 
 ---
 
