@@ -114,6 +114,128 @@ class TestYaraLTemplates(unittest.TestCase):
     self.assertTrue(any("PIPELINE ARCHITECTURE MISMATCH" in e for e in errors), f"Expected Architecture Mismatch, got {errors}")
     self.assertTrue(any("STAGE PARITY ERROR" in e for e in errors), f"Expected Stage Parity Error, got {errors}")
 
+  def test_stage1_catalog_completeness_and_exact_38_match(self):
+    """Ensures that all 38 active metrics in METRIC_CATALOG have a corresponding Stage 1 template."""
+    import os, sys
+    repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if repo_dir not in sys.path:
+      sys.path.insert(0, repo_dir)
+    from scripts.preflight_validator import METRIC_CATALOG
+
+    templates_dir = os.path.join(repo_dir, "templates", "stage1_extractors")
+    self.assertEqual(len(METRIC_CATALOG), 38, "METRIC_CATALOG must contain exactly 38 metrics")
+
+    disk_templates = set(os.listdir(templates_dir))
+    for metric_name in METRIC_CATALOG:
+      expected_file = f"{metric_name}.yl2"
+      self.assertIn(
+          expected_file,
+          disk_templates,
+          f"Missing Stage 1 extractor template for metric '{metric_name}' in {templates_dir}",
+      )
+    self.assertEqual(
+        len([f for f in disk_templates if f.endswith(".yl2")]),
+        38,
+        "templates/stage1_extractors must contain exactly 38 .yl2 files",
+    )
+
+  def test_stage1_standardized_six_point_outcome_contract(self):
+    """Guarantees every Stage 1 extractor emits the complete 6-variable outcome tuple for Stage 2 math."""
+    import os, sys
+    repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if repo_dir not in sys.path:
+      sys.path.insert(0, repo_dir)
+    from scripts.preflight_validator import METRIC_CATALOG
+
+    required_outcomes = [
+        "$observed_val",
+        "$historical_avg",
+        "$historical_stddev",
+        "$historical_active_days",
+        "$historical_max",
+        "$historical_sum",
+    ]
+
+    templates_dir = os.path.join(repo_dir, "templates", "stage1_extractors")
+    for metric_name in METRIC_CATALOG:
+      fpath = os.path.join(templates_dir, f"{metric_name}.yl2")
+      with open(fpath, "r", encoding="utf-8") as f:
+        content = f.read()
+
+      # Extract outcome block up to stage closing brace
+      outcome_match = re.search(r"outcome:\s*\n(.*?)\n\}", content, re.DOTALL)
+      self.assertIsNotNone(outcome_match, f"[{metric_name}] Missing outcome block in {fpath}")
+      outcome_text = outcome_match.group(1)
+
+      assigned_vars = set(re.findall(r"^\s*(\$[a-zA-Z0-9_]+)\s*=", outcome_text, re.MULTILINE))
+      for req_var in required_outcomes:
+        self.assertIn(
+            req_var,
+            assigned_vars,
+            f"[{metric_name}] Missing mandatory outcome variable '{req_var}' in {fpath}. Found: {assigned_vars}",
+        )
+
+  def test_stage1_aggregation_and_metric_type_invariants(self):
+    """Validates compiler-required aggregation types and metric type arguments."""
+    import os, sys
+    repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if repo_dir not in sys.path:
+      sys.path.insert(0, repo_dir)
+    from scripts.preflight_validator import METRIC_CATALOG
+
+    templates_dir = os.path.join(repo_dir, "templates", "stage1_extractors")
+    byte_metrics = {
+        "network_bytes_inbound",
+        "network_bytes_outbound",
+        "network_bytes_total",
+        "dns_bytes_outbound",
+        "workspace_network_bytes_outbound",
+        "workspace_network_bytes_total",
+    }
+
+    for metric_name in METRIC_CATALOG:
+      fpath = os.path.join(templates_dir, f"{metric_name}.yl2")
+      with open(fpath, "r", encoding="utf-8") as f:
+        content = f.read()
+
+      # 1. Prohibit unsupported agg: num_days (must be agg: num_metric_periods)
+      self.assertNotIn("agg: num_days", content, f"[{metric_name}] Uses invalid agg: num_days in {fpath}")
+      self.assertIn("agg: num_metric_periods", content, f"[{metric_name}] Missing required agg: num_metric_periods in {fpath}")
+
+      # 2. Metric type invariants
+      if metric_name in byte_metrics:
+        self.assertIn("metric: value_sum", content, f"[{metric_name}] Byte volume metric must use 'metric: value_sum'")
+      else:
+        self.assertIn("metric: event_count_sum", content, f"[{metric_name}] Count metric must use 'metric: event_count_sum'")
+
+  def test_stage1_cloud_crud_local_baseline_isolation(self):
+    """Enforces Local-Baseline Isolation on all 12 cloud resource CRUD metric extractors."""
+    import os, sys
+    repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if repo_dir not in sys.path:
+      sys.path.insert(0, repo_dir)
+    from scripts.preflight_validator import METRIC_CATALOG
+
+    templates_dir = os.path.join(repo_dir, "templates", "stage1_extractors")
+    cloud_metrics = [m for m in METRIC_CATALOG if m.startswith("resource_")]
+    self.assertEqual(len(cloud_metrics), 12, "Must identify exactly 12 cloud resource CRUD metrics")
+
+    for metric_name in cloud_metrics:
+      fpath = os.path.join(templates_dir, f"{metric_name}.yl2")
+      with open(fpath, "r", encoding="utf-8") as f:
+        content = f.read()
+
+      # Local-Baseline Isolation requires 5-tuple match: $sa, $vendor, $product, $resource, $ip by 1d
+      self.assertIn(
+          "match:\n    $sa, $vendor, $product, $resource, $ip by 1d",
+          content,
+          f"[{metric_name}] Cloud CRUD extractor must enforce 5-tuple Local-Baseline Isolation match clause",
+      )
+      self.assertIn("principal.user.userid: $sa", content)
+      self.assertIn("metadata.vendor_name: $vendor", content)
+      self.assertIn("metadata.product_name: $product", content)
+      self.assertIn("target.resource.name: $resource", content)
+
 
 if __name__ == '__main__':
   unittest.main()
