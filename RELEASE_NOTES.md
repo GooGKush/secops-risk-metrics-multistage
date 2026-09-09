@@ -1,10 +1,72 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.6.1)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.7.0)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v1.6.1 — September 2026  
+**Latest Version**: v1.7.0 (Minor Release) — September 2026  
+
+---
+
+## 📢 What's New in v1.7.0 (Minor Release) — 38-Metric Risk Extractor Matrix, 14 Stage 2 Math Models & Consultative Support System
+
+### 1. Complete 38-Metric Risk Analytics Extractor Matrix & 14 Stage 2 Math Models
+* **Comprehensive 38-Metric Stage 1 Coverage**:
+  - Authored, validated, and compiled all 38 risk metric combinations supported by the Google SecOps Risk Analytics engine into modular, reusable extractor templates (`templates/stage1_extractors/`).
+  - Covers every telemetry domain: Authentication (`auth_attempts_*`), Cloud Resource Operations (`resource_read_*`, `resource_written_*`, `resource_deleted_*`, `resource_created_*`, `resource_permissions_modified_*`), File Executions (`file_executions_*`), Network Egress (`network_bytes_outbound`, `network_connections_outbound`), DNS Activity (`dns_queries_*`), and User Telemetry.
+  - Strictly adheres to Chronicle Malachite proto contracts and companion dimension requirements (e.g. `$vendor`, `$product`, `$resource`, `$ip`).
+* **14 Distinct Stage 2 Mathematical Models**:
+  - Full implementation of all 14 Stage 2 mathematical models (`templates/stage2_math_models/`), covering Gaussian, Non-Parametric, Poisson/Rarity, Bayesian, and Multi-Stage Longitudinal models:
+    1. Standard Z-Score (`standard_z_score.yl2`)
+    2. Median Absolute Deviation Robust Z (`mad_robust_z.yl2`)
+    3. Poisson Rarity / Negative Log-Likelihood (`poisson_rarity.yl2`)
+    4. Hourly Z-Score Circadian Deviation (`hourly_z_score.yl2`)
+    5. Coefficient of Variation Dispersion (`cv_dispersion.yl2`)
+    6. Fano Factor Variance-to-Mean Ratio (`fano_factor.yl2`)
+    7. Asymmetric / Directional Exfiltration Z-Score (`asymmetric_z_score.yl2`)
+    8. Longitudinal CUSUM Persistent Drift (`longitudinal_cusum.yl2`)
+    9. Two-Part Hurdle / Dormancy Break Awakening (`hurdle_model.yl2`)
+    10. Piecewise Calibrated Risk Index (CRI) (`piecewise_cri.yl2`)
+    11. Empirical Bayes Shrinkage Gamma Prior (`empirical_bayes_gamma.yl2`)
+    12. Beta-Binomial Empirical Bayes Prevalence (`beta_binomial_prevalence.yl2`)
+    13. Cross-Sectional Fleet Prevalence Shield (`fleet_prevalence_shield.yl2`)
+    14. Adaptive Dynamic Threshold Gating (`adaptive_threshold.yl2`)
+* **1,064 Permutation Test Suite & Malachite Compiler Verification**:
+  - Generated and validated all 1,064 permissible combinations ($38 \text{ Stage 1 metrics} \times 14 \text{ Stage 2 models} \times 2 \text{ evaluation modes}$), compiling 100% cleanly against the Chronicle Malachite compiler.
+  - 192/192 unit tests and 27/27 pipeline compiler submission tests passing with 0 errors.
+
+---
+
+### 2. Progressively Disclosed Consultative Support System
+* **Accessible Analytics for Operational Practitioners**:
+  - Makes advanced behavioral mathematics immediately accessible to SOC analysts and threat hunters without requiring statistical background or formula expertise.
+  - Progressively loads guidance to preserve LLM context window efficiency while maximizing analytical fidelity.
+* **Tiered Attack Vector Hierarchy**:
+  - **Tier 1 (Known Knowns)**: Volumetric spikes and acute bursts (Standard Z, Piecewise CRI).
+  - **Tier 2 (Known Unknowns / Static Rule Blind Spots)**: Low-and-slow trickles, dormancy breaks, off-hours circadian shifts, beaconing jitter, and persistent baseline drift (CUSUM, Hurdle, Hourly Z, Poisson Rarity).
+  - **Tier 3 (Unknown Unknowns / Cross-Silo Anomalies)**: Multi-vector orthogonal dispersion across disparate telemetry silos ($D \ge 3.5\sigma$ 360° Risk Radar).
+* **Modular Reference Worksheets**:
+  - Master worksheet: `references/consultative-worksheet.md`.
+  - 5 domain deep-dive worksheets under `references/consultative/`:
+    - `data-exfiltration.md`
+    - `identity-and-access.md`
+    - `cloud-infrastructure.md`
+    - `endpoint-and-covert.md`
+    - `insider-risk-360.md`
+* **Operational "Summary View" & Expert Bypass**:
+  - Presents clear threat hypotheses, recommended models, and alternative vectors.
+  - Includes the **Expert Bypass Rule**: when an experienced practitioner already specifies both entity/vector and mathematical model, the consultative phase is automatically bypassed directly to the Phase 1B pre-flight clearance card.
+
+---
+
+### 3. 100% Clean Dual-Engine Full Regression Passing (22/22 Scenarios, 8 Concurrent Workers)
+* **Comprehensive Multi-Engine Regression Parity**:
+  - Executed full test suite (`secops-regress`) across all 22 test scenarios in dual-engine mode (`agentapi` + `direct-mcp`) using 8 parallel worker slots (`run_20260909_130259`).
+  - **22 of 22 scenarios PASSED (100.0% pass rate, 0 critical findings, 0 regressions)**.
+* **Resolved Regressions**:
+  - `REG-P1-11-HYBRID-DUAL-PLANE`: Enforced 1-shot compiler probe on Turn 1 for primary baseline event filter, eliminating autocorrection cycle limit overages in dual-plane telemetry.
+  - `REG-P1-16-CLARIFICATION-RESUMPTION-360`: Perfected unknown entity clarification halting and clean resumption into 360° Risk Radar execution across both engines.
+  - Verified stability across `REG-P0-03` (Radar join limit), `REG-P1-12` (Radar Mode B), and `REG-P2-11` (Single surface visualizer).
 
 ---
 

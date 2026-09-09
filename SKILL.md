@@ -52,10 +52,10 @@ Phase 1B is **ONLY UNLOCKED** when **BOTH** are explicitly defined:
 > - **Tier 1 (Known Knowns)**: Spikes/bursts (Basic Z / Piecewise CRI).
 > - **Tier 2 (Known Unknowns / Static Rule Blind Spots)**: Trickles, dormancy breaks, drift (CUSUM, Hurdle, Hourly Z, Poisson Rarity).
 > - **Tier 3 (Unknown Unknowns / Cross-Silo Anomalies)**: Orthogonal dispersion ($D \ge 3.5\sigma$ 360° Radar).
-> Present a **Summary View** with **Threat Hypothesis**, **Recommended Method & Rationale**, and **Alternative Vectors**. On deeper inquiry, load domain sheets in `references/consultative/` (`data-exfiltration.md`, `identity-and-access.md`, `cloud-infrastructure.md`, `endpoint-and-covert.md`, `insider-risk-360.md`).
+> Present a **Summary View** with **Threat Hypothesis**, **Recommended Method & Rationale**, and **Alternative Vectors**. On deeper inquiry, load domain sheets under `references/consultative/` (`data-exfiltration.md`, `identity-and-access.md`, etc.).
 
 > **Anti-Auth-Defaulting Guardrail & Conversational Break (CONVERSATIONAL BREAK)**:
-> If analyst specifies entities but omits telemetry vector, **THE AGENT MUST NOT DEFAULT TO `metrics.auth_attempts_*` OR `USER_LOGIN`**. Yield turn and provide consultative vector options or ask: *"Across which behavioral vector(s) would you like to evaluate [Target Entities]?"*
+> If analyst specifies entities but omits telemetry vector, **THE AGENT MUST NOT DEFAULT TO `metrics.auth_attempts_*` OR `USER_LOGIN`**. Yield turn and ask: *"Across which behavioral vector(s) would you like to evaluate [Target Entities]?"*
 
 ### 🕸️ 360° Entity Behavioral Risk Radar & Multi-Sector Threat Fusion
 When profiling multiple sectors (*"multi-sector fusion"*, *"visualize all risk vectors"*, *"360 health check"*), see `references/360-behavioral-radar-guide.md`.
@@ -71,7 +71,7 @@ When profiling multiple sectors (*"multi-sector fusion"*, *"visualize all risk v
 
 ### 🔍 Phase 1B: Pre-Flight Spec & Query Preview (Once Scope & Vectors are Established)
 Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to both"*, or via CTI mapping):
-1. **Turn 1 Tool Invariant**: Zero external inspection; `references/` & `templates/` permitted for syntax lookup. Permitted: name spot-check and 1-shot pre-preview compiler probe (`udm_search`).
+1. **Turn 1 Tool Invariant**: Zero external inspection; `references/` & `templates/` permitted. Permitted: name spot-check and exactly one 1-shot compiler probe (`udm_search`) on primary baseline filter (max 1 retry if error; in hybrid/dual-plane hunts, probe only primary baseline stream; never probe secondary streams on Turn 1).
 2. **Identity Disambiguation & Confirmation Protocol (ZERO GUESSING & IMMEDIATE HALT)**:
    - *Technical IDs vs Display Names*: Display names (with spaces) are NOT `user.userid`. First names (`frank`) must be spot-checked in UDM.
    - *14-Day UDM Spot-Check*: `udm_search(query='target.user.userid = "<name>" nocase or principal.user.userid = "<name>" nocase', startTime: "<ISO_14D_AGO>", endTime: "<ISO_NOW>", maxEvents: 5)`.
@@ -89,7 +89,7 @@ Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to bo
    • Statistical Model:      [Model & Operational Function, e.g. CUSUM Drift (Slow Accumulation)]
    • Significance Threshold: [Z >= 3.0σ (High Confidence) | 2.0σ <= Z < 3.0σ (Investigative Band) | D >= 3.5σ]
    ```
-   * *Mandatory Upfront Query Preview Protocol (Mandatory Query Preview)* & *Tool-Precondition Code Block Embargo*: Execute 1-shot pre-preview compiler probe with ISO 8601 timestamps: `secops-gus:udm_search(query="<single_event_udm_filter>", startTime="<ISO_10M_AGO>", endTime="<ISO_NOW>", maxEvents=1)`. (Relative 'now-10m' is invalid). Multi-stage YARA-L in `udm_search` is PROHIBITED (causes 400). Display query in markdown ONLY if probe compiles cleanly (200 OK). Emitting ```yara without an immediate preceding successful probe is STRICTLY PROHIBITED (applies universally to queries, pivots, and handoff cards).
+   * *Mandatory Upfront Query Preview Protocol (Mandatory Query Preview)* & *Tool-Precondition Code Block Embargo*: Execute 1-shot pre-preview compiler probe with ISO 8601 timestamps: `secops-gus:udm_search(query="<single_event_udm_filter>", startTime="<ISO_10M_AGO>", endTime="<ISO_NOW>", maxEvents=1)`. (Relative 'now-10m' is invalid). Multi-stage YARA-L in `udm_search` is PROHIBITED (causes 400). In hybrid queries, probe primary baseline stream only. Display query in markdown ONLY if probe compiles cleanly (200 OK). Emitting ```yara without an immediate preceding successful probe is STRICTLY PROHIBITED (applies universally to queries, pivots, and handoff cards).
    * *HARD PRE-FLIGHT CLEARANCE GATE (NO QUERY = NO CLEARANCE)*: Clearance Request (Step 5) MUST NEVER BE ASKED unless a valid, compilable multi-stage YARA-L query has been successfully probed (200 OK) and displayed under the Pre-Flight Card on that turn. If query cannot be probed, HALT immediately.
    * *Peer Cohort & Roster*: List cohort entities; if $N < 7$, flag `⚠️ Sparse Baseline Caution (N < 7)`. Peer Cohort Roster Requirement applies.
    * *Interactive Entity Graph Dimension Mandate*: Express joins under `• Entity Graph Dimension: [Exact Filter]` (Domain Rarity, Fleet Prevalence, Binary Rarity, IP Rarity `rolling_max <= 3`, `day_count = 10` platform invariant).
@@ -132,7 +132,7 @@ Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to bo
 * **Hermetic Skill Boundary (ZERO CROSS-SKILL DRIFT)**: Once active, the agent MUST NOT read, import, or search other skills. This skill is 100% self-contained.
 * **Multi-Turn Continuity & Follow-Up Mandate**: On follow-up turns shifting entity or time ("same query for"), MAINTAIN Active Hunt Session Lock & Boundary (ZERO CROSS-SKILL DRIFT). NEVER fall through to `secops-siem-search` or execute Pillar 5; NEVER degrade to raw log dumps. Re-enter State 1 for new entity.
 * **Atomic Pipeline Execution Mandate (ZERO PIECEMEAL FRACTURING & DRIFT)**: Formulate single atomic YARA-L query for Pillar 2 and dispatch targeted UDM search to `udm_search(query="<event_filter>")`. Fracturing into piecemeal searches is STRICTLY PROHIBITED. 360° Radar queries 5 canonical sectors in parallel.
-* **Literal Query Display Mandate (ZERO FAKED YARA-L QUERIES)**: Pillar 2 must contain the literal, verbatim multi-stage YARA-L query block displayed in pre-flight preview without freehand modifications. Re-use the exact approved candidate query without freehand edits.
+* **Literal Query Display Mandate (ZERO FAKED YARA-L QUERIES)**: Pillar 2 must contain the literal, verbatim multi-stage YARA-L query block displayed in pre-flight preview without freehand modifications.
 * **Post-Flight Audit & RAW_LOG_DUMP_DETECTED Rule**: If `udm_search` returns `"events"` without `"stats"`, abort 6-Pillar formatting. Present auto-corrected query (via `MultiStageTemplateRouter`) or ask to execute.
 
 ### 2. Compiler & Architectural Invariants
@@ -165,5 +165,5 @@ Unsolicited case creation is a **CRITICAL PROCESS POLLUTION VIOLATION**. Trigger
 ---
 
 ## 📂 Modular References & Template Architecture
-* **`references/`**: `references/consultative-worksheet.md`, `references/360-behavioral-radar-guide.md`, `clean-handoff-udm-schema.md`, `soar-playbook-radar-integration.md`, `metrics-catalog.md`, `multi-stage-metrics-guide.md`, `compiler-submission-policy.md`
+* **`references/`**: `references/consultative-worksheet.md`, `references/360-behavioral-radar-guide.md`, `references/clean-handoff-udm-schema.md`, `soar-playbook-radar-integration.md`, `metrics-catalog.md`, `multi-stage-metrics-guide.md`, `compiler-submission-policy.md`
 * **Pipelines & Scripts**: `templates/pipelines/`, `templates/stage1_extractors/`, `scripts/` (`template_router.py`, `radar_collector.py`)
