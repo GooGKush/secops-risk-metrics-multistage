@@ -1,7 +1,8 @@
-// Stage 1: File Executions & 30d Baseline
+// Stage 1: Failed/Blocked Process Executions & 30d Baseline
 stage stage1_extract {
     metadata.event_type = "PROCESS_LAUNCH"
     $event_type = metadata.event_type
+    security_result.action != "ALLOW"
     principal.asset.hostname = $host
     principal.process.file.sha256 = $sha256
     $host != ""
@@ -16,31 +17,31 @@ stage stage1_extract {
     $sample_path = array_distinct(principal.process.file.full_path)
     $distinct_users = count_distinct(principal.user.userid)
 
-    $historical_avg = max(metrics.file_executions_total(
+    $historical_avg = max(metrics.file_executions_fail(
         period: 1d, window: 30d, metric: event_count_sum, agg: avg,
         metadata.event_type: $event_type,
         principal.asset.hostname: $host,
         principal.process.file.sha256: $sha256
     ))
-    $historical_stddev = max(metrics.file_executions_total(
+    $historical_stddev = max(metrics.file_executions_fail(
         period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
         metadata.event_type: $event_type,
         principal.asset.hostname: $host,
         principal.process.file.sha256: $sha256
     ))
-    $historical_active_days = max(metrics.file_executions_total(
+    $historical_active_days = max(metrics.file_executions_fail(
         period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
         metadata.event_type: $event_type,
         principal.asset.hostname: $host,
         principal.process.file.sha256: $sha256
     ))
-    $historical_max = max(metrics.file_executions_total(
+    $historical_max = max(metrics.file_executions_fail(
         period: 1d, window: 30d, metric: event_count_sum, agg: max,
         metadata.event_type: $event_type,
         principal.asset.hostname: $host,
         principal.process.file.sha256: $sha256
     ))
-    $historical_sum = max(metrics.file_executions_total(
+    $historical_sum = max(metrics.file_executions_fail(
         period: 1d, window: 30d, metric: event_count_sum, agg: sum,
         metadata.event_type: $event_type,
         principal.asset.hostname: $host,

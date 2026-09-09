@@ -1,0 +1,25 @@
+// Root Stage: Fleet Prevalence Discounting (Patch Tuesday Immunity Shield)
+$entity = $stage1_extract.entity
+$ws = $stage1_extract.window_start
+
+match:
+  $entity, $ws by 1d
+
+outcome:
+  $observed = max($stage1_extract.observed_val)
+  $hist_avg = max($stage1_extract.historical_avg)
+  $hist_stddev = max($stage1_extract.historical_stddev)
+  $active_days = max($stage1_extract.historical_active_days)
+  $fleet_count = count($stage1_extract.observed_val)
+
+  // 1. Personal Historical Z-Score
+  $diff = $observed - $hist_avg
+  $safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)
+  $personal_z = $diff / $safe_stddev
+
+  // 2. Fleet Prevalence Immunity Factor: If > 10 entities spike concurrently, discount by 85%
+  $prevalence_factor = if($fleet_count > 10, 0.15, 1.0)
+  $shielded_z = $personal_z * $prevalence_factor
+
+order:
+  $shielded_z desc

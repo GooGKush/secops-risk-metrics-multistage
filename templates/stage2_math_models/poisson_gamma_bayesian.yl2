@@ -13,8 +13,9 @@ outcome:
   $max_30d = max($stage1_extract.historical_max)
 
   // 1. Method of Moments: Gamma Prior Hyperparameters (alpha_0, beta_0)
-  $variance_30d = ($stddev_30d * $stddev_30d) + 1.0
-  $beta_prior = $avg_30d / $variance_30d
+  $variance_raw = $stddev_30d * $stddev_30d
+  $safe_variance = if($variance_raw > 0, $variance_raw, 1.0)
+  $beta_prior = $avg_30d / $safe_variance
   $alpha_prior = $avg_30d * $beta_prior
 
   // 2. Conjugate Posterior Updating with 24h Evidence (k = observed_24h, t = 1)
@@ -30,8 +31,10 @@ outcome:
 
   // 5. Standard Parametric Z-Score & Bayesian Belief Shift Ratio
   $diff = $observed_24h - $avg_30d
-  $z_score = $diff / ($stddev_30d + 1.0)
-  $bayes_shift_ratio = $posterior_mean / ($avg_30d + 1.0)
+  $safe_stddev = if($stddev_30d > 0, $stddev_30d, 1.0)
+  $z_score = $diff / $safe_stddev
+  $safe_avg = if($avg_30d > 0, $avg_30d, 1.0)
+  $bayes_shift_ratio = $posterior_mean / $safe_avg
 
 order:
   $bayes_shift_ratio desc

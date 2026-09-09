@@ -31,6 +31,12 @@ class StatisticalModel(str, Enum):
   HOURLY_TEMPORAL_ZSCORE = "HOURLY_TEMPORAL_ZSCORE"
   BAYESIAN_GAMMA = "BAYESIAN_GAMMA"
   BAYESIAN_BETA_BINOMIAL = "BAYESIAN_BETA_BINOMIAL"
+  LONGITUDINAL_CUSUM = "LONGITUDINAL_CUSUM"
+  TWO_PART_HURDLE = "TWO_PART_HURDLE"
+  ASYMMETRIC_DIRECTIONAL_Z = "ASYMMETRIC_DIRECTIONAL_Z"
+  PIECEWISE_CRI = "PIECEWISE_CRI"
+  FLEET_PREVALENCE_SHIELD = "FLEET_PREVALENCE_SHIELD"
+  ADAPTIVE_CONTEXT_THRESHOLD = "ADAPTIVE_CONTEXT_THRESHOLD"
 
 
 class PipelineArchitecture(str, Enum):
@@ -339,7 +345,7 @@ METRIC_CATALOG: Dict[str, MetricDefinition] = {
     "alert_event_name_count": MetricDefinition(
         metric_id=26,
         metric_name="alert_event_name_count",
-        event_type="SCAN_VULNERABILITY",
+        event_type="SCAN_UNCATEGORIZED",
         supported_entity_types=[EntityType.ASSET, EntityType.USER],
         dimension_fields={EntityType.ASSET: "principal.asset.hostname", EntityType.USER: "principal.user.userid"},
         backing_log_types=["CB_EDR", "CS_EDR", "MICROSOFT_GRAPH_ALERT", "SENTINELONE_ALERTS"],
@@ -887,8 +893,10 @@ class MalachiteASTValidator:
       args = [a.strip() for a in m.group(1).split(",")]
       if len(args) < 3:
         errors.append(f"INVALID_IF_CONDITIONAL: 'if(...)' is missing required else-clause: {m.group(0)}")
-      elif re.search(r"[\+\-\*\/]", args[1]):
-        errors.append(f"INVALID_IF_CONDITIONAL: 'if(...)' contains compound arithmetic in then-clause. Chronicle compiler only allows placeholders, fields, and constants in then clause: {m.group(0)}")
+      else:
+        then_clause = re.sub(r"^\s*[-+]\s*", "", args[1])
+        if re.search(r"[\+\-\*\/]", then_clause):
+          errors.append(f"INVALID_IF_CONDITIONAL: 'if(...)' contains compound arithmetic in then-clause. Chronicle compiler only allows placeholders, fields, and constants in then clause: {m.group(0)}")
     if re.search(r"\bsqrt\s*\(", query_text):
       errors.append("INVALID_SQRT_FUNCTION: 'sqrt(...)' is invalid in YARA-L outcome expressions. Compute squared norm and order by '$norm_sq desc'.")
     if re.search(r"\b[a-zA-Z0-9_]+\.\$[a-zA-Z0-9_]+", query_text):
@@ -1181,7 +1189,11 @@ class MalachiteASTValidator:
 
     # Stage count & topology validation
     if model in [StatisticalModel.STANDARD_Z_SCORE, StatisticalModel.MAD, StatisticalModel.POISSON,
-                 StatisticalModel.VARIANCE, StatisticalModel.COEFFICIENT_OF_VARIATION]:
+                 StatisticalModel.VARIANCE, StatisticalModel.COEFFICIENT_OF_VARIATION,
+                 StatisticalModel.HOURLY_TEMPORAL_ZSCORE, StatisticalModel.LONGITUDINAL_CUSUM,
+                 StatisticalModel.TWO_PART_HURDLE, StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z,
+                 StatisticalModel.PIECEWISE_CRI, StatisticalModel.FLEET_PREVALENCE_SHIELD,
+                 StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD]:
       if len(named_stages) != 1:
         errors.append(f"STAGE_TOPOLOGY_MISMATCH: Model {model.value} requires a 2-stage DAG (1 named extractor + root stage). Found {len(named_stages)} named stage(s).")
     elif "3STAGE" in model.value or model in [StatisticalModel.BAYESIAN_GAMMA, StatisticalModel.BAYESIAN_BETA_BINOMIAL]:

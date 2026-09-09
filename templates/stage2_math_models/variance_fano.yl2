@@ -14,8 +14,9 @@ outcome:
   // Personal Historical Variance: sigma^2
   $variance = $stddev * $stddev
 
-  // Fano Factor (Index of Dispersion): sigma^2 / (mu + 1.0)
-  $fano_factor = $variance / ($lambda + 1.0)
+  // Fano Factor (Index of Dispersion): sigma^2 / Safe Lambda
+  $safe_lambda = if($lambda > 0, $lambda, 1.0)
+  $fano_factor = $variance / $safe_lambda
 
 order:
   $fano_factor desc

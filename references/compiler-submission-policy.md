@@ -92,7 +92,7 @@ In addition to compiler syntax, all queries submitted to Chronicle must satisfy 
 
 ## 3. Pre-Submission Test Harness (`scripts/submission_tests.py`)
 
-The submission test harness automates compiler verification across 21 canonical test cases categorized into four operational suites:
+The submission test harness automates compiler verification across 27 canonical test cases categorized into four operational suites:
 
 | ID | Suite | Target Metric / Model | Key Compiler Check |
 |:---|:------|:----------------------|:-------------------|
@@ -117,6 +117,12 @@ The submission test harness automates compiler verification across 21 canonical 
 | `ROUTER-06-BETA-BINOMIAL`| Dynamic Router| `auth_attempts_total` + Beta | Success/failure conjugate updates |
 | `ROUTER-07-HOURLY-Z` | Dynamic Router | `file_executions_total` + Hourly | Temporal process launch variation |
 | `ROUTER-08-FANO` | Dynamic Router | `auth_attempts_fail` + Fano | Variance-to-mean dispersion ratio |
+| `ROUTER-09-CUSUM` | Dynamic Router | `network_bytes_outbound` + CUSUM | Longitudinal Page CUSUM drift increment |
+| `ROUTER-10-HURDLE` | Dynamic Router | `auth_attempts_total` + Hurdle | Zero-inflated Bernoulli awakening penalty |
+| `ROUTER-11-ASYMMETRIC-Z`| Dynamic Router| `file_executions_total` + Asymmetric Z | One-sided upper-tail surge with ReLU |
+| `ROUTER-12-PIECEWISE-CRI`| Dynamic Router| `network_bytes_outbound` + CRI | Winsorized clamp & piecewise CRI tiers |
+| `ROUTER-13-FLEET-SHIELD`| Dynamic Router| `network_bytes_outbound` + Shield | Concurrency immunity discounting factor |
+| `ROUTER-14-ADAPTIVE-THRESH`| Dynamic Router| `auth_attempts_total` + Adaptive | Context-modulated off-hours thresholding |
 
 ---
 

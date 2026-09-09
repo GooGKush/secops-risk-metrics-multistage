@@ -10,9 +10,11 @@ outcome:
   $lambda = max($stage1_extract.historical_avg)
   $active_days = max($stage1_extract.historical_active_days)
 
-  // Discrete Poisson Rarity Z-Score: (k - lambda) / math.sqrt(lambda + 1.0)
+  // Discrete Poisson Rarity Z-Score: (k - lambda) / math.sqrt(Safe Lambda)
   $diff = $k - $lambda
-  $poisson_z = $diff / math.sqrt($lambda + 1.0)
+  $safe_lambda = if($lambda > 0, $lambda, 1.0)
+  $sqrt_lambda = math.sqrt($safe_lambda)
+  $poisson_z = $diff / $sqrt_lambda
 
 order:
   $poisson_z desc

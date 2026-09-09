@@ -11,9 +11,10 @@ outcome:
   $hist_stddev = max($stage1_extract.historical_stddev)
   $active_days = max($stage1_extract.historical_active_days)
 
-  // Coefficient of Variation: sigma / (mu + 1.0)
-  $cv = $hist_stddev / ($hist_avg + 1.0)
-  $surge_ratio = $observed / ($hist_avg + 1.0)
+  // Coefficient of Variation: sigma / Safe Mu
+  $safe_hist_avg = if($hist_avg > 0, $hist_avg, 1.0)
+  $cv = $hist_stddev / $safe_hist_avg
+  $surge_ratio = $observed / $safe_hist_avg
 
 order:
   $surge_ratio desc

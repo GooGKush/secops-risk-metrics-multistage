@@ -1,0 +1,34 @@
+// Stage 1: Google Workspace Administrative Changes & 30d Baseline
+stage stage1_extract {
+    metadata.event_type = "USER_RESOURCE_ACCESS"
+    metadata.vendor_name = "Google Workspace"
+    principal.user.userid = $user
+    $user != ""
+
+  match:
+    $user by 1d
+
+  outcome:
+    $observed_val = count(metadata.id)
+
+    $historical_avg = max(metrics.workspace_total_change_actions(
+        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+        principal.user.userid: $user
+    ))
+    $historical_stddev = max(metrics.workspace_total_change_actions(
+        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+        principal.user.userid: $user
+    ))
+    $historical_active_days = max(metrics.workspace_total_change_actions(
+        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+        principal.user.userid: $user
+    ))
+    $historical_max = max(metrics.workspace_total_change_actions(
+        period: 1d, window: 30d, metric: event_count_sum, agg: max,
+        principal.user.userid: $user
+    ))
+    $historical_sum = max(metrics.workspace_total_change_actions(
+        period: 1d, window: 30d, metric: event_count_sum, agg: sum,
+        principal.user.userid: $user
+    ))
+}

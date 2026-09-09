@@ -1,0 +1,31 @@
+// Root Stage: Winsorized Z-Score & Native Calibrated Risk Index (CRI [0-100])
+$entity = $stage1_extract.entity
+$ws = $stage1_extract.window_start
+
+match:
+  $entity, $ws by 1d
+
+outcome:
+  $observed = max($stage1_extract.observed_val)
+  $hist_avg = max($stage1_extract.historical_avg)
+  $hist_stddev = max($stage1_extract.historical_stddev)
+  $active_days = max($stage1_extract.historical_active_days)
+  $hist_max = max($stage1_extract.historical_max)
+
+  // 1. Parametric Z-Score
+  $diff = $observed - $hist_avg
+  $safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)
+  $raw_z = $diff / $safe_stddev
+
+  // 2. Winsorization Clamp: restrict raw Z to [-4.0, +6.0]
+  $clamped_low = if($raw_z < -4.0, -4.0, $raw_z)
+  $clamped_z = if($clamped_low > 6.0, 6.0, $clamped_low)
+
+  // 3. Piecewise Linear Calibrated Risk Index (CRI [0 - 100])
+  $cri_tier4 = if($clamped_z >= 4.0, 95.0, 85.0)
+  $cri_tier3 = if($clamped_z >= 3.0, $cri_tier4, 65.0)
+  $cri_tier2 = if($clamped_z >= 2.0, $cri_tier3, 40.0)
+  $cri_score = if($clamped_z >= 1.0, $cri_tier2, 15.0)
+
+order:
+  $cri_score desc

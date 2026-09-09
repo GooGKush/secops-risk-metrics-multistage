@@ -1,7 +1,7 @@
-// Stage 1: DNS Failed / NXDOMAIN Resolution Extractor
+// Stage 1: Total Network Flow Count & 30d Historical Baseline
 stage stage1_extract {
-    metadata.event_type = "NETWORK_DNS"
-    network.dns.response_code != 0
+    metadata.event_type = "NETWORK_CONNECTION"
+    $event_type = metadata.event_type
     principal.asset.hostname = $entity
     $entity != ""
 
@@ -10,23 +10,24 @@ stage stage1_extract {
 
   outcome:
     $observed_val = count(metadata.id)
-    $historical_avg = max(metrics.dns_queries_fail(
+
+    $historical_avg = max(metrics.network_flows_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: avg,
         principal.asset.hostname: $entity
     ))
-    $historical_stddev = max(metrics.dns_queries_fail(
+    $historical_stddev = max(metrics.network_flows_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
         principal.asset.hostname: $entity
     ))
-    $historical_active_days = max(metrics.dns_queries_fail(
+    $historical_active_days = max(metrics.network_flows_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
         principal.asset.hostname: $entity
     ))
-    $historical_max = max(metrics.dns_queries_fail(
+    $historical_max = max(metrics.network_flows_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: max,
         principal.asset.hostname: $entity
     ))
-    $historical_sum = max(metrics.dns_queries_fail(
+    $historical_sum = max(metrics.network_flows_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: sum,
         principal.asset.hostname: $entity
     ))

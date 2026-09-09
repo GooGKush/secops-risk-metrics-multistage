@@ -12,7 +12,8 @@ outcome:
   $active_days = max($stage1_extract.historical_active_days)
 
   $dev = $observed - $hist_avg
-  $ratio = $dev / ($hist_avg + 1.0)
+  $safe_hist_avg = if($hist_avg > 0, $hist_avg, 1.0)
+  $ratio = $dev / $safe_hist_avg
 
 order:
   $ratio desc

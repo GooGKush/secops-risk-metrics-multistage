@@ -41,11 +41,11 @@ class TestSubmissionCompilerPolicy(unittest.TestCase):
     cls.matrix = cls.suite.build_canonical_test_matrix()
 
   def test_canonical_matrix_size(self):
-    """Asserts that exactly 21 canonical test cases are defined."""
-    self.assertEqual(len(self.matrix), 21)
+    """Asserts that exactly 27 canonical test cases are defined (including all 14 math models)."""
+    self.assertEqual(len(self.matrix), 27)
 
   def test_all_canonical_cases_pass_static_validation(self):
-    """Validates that all 21 canonical test cases produce clean YARA-L 2.0."""
+    """Validates that all 27 canonical test cases produce clean YARA-L 2.0."""
     for tc in self.matrix:
       with self.subTest(test_id=tc.test_id, name=tc.name):
         query = tc.render()

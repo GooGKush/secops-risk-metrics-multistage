@@ -1,0 +1,28 @@
+// Root Stage: Two-Part Hurdle Outlier Model for Zero-Inflated Telemetry
+$entity = $stage1_extract.entity
+$ws = $stage1_extract.window_start
+
+match:
+  $entity, $ws by 1d
+
+outcome:
+  $observed = max($stage1_extract.observed_val)
+  $hist_avg = max($stage1_extract.historical_avg)
+  $hist_stddev = max($stage1_extract.historical_stddev)
+  $active_days = max($stage1_extract.historical_active_days)
+  $hist_max = max($stage1_extract.historical_max)
+
+  // 1. Part 1: Discrete Bernoulli Hurdle (dormant account awakening)
+  $is_active_today = if($observed > 0, 1.0, 0.0)
+  $dormant_score = $observed * 2.0
+
+  // 2. Part 2: Continuous Intensity Conditioned on Crossing Hurdle
+  $diff = $observed - $hist_avg
+  $safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)
+  $intensity_z = $diff / $safe_stddev
+
+  // 3. Composite Hurdle Threat Score: If active_days <= 2, apply dormant penalty; else continuous Z
+  $hurdle_threat_score = if($active_days <= 2, $dormant_score, $intensity_z)
+
+order:
+  $hurdle_threat_score desc

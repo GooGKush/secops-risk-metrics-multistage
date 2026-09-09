@@ -1,0 +1,35 @@
+// Stage 1: Google Workspace Outbound Network Bytes & 30d Baseline
+stage stage1_extract {
+    metadata.event_type = "NETWORK_CONNECTION"
+    principal.user.userid = $user
+    $user != ""
+    $sent = network.sent_bytes
+
+  match:
+    $user by 1d
+
+  outcome:
+    $observed_val = sum($sent)
+    $observed_events = count(metadata.id)
+
+    $historical_avg = max(metrics.workspace_network_bytes_outbound(
+        period: 1d, window: 30d, metric: value_sum, agg: avg,
+        principal.user.userid: $user
+    ))
+    $historical_stddev = max(metrics.workspace_network_bytes_outbound(
+        period: 1d, window: 30d, metric: value_sum, agg: stddev,
+        principal.user.userid: $user
+    ))
+    $historical_active_days = max(metrics.workspace_network_bytes_outbound(
+        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+        principal.user.userid: $user
+    ))
+    $historical_max = max(metrics.workspace_network_bytes_outbound(
+        period: 1d, window: 30d, metric: value_sum, agg: max,
+        principal.user.userid: $user
+    ))
+    $historical_sum = max(metrics.workspace_network_bytes_outbound(
+        period: 1d, window: 30d, metric: value_sum, agg: sum,
+        principal.user.userid: $user
+    ))
+}
