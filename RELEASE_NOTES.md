@@ -1,14 +1,14 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.7.2)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.6.1)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v1.7.2 — September 2026  
+**Latest Version**: v1.6.1 — September 2026  
 
 ---
 
-## 📢 What's New in v1.7.2 (Minor Point Release) — First-Class `if()` Conditional Logic in Outcome & Half-Rectified CUSUM Drift
+## 📢 What's New in v1.6.1 (Point Release) — First-Class `if()` Conditional Logic in Outcome & Half-Rectified CUSUM Drift
 
 * **First-Class `if()` Conditional Logic in YARA-L 2.0 `outcome:` Blocks**:
   - Empirically verified through live Chronicle compiler AST probing (`gus-sdl`) that `if(condition, then_clause, else_clause)` is fully supported in `outcome:` blocks across both detection rules and multi-stage hunting queries.
