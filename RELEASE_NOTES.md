@@ -1,14 +1,14 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.7.0)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.6.2)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v1.7.0 (Minor Release) — September 2026  
+**Latest Version**: v1.6.2 (Minor Point Release) — September 2026  
 
 ---
 
-## 📢 What's New in v1.7.0 (Minor Release) — 38-Metric Risk Extractor Matrix, 14 Stage 2 Math Models & Consultative Support System
+## 📢 What's New in v1.6.2 (Minor Point Release) — 38-Metric Risk Extractor Matrix, 14 Stage 2 Math Models & Consultative Support System
 
 ### 1. Complete 38-Metric Risk Analytics Extractor Matrix & 14 Stage 2 Math Models
 * **Comprehensive 38-Metric Stage 1 Coverage**:
