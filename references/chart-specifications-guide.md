@@ -244,5 +244,137 @@ When rendering **Pillar 1** of a 360° Entity Health Check:
 ### B. Fallback Hierarchy When No Visualization Tool Exists
 If no active tool in the agent's toolset declares visual chart rendering:
 1. **Local Shell Execution**: If `run_command` is available (Jetski environment), execute `scripts/radar_collector.py` to write the standalone HTML artifact and render `<agent-embed>`.
-2. **Pure Inline SVG**: If running in an MCP environment without local shell or client visual tools, emit pure inline `<svg>` directly into the Markdown stream.
+2. **Pure Inline SVG**: If running in an MCP environment without local shell or client visual tools, emit pure inline `<svg>` directly into the Markdown stream using the declarative geometry in Section 9.
 3. **Plaintext / CLI**: Render the ASCII cross-axis card ONLY when the analyst explicitly requests `'cli'` or `'ascii'`.
+
+---
+
+## 9. Pure SVG Vector Layouts for Headless MCP Clients & Sandboxed UIs
+
+Where frontend environments disallow JavaScript execution or external CDN imports (e.g., Jetski sandboxed iframes under CSP, strict GitHub/GitLab markdown previewers, or headless MCP agents without shell access to `scripts/radar_collector.py`), visualizations must be emitted as pure, self-contained SVG XML.
+
+Pure SVGs execute zero JavaScript, require zero external stylesheets, and scale losslessly across high-DPI displays.
+
+### A. Multi-Sector Fleet Heatmap Grid (Pure SVG)
+
+Visualizes an entire fleet ($N$ entities) evaluated against all 5 canonical behavioral sectors (IAM, Cloud, Workspace, Egress, DNS) with an integrated Calibrated Risk Index (CRI) badge:
+
+```xml
+<svg viewBox="0 0 680 200" width="100%" height="200" xmlns="http://www.w3.org/2000/svg">
+  <!-- Header Row -->
+  <text x="20" y="24" font-size="14" font-weight="700" fill="#202124">Fleet Multi-Sector Anomaly Heatmap</text>
+  <text x="200" y="52" font-size="11" font-weight="600" fill="#5f6368">IAM / Auth</text>
+  <text x="276" y="52" font-size="11" font-weight="600" fill="#5f6368">Cloud CRUD</text>
+  <text x="352" y="52" font-size="11" font-weight="600" fill="#5f6368">Workspace</text>
+  <text x="428" y="52" font-size="11" font-weight="600" fill="#5f6368">Net Egress</text>
+  <text x="504" y="52" font-size="11" font-weight="600" fill="#5f6368">DNS Resolv</text>
+  <text x="580" y="52" font-size="11" font-weight="600" fill="#5f6368">Composite CRI</text>
+  <line x1="20" y1="60" x2="660" y2="60" stroke="#dadce0" stroke-width="1"/>
+
+  <!-- Row 1: High-Risk Entity -->
+  <text x="20" y="87" font-size="12" font-weight="500" fill="#202124">admin@demo.wsexample.org</text>
+  <rect x="200" y="70" width="70" height="26" rx="4" fill="#fce8e6" stroke="#fad2cf" stroke-width="1"/>
+  <text x="235" y="88" font-size="11" font-weight="600" fill="#c5221f" text-anchor="middle">+3.80σ</text>
+  <rect x="276" y="70" width="70" height="26" rx="4" fill="#e6f4ea" stroke="#ceead6" stroke-width="1"/>
+  <text x="311" y="88" font-size="11" font-weight="600" fill="#137333" text-anchor="middle">+0.20σ</text>
+  <rect x="352" y="70" width="70" height="26" rx="4" fill="#fce8e6" stroke="#fad2cf" stroke-width="1"/>
+  <text x="387" y="88" font-size="11" font-weight="600" fill="#c5221f" text-anchor="middle">+4.10σ</text>
+  <rect x="428" y="70" width="70" height="26" rx="4" fill="#e6f4ea" stroke="#ceead6" stroke-width="1"/>
+  <text x="463" y="88" font-size="11" font-weight="600" fill="#137333" text-anchor="middle">+0.00σ</text>
+  <rect x="504" y="70" width="70" height="26" rx="4" fill="#f1f3f4" stroke="#dadce0" stroke-width="1"/>
+  <text x="539" y="88" font-size="11" font-weight="600" fill="#5f6368" text-anchor="middle">+0.50σ</text>
+  <rect x="580" y="70" width="85" height="26" rx="13" fill="#fce8e6" stroke="#fad2cf" stroke-width="1"/>
+  <text x="622" y="88" font-size="10" font-weight="700" fill="#c5221f" text-anchor="middle">D=5.61σ (96)</text>
+</svg>
+```
+
+### B. Dual-Y Axis Longitudinal Timeline (Pure SVG)
+
+Visualizes daily event volume bars along the left Y-axis and standard deviation drift ($Z$-score) along the right Y-axis with a $+3.0\sigma$ threshold ceiling:
+
+```xml
+<svg viewBox="0 0 760 360" width="100%" height="360" xmlns="http://www.w3.org/2000/svg">
+  <!-- Title & Metadata -->
+  <text x="20" y="28" font-size="15" font-weight="700" fill="#202124">Longitudinal Horizon Timeline: Observed Volume vs. Z-Score Drift</text>
+  <text x="20" y="46" font-size="12" fill="#5f6368">Entity: srv-db-01.corp | Mode B (14-Day Timeline) | Threshold: +3.0σ</text>
+
+  <!-- Left Y-Axis (Volume) -->
+  <text x="18" y="170" font-size="11" font-weight="600" fill="#1a73e8" transform="rotate(-90 18 170)" text-anchor="middle">Observed Volume</text>
+  <text x="62" y="284" font-size="10" fill="#5f6368" text-anchor="end">0</text>
+  <text x="62" y="229" font-size="10" fill="#5f6368" text-anchor="end">125</text>
+  <text x="62" y="174" font-size="10" fill="#5f6368" text-anchor="end">250</text>
+  <text x="62" y="119" font-size="10" fill="#5f6368" text-anchor="end">375</text>
+  <text x="62" y="64" font-size="10" fill="#5f6368" text-anchor="end">500</text>
+
+  <!-- Right Y-Axis (Z-Score) -->
+  <text x="746" y="170" font-size="11" font-weight="600" fill="#d93025" transform="rotate(90 746 170)" text-anchor="middle">Z-Score Deviation (σ)</text>
+  <text x="688" y="284" font-size="10" fill="#d93025" font-weight="600">+0.0σ</text>
+  <text x="688" y="229" font-size="10" fill="#d93025" font-weight="600">+1.5σ</text>
+  <text x="688" y="174" font-size="10" fill="#d93025" font-weight="600">+3.0σ</text>
+  <text x="688" y="119" font-size="10" fill="#d93025" font-weight="600">+4.5σ</text>
+
+  <!-- +3.0σ Anomaly Ceiling Reference Line -->
+  <line x1="70" y1="170" x2="680" y2="170" stroke="#d93025" stroke-width="1.5" stroke-dasharray="4,4"/>
+  <text x="674" y="164" font-size="10" font-weight="700" fill="#d93025" text-anchor="end">+3.0σ Anomaly Ceiling</text>
+
+  <!-- Grid & Axes Boundaries -->
+  <line x1="70" y1="280" x2="680" y2="280" stroke="#bdc1c6" stroke-width="1"/>
+  <line x1="70" y1="60" x2="70" y2="280" stroke="#bdc1c6" stroke-width="1"/>
+  <line x1="680" y1="60" x2="680" y2="280" stroke="#bdc1c6" stroke-width="1"/>
+
+  <!-- Trajectory Path & Threshold Violation Points -->
+  <path d="M 113.5 272.0 L 200.5 268.0 L 287.5 250.0 L 374.5 210.0 L 461.5 130.0 L 548.5 75.0 L 635.5 65.0" fill="none" stroke="#d93025" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+  <circle cx="548.5" cy="75.0" r="4" fill="#d93025" stroke="#ffffff" stroke-width="1.5"/>
+  <text x="548.5" y="66.0" font-size="10" font-weight="700" fill="#c5221f" text-anchor="middle">+4.8σ</text>
+</svg>
+```
+
+### C. Prevalence vs. Anomaly 2D Quadrant Scatter (Patch Tuesday Shield)
+
+Visualizes enterprise-wide host adoption prevalence on the horizontal log scale against individual anomaly $Z$-score on the vertical axis. Automatically bifurcates acute targeted intrusions from synchronized corporate rollouts:
+
+```xml
+<svg viewBox="0 0 740 420" width="100%" height="420" xmlns="http://www.w3.org/2000/svg">
+  <!-- Title -->
+  <text x="20" y="28" font-size="15" font-weight="700" fill="#202124">Prevalence vs. Anomaly Quadrant (Patch Tuesday Shield)</text>
+  <text x="20" y="46" font-size="12" fill="#5f6368">Fleet Adopters vs. Personal Z-Score Deviation | Shield Hurdle: ≤5 hosts</text>
+
+  <!-- Quadrant 1: Acute Targeted Intrusion (Top-Left) -->
+  <rect x="80" y="60" width="240" height="140" fill="#fce8e6" opacity="0.6"/>
+  <text x="92" y="80" font-size="11" font-weight="700" fill="#c5221f">🚨 ACUTE TARGETED INTRUSION</text>
+  <text x="92" y="94" font-size="9" fill="#c5221f">High Surge on Isolated Host (Investigate Immediately)</text>
+
+  <!-- Quadrant 2: Corporate Rollout / Patch Tuesday (Top-Right) -->
+  <rect x="320" y="60" width="360" height="140" fill="#fef7e0" opacity="0.6"/>
+  <text x="332" y="80" font-size="11" font-weight="700" fill="#b06000">🛡️ CORPORATE ROLLOUT / PATCH TUESDAY</text>
+  <text x="332" y="94" font-size="9" fill="#b06000">Concurrent Fleet Adoption (Suppressed as Benign)</text>
+
+  <!-- Quadrant 3 & 4: Operational Baseline (Bottom Half) -->
+  <rect x="80" y="200" width="600" height="140" fill="#f1f3f4" opacity="0.5"/>
+  <text x="92" y="328" font-size="10" font-weight="600" fill="#5f6368">🟢 Nominal Operational Baseline (Z &lt; +3.0σ)</text>
+
+  <!-- Dividing Hurdles -->
+  <line x1="320" y1="60" x2="320" y2="340" stroke="#5f6368" stroke-width="1.5" stroke-dasharray="4,4"/>
+  <line x1="80" y1="200" x2="680" y2="200" stroke="#d93025" stroke-width="1.5" stroke-dasharray="4,4"/>
+  <text x="674" y="194" font-size="10" font-weight="700" fill="#d93025" text-anchor="end">+3.0σ Anomaly Ceiling</text>
+
+  <!-- Scatter Points -->
+  <!-- Targeted Malicious Outlier -->
+  <circle cx="120" cy="90" r="6" fill="#d93025" stroke="#ffffff" stroke-width="1.5"/>
+  <text x="130" y="94" font-size="10" font-weight="600" fill="#c5221f">mimikatz.exe (+8.4σ, 1h)</text>
+
+  <!-- Benign Patch Rollout -->
+  <circle cx="520" cy="110" r="6" fill="#f9ab00" stroke="#ffffff" stroke-width="1.5"/>
+  <text x="530" y="114" font-size="10" font-weight="600" fill="#b06000">kb5034123.exe (+9.2σ, 450h)</text>
+</svg>
+```
+
+### D. Architectural Guidance for Headless Agents
+
+1. **Jetski Environment (`run_command` available)**:
+   * Call `python3 scripts/radar_collector.py` (or Python helper methods) to produce standalone HTML files in the artifact directory.
+   * Embed using `<agent-embed src="file:///<artifact_dir>/<file>.html"></agent-embed>`.
+2. **Headless MCP Client (No shell execution)**:
+   * Emit pure declarative SVG blocks directly in the Markdown stream using the layout specifications above.
+   * Do not wrap in HTML boilerplate or markdown image tags (`![](data:...)`). Output raw `<svg>...</svg>` blocks directly.
+

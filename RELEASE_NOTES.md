@@ -1,10 +1,42 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.6.6)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.6.7)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v1.6.6 (Minor Point Release) — September 2026  
+**Latest Version**: v1.6.7 (Minor Point Release) — September 2026  
+
+---
+
+## 📢 What's New in v1.6.7 (Minor Point Release) — Pure SVG Visual Toolkit, Headless MCP Vector Rendering & Sandboxed UI Resiliency
+
+### 1. Pure SVG Visual Toolkit for Complex Threat Graphics
+* **Zero-JavaScript Native Vector Visualization**:
+  - Implemented pure SVG visual rendering methods in `scripts/radar_collector.py` to bypass iframe sandbox and Content Security Policy (CSP) limitations in web chat environments like Jetski (which disallow `<script>` tags, CDN imports, and dynamic Vega-Lite / Chart.js execution):
+    - **`generate_fleet_heatmap_svg()` & `generate_fleet_heatmap_html()`**: Generates high-density 2D multi-sector fleet anomaly heatmaps with entity rows, color-coded sector deviations (IAM, Cloud, Workspace, Egress, DNS), and composite threat distance badges ($D$, $\text{CRI}$).
+    - **`generate_dualy_timeline_svg()` & `generate_dualy_timeline_html()`**: Generates pure SVG dual-Y axis longitudinal charts with observed volume bars along the left Y-axis, continuous $Z$-score trajectory paths along the right Y-axis, and an explicit $+3.0\sigma$ anomaly ceiling rule.
+    - **`generate_prevalence_quadrant_svg()` & `generate_prevalence_quadrant_html()`**: Generates 2D quadrant scatter plots for Patch Tuesday Shield validation, plotting enterprise prevalence (host adopter count on logarithmic scale) against personal anomaly $Z$-score to separate targeted attacks from benign concurrent rollouts.
+  - Generates standalone, self-contained HTML cards containing the inline SVG, ready for zero-latency `<agent-embed>` rendering in Jetski Web UI.
+
+### 2. Headless MCP Client Vector Specifications (Section 9)
+* **Declarative XML Geometry & Coordinate Guidance**:
+  - Added **Section 9 (`Pure SVG Vector Layouts for Headless MCP Clients & Sandboxed UIs`)** to `references/chart-specifications-guide.md`.
+  - Enables headless AI agents (operating without bash tool access or local Python execution) to emit pixel-perfect, scalable inline `<svg>` blocks directly into the markdown stream using documented coordinate geometry, color scales, and typography.
+  - Codifies affirmative dual-surface workflow: Jetski agents call `radar_collector.py` and output `<agent-embed>`, while headless MCP clients emit raw inline `<svg>` directly into markdown.
+
+### 3. Automated Fleet Visualization Regression Verification
+* **Conversational Regression Harness (`secops-regress`)**:
+  - Added **`REG-P2-16-FLEET-OUTLIER-VISUAL`** to the P2 regression suite in `test_matrix/risk_metrics/p2_surface_integrity.json`.
+  - Implemented Rule 8 (`FLEET_RADIAL_COLLAPSE_PREVENTED`) in `judges/presentation_judge.py`, verifying that fleetwide reviews deliver Ranked Outlier Bar Charts or Multi-Sector Heatmaps while rejecting centroid-collapsing 5-spoke radial graphs.
+  - Aligned mock observation windows to $\ge 72\text{h}$ for longitudinal timeline testing.
+
+### 4. Comprehensive Testing & Quality Verification
+* **209/209 Pytest Unit Tests Passed (100% Green)**:
+  - Added test coverage in `tests/test_radar_collector.py` and `tests/test_chart_specifications.py` verifying SVG vector coordinate generation, XML tags, and headless MCP specification integrity.
+* **27/27 Submission Tests Passed (100% Clean AST)**:
+  - All YARA-L DAG pipelines and router templates verified against Chronicle SIEM Malachite compiler grammar.
+* **6/6 Dual-Platform Regression Tests Passed (100%)**:
+  - All P2 surface integrity invariants verified across representative LLM interactions.
 
 ---
 

@@ -425,6 +425,65 @@ stage stage_dns {
     self.assertIn("+3.40σ", html)
     self.assertIn("D=3.45σ", html)
 
+  def test_generate_fleet_heatmap_svg(self):
+    """Pure SVG fleet heatmap must emit vector rects, column headers, and anomaly badges."""
+    matrix = [
+        {
+            "entity": "WRK-SHASEK",
+            "sectors": {"IAM & Authentication": 1.2, "Cloud Infrastructure": 0.8, "DNS & Web Activity": 4.10},
+            "threat_distance_d": 4.10,
+            "cri": 78,
+        }
+    ]
+    svg = EntityRadarCollector.generate_fleet_heatmap_svg(matrix)
+    self.assertIn("<svg", svg)
+    self.assertIn("viewBox=", svg)
+    self.assertIn("WRK-SHASEK", svg)
+    self.assertIn("+4.10σ", svg)
+    self.assertIn("D=4.10σ (78)", svg)
+    self.assertIn("</svg>", svg)
+
+  def test_generate_dualy_timeline_svg_and_html(self):
+    """Dual-Y timeline must emit dual axes, volume bars, Z-score path, and +3.0σ threshold."""
+    timeline = [
+        {"date": "2026-08-26", "volume": 120, "z_score": 0.40},
+        {"date": "2026-08-27", "volume": 850, "z_score": 4.10},
+    ]
+    svg = EntityRadarCollector.generate_dualy_timeline_svg(timeline, entity="WRK-SHASEK")
+    self.assertIn("<svg", svg)
+    self.assertIn("viewBox=", svg)
+    self.assertIn("Observed Volume", svg)
+    self.assertIn("Z-Score Deviation (σ)", svg)
+    self.assertIn("+3.0σ Anomaly Ceiling", svg)
+    self.assertIn("WRK-SHASEK", svg)
+    self.assertIn("<path", svg)
+    self.assertIn("</svg>", svg)
+
+    html_widget = EntityRadarCollector.generate_dualy_timeline_html(timeline, entity="WRK-SHASEK")
+    self.assertIn("<!DOCTYPE html>", html_widget)
+    self.assertIn("<svg", html_widget)
+    self.assertIn("WRK-SHASEK", html_widget)
+
+  def test_generate_prevalence_quadrant_svg_and_html(self):
+    """Prevalence quadrant scatter must render four shaded quadrants, threshold lines, and entity markers."""
+    findings = [
+        {"token": "malware.exe", "fleet_adopters": 1, "personal_z": 4.5},
+        {"token": "update.exe", "fleet_adopters": 350, "personal_z": 5.2},
+    ]
+    svg = EntityRadarCollector.generate_prevalence_quadrant_svg(findings)
+    self.assertIn("<svg", svg)
+    self.assertIn("ACUTE TARGETED INTRUSION", svg)
+    self.assertIn("CORPORATE ROLLOUT / PATCH TUESDAY", svg)
+    self.assertIn("+3.0σ Anomaly Ceiling", svg)
+    self.assertIn("malware.exe", svg)
+    self.assertIn("update.exe", svg)
+    self.assertIn("</svg>", svg)
+
+    html_widget = EntityRadarCollector.generate_prevalence_quadrant_html(findings)
+    self.assertIn("<!DOCTYPE html>", html_widget)
+    self.assertIn("<svg", html_widget)
+    self.assertIn("ACUTE TARGETED INTRUSION", html_widget)
+
 
 if __name__ == "__main__":
   unittest.main()

@@ -794,6 +794,316 @@ outcome:
         f'        {rows_joined}\n      </tbody>\n    </table>\n  </div>\n</body>\n</html>'
     )
 
+  @staticmethod
+  def generate_fleet_heatmap_svg(
+      fleet_matrix: List[Dict[str, Any]],
+      title: str = "360° Multi-Sector Fleet Threat Matrix",
+  ) -> str:
+    """Renders a standalone pure SVG 5-sector heatmap matrix for fleet reviews."""
+    canonical_sectors = [
+        "IAM & Authentication",
+        "Cloud Infrastructure",
+        "Workspace Data",
+        "Network Egress",
+        "DNS & Web Activity",
+    ]
+    col_x = {
+        "entity": 20,
+        "IAM & Authentication": 170,
+        "Cloud Infrastructure": 275,
+        "Workspace Data": 380,
+        "Network Egress": 485,
+        "DNS & Web Activity": 590,
+        "composite": 695,
+    }
+    cell_w = 95
+    cell_h = 28
+    row_h = 36
+    header_h = 75
+    svg_w = 810
+    svg_h = header_h + max(1, len(fleet_matrix)) * row_h + 20
+
+    elements = []
+    elements.append(f'<text x="20" y="28" font-size="16" font-weight="700" fill="#202124">{html.escape(title)}</text>')
+    elements.append('<text x="20" y="46" font-size="12" fill="#5f6368">5-Sector Behavioral Deviations across Fleet Entities</text>')
+
+    elements.append('<text x="20" y="68" font-size="11" font-weight="600" fill="#5f6368" text-anchor="start">Entity</text>')
+    for s in canonical_sectors:
+      cx = col_x[s] + cell_w / 2
+      s_short = s.replace(" & ", "/").replace(" Infrastructure", "").replace(" Activity", "")
+      elements.append(f'<text x="{cx:.1f}" y="68" font-size="11" font-weight="600" fill="#5f6368" text-anchor="middle">{html.escape(s_short)}</text>')
+    elements.append(f'<text x="{col_x["composite"] + 47.5}" y="68" font-size="11" font-weight="600" fill="#5f6368" text-anchor="middle">Composite</text>')
+    elements.append(f'<line x1="20" y1="74" x2="{svg_w - 20}" y2="74" stroke="#dadce0" stroke-width="1.5"/>')
+
+    for i, r in enumerate(fleet_matrix):
+      y = header_h + i * row_h
+      entity = str(r.get("entity", f"Entity-{i+1}"))
+      sec_dict = r.get("sectors", {})
+      d_val = float(r.get("threat_distance_d", 0.0))
+      cri_val = int(r.get("cri", 0))
+
+      elements.append(f'<text x="20" y="{y + 19}" font-size="12" font-weight="500" fill="#202124">{html.escape(entity)}</text>')
+
+      for s in canonical_sectors:
+        z = float(sec_dict.get(s, 0.0))
+        bg = "#fce8e6" if z >= 3.0 else ("#fef7e0" if z >= 2.0 else ("#e6f4ea" if z < 1.0 else "#f1f3f4"))
+        border = "#fad2cf" if z >= 3.0 else ("#feefc3" if z >= 2.0 else ("#ceead6" if z < 1.0 else "#dadce0"))
+        txt_c = "#c5221f" if z >= 3.0 else ("#b06000" if z >= 2.0 else ("#137333" if z < 1.0 else "#5f6368"))
+        bx = col_x[s]
+        by = y + 2
+        elements.append(f'<rect x="{bx}" y="{by}" width="{cell_w}" height="{cell_h}" rx="4" fill="{bg}" stroke="{border}" stroke-width="1"/>')
+        elements.append(f'<text x="{bx + cell_w/2:.1f}" y="{by + 18}" font-size="11" font-weight="600" fill="{txt_c}" text-anchor="middle">+{z:.2f}σ</text>')
+
+      badge_bg = "#fce8e6" if d_val >= 3.0 else ("#fef7e0" if d_val >= 2.0 else "#e6f4ea")
+      badge_border = "#fad2cf" if d_val >= 3.0 else ("#feefc3" if d_val >= 2.0 else "#ceead6")
+      badge_c = "#c5221f" if d_val >= 3.0 else ("#b06000" if d_val >= 2.0 else "#137333")
+      cmpx = col_x["composite"]
+      elements.append(f'<rect x="{cmpx}" y="{y + 2}" width="95" height="{cell_h}" rx="14" fill="{badge_bg}" stroke="{badge_border}" stroke-width="1"/>')
+      elements.append(f'<text x="{cmpx + 47.5:.1f}" y="{y + 20}" font-size="10" font-weight="700" fill="{badge_c}" text-anchor="middle">D={d_val:.2f}σ ({cri_val})</text>')
+
+    content = "\n    ".join(elements)
+    return f'<svg viewBox="0 0 {svg_w} {svg_h}" width="100%" height="{svg_h}" xmlns="http://www.w3.org/2000/svg">\n    {content}\n</svg>'
+
+  @staticmethod
+  def generate_dualy_timeline_svg(
+      timeline_points: List[Dict[str, Any]],
+      title: str = "Longitudinal Horizon Timeline: Observed Volume vs. Z-Score Drift",
+      entity: str = "Entity",
+      threshold_sigma: float = 3.0,
+  ) -> str:
+    """Renders a standalone pure SVG dual-Y axis chart (volume bars + Z-score path)."""
+    svg_w = 760
+    svg_h = 360
+    plot_x0 = 70
+    plot_x1 = 680
+    plot_y0 = 60
+    plot_y1 = 280
+    plot_w = plot_x1 - plot_x0
+    plot_h = plot_y1 - plot_y0
+
+    n_points = max(1, len(timeline_points))
+    raw_max_vol = max([float(p.get("volume", 0.0)) for p in timeline_points] + [10.0])
+    max_vol = raw_max_vol * 1.2
+    raw_max_z = max([float(p.get("z_score", 0.0)) for p in timeline_points] + [threshold_sigma + 0.5, 4.5])
+    max_z = math.ceil(raw_max_z)
+
+    elements = []
+    elements.append(f'<text x="20" y="28" font-size="15" font-weight="700" fill="#202124">{html.escape(title)}</text>')
+    elements.append(f'<text x="20" y="46" font-size="12" fill="#5f6368">Entity: {html.escape(entity)} | Mode B (14-Day Timeline) | Threshold: +{threshold_sigma:.1f}σ</text>')
+
+    # Grid & Left Y-Axis (Volume)
+    for step in [0.0, 0.25, 0.5, 0.75, 1.0]:
+      y_pos = plot_y1 - step * plot_h
+      val_vol = int(step * max_vol)
+      elements.append(f'<line x1="{plot_x0}" y1="{y_pos:.1f}" x2="{plot_x1}" y2="{y_pos:.1f}" stroke="#f1f3f4" stroke-width="1"/>')
+      elements.append(f'<text x="{plot_x0 - 8}" y="{y_pos + 4:.1f}" font-size="10" fill="#5f6368" text-anchor="end">{val_vol:,}</text>')
+
+    elements.append(f'<text x="18" y="{plot_y0 + plot_h/2}" font-size="11" font-weight="600" fill="#1a73e8" transform="rotate(-90 18 {plot_y0 + plot_h/2})" text-anchor="middle">Observed Volume</text>')
+
+    # Right Y-Axis (Z-Score)
+    for z_val in range(0, int(max_z) + 1):
+      y_pos = plot_y1 - (z_val / max_z) * plot_h
+      elements.append(f'<text x="{plot_x1 + 8}" y="{y_pos + 4:.1f}" font-size="10" fill="#d93025" font-weight="600" text-anchor="start">+{z_val}.0σ</text>')
+
+    elements.append(f'<text x="{svg_w - 14}" y="{plot_y0 + plot_h/2}" font-size="11" font-weight="600" fill="#d93025" transform="rotate(90 {svg_w - 14} {plot_y0 + plot_h/2})" text-anchor="middle">Z-Score Deviation (σ)</text>')
+
+    # Anomaly Threshold Line (+3.0 sigma)
+    thresh_y = plot_y1 - (threshold_sigma / max_z) * plot_h
+    elements.append(f'<line x1="{plot_x0}" y1="{thresh_y:.1f}" x2="{plot_x1}" y2="{thresh_y:.1f}" stroke="#d93025" stroke-width="1.5" stroke-dasharray="4,4"/>')
+    elements.append(f'<text x="{plot_x1 - 6}" y="{thresh_y - 6:.1f}" font-size="10" font-weight="700" fill="#d93025" text-anchor="end">+{threshold_sigma:.1f}σ Anomaly Ceiling</text>')
+
+    # Volume Bars & Trajectory Points
+    step_w = plot_w / n_points
+    bar_w = max(4.0, step_w * 0.55)
+    z_coords = []
+
+    for i, p in enumerate(timeline_points):
+      cx = plot_x0 + (i + 0.5) * step_w
+      vol = float(p.get("volume", 0.0))
+      z = float(p.get("z_score", 0.0))
+      dt_label = str(p.get("date", f"D{i+1}"))[-5:]
+
+      bar_h = (vol / max_vol) * plot_h
+      bar_y = plot_y1 - bar_h
+      bar_color = "#fce8e6" if z >= threshold_sigma else "#e8f0fe"
+      bar_border = "#fad2cf" if z >= threshold_sigma else "#1a73e8"
+      elements.append(f'<rect x="{cx - bar_w/2:.1f}" y="{bar_y:.1f}" width="{bar_w:.1f}" height="{bar_h:.1f}" rx="2" fill="{bar_color}" stroke="{bar_border}" stroke-width="1" opacity="0.85"/>')
+
+      zy = plot_y1 - (max(0.0, z) / max_z) * plot_h
+      z_coords.append((cx, zy, z))
+
+      elements.append(f'<text x="{cx:.1f}" y="{plot_y1 + 18}" font-size="10" fill="#5f6368" text-anchor="middle">{html.escape(dt_label)}</text>')
+
+    # Draw Z-Score Line Path
+    if z_coords:
+      path_d = f"M {z_coords[0][0]:.1f} {z_coords[0][1]:.1f} " + " ".join(f"L {x:.1f} {y:.1f}" for x, y, _ in z_coords[1:])
+      elements.append(f'<path d="{path_d}" fill="none" stroke="#d93025" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>')
+
+      for x, y, z in z_coords:
+        pt_color = "#d93025" if z >= threshold_sigma else "#1a73e8"
+        elements.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="4" fill="{pt_color}" stroke="#ffffff" stroke-width="1.5"/>')
+        if z >= threshold_sigma:
+          elements.append(f'<text x="{x:.1f}" y="{y - 9:.1f}" font-size="10" font-weight="700" fill="#d93025" text-anchor="middle">+{z:.1f}σ</text>')
+
+    elements.append(f'<line x1="{plot_x0}" y1="{plot_y1}" x2="{plot_x1}" y2="{plot_y1}" stroke="#bdc1c6" stroke-width="1"/>')
+    elements.append(f'<line x1="{plot_x0}" y1="{plot_y0}" x2="{plot_x0}" y2="{plot_y1}" stroke="#bdc1c6" stroke-width="1"/>')
+    elements.append(f'<line x1="{plot_x1}" y1="{plot_y0}" x2="{plot_x1}" y2="{plot_y1}" stroke="#bdc1c6" stroke-width="1"/>')
+
+    # Legend
+    elements.append(
+        f'<g transform="translate({plot_x0}, {plot_y1 + 35})">'
+        f'<rect x="0" y="0" width="12" height="12" rx="2" fill="#e8f0fe" stroke="#1a73e8"/>'
+        f'<text x="18" y="10" font-size="11" fill="#3c4043">Observed Volume</text>'
+        f'<line x1="140" y1="6" x2="165" y2="6" stroke="#d93025" stroke-width="2.5"/>'
+        f'<circle cx="152.5" cy="6" r="3.5" fill="#d93025"/>'
+        f'<text x="172" y="10" font-size="11" fill="#3c4043">Z-Score Deviation</text>'
+        f'<line x1="310" y1="6" x2="335" y2="6" stroke="#d93025" stroke-width="1.5" stroke-dasharray="3,3"/>'
+        f'<text x="342" y="10" font-size="11" fill="#d93025">+{threshold_sigma:.1f}σ Threshold</text>'
+        f'</g>'
+    )
+
+    content = "\n    ".join(elements)
+    return f'<svg viewBox="0 0 {svg_w} {svg_h}" width="100%" height="{svg_h}" xmlns="http://www.w3.org/2000/svg">\n    {content}\n</svg>'
+
+  @staticmethod
+  def generate_dualy_timeline_html(
+      timeline_points: List[Dict[str, Any]],
+      title: str = "Longitudinal Horizon Timeline: Observed Volume vs. Z-Score Drift",
+      entity: str = "Entity",
+      threshold_sigma: float = 3.0,
+  ) -> str:
+    """Renders a responsive standalone HTML card wrapping the pure SVG dual-Y timeline."""
+    svg_chart = EntityRadarCollector.generate_dualy_timeline_svg(
+        timeline_points=timeline_points, title=title, entity=entity, threshold_sigma=threshold_sigma
+    )
+    return (
+        f'<!DOCTYPE html>\n<html>\n<head>\n  <meta charset="utf-8">\n'
+        f'  <title>{html.escape(title)}</title>\n  <style>\n'
+        f'    body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 16px; background: #fafafa; display: flex; justify-content: center; }}\n'
+        f'    .card {{ width: 100%; max-width: 800px; background: #ffffff; border: 1px solid #e8eaed; border-radius: 12px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }}\n'
+        f'  </style>\n</head>\n<body>\n  <div class="card">\n'
+        f'    {svg_chart}\n'
+        f'  </div>\n</body>\n</html>'
+    )
+
+  @staticmethod
+  def generate_prevalence_quadrant_svg(
+      findings: List[Dict[str, Any]],
+      title: str = "Prevalence vs. Anomaly Quadrant (Patch Tuesday Shield)",
+      prevalence_threshold: int = 5,
+      sigma_threshold: float = 3.0,
+  ) -> str:
+    """Renders a standalone pure SVG 2D quadrant scatter for prevalence discounting."""
+    svg_w = 740
+    svg_h = 420
+    plot_x0 = 80
+    plot_x1 = 680
+    plot_y0 = 60
+    plot_y1 = 340
+    plot_w = plot_x1 - plot_x0
+    plot_h = plot_y1 - plot_y0
+
+    max_prev = max([float(f.get("fleet_adopters", 1)) for f in findings] + [50.0])
+    max_z = max([float(f.get("personal_z", 0.0)) for f in findings] + [sigma_threshold + 1.0, 5.0])
+    log_max_prev = math.log10(max(10.0, max_prev))
+
+    def x_coord(prev_val: float) -> float:
+      p = max(1.0, prev_val)
+      ratio = math.log10(p) / log_max_prev
+      return plot_x0 + ratio * plot_w
+
+    def y_coord(z_val: float) -> float:
+      z = max(0.0, z_val)
+      ratio = z / max_z
+      return plot_y1 - ratio * plot_h
+
+    split_x = x_coord(prevalence_threshold)
+    split_y = y_coord(sigma_threshold)
+
+    elements = []
+    elements.append(f'<text x="20" y="28" font-size="15" font-weight="700" fill="#202124">{html.escape(title)}</text>')
+    elements.append(f'<text x="20" y="46" font-size="12" fill="#5f6368">Fleet Adopters vs. Personal Z-Score Deviation | Shield Hurdle: &le;{prevalence_threshold} hosts</text>')
+
+    # Shaded Quadrants
+    elements.append(f'<rect x="{plot_x0}" y="{plot_y0}" width="{split_x - plot_x0:.1f}" height="{split_y - plot_y0:.1f}" fill="#fce8e6" opacity="0.6"/>')
+    elements.append(f'<text x="{plot_x0 + 12}" y="{plot_y0 + 20}" font-size="11" font-weight="700" fill="#c5221f">🚨 ACUTE TARGETED INTRUSION</text>')
+    elements.append(f'<text x="{plot_x0 + 12}" y="{plot_y0 + 34}" font-size="9" fill="#c5221f">High Surge on Isolated Host</text>')
+
+    elements.append(f'<rect x="{split_x}" y="{plot_y0}" width="{plot_x1 - split_x:.1f}" height="{split_y - plot_y0:.1f}" fill="#fef7e0" opacity="0.6"/>')
+    elements.append(f'<text x="{split_x + 12:.1f}" y="{plot_y0 + 20}" font-size="11" font-weight="700" fill="#b06000">🛡️ CORPORATE ROLLOUT / PATCH TUESDAY</text>')
+    elements.append(f'<text x="{split_x + 12:.1f}" y="{plot_y0 + 34}" font-size="9" fill="#b06000">Concurrent Fleet Adoption (Suppressed)</text>')
+
+    elements.append(f'<rect x="{plot_x0}" y="{split_y}" width="{plot_w:.1f}" height="{plot_y1 - split_y:.1f}" fill="#f1f3f4" opacity="0.5"/>')
+    elements.append(f'<text x="{plot_x0 + 12}" y="{plot_y1 - 12}" font-size="10" font-weight="600" fill="#5f6368">🟢 Nominal Operational Baseline (Z &lt; {sigma_threshold:.1f}σ)</text>')
+
+    # Threshold Divider Lines
+    elements.append(f'<line x1="{split_x:.1f}" y1="{plot_y0}" x2="{split_x:.1f}" y2="{plot_y1}" stroke="#5f6368" stroke-width="1.5" stroke-dasharray="4,4"/>')
+    elements.append(f'<line x1="{plot_x0}" y1="{split_y:.1f}" x2="{plot_x1}" y2="{split_y:.1f}" stroke="#d93025" stroke-width="1.5" stroke-dasharray="4,4"/>')
+    elements.append(f'<text x="{plot_x1 - 6}" y="{split_y - 6:.1f}" font-size="10" font-weight="700" fill="#d93025" text-anchor="end">+{sigma_threshold:.1f}σ Anomaly Ceiling</text>')
+
+    # Axes
+    elements.append(f'<line x1="{plot_x0}" y1="{plot_y1}" x2="{plot_x1}" y2="{plot_y1}" stroke="#202124" stroke-width="1.5"/>')
+    elements.append(f'<line x1="{plot_x0}" y1="{plot_y0}" x2="{plot_x0}" y2="{plot_y1}" stroke="#202124" stroke-width="1.5"/>')
+
+    for tick in [1, 2, 5, 10, 25, 50, 100, 250, 500]:
+      if tick <= max_prev * 1.1:
+        tx = x_coord(tick)
+        elements.append(f'<line x1="{tx:.1f}" y1="{plot_y1}" x2="{tx:.1f}" y2="{plot_y1 + 4}" stroke="#5f6368"/>')
+        elements.append(f'<text x="{tx:.1f}" y="{plot_y1 + 16}" font-size="10" fill="#5f6368" text-anchor="middle">{tick}</text>')
+
+    elements.append(f'<text x="{plot_x0 + plot_w/2}" y="{plot_y1 + 32}" font-size="11" font-weight="600" fill="#202124" text-anchor="middle">Fleet Prevalence (Host Adopter Count - Log Scale)</text>')
+
+    for z in range(0, int(max_z) + 1):
+      ty = y_coord(z)
+      elements.append(f'<line x1="{plot_x0 - 4}" y1="{ty:.1f}" x2="{plot_x0}" y2="{ty:.1f}" stroke="#5f6368"/>')
+      elements.append(f'<text x="{plot_x0 - 8}" y="{ty + 4:.1f}" font-size="10" fill="#202124" font-weight="600" text-anchor="end">+{z}.0σ</text>')
+
+    elements.append(f'<text x="24" y="{plot_y0 + plot_h/2}" font-size="11" font-weight="600" fill="#202124" transform="rotate(-90 24 {plot_y0 + plot_h/2})" text-anchor="middle">Personal Z-Score Deviation</text>')
+
+    # Plot Findings Points
+    for f in findings:
+      k_prev = float(f.get("fleet_adopters", 1))
+      z_val = float(f.get("personal_z", 0.0))
+      label = str(f.get("token", f.get("entity", "Entity")))
+      if len(label) > 16:
+        label = label[:14] + "..."
+
+      px = x_coord(k_prev)
+      py = y_coord(z_val)
+      is_targeted = (z_val >= sigma_threshold and k_prev <= prevalence_threshold)
+      is_rollout = (z_val >= sigma_threshold and k_prev > prevalence_threshold)
+
+      pt_c = "#d93025" if is_targeted else ("#f9ab00" if is_rollout else "#1a73e8")
+      pt_r = 6 if (is_targeted or is_rollout) else 4
+
+      elements.append(f'<circle cx="{px:.1f}" cy="{py:.1f}" r="{pt_r}" fill="{pt_c}" stroke="#ffffff" stroke-width="1.5"/>')
+      text_color = "#c5221f" if is_targeted else ("#b06000" if is_rollout else "#3c4043")
+      elements.append(f'<text x="{px + 8:.1f}" y="{py + 4:.1f}" font-size="10" font-weight="600" fill="{text_color}">{html.escape(label)} (+{z_val:.1f}σ, {int(k_prev)}h)</text>')
+
+    content = "\n    ".join(elements)
+    return f'<svg viewBox="0 0 {svg_w} {svg_h}" width="100%" height="{svg_h}" xmlns="http://www.w3.org/2000/svg">\n    {content}\n</svg>'
+
+  @staticmethod
+  def generate_prevalence_quadrant_html(
+      findings: List[Dict[str, Any]],
+      title: str = "Prevalence vs. Anomaly Quadrant (Patch Tuesday Shield)",
+      prevalence_threshold: int = 5,
+      sigma_threshold: float = 3.0,
+  ) -> str:
+    """Renders a responsive standalone HTML card wrapping the pure SVG prevalence quadrant."""
+    svg_chart = EntityRadarCollector.generate_prevalence_quadrant_svg(
+        findings=findings, title=title, prevalence_threshold=prevalence_threshold, sigma_threshold=sigma_threshold
+    )
+    return (
+        f'<!DOCTYPE html>\n<html>\n<head>\n  <meta charset="utf-8">\n'
+        f'  <title>{html.escape(title)}</title>\n  <style>\n'
+        f'    body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 16px; background: #fafafa; display: flex; justify-content: center; }}\n'
+        f'    .card {{ width: 100%; max-width: 780px; background: #ffffff; border: 1px solid #e8eaed; border-radius: 12px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }}\n'
+        f'  </style>\n</head>\n<body>\n  <div class="card">\n'
+        f'    {svg_chart}\n'
+        f'  </div>\n</body>\n</html>'
+    )
+
 
 
 def main():

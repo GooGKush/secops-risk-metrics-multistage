@@ -79,7 +79,26 @@ class TestRiskMetricsChartSpecifications(unittest.TestCase):
     self.assertEqual(spec["layer"][0]["encoding"]["x"]["field"], "threat_distance_d")
     self.assertEqual(spec["layer"][1]["mark"]["type"], "rule")
 
+  def test_pure_svg_guide_specifications(self):
+    """chart-specifications-guide.md must provide declarative pure SVG XML templates for headless MCP clients."""
+    guide_path = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "references", "chart-specifications-guide.md")
+    )
+    self.assertTrue(os.path.exists(guide_path), "chart-specifications-guide.md must exist")
+    with open(guide_path, "r", encoding="utf-8") as f:
+      content = f.read()
+
+    self.assertIn("## 9. Pure SVG Vector Layouts for Headless MCP Clients & Sandboxed UIs", content)
+    self.assertIn("Fleet Multi-Sector Anomaly Heatmap", content)
+    self.assertIn("Longitudinal Horizon Timeline: Observed Volume vs. Z-Score Drift", content)
+    self.assertIn("Prevalence vs. Anomaly Quadrant (Patch Tuesday Shield)", content)
+    self.assertIn("<svg viewBox=\"0 0 680", content)
+    self.assertIn("<svg viewBox=\"0 0 760", content)
+    self.assertIn("<svg viewBox=\"0 0 740", content)
+    self.assertIn("Headless MCP Client", content)
+
 
 if __name__ == '__main__':
   unittest.main()
+
 
