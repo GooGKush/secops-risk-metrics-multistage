@@ -1,6 +1,6 @@
 # Google SecOps Multi-Stage Risk Metrics Threat Hunter (`secops-risk-metrics-multistage`)
 
-[![Version](https://img.shields.io/badge/version-v1.6.4-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-193%2F193%20passing%20(100%25)-brightgreen.svg)](tests/) [![Submission Tests](https://img.shields.io/badge/submission%20tests-27%2F27%20passing%20(100%25)-brightgreen.svg)](scripts/submission_tests.py) [![Dual Platform Regression](https://img.shields.io/badge/dual--platform%20regression-26%2F26%20passing%20(100%25)-brightgreen.svg)](reports/)
+[![Version](https://img.shields.io/badge/version-v1.6.5-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-201%2F201%20passing%20(100%25)-brightgreen.svg)](tests/) [![Submission Tests](https://img.shields.io/badge/submission%20tests-27%2F27%20passing%20(100%25)-brightgreen.svg)](scripts/submission_tests.py) [![Dual Platform Regression](https://img.shields.io/badge/dual--platform%20regression-26%2F26%20passing%20(100%25)-brightgreen.svg)](reports/)
 
 A specialized, production-grade AI agent skill package for **Google Security Operations (SecOps / Chronicle SIEM & SOAR)** that constructs, validates, and executes **Multi-Stage YARA-L 2.0 Directed Acyclic Graph (DAG) statistical threat hunting pipelines**, **360° Entity Behavioral Risk Radars**, and **Progressively Disclosed Consultative Threat Hunting**.
 
@@ -26,6 +26,7 @@ secops-risk-metrics-multistage/
 │   ├── 360-behavioral-radar-guide.md     # Canonical 360° radar execution playbook & visual architecture
 │   ├── calibrated-risk-index-guide.md    # CRI [0–100] sigmoid score translation guide
 │   ├── chart-specifications-guide.md     # Vega-Lite & Chart.js declarative visual contracts
+│   ├── clean-handoff-guide.md            # Affirmative clean hand-off execution procedures & API calls
 │   ├── clean-handoff-udm-schema.md       # 9 UDM event schemas & Catch-All case promotion rule
 │   ├── compiler-submission-policy.md     # Chronicle SIEM Malachite compiler grammar & invariants
 │   ├── consultative-worksheet.md         # Master consultative guidance worksheet & attack vector taxonomy
@@ -81,6 +82,7 @@ secops-risk-metrics-multistage/
 │       └── variance_fano.yl2
 ├── scripts/                              # Verification, execution, collector, & formatting utilities
 │   ├── chart_generator.py                # Formats hunt outputs into Vega-Lite & Chart.js specs
+│   ├── clean_handoff.py                  # Synthetic UDM telemetry formulation & Chronicle ingestion
 │   ├── data_reduction.py                 # Multi-stage DAG syntax reduction engine
 │   ├── federated_handoff.py              # Cross-skill bilateral threat hunt handoff protocol
 │   ├── generate_references.py            # Code-as-SSOT reference documentation generator
@@ -89,8 +91,9 @@ secops-risk-metrics-multistage/
 │   ├── submission_tests.py               # Canonical 27-case compiler verification test harness
 │   ├── template_router.py                # Maps natural language intent to .yl2 templates with condition filtering
 │   └── triage_formatter.py               # Generates 6-section triage reports & CRI scores
-└── tests/                                # Automated unit test suite (193 tests across 16 test modules)
+└── tests/                                # Automated unit test suite (201 tests across 17 test modules)
     ├── test_chart_specifications.py
+    ├── test_clean_handoff.py
     ├── test_complex_multistage_syntax.py
     ├── test_cri_and_math.py
     ├── test_exhaustive_matrix_syntax.py

@@ -1,10 +1,44 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.6.4)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.6.5)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v1.6.4 (Minor Point Release) — September 2026  
+**Latest Version**: v1.6.5 (Minor Point Release) — September 2026  
+
+---
+
+## 📢 What's New in v1.6.5 (Minor Point Release) — Clean Hand-Off Synthetic UDM Ingestion, Multi-Finding Correlated Batching & Official Google Cloud UDM Specification Conformance
+
+### 1. Hardened Clean Hand-Off Synthetic UDM Ingestion Pipeline
+* **Affirmative Guidance & Procedure Codification**:
+  - Replaced ad-hoc synthetic event emission with progressive procedural codification in `references/clean-handoff-guide.md` and automated Python generator module `scripts/clean_handoff.py`.
+  - Enforced affirmative routing: when the hunt completes with positive anomalies, the analyst is provided the 1-Click Clean Hand-Off card and, upon confirmation, the agent ingests synthetic UDM security events directly via `secops-gus:import_logs`.
+  - Designated forwarder ingestion (`forwarderId`) strictly as a fallback; direct API ingestion via the service account's IAM credentials is the primary, robust mechanism.
+  - Specified canonical Chronicle parser log type: `CUSTOM_SECURITY_DATA_ANALYTICS`.
+
+### 2. Official Google Cloud UDM Field Compliance & Schema Validation
+* **Strict Real-World Schema Alignment**:
+  - Standardized all emitted synthetic security events against official Google Cloud Chronicle UDM field recommendations:
+    - Microsecond-precision ISO 8601 UTC timestamps (`eventTimestamp: "YYYY-MM-DDTHH:MM:SS.ffffffZ"`).
+    - Standard integer Composite Risk Index (`security_result.risk_score` $0 \le \text{CRI} \le 100$).
+    - Fully populated `observer` metadata block (`vendor_name: "Google Cloud SecOps"`, `product_name: "SecOps Risk Analytics UEBA"`, version, and tenant customer ID).
+    - Strict string enumeration for resource types (`RESOURCE_TYPE_UNSPECIFIED`) to eliminate legacy integer (`0`) schema rejections.
+  - Built programmatic validation via `validate_clean_handoff_udm()` to verify field conformance prior to ingestion.
+
+### 3. Multi-Finding Correlated Batching
+* **Unified Campaign Grouping**:
+  - Native support for multi-event array generation `[ {"udm": ...}, ... ]` for hunts uncovering multiple correlated findings (e.g. volumetric anomaly + lateral movement + dormant awakening).
+  - Automatically joins multi-event batches under a shared `Hunt Campaign ID` (`security_result.detection_fields["hunt_campaign_id"]`).
+
+### 4. Comprehensive Test Suite & Parity
+* **201/201 Pytest Unit Tests Passed (100% Green)**:
+  - Added `tests/test_clean_handoff.py` covering event construction across all 9 canonical product types, multi-finding batches, schema validation, forwarder fallback, and payload argument preparation.
+* **Live Ingestion Verified Against Production SecOps**:
+  - Validated live synthetic UDM ingestion on tenant `gus-sdl` (`8cbac5ae-8267-4da7-b405-cdbc6fa3f1d5`), returning HTTP 200 OK (`{}`).
+* **26/26 Scenarios Passed in Dual-Engine Conversational Regression**:
+  - Achieved 100% invariant pass parity across AgentAPI and Direct MCP headless clients (`run_regress.py --engine dual`).
+  - Formally resolved transient clearance gate contention in `REG-P1-14` (Hybrid Orthogonal Space), confirming zero open defects on `main`.
 
 ---
 
