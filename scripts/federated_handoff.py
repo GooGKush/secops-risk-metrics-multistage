@@ -33,6 +33,7 @@ SUPPORTED_INTENTS = [
     "BAYESIAN_JOINT_ODDS",
     "TWO_PART_HURDLE",
     "FLEET_PREVALENCE_NORMALIZATION",
+    "PRIVILEGED_LATERAL_EXPANSION",
 ]
 
 
@@ -78,6 +79,11 @@ def build_handoff_payload(
           "Macro surge detected for token/binary; delegating to fleet-wide prevalence probe "
           "to normalize against enterprise-wide administrative rollouts."
       )
+    elif any(kw in intent_upper for kw in ["LATERAL", "BIPARTITE", "UNSEEN_ENDPOINT"]):
+      justification = (
+          "Bipartite user-to-host machine access history and destination expansion require "
+          "ad-hoc bounded lookback over raw USER_LOGIN events; delegating to statistical hunter."
+      )
     elif any(kw in intent_upper for kw in ["ENRICHMENT", "RAW_TELEMETRY", "DUAL_PLANE"]):
       justification = (
           "Macro 30-day baseline flagged a statistically significant volume outlier; "
@@ -114,6 +120,11 @@ def build_handoff_payload(
   elif any(kw in intent_upper for kw in ["FLEET_PREVALENCE", "PATCH_TUESDAY"]):
     if "max_fleet_adopters" not in model_params:
       model_params["max_fleet_adopters"] = 3
+  elif any(kw in intent_upper for kw in ["LATERAL", "BIPARTITE", "EXPANSION"]):
+    if "min_distinct_targets" not in model_params:
+      model_params["min_distinct_targets"] = 3
+    if "min_z_score" not in model_params:
+      model_params["min_z_score"] = 2.0
   elif any(kw in intent_upper for kw in ["ENRICHMENT", "RAW_TELEMETRY", "DUAL_PLANE"]):
     if "enrichment_vector" not in model_params:
       model_params["enrichment_vector"] = "NETWORK_HTTP_USER_AGENT"

@@ -1,6 +1,6 @@
 # Google SecOps Multi-Stage Risk Metrics Threat Hunter (`secops-risk-metrics-multistage`)
 
-[![Version](https://img.shields.io/badge/version-v1.6.2-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-192%2F192%20passing%20(100%25)-brightgreen.svg)](tests/) [![Submission Tests](https://img.shields.io/badge/submission%20tests-27%2F27%20passing%20(100%25)-brightgreen.svg)](scripts/submission_tests.py) [![Dual Platform Regression](https://img.shields.io/badge/dual--platform%20regression-22%2F22%20passing%20(100%25)-brightgreen.svg)](reports/)
+[![Version](https://img.shields.io/badge/version-v1.6.3-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-193%2F193%20passing%20(100%25)-brightgreen.svg)](tests/) [![Submission Tests](https://img.shields.io/badge/submission%20tests-27%2F27%20passing%20(100%25)-brightgreen.svg)](scripts/submission_tests.py) [![Dual Platform Regression](https://img.shields.io/badge/dual--platform%20regression-22%2F22%20passing%20(100%25)-brightgreen.svg)](reports/)
 
 A specialized, production-grade AI agent skill package for **Google Security Operations (SecOps / Chronicle SIEM & SOAR)** that constructs, validates, and executes **Multi-Stage YARA-L 2.0 Directed Acyclic Graph (DAG) statistical threat hunting pipelines**, **360° Entity Behavioral Risk Radars**, and **Progressively Disclosed Consultative Threat Hunting**.
 
@@ -89,7 +89,7 @@ secops-risk-metrics-multistage/
 │   ├── submission_tests.py               # Canonical 27-case compiler verification test harness
 │   ├── template_router.py                # Maps natural language intent to .yl2 templates with condition filtering
 │   └── triage_formatter.py               # Generates 6-section triage reports & CRI scores
-└── tests/                                # Automated unit test suite (192 tests across 16 test modules)
+└── tests/                                # Automated unit test suite (193 tests across 16 test modules)
     ├── test_chart_specifications.py
     ├── test_complex_multistage_syntax.py
     ├── test_cri_and_math.py
@@ -120,8 +120,8 @@ secops-risk-metrics-multistage/
      * **Tier 1 (Known Knowns)**: Volumetric spikes and acute bursts (Standard $Z$, Piecewise CRI).
      * **Tier 2 (Known Unknowns / Static Rule Blind Spots)**: Low-and-slow trickles, dormancy breaks, off-hours circadian shifts, beaconing jitter, and persistent baseline drift (CUSUM, Two-Part Hurdle, Hourly $Z$, Poisson Rarity).
      * **Tier 3 (Unknown Unknowns / Cross-Silo Anomalies)**: Multi-vector orthogonal dispersion across disparate telemetry silos ($D \ge 3.5\sigma$ 360° Risk Radar).
-   * Formulates an operational **"Summary View"** highlighting the **Threat Hypothesis**, **Recommended Method & Rationale**, and **Alternative Vectors**.
-   * Enforces the **Expert Bypass Rule**: when an experienced practitioner specifies both scope/vector and statistical model up front, consultation is cleanly bypassed directly to Phase 1B pre-flight clearance.
+   * Formulates an operational **"Summary View"** highlighting the **Threat Hypothesis**, **Recommended Method & Rationale**, and **Alternative Vectors**, protected by a strict **Anti-Auth-Defaulting Guardrail** (preventing default fall-through to authentication logs during open-ended consultative inquiries).
+   * Enforces the **Expert Bypass Fast-Track Protocol**: when an experienced practitioner specifies both scope/vector and statistical model up front, consultation is cleanly bypassed directly to Phase 1B pre-flight clearance, eliminating false rule-generation leakage.
 3. **360° Entity Behavioral Risk Radar (All-Vectors Profiling)**:
    * Generates comprehensive behavioral fingerprints across the **5 canonical risk sectors**: Authentication & Access, Cloud Resource CRUD, Workspace & SaaS, Network Egress, and DNS & Web Activity.
    * Leverages decoupled 2-stage parallel micro-queries to eliminate inner-join drops (`maxJoinCount = 4` protection), synthesizing findings into the Euclidean Threat Distance norm:
@@ -201,7 +201,7 @@ The skill is validated through a comprehensive three-tier testing hierarchy:
 ```bash
 python3 -m unittest discover tests
 ```
-* **Status**: **192 / 192 passing unit tests** across 16 test modules (100% pass rate).
+* **Status**: **193 / 193 passing unit tests** across 16 test modules (100% pass rate).
 * **Scope**: Enforces AST grammar rules, KaTeX formatting compliance, prompt guardrail contracts, 20 KB token efficiency ceilings, and template router permutations.
 
 ### 2. Google SecOps Malachite Compiler Submission Harness

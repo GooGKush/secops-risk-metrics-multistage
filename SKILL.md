@@ -1,15 +1,13 @@
 ---
 name: secops-risk-metrics-multistage
 author: Greg Kushmerek
-description: |
-  Multi-stage statistical outlier hunting in Google SecOps using Risk Analytics metrics (`metrics.*`) DAGs.
-  Triggers: "hunt with risk metrics", "multi-stage outlier", "MAD on network bytes", "fleet outlier", "360 risk radar", "same query for".
+description: Multi-stage statistical outlier hunting in Google SecOps via Risk Analytics metrics (`metrics.*`) DAGs.
 compatibility: Requires Google SecOps with Risk Analytics and SecOps GUS MCP.
 ---
 
 # SecOps Risk Metrics Multi-Stage Statistical Hunter (`secops-risk-metrics-multistage`)
 
-Executes multi-sector statistical outlier hunting using 30-day Risk Analytics metrics (`metrics.*`).
+Executes multi-sector statistical outlier hunting using 30-day Risk Analytics (`metrics.*`).
 
 ---
 
@@ -17,6 +15,7 @@ Executes multi-sector statistical outlier hunting using 30-day Risk Analytics me
 * **30-Day Baselines** (`metrics.*`) / **Peer Cohorts** / **Multi-Sector Fusion**: Execute this skill (`secops-risk-metrics-multistage`).
 * **Dual-Layer Defense for Trickle Attacks**: Layer 1 is Mode B Longitudinal CUSUM Drift ($S_t^+ \ge 4.0\sigma$ on `metrics.dns_queries_total`); Layer 2 is handoff to `secops-statistical-hunter` ($CV \le 0.20$).
 * **Sub-Second Jitter Boundary**: Metrics tables cannot compute sub-second deltas; for beaconing jitter, emit Skill Handoff Card to `secops-statistical-hunter` and yield turn (0 tools called).
+* **Privileged Lateral Movement & Unseen Endpoints**: Bipartite user-host history requires bounded lookback over raw `USER_LOGIN` logs; emit **Skill Handoff Card** to `secops-statistical-hunter` (`intent: PRIVILEGED_LATERAL_EXPANSION`) and yield turn (0 tools called).
 * **Non-Metrics Telemetry Steering Mandate** (Git, raw UDM): Emit **Skill Handoff Card** and steer to `secops-statistical-hunter`.
 * **Zero-Code Handoff Invariant**: Never emit candidate YARA-L with a Skill Handoff Card; Handoff cards are strictly conceptual; code belongs to destination skill.
 
@@ -45,7 +44,7 @@ Phase 1B is **ONLY UNLOCKED** when **BOTH** are explicitly defined:
 1. **Entity Scope** (user, cohort, fleet / cloud) **AND**
 2. **Telemetry Vector(s)** (Cloud CRUD, Workspace, Net Egress, Endpoint, Auth).
 
-> **Expert Bypass Rule**: When both scope/vector and statistical model are specified (e.g. *"Run CUSUM drift on Frank's DNS queries"*), bypass consultation and jump directly to Phase 1B Pre-Flight Card. Never delay experienced practitioners.
+> **Expert Bypass Fast-Track Protocol**: When both scope/vector and statistical model are specified (e.g. *"Run CUSUM drift on Frank's DNS queries"*), bypass consultation and jump directly to Phase 1B Pre-Flight Card. Never delay experienced practitioners.
 
 > **Progressively Disclosed Consultative Guidance**:
 > When intent or vector is unspecified, inspect `references/consultative-worksheet.md`:
@@ -61,7 +60,7 @@ Phase 1B is **ONLY UNLOCKED** when **BOTH** are explicitly defined:
 When profiling multiple sectors (*"multi-sector fusion"*, *"visualize all risk vectors"*, *"360 health check"*), see `references/360-behavioral-radar-guide.md`.
 * **Architecture**: Decoupled micro-queries (`templates/pipelines/radar_360_decoupled_sector.yl2`) across 5 canonical sectors (Auth, Cloud, Workspace, Network, DNS).
 * **Query Continuity**: In candidate preview and Pillar 2, display single representative sector micro-query (`stage auth_risk` with `order: $z desc`). Auto-bypass Mode B.
-* **Native Reporting**: In Jetski (`run_command` present), embed via `<agent-embed>`; in MCP / Webview / agentapi, render pure inline `<svg>` in Pillar 1. Zero data-uri or raw SVG in chat Markdown. Client Tool (if present).
+* **Native Reporting**: If webview requested or in MCP/agentapi: render pure inline `<svg>` in Pillar 1 (zero `<agent-embed>`). Otherwise in Jetski: embed via `<agent-embed>`. Never mix surfaces. Client Tool (if present).
 
 ### ☁️ Cloud Telemetry Scope & Anti-Narrowing Invariant
 * In service account cloud repository access (`resource_read_*`, `resource_written_*`), NEVER narrow to 1 product; use `templates/pipelines/cloud_repository_scope_dual_branch.yl2` with `($sa, $vendor, $product, $resource, $ip by 1d)`. Reads use `RESOURCE_READ` or `USER_RESOURCE_ACCESS` (never `USER_RESOURCE_READ`).
@@ -103,7 +102,7 @@ Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to bo
 
 1. **Execution Telemetry Retrieval Mandate**: On explicit Mode A/B clearance, execute single-event `udm_search(query="<single_event_udm_filter>")`. Multi-stage YARA-L in `udm_search` is PROHIBITED (causes 400); multi-stage belongs in Pillar 2.
 2. **Deterministic 6-Pillar Report Structure**: Synthesize findings into the complete 6-pillar report:
-#### 1. Statistical Outlier Report: `[Target Metric]` ([Statistical Model]) (`window: 30d`). Single visual surface: `<agent-embed>` in Jetski (`run_command` present); `<svg>` in MCP; Client Tool (if present); ASCII on request. Zero data-uri or raw SVG in chat Markdown. Unicode magnitude bars (`▰▰▰▰▱▱▱▱`).
+#### 1. Statistical Outlier Report: `[Target Metric]` ([Statistical Model]) (`window: 30d`). Single visual surface: <agent-embed> in Jetski (`run_command` present); <svg> in MCP/webview; Client Tool (if present); ASCII on request. Zero data-uri or raw SVG in chat Markdown. Unicode magnitude bars (`▰▰▰▰▱▱▱▱`).
 #### 2. Executed Multi-Stage YARA-L Query: Verbatim mirror approved Turn 1 candidate query block. For 360 Radar, display executed sector micro-queries (representative micro-query `stage auth_risk` with `order: $z desc`; never `events:`, `$e.`, `rule ... { ... }`, or `math.sqrt`). Raw event filters (e.g. `principal.user.userid = ...`) are STRICTLY PROHIBITED in Pillar 2.
 #### 3. Ranked Outlier Summary & Provenance Stamp: Columns: `Entity`, `24h Observed`, `30d Mean (μ)`, `30d StdDev (σ)`, `Z-Score`, `CRI Score`, `Visual Magnitude`. Stamp execution provenance (events scanned, query execution time, projected schema columns).
 #### 4. Forensic Vector Breakdown: Threat translation, scenarios, SOC playbook.
@@ -153,7 +152,7 @@ Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to bo
 * **Strict Nomenclature Mandate**: Ad-hoc hunt logic is a Query, never a Rule (CRITICAL NOMENCLATURE VIOLATION).
 * **Zero Gratuitous Entity Graph Injection (ON-DEMAND / ALGORITHMIC GROUNDING ONLY)**: Entity Graph constructs must NEVER be injected gratuitously or speculatively. Include ONLY on Direct Customer Request (On-Demand) or Algorithmic Grounding.
 * **Interactive Entity Graph Rarity & Context Discovery** & **10-Day Prevalence Platform Invariant**: Bind Entity Graph dimensions (Domain Rarity, Fleet Prevalence, Binary Rarity, IP Rarity; `day_count = 10`) into Stage 2 on demand.
-* **Typography Invariants**: No bold math (write `$+4.16\sigma$`); Unicode `(μ)`, `(σ)` in tables. `$$\text{CRI} = \min(100, \max(0, \frac{Z}{3.0} \times 50))$$` and `$$D = \sqrt{\sum_{i=1}^5 Z_i^2}$$.` Flush-left `$$` on own lines.
+* **Typography Invariants**: No bold math (`$+4.16\sigma$`); Unicode `(μ)`, `(σ)` in tables; flush-left `$$` on own lines.
 
 ---
 

@@ -1,10 +1,46 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.6.2)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.6.3)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v1.6.2 (Minor Point Release) — September 2026  
+**Latest Version**: v1.6.3 (Minor Point Release) — September 2026  
+
+---
+
+## 📢 What's New in v1.6.3 (Minor Point Release) — Anti-Auth Defaulting Guardrail, Federated Lateral Expansion & Streaming Rule Elimination
+
+### 1. Anti-Auth-Defaulting Guardrail & Strict Conversational Break in Phase 1A
+* **Open-Ended Consultative Invariant**:
+  - In open-ended consultative inquiries where the analyst specifies entities or hypotheses but omits specific telemetry vectors, the agent is strictly prohibited from defaulting to `metrics.auth_attempts_*` or `USER_LOGIN`.
+  - Enforced a hard conversational break on Turn 1: the agent must yield the turn (0 tools called, zero candidate YARA-L queries emitted, zero speculative compiler probes) and present the canonical multi-vector **Summary View** outlining the **Threat Hypothesis**, **Recommended Method & Rationale**, and **Alternative Vectors**.
+  - Prompts the analyst: *"Across which behavioral vector(s) would you like to evaluate [Target Entities]?"*
+
+### 2. Federated Threat Hunt Handoff: `PRIVILEGED_LATERAL_EXPANSION`
+* **Bipartite Lateral Movement & Unseen Endpoints**:
+  - Extended the bilateral cooperative handoff framework (`scripts/federated_handoff.py`) to support `PRIVILEGED_LATERAL_EXPANSION`.
+  - Evaluates bipartite user-to-host machine access history and lateral expansion across unbaselined enterprise endpoints.
+  - When lateral tracking requires ad-hoc bounded lookbacks over raw `USER_LOGIN` logs rather than pre-computed metric counters, the orchestrator cleanly emits a typed `PRIVILEGED_LATERAL_EXPANSION` handoff to `secops-statistical-hunter`, yielding the turn with 0 local tools called.
+* **Rigorous Handoff Unit Testing**:
+  - Authored automated tests in `tests/test_federated_handoff.py` validating payload structure, intent normalization, minimum distinct target bounds, and pipeline query compilation.
+
+### 3. Expert Bypass Fast-Track Protocol & Streaming Rule Elimination
+* **Prompt Leakage & Grammar Protection**:
+  - Renamed the "Expert Bypass Rule" to the **"Expert Bypass Fast-Track Protocol"** across prompt contracts and orchestrator instructions.
+  - Eliminates LLM prompt confusion where the word *"Rule"* triggered accidental Chronicle streaming detection rule generation (`rule ... { events: ... }`) instead of multi-stage hunting DAGs (`stage ... { ... }`).
+  - Guarantees that when an experienced practitioner specifies both scope/vector and statistical model, the assistant immediately fast-tracks to Phase 1B (Pre-Flight Hunting Specification, 1-shot compiler probe, and compilable Multi-Stage YARA-L DAG preview) without consultative delay or grammar corruption.
+
+### 4. Adaptive Single Visual Surface Routing Guarantee
+* **Zero Mixed-Surface Clutter**:
+  - Enforced strict single-surface visual rendering guarantees: pure inline `<svg>` for headless MCP webview environments vs `<agent-embed>` in rich client platforms (Jetski Web / Antigravity).
+  - Strictly prohibits mixing inline `<svg>` and `<agent-embed>` within the same response.
+
+### 5. Verification & Test Suite Parity
+* **193 Passing Unit Tests (100% Pass Rate)**:
+  - 193/193 unit tests across 16 test modules passing cleanly.
+  - All 27 Malachite compiler submission tests passing (`scripts/submission_tests.py`).
+* **Strict Skill Envelope Compliance**:
+  - `SKILL.md` verified at exactly 168 lines ($\le 250$ line limit) and 20,480 bytes ($\le 20,480$ byte limit).
 
 ---
 

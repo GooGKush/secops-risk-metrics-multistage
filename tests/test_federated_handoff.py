@@ -90,6 +90,24 @@ class TestFederatedHandoff(unittest.TestCase):
     self.assertIn("stage host_intervals", ack.get("compiled_query", ""))
     self.assertIn("SOURCE_SKILL_STEP_OUT_CONFIRMED", ack.get("step_out_directive", ""))
 
+  def test_dispatch_to_endpoint_privileged_lateral_expansion(self):
+    """Dispatching PRIVILEGED_LATERAL_EXPANSION must receive HANDOFF_ACK_ACCEPTED and valid compiled query."""
+    payload = build_handoff_payload(
+        intent="PRIVILEGED_LATERAL_EXPANSION",
+        entity_type="USER",
+        entity_value="domain_admins",
+        lookback="90d",
+        sensitivity="BALANCED",
+    )
+    ack = dispatch_to_endpoint(payload)
+    self.assertEqual(ack.get("status"), "HANDOFF_ACK_ACCEPTED")
+    self.assertEqual(ack.get("action"), "STEP_OUT_CONFIRMED")
+    self.assertEqual(ack.get("model_routed"), "PRIVILEGED_LATERAL_EXPANSION")
+    self.assertIn("stage daily_user_breadth", ack.get("compiled_query", ""))
+    self.assertIn("stage user_breadth_baseline", ack.get("compiled_query", ""))
+    self.assertIn("stage current_breadth", ack.get("compiled_query", ""))
+    self.assertIn("order:\n  $z_score desc", ack.get("compiled_query", ""))
+
 
 if __name__ == "__main__":
   unittest.main()
