@@ -53,6 +53,33 @@ class TestRiskMetricsChartSpecifications(unittest.TestCase):
     self.assertEqual(spec["options"]["scales"]["y"]["position"], "left")
     self.assertEqual(spec["options"]["scales"]["y1"]["position"], "right")
 
+  def test_fleet_heatmap_chart_structure(self):
+    """Fleet heatmap chart must define rectangular mark and 2D categorical encoding."""
+    fleet_data = [
+        {"entity": "user-a", "sector": "IAM", "z_score": 3.4, "cri": 72},
+        {"entity": "user-a", "sector": "Cloud", "z_score": 0.5, "cri": 18},
+        {"entity": "user-b", "sector": "IAM", "z_score": 0.2, "cri": 15},
+    ]
+    spec = RiskMetricsChartGenerator.generate_fleet_heatmap_chart(fleet_data)
+    self.assertEqual(spec["mark"], "rect")
+    self.assertEqual(spec["encoding"]["x"]["field"], "sector")
+    self.assertEqual(spec["encoding"]["y"]["field"], "entity")
+    self.assertEqual(spec["encoding"]["color"]["field"], "z_score")
+
+  def test_ranked_fleet_outlier_chart_structure(self):
+    """Ranked fleet chart must contain horizontal bars and a threshold reference rule."""
+    ranked_data = [
+        {"entity": "user-a", "threat_distance_d": 4.1, "cri": 82, "status": "Critical"},
+        {"entity": "user-b", "threat_distance_d": 1.2, "cri": 22, "status": "Nominal"},
+    ]
+    spec = RiskMetricsChartGenerator.generate_ranked_fleet_outlier_chart(ranked_data)
+    self.assertEqual(len(spec["layer"]), 2)
+    self.assertEqual(spec["layer"][0]["mark"]["type"], "bar")
+    self.assertEqual(spec["layer"][0]["encoding"]["y"]["field"], "entity")
+    self.assertEqual(spec["layer"][0]["encoding"]["x"]["field"], "threat_distance_d")
+    self.assertEqual(spec["layer"][1]["mark"]["type"], "rule")
+
 
 if __name__ == '__main__':
   unittest.main()
+

@@ -8,6 +8,7 @@ import argparse
 import base64
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, asdict
+import html
 import json
 import math
 import sys
@@ -673,6 +674,126 @@ outcome:
             },
         },
     }
+
+  @staticmethod
+  def generate_ranked_fleet_html(
+      ranked_entities: List[Dict[str, Any]],
+      title: str = "360° Threat Fusion: Ranked Fleet Outliers",
+      threshold_sigma: float = 3.0,
+  ) -> str:
+    """Renders a responsive standalone HTML/SVG ranked horizontal bar chart for fleet reviews."""
+    row_height = 36
+    header_height = 60
+    svg_height = header_height + max(1, len(ranked_entities)) * row_height + 40
+    svg_width = 680
+    bar_start_x = 180
+    max_bar_width = 380
+    max_d = max([float(r.get("threat_distance_d", 0.0)) for r in ranked_entities] + [4.5])
+
+    bars_svg = []
+    # Anomaly reference line (+3.0 sigma)
+    thresh_x = bar_start_x + (threshold_sigma / max_d) * max_bar_width
+    bars_svg.append(
+        f'<line x1="{thresh_x:.1f}" y1="50" x2="{thresh_x:.1f}" y2="{svg_height - 30}" '
+        f'stroke="#d93025" stroke-width="1.5" stroke-dasharray="4,4"/>'
+    )
+    bars_svg.append(
+        f'<text x="{thresh_x:.1f}" y="42" font-size="10" font-weight="600" fill="#d93025" text-anchor="middle">+3.0σ Anomaly</text>'
+    )
+
+    for i, ent in enumerate(ranked_entities):
+      y = header_height + i * row_height
+      d_val = float(ent.get("threat_distance_d", 0.0))
+      cri_val = int(ent.get("cri", 0))
+      entity_id = str(ent.get("entity", f"Entity-{i+1}"))
+      bar_w = max(4, (d_val / max_d) * max_bar_width)
+      color = "#d93025" if d_val >= 3.0 else ("#f9ab00" if d_val >= 2.0 else "#1a73e8")
+
+      bars_svg.append(
+          f'<text x="{bar_start_x - 10}" y="{y + 18}" font-size="12" font-weight="500" fill="#202124" text-anchor="end">{entity_id}</text>'
+      )
+      bars_svg.append(
+          f'<rect x="{bar_start_x}" y="{y + 4}" width="{bar_w:.1f}" height="20" rx="4" fill="{color}" opacity="0.85"/>'
+      )
+      bars_svg.append(
+          f'<text x="{bar_start_x + bar_w + 8:.1f}" y="{y + 18}" font-size="11" font-weight="600" fill="#3c4043">'
+          f'D={d_val:.2f}σ (CRI {cri_val})</text>'
+      )
+
+    bars_joined = "".join(bars_svg)
+    return (
+        f'<!DOCTYPE html>\n<html>\n<head>\n  <meta charset="utf-8">\n'
+        f'  <title>{title}</title>\n  <style>\n'
+        f'    body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 16px; background: #fafafa; display: flex; justify-content: center; }}\n'
+        f'    .card {{ width: 100%; max-width: 720px; background: #ffffff; border: 1px solid #e8eaed; border-radius: 12px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }}\n'
+        f'    h3 {{ margin: 0 0 4px 0; font-size: 16px; color: #202124; }}\n'
+        f'    p {{ margin: 0 0 16px 0; font-size: 12px; color: #5f6368; }}\n'
+        f'  </style>\n</head>\n<body>\n  <div class="card">\n'
+        f'    <h3>{title}</h3>\n'
+        f'    <p>Ranked by Composite Threat Distance (D in σ) | Monitored Entities: {len(ranked_entities)}</p>\n'
+        f'    <svg viewBox="0 0 {svg_width} {svg_height}" width="100%" height="{svg_height}">\n'
+        f'      {bars_joined}\n    </svg>\n  </div>\n</body>\n</html>'
+    )
+
+  @staticmethod
+  def generate_fleet_heatmap_html(
+      fleet_matrix: List[Dict[str, Any]],
+      title: str = "360° Multi-Sector Fleet Threat Matrix",
+  ) -> str:
+    """Renders a responsive standalone HTML 5-sector heatmap matrix for fleet reviews."""
+    canonical_sectors = [
+        "IAM & Authentication",
+        "Cloud Infrastructure",
+        "Workspace Data",
+        "Network Egress",
+        "DNS & Web Activity",
+    ]
+    rows = []
+    for r in fleet_matrix:
+      entity = r.get("entity", "Unknown")
+      sec_dict = r.get("sectors", {})
+      d_val = float(r.get("threat_distance_d", 0.0))
+      cri_val = int(r.get("cri", 0))
+
+      tds = [f'<td style="font-weight:600; padding:8px 12px; border-bottom:1px solid #e8eaed;">{entity}</td>']
+      for s in canonical_sectors:
+        z = float(sec_dict.get(s, 0.0))
+        bg = "#fce8e6" if z >= 3.0 else ("#fef7e0" if z >= 2.0 else ("#e6f4ea" if z < 1.0 else "#ffffff"))
+        text_color = "#c5221f" if z >= 3.0 else ("#b06000" if z >= 2.0 else "#137333")
+        tds.append(
+            f'<td style="text-align:center; background:{bg}; color:{text_color}; font-weight:600; padding:8px 12px; border-bottom:1px solid #e8eaed;">+{z:.2f}σ</td>'
+        )
+      badge_bg = "#fce8e6" if d_val >= 3.0 else ("#fef7e0" if d_val >= 2.0 else "#e6f4ea")
+      badge_color = "#c5221f" if d_val >= 3.0 else ("#b06000" if d_val >= 2.0 else "#137333")
+      tds.append(
+          f'<td style="text-align:center; padding:8px 12px; border-bottom:1px solid #e8eaed;">'
+          f'<span style="display:inline-block; padding:3px 8px; border-radius:10px; background:{badge_bg}; color:{badge_color}; font-weight:700;">'
+          f'D={d_val:.2f}σ ({cri_val}/100)</span></td>'
+      )
+      tds_joined = "".join(tds)
+      rows.append(f'<tr>{tds_joined}</tr>')
+
+    th_sectors = "".join(f'<th style="padding:10px 12px; font-size:11px; text-align:center; background:#f8f9fa; border-bottom:2px solid #dadce0;">{html.escape(s)}</th>' for s in canonical_sectors)
+    rows_joined = "".join(rows)
+    return (
+        f'<!DOCTYPE html>\n<html>\n<head>\n  <meta charset="utf-8">\n'
+        f'  <title>{title}</title>\n  <style>\n'
+        f'    body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 16px; background: #fafafa; display: flex; justify-content: center; }}\n'
+        f'    .card {{ width: 100%; max-width: 860px; background: #ffffff; border: 1px solid #e8eaed; border-radius: 12px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); overflow-x: auto; }}\n'
+        f'    h3 {{ margin: 0 0 4px 0; font-size: 16px; color: #202124; }}\n'
+        f'    p {{ margin: 0 0 16px 0; font-size: 12px; color: #5f6368; }}\n'
+        f'    table {{ width: 100%; border-collapse: collapse; font-size: 12px; }}\n'
+        f'  </style>\n</head>\n<body>\n  <div class="card">\n'
+        f'    <h3>{title}</h3>\n'
+        f'    <p>5-Sector Behavioral Deviations across Fleet Entities</p>\n'
+        f'    <table>\n      <thead>\n        <tr>\n'
+        f'          <th style="padding:10px 12px; font-size:11px; text-align:left; background:#f8f9fa; border-bottom:2px solid #dadce0;">Entity</th>\n'
+        f'          {th_sectors}\n'
+        f'          <th style="padding:10px 12px; font-size:11px; text-align:center; background:#f8f9fa; border-bottom:2px solid #dadce0;">Composite Risk</th>\n'
+        f'        </tr>\n      </thead>\n      <tbody>\n'
+        f'        {rows_joined}\n      </tbody>\n    </table>\n  </div>\n</body>\n</html>'
+    )
+
 
 
 def main():

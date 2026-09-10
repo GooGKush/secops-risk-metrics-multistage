@@ -1,10 +1,39 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.6.5)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.6.6)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v1.6.5 (Minor Point Release) — September 2026  
+**Latest Version**: v1.6.6 (Minor Point Release) — September 2026  
+
+---
+
+## 📢 What's New in v1.6.6 (Minor Point Release) — Affirmative Fleetwide Behavioral Reporting, Ranked Outlier Visualizations & Multi-Sector Heatmap Matrices
+
+### 1. Affirmative Guidance Across Visual Geometries & Reporting Workflows
+* **Prescriptive, Affirmative Operational Guidance**:
+  - Replaced prohibitive and negative guardrail phrasing with affirmative, constructive direction across all documentation, guides, and prompts.
+  - Formally delineates visual surfaces by operational scope:
+    - **Single-Entity Profiling**: Reserve 5-spoke radial/spider radar charts exclusively for individual entities (e.g. single user or service account) to evaluate cross-silo balance.
+    - **Fleetwide Threat Sweeps & Multi-Entity Reviews**: Deliver linear **Ranked Outlier Bar Charts** and 2D **Multi-Sector Fleet Heatmap Matrices** to avoid centroid collapse and visual clutter.
+
+### 2. Fleet Threat Detection & Temporal Horizon Optimization
+* **Longitudinal Temporal Horizons (Mode B)**:
+  - Strongly recommend **Mode B (14-Day Longitudinal Timeline)** for open-ended fleet threat sweeps and cohort reviews to capture episodic and bursty historical anomalies across a population.
+  - Reserve **Mode A (24-Hour Operational Snapshot)** specifically for active incident triage and immediate change-freeze surveillance.
+
+### 3. Declarative Vega-Lite & Chart.js Fleet Visual Specifications
+* **New Fleet Visual Templates**:
+  - Added **Template 4 (`Multi-Sector Fleet Heatmap Matrix`)**: 2D entity-by-sector heat matrix encoding CRI severity ($0 \le \text{CRI} \le 100$) with tooltips and responsive layout.
+  - Added **Template 5 (`Ranked Fleet Outlier Bar Chart`)**: Horizontal bar ranking sorted descending by Composite Risk Index with an explicit $+3.0\sigma$ statistical significance threshold line.
+  - Added programmatic generators `generate_fleet_heatmap_chart()` and `generate_ranked_fleet_outlier_chart()` to `scripts/chart_generator.py`.
+  - Added standalone HTML/SVG renderers `generate_ranked_fleet_html()` and `generate_fleet_heatmap_html()` to `scripts/radar_collector.py`.
+
+### 4. Comprehensive Test Suite & Parity
+* **205/205 Pytest Unit Tests Passed (100% Green)**:
+  - Added unit tests in `tests/test_chart_specifications.py` and `tests/test_radar_collector.py` verifying affirmative fleet visual generation and data integrity.
+* **27/27 Submission Tests Passed (100% Clean AST)**:
+  - All YARA-L pipeline and router templates verified against Chronicle Malachite compiler invariants.
 
 ---
 

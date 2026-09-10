@@ -28,6 +28,16 @@ In Google SecOps Chronicle SIEM, multi-sector entity behavioral profiling adopts
 **The Canonical Architecture**:
 Execute independent decoupled sector queries, retrieve the observed metrics per sector, and compute the **Euclidean Norm Join ($D = \sqrt{\sum Z_i^2}$)** client-side.
 
+### 1.3 Single-Entity Profiling vs. Fleetwide Threat Fusion
+* **Single-Entity 360° Profiling (User or Host)**:
+  - **Objective**: Profile an individual target entity's multivariate behavioral signature across 5 orthogonal sectors.
+  - **Pillar 1 Surface**: **5-Spoke Radial / Spider Pentagon Radar** (`radar_<entity>.html`). The radial geometry visualizes balance vs. sectoral skew.
+* **Fleetwide 360° Threat Fusion (Multi-Entity Sweep / Fleet Audit)**:
+  - **Objective**: Audit $N$ entities across an organization or peer group to identify who exhibited anomalous activity across any of the 5 sectors.
+  - **Pillar 1 Surface**: **Multi-Sector Fleet Heatmap Matrix** (`radar_fleet_heatmap.html`) or **Ranked Fleet Outlier Bar Chart** (`radar_fleet_ranking.html`). Linear and matrix layouts provide clean, readable comparisons without radial centroid collapse.
+  - **Recommended Horizon**: **Mode B (14-Day Longitudinal Timeline)**. Because security anomalies and data exfiltration are bursty, episodic events, a 14-day sliding window surfaces historical bursts that a 24-hour snapshot misses.
+  - **Interactive Drill-Down**: Offer the 5-spoke radial radar as a 1-click drill-down when the analyst selects a specific high-risk entity from the ranked list.
+
 ---
 
 ## 🖥️ 2. Adaptive Client Execution Tiers
@@ -119,7 +129,7 @@ order: $z desc
 ```
 
 *Yield Turn Prompt*:
-> *"Would you like me to proceed with **Mode A (24-Hour Snapshot fleet ranking)** or **Mode B (14-Day Longitudinal Timeline)**?"*
+> *"Would you like me to proceed with **Mode A (24-Hour Snapshot)** or **Mode B (14-Day Longitudinal Timeline)**? (For open-ended fleet sweeps, Mode B is recommended to capture episodic bursts; Mode A is optimal for active incident triage.)"*
 
 ---
 

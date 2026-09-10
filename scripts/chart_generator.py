@@ -224,3 +224,88 @@ class RiskMetricsChartGenerator:
     chart_lines.append("```")
     return "\n".join(chart_lines)
 
+  @staticmethod
+  def generate_fleet_heatmap_chart(
+      fleet_records: List[Dict[str, Any]],
+      title: Optional[str] = None,
+  ) -> Dict[str, Any]:
+    """Generates a Vega-Lite 5-Sector Fleet Heatmap Matrix (Entities x Sectors with Z-score color)."""
+    if not title:
+      title = "Multi-Sector Fleet Threat Matrix (5-Sector Heatmap)"
+
+    entity_count = len(set(r.get("entity", "") for r in fleet_records))
+    return {
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "title": title,
+        "width": 640,
+        "height": max(200, entity_count * 28),
+        "data": {"values": fleet_records},
+        "mark": "rect",
+        "encoding": {
+            "y": {"field": "entity", "type": "nominal", "title": "Enterprise Entity", "sort": "-color"},
+            "x": {"field": "sector", "type": "nominal", "title": "Behavioral Telemetry Sector"},
+            "color": {
+                "field": "z_score",
+                "type": "quantitative",
+                "title": "Anomaly (Z-Score σ)",
+                "scale": {"scheme": "yellowgreenblue", "domain": [0, 4.0]},
+            },
+            "tooltip": [
+                {"field": "entity", "type": "nominal", "title": "Entity"},
+                {"field": "sector", "type": "nominal", "title": "Sector"},
+                {"field": "z_score", "type": "quantitative", "title": "Z-Score (σ)"},
+                {"field": "cri", "type": "quantitative", "title": "CRI Score"},
+            ],
+        },
+    }
+
+  @staticmethod
+  def generate_ranked_fleet_outlier_chart(
+      ranked_records: List[Dict[str, Any]],
+      score_field: str = "threat_distance_d",
+      threshold_val: float = 3.0,
+      title: Optional[str] = None,
+  ) -> Dict[str, Any]:
+    """Generates a Ranked Fleet Outlier Bar Chart sorting entities by Composite Threat Distance D."""
+    if not title:
+      title = "Ranked Fleet Threat Outliers (Composite Threat Distance D)"
+
+    return {
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "title": title,
+        "width": 680,
+        "height": max(220, len(ranked_records) * 32),
+        "data": {"values": ranked_records},
+        "layer": [
+            {
+                "mark": {"type": "bar", "cornerRadiusEnd": 4},
+                "encoding": {
+                    "y": {"field": "entity", "type": "nominal", "sort": "-x", "title": "Entity"},
+                    "x": {
+                        "field": score_field,
+                        "type": "quantitative",
+                        "title": "Composite Threat Distance (D in σ)",
+                    },
+                    "color": {
+                        "field": "cri",
+                        "type": "quantitative",
+                        "title": "CRI (0-100)",
+                        "scale": {"scheme": "reds", "domain": [0, 100]},
+                    },
+                    "tooltip": [
+                        {"field": "entity", "type": "nominal", "title": "Entity"},
+                        {"field": score_field, "type": "quantitative", "title": "Threat Distance (D)"},
+                        {"field": "cri", "type": "quantitative", "title": "CRI Score"},
+                        {"field": "status", "type": "nominal", "title": "Status"},
+                    ],
+                },
+            },
+            {
+                "mark": {"type": "rule", "color": "#d93025", "strokeDash": [5, 5], "strokeWidth": 2},
+                "encoding": {
+                    "x": {"datum": threshold_val, "type": "quantitative"},
+                },
+            },
+        ],
+    }
+

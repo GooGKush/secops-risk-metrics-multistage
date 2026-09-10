@@ -44,14 +44,14 @@ Phase 1B is **ONLY UNLOCKED** when **BOTH** are explicitly defined:
 1. **Entity Scope** (user, cohort, fleet / cloud) **AND**
 2. **Telemetry Vector(s)** (Cloud CRUD, Workspace, Net Egress, Endpoint, Auth).
 
-> **Expert Bypass Fast-Track Protocol**: When both scope/vector and statistical model are specified (e.g. *"Run CUSUM drift on Frank's DNS queries"*), bypass consultation and jump directly to Phase 1B Pre-Flight Card. 
+> **Expert Bypass Fast-Track Protocol**: When scope/vector and model are specified (e.g. *"Run CUSUM on Frank's DNS"*), jump directly to Phase 1B Pre-Flight Card. 
 
 > **Progressively Disclosed Consultative Guidance**:
 > When intent or vector is unspecified, inspect `references/consultative-worksheet.md`:
 > - **Tier 1 (Known Knowns)**: Spikes/bursts (Basic Z / Piecewise CRI).
 > - **Tier 2 (Known Unknowns / Static Rule Blind Spots)**: Trickles, dormancy breaks, drift (CUSUM, Hurdle, Hourly Z, Poisson Rarity).
 > - **Tier 3 (Unknown Unknowns / Cross-Silo Anomalies)**: Orthogonal dispersion ($D \ge 3.5\sigma$ 360° Radar).
-> Present **Summary View** with **Threat Hypothesis**, **Recommended Method & Rationale**, **Alternative Vectors**. On inquiry, load sheets under `references/consultative/` (`data-exfiltration.md`, `identity-and-access.md`, etc.).
+> Present **Summary View** with **Threat Hypothesis**, **Recommended Method & Rationale**, **Alternative Vectors**. On inquiry, load sheets under `references/consultative/`.
 
 > **Anti-Auth-Defaulting Guardrail & Conversational Break (CONVERSATIONAL BREAK)**:
 > In open-ended consultative inquiries (unspecified vectors), **THE AGENT MUST NOT DEFAULT TO `metrics.auth_attempts_*` OR `USER_LOGIN`**. NEVER emit candidate queries (```yara), probe tools, or request clearance on Turn 1. Yield turn (0 tools called) and present the **Summary View** asking: *"Across which behavioral vector(s) would you like to evaluate [Target Entities]?"*
@@ -59,18 +59,19 @@ Phase 1B is **ONLY UNLOCKED** when **BOTH** are explicitly defined:
 ### 🕸️ 360° Entity Behavioral Risk Radar & Multi-Sector Threat Fusion
 When profiling multiple sectors (*"multi-sector fusion"*, *"visualize all risk vectors"*, *"360 health check"*), see `references/360-behavioral-radar-guide.md`.
 * **Architecture**: Decoupled micro-queries (`templates/pipelines/radar_360_decoupled_sector.yl2`) across 5 sectors (Auth, Cloud, Workspace, Network, DNS).
-* **Query Continuity**: In preview and Pillar 2, display representative sector micro-query (`stage auth_risk` with `order: $z desc`). Auto-bypass Mode B.
-* **Native Reporting**: If webview requested or in MCP/agentapi: render pure inline `<svg>` in Pillar 1 (zero `<agent-embed>`). Otherwise in Jetski: embed via `<agent-embed>`. Never mix surfaces. Client Tool (if present).
+* **Scope & Surface Alignment**: 5-spoke radial radar charts profile single entities. For fleet reviews, present Ranked Outlier Bars or 5-Sector Heatmap Matrix, recommending Mode B (14d Timeline).
+* **Query Continuity**: In preview and Pillar 2, display representative sector micro-query (`stage auth_risk` with `order: $z desc`). Auto-bypass Mode B on target dates.
+* **Native Reporting**: In webview/MCP/agentapi: render pure inline `<svg>` in Pillar 1. In Jetski: embed via `<agent-embed>`. Client Tool (if present).
 
 ### ☁️ Cloud Telemetry Scope & Anti-Narrowing Invariant
-* In service account cloud repository access (`resource_read_*`, `resource_written_*`), NEVER narrow to 1 product; use `templates/pipelines/cloud_repository_scope_dual_branch.yl2` with `($sa, $vendor, $product, $resource, $ip by 1d)`. Reads use `RESOURCE_READ` or `USER_RESOURCE_ACCESS` (never `USER_RESOURCE_READ`).
+* In service account cloud repository access (`resource_read_*`, `resource_written_*`), NEVER narrow to 1 product; use `templates/pipelines/cloud_repository_scope_dual_branch.yl2` with `($sa, $vendor, $product, $resource, $ip by 1d)`. Reads use `RESOURCE_READ` or `USER_RESOURCE_ACCESS`.
 
 ### 🎯 CTI & Threat Report Mapping
 **Map to UEBA Metric Tables**: Map to tables (`metrics.*`). **Transition Directly to Phase 1B**: Emit Pre-Flight Card & Literal Query Preview. **YIELD THE TURN (0 tools called)**.
 
 ### 🔍 Phase 1B: Pre-Flight Spec & Query Preview (Once Scope & Vectors are Established)
 Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to both"*, or via CTI mapping):
-1. **Turn 1 Tool Invariant**: Zero external inspection; `references/` & `templates/` permitted. Permitted: name spot-check and one 1-shot compiler probe (`udm_search`) on primary baseline filter (max 1 retry if error; in hybrid hunts, probe primary baseline stream only; never secondary streams on Turn 1).
+1. **Turn 1 Tool Invariant**: Zero external inspection; `references/` & `templates/` permitted, plus name spot-check and one 1-shot compiler probe (`udm_search`) on primary baseline filter (max 1 retry if error; in hybrid hunts, probe primary baseline stream only; never secondary streams on Turn 1).
 2. **Identity Disambiguation & Confirmation Protocol (ZERO GUESSING & IMMEDIATE HALT)**:
    - *Technical IDs vs Display Names*: Display names (with spaces) are NOT `user.userid`. First names (`frank`) must be spot-checked in UDM.
    - *14-Day UDM Spot-Check*: `udm_search(query='target.user.userid = "<name>" nocase or principal.user.userid = "<name>" nocase', startTime: "<ISO_14D_AGO>", endTime: "<ISO_NOW>", maxEvents: 5)`.
@@ -94,7 +95,7 @@ Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to bo
    * *Interactive Entity Graph Dimension Mandate*: Express joins under `• Entity Graph Dimension: [Exact Filter]` (Domain Rarity, Fleet Prevalence, Binary Rarity, IP Rarity `rolling_max <= 3`, `day_count = 10` platform invariant).
    * *Noise Level & Significance Threshold Steering (Active Root-Stage Condition Gating)*: Default: $Z \ge 3.0\sigma$ / $D \ge 3.5\sigma$. Guide analyst that sensitivity is tunable: High Confidence ($Z \ge 3.0\sigma$), Investigative Band ($2.0\sigma \le Z < 3.0\sigma$), Directional ($Z \le -3.0\sigma$), or Multi-Vector ($D^2 \ge 16.0$). Enforced in root-stage `condition:` (e.g. `condition: $z >= 2.0 and $z < 3.0`) before `order:`.
    * *Canonical Preview & Two-Phase Chained Hunt Specification*: Cross-entity hunts emit Two-Phase Chained Hunt Specification: Phase 1 (UEBA Outlier), Bridge Contract ($host, $timestamp, $user, $caller_ip), and Phase 2 (Targeted Cloud UDM Query).
-5. **Explicit Clearance Question & Turn Termination (GATED ON STEP 4 QUERY DISPLAY)**: If target date specified, ask: *"Proceed with executing for [Target Date] now?"*. Otherwise ask: *"Would you like me to proceed with **Mode A (24-Hour Snapshot fleet ranking)** or **Mode B (14-Day Longitudinal Timeline)**? (Adjust noise level/significance threshold before execution if desired.)"*. STOP CALLING TOOLS IMMEDIATELY AND YIELD THE TURN. Clearance question MUST be the final sentence of Turn 1. Calling execution tools on Turn 1 is STRICTLY PROHIBITED.
+5. **Explicit Clearance Question & Turn Termination (GATED ON STEP 4 QUERY DISPLAY)**: If target date specified, ask: *"Proceed with executing for [Target Date] now?"*. Otherwise ask: *"Would you like me to proceed with **Mode A (24-Hour Snapshot)** or **Mode B (14-Day Longitudinal Timeline)**? (Adjust noise level/significance threshold before execution if desired.)"*. STOP CALLING TOOLS IMMEDIATELY AND YIELD THE TURN. Clearance question MUST be the final sentence of Turn 1. Calling execution tools on Turn 1 is STRICTLY PROHIBITED.
 
 ---
 
@@ -157,11 +158,11 @@ Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to bo
 
 ## 🤝 MANDATORY CLEAN HAND-OFF & ESCALATION PROTOCOL (REPORTING TO SECOPS)
 Unsolicited case creation is a **CRITICAL PROCESS POLLUTION VIOLATION**. Fulfill analyst requests to alert, notify, or escalate findings (*"create a UDM alert"*, *"alert on this"*, *"send this in"*, *"escalate"*, *"open a case"*, *"generate synthetic event"*, *"handoff"*) affirmatively via Clean Hand-Off. Always load `references/clean-handoff-udm-schema.md` for multi-event schemas:
-* **Path A: General Escalation (Direct Chronicle Ingestion)**: Map outliers to enriched synthetic UDM events (batching multiple findings under a shared Hunt Campaign ID). Preview the card to the analyst (yield turn, 0 tools). Upon approval, perform direct Chronicle API ingestion via IAM credentials (forwarders are strictly fallback).
+* **Path A: General Escalation (Direct Chronicle Ingestion)**: Map outliers to enriched synthetic UDM events (batching multiple findings under shared Hunt Campaign ID). Preview card (yield turn, 0 tools). Upon approval, direct Chronicle API ingestion via IAM (forwarders are strictly fallback).
 * **Path B: Explicit Case Wall Attachment (Case ID specified)**: When an active case is designated (*"attach to Case 11075"*), call `secops-gus:create_case_comment(case_id="<ID>", comment=...)` and confirm.
 
 ---
 
 ## 📂 Modular References & Template Architecture
-* **`references/`**: `consultative-worksheet.md`, `references/360-behavioral-radar-guide.md`, `clean-handoff-udm-schema.md`, `soar-playbook-radar-integration.md`, `metrics-catalog.md`, `multi-stage-metrics-guide.md`, `compiler-submission-policy.md`
+* **`references/`**: `consultative-worksheet.md`, `360-behavioral-radar-guide.md`, `clean-handoff-udm-schema.md`, `soar-playbook-radar-integration.md`, `metrics-catalog.md`, `multi-stage-metrics-guide.md`, `compiler-submission-policy.md`
 * **Pipelines & Scripts**: `templates/pipelines/`, `templates/stage1_extractors/`, `template_router.py`, `radar_collector.py`

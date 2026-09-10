@@ -397,6 +397,35 @@ stage stage_dns {
     self.assertIn("UNBOUND_MATCH_VARIABLE", error_str)
     self.assertIn("MISSING_ROOT_STAGE", error_str)
 
+  def test_generate_ranked_fleet_html(self):
+    """Ranked fleet HTML must include horizontal bars and anomaly boundary."""
+    ranked = [
+        {"entity": "user-a", "threat_distance_d": 4.10, "cri": 82, "status": "Critical"},
+        {"entity": "user-b", "threat_distance_d": 1.20, "cri": 22, "status": "Nominal"},
+    ]
+    html = EntityRadarCollector.generate_ranked_fleet_html(ranked)
+    self.assertIn("360° Threat Fusion: Ranked Fleet Outliers", html)
+    self.assertIn("+3.0σ Anomaly", html)
+    self.assertIn("user-a", html)
+    self.assertIn("D=4.10σ", html)
+
+  def test_generate_fleet_heatmap_html(self):
+    """Fleet heatmap HTML must render 5 canonical sectors and composite risk."""
+    matrix = [
+        {
+            "entity": "user-a",
+            "sectors": {"IAM & Authentication": 3.4, "Cloud Infrastructure": 0.5},
+            "threat_distance_d": 3.45,
+            "cri": 72,
+        }
+    ]
+    html = EntityRadarCollector.generate_fleet_heatmap_html(matrix)
+    self.assertIn("360° Multi-Sector Fleet Threat Matrix", html)
+    self.assertIn("IAM &amp; Authentication", html)
+    self.assertIn("+3.40σ", html)
+    self.assertIn("D=3.45σ", html)
+
 
 if __name__ == "__main__":
   unittest.main()
+

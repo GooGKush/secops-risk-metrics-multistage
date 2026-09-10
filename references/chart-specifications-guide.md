@@ -102,7 +102,81 @@ Visualizes an entity's 30-day baseline envelope (historical mean line with a sha
 
 ---
 
-## 4. Visual Rendering Plane, Post-Search Collation & Anti-Simulation Invariant
+## 4. Vega-Lite Template: Multi-Sector Fleet Heatmap Matrix
+
+Visualizes a fleetwide cross-sector risk landscape by encoding entities along the vertical axis, behavioral sectors across the horizontal axis, and anomaly $Z$-score via color gradient:
+
+```json
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+  "description": "Multi-Sector Fleet Threat Matrix (5-Sector Heatmap)",
+  "data": {
+    "values": [
+      {"entity": "WRK-FIN-01", "sector": "IAM & Auth", "z_score": 3.8, "cri": 78},
+      {"entity": "WRK-FIN-01", "sector": "Cloud CRUD", "z_score": 0.2, "cri": 15},
+      {"entity": "WRK-FIN-01", "sector": "Workspace", "z_score": 4.1, "cri": 82},
+      {"entity": "WRK-FIN-01", "sector": "Net Egress", "z_score": 0.0, "cri": 14},
+      {"entity": "WRK-FIN-01", "sector": "DNS Activity", "z_score": 0.5, "cri": 18}
+    ]
+  },
+  "mark": "rect",
+  "encoding": {
+    "y": {"field": "entity", "type": "nominal", "title": "Enterprise Entity", "sort": "-color"},
+    "x": {"field": "sector", "type": "nominal", "title": "Behavioral Telemetry Sector"},
+    "color": {
+      "field": "z_score",
+      "type": "quantitative",
+      "title": "Anomaly (Z-Score σ)",
+      "scale": {"scheme": "yellowgreenblue", "domain": [0, 4.0]}
+    }
+  }
+}
+```
+
+---
+
+## 5. Vega-Lite Template: Ranked Fleet Outlier Bar Chart
+
+Visualizes ranked fleet entities sorted in descending order by Composite Threat Distance $D$, with a prominent $+3.0\sigma$ anomaly threshold reference rule and CRI score color gradient:
+
+```json
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+  "description": "Ranked Fleet Threat Outliers (Composite Threat Distance D)",
+  "data": {
+    "values": [
+      {"entity": "admin@demo.wsexample.org", "threat_distance_d": 4.10, "cri": 82, "status": "Critical"},
+      {"entity": "serhatg", "threat_distance_d": 3.65, "cri": 71, "status": "High"},
+      {"entity": "ACC-WIN11-10$", "threat_distance_d": 0.57, "cri": 19, "status": "Nominal"}
+    ]
+  },
+  "layer": [
+    {
+      "mark": {"type": "bar", "cornerRadiusEnd": 4},
+      "encoding": {
+        "y": {"field": "entity", "type": "nominal", "sort": "-x", "title": "Entity"},
+        "x": {"field": "threat_distance_d", "type": "quantitative", "title": "Composite Threat Distance (D in σ)"},
+        "color": {
+          "field": "cri",
+          "type": "quantitative",
+          "title": "CRI (0-100)",
+          "scale": {"scheme": "reds", "domain": [0, 100]}
+        }
+      }
+    },
+    {
+      "mark": {"type": "rule", "color": "#d93025", "strokeDash": [5, 5], "strokeWidth": 2},
+      "encoding": {
+        "x": {"datum": 3.0, "type": "quantitative"}
+      }
+    }
+  ]
+}
+```
+
+---
+
+## 6. Visual Rendering Plane, Post-Search Collation & Anti-Simulation Invariant
 
 To guarantee data integrity while supporting rich graphical visualizations and eliminating Markdown DOM sanitizer text-collapse, threat hunting strictly bifurcates execution into two planes:
 
@@ -123,25 +197,11 @@ To guarantee visual fidelity across diverse frontend clients:
      * In Jetski Web UI, the Markdown parser (`rehype-sanitize`) and CSP strictly block raw `<svg>` tags and `data:image/svg+xml;base64` Data-URIs (rendering as broken image placeholders).
      * Therefore, in Jetski, **ALL visual charts** (whether 360° radar, Mode B 14-day timeline, or Mode A distribution) MUST be written to an HTML artifact in `<artifact_dir>/<chart_name>.html` and embedded in Pillar 1 using:
        `<agent-embed src="file:///<artifact_dir>/<chart_name>.html"></agent-embed>`
-     * Inside `<agent-embed>`, SVG, HTML, and Tailwind CSS render natively in an isolated sandboxed iframe with zero sanitizer stripping:
-       ```html
-       <!DOCTYPE html>
-       <html>
-       <head>
-         <meta charset="utf-8">
-         <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
-       </head>
-       <body class="bg-transparent text-[var(--foreground)] antialiased p-2 flex justify-center">
-         <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-3 shadow-sm">
-           <svg ...>...</svg>
-         </div>
-       </body>
-       </html>
-       ```
+     * Inside `<agent-embed>`, SVG, HTML, and Tailwind CSS render natively in an isolated sandboxed iframe with zero sanitizer stripping.
      * In Pillar 1, output ONLY `<agent-embed src="file:///<artifact_dir>/<chart_name>.html"></agent-embed>` and link `[Open Visual Chart](file:///<artifact_dir>/<chart_name>.html)`. Omit ASCII card.
 
 2. **Generic MCP / Custom Client Environment (no `run_command`)**:
-   * **Semantic Client Tool Discovery**: If an active client-side tool declares radar or SVG chart generation, invoke it (Section 6).
+   * **Semantic Client Tool Discovery**: If an active client-side tool declares radar or SVG chart generation, invoke it (Section 8).
    * **Inline SVG**: If no client tool is present and the client's renderer supports inline SVG, emit pure inline `<svg>` directly in markdown.
    * **NEVER emit `data:image/svg+xml;base64`**: Blocked by modern web sanitizers.
 
@@ -150,22 +210,23 @@ To guarantee visual fidelity across diverse frontend clients:
 
 ---
 
-## 5. Visual Surface Mapping by Hunt Archetype (Pillar 1 Specification)
+## 7. Visual Surface Mapping by Hunt Archetype (Pillar 1 Specification)
 
 To prevent cognitive distortion and preserve investigative clarity, the visual surface rendered in **Pillar 1 (Statistical Outlier Report)** must strictly match the hunt archetype:
 
 | Hunt Archetype | Operational Objective | Pillar 1 Visual Surface | Downstream Next Step |
 | :--- | :--- | :--- | :--- |
-| **Vector / Fleet Outlier Hunt (Mode A: 24h Snapshot)** | Fleet-wide ranking of outliers on a specific behavioral vector (Cloud CRUD, Network Egress, Logins, File Executions). | **Dual-Y Outlier Bar / Distribution Chart**: `<agent-embed>` in Jetski; inline SVG in generic MCP; ASCII table in CLI. | Summarize ranked fleet in Pillar 3. If an entity exhibits extreme novelty ($Z \ge 3.0\sigma$), proactively suggest a 360° deep-dive in Pillar 4. |
+| **Vector / Fleet Outlier Hunt (Mode A: 24h Snapshot)** | Real-time fleet-wide ranking of outliers on a specific behavioral vector during active incident triage. | **Dual-Y Outlier Bar / Distribution Chart**: `<agent-embed>` in Jetski; inline SVG in generic MCP; ASCII table in CLI. | Summarize ranked fleet in Pillar 3. If an entity exhibits extreme novelty ($Z \ge 3.0\sigma$), proactively suggest a 360° deep-dive in Pillar 4. |
 | **Vector / Fleet Outlier Hunt (Mode B: 14d Timeline)** | Temporal longitudinal trajectory tracking to determine inception date, burst duration, or gradual CUSUM drift. | **Longitudinal Baseline Envelope & Inception Timeline**: `<agent-embed>` in Jetski; inline SVG in generic MCP; ASCII timeline in CLI. | Analyze onset timing in Pillar 4; suggest 360° cross-sector verification if multi-stage compromise is suspected. |
-| **360° Entity Health Check (Explicit Request or Accepted Pivot)** | Multi-vector evaluation of a *single specific entity* across all 5 behavioral sectors to measure aggregate threat distance ($D$). | **360° Behavioral Risk Radar**: Rendered via `scripts/radar_collector.py` as `<agent-embed>` in Jetski; Client visual tool or inline SVG in generic MCP; ASCII radar in CLI. | Recommend host isolation, credential suspension, or SOAR case escalation. |
+| **360° Fleetwide Threat Fusion (Multi-Entity Sweep)** | Broad fleet audit evaluating $N$ entities across all 5 behavioral sectors to uncover episodic bursts and anomalous accounts. | **Multi-Sector Fleet Heatmap Matrix** or **Ranked Fleet Outlier Bar Chart**: Recommended with Mode B (14d Timeline) for burst capture. | Rank high-risk entities in Pillar 3; offer 1-click **360° Radial Radar single-entity drill-down** on selected outliers in Pillar 4. |
+| **360° Single-Entity Health Check (Specific Target Entity)** | Multi-vector evaluation of a *single specific entity* across all 5 behavioral sectors to measure aggregate threat distance ($D$). | **360° Behavioral Risk Radar**: Rendered via `scripts/radar_collector.py` as `<agent-embed>` in Jetski; Client visual tool or inline SVG in generic MCP; ASCII radar in CLI. | Recommend host isolation, credential suspension, or SOAR case escalation. |
 
-> [!WARNING]
-> **Anti-Conflation Mandate**: NEVER insert a 360° Radar profile or 5-sector table into Pillar 1 of a Vector/Fleet Outlier Hunt. Forcing an entity deep-dive before presenting fleet search results creates cognitive confusion and forces zero-padding on unqueried sectors.
+> [!TIP]
+> **Affirmative Surface Alignment**: Align visual geometry with the operational scope: reserve 5-spoke radial/spider radar charts for single target entities to illustrate individual behavioral signatures. For fleetwide reviews, multi-entity comparisons, and cohort sweeps, present Ranked Outlier Bar Charts or Multi-Sector Fleet Heatmap Matrices, paired with Mode B (14-Day Longitudinal Timeline) to uncover episodic burst anomalies. Offer the radial radar as an interactive single-entity drill-down when an outlier is selected from the fleet ranking.
 
 ---
 
-## 6. Client-Side Visualization Tool Contract (Generic Endpoint Discovery)
+## 8. Client-Side Visualization Tool Contract (Generic Endpoint Discovery)
 
 To maintain strict modularity, client-independence, and portability across heterogeneous AI environments (Jetski, custom Gemini/Claude SDK clients, web consoles, and headless automation), skills must never hardcode proprietary client-side function names.
 
