@@ -259,7 +259,7 @@ class MultiStageTemplateRouter:
       if not pipeline_file.exists():
         raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
       raw = pipeline_file.read_text().strip()
-      metric_type_arg = "metric: total_bytes" if "bytes" in target_metric else "metric: event_count_sum"
+      metric_type_arg = "metric: value_sum" if "bytes" in target_metric else "metric: event_count_sum"
 
       macro_entity_field = audit["target_field"]
       macro_event_type = audit["required_event_type"]
@@ -318,7 +318,7 @@ class MultiStageTemplateRouter:
       if not pipeline_file.exists():
         raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
       raw = pipeline_file.read_text().strip()
-      metric_type_arg = "metric: total_bytes" if "bytes" in target_metric else "metric: event_count_sum"
+      metric_type_arg = "metric: value_sum" if "bytes" in target_metric else "metric: event_count_sum"
 
       macro_entity_field = audit["target_field"]
       macro_event_type = audit["required_event_type"]
@@ -378,7 +378,7 @@ class MultiStageTemplateRouter:
       if not pipeline_file.exists():
         raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
       raw = pipeline_file.read_text().strip()
-      metric_type_arg = "metric: total_bytes" if "bytes" in target_metric else "metric: event_count_sum"
+      metric_type_arg = "metric: value_sum" if "bytes" in target_metric else "metric: event_count_sum"
 
       macro_entity_field = audit["target_field"]
       macro_event_type = audit["required_event_type"]

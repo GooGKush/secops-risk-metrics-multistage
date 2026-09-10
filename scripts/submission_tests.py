@@ -430,6 +430,10 @@ order:
         if re.search(r"[\+\-\*\/]", then_clause):
           errors.append(f"Illegal 'if(...)' expression in query: compound arithmetic in 'then' clause: {m.group(0)}")
 
+    # 1b. Zero illegal metric_value_sum parameter
+    if "metric_value_sum" in query:
+      errors.append("Illegal metric type 'metric_value_sum' (must use 'value_sum' for volume metrics or 'event_count_sum' for count metrics)")
+
     # 2. Zero un-namespaced math functions or math.exp
     if "math.exp" in query:
       errors.append("Illegal function 'math.exp()' (unsupported in YARA-L 2.0)")

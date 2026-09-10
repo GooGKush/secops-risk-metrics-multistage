@@ -38,6 +38,12 @@ This catalog details all 38 active pre-computed behavioral risk metrics availabl
 >      ```
 >    - **Confirmation Gate**: The resolved `userid` must be presented in the Pre-Flight Card (e.g. `• Target Entity / Scope: James Holden (Resolved User ID: jholden)`) and explicitly confirmed with the analyst before compiling hunting queries. If the display name is not found in the current tenant's logs/enrichments, the agent must prompt the analyst for the technical `userid`.
 
+> [!IMPORTANT]
+> **Metric Aggregation Type Invariant (`metric: value_sum` vs. `metric: event_count_sum`)**:
+> In Google SecOps YARA-L 2.0, metric baseline functions strictly accept two aggregation types:
+> 1. `metric: value_sum`: Strictly required for byte/volume telemetry metrics (`metrics.network_bytes_*`, `metrics.dns_bytes_*`, `metrics.workspace_network_bytes_*`). Passing `metric_value_sum` causes fatal compiler failure (`unsupported metric type metric_value_sum`).
+> 2. `metric: event_count_sum`: Required for all count-based telemetry metrics (`metrics.auth_attempts_*`, `metrics.resource_*`, `metrics.http_queries_*`, `metrics.file_executions_*`, `metrics.network_flows_*`, `metrics.dns_queries_*`, `metrics.workspace_total_*`, `metrics.alert_event_name_count`).
+
 ---
 
 ## 1. Authentication Attempts
@@ -74,10 +80,10 @@ This catalog details all 38 active pre-computed behavioral risk metrics availabl
 
 | Metric Function | Description | Supported Dimensions (Entity Types) |
 | :--- | :--- | :--- |
-| `metrics.dns_queries_total` | Total DNS queries issued | `principal.asset.hostname`, `principal.asset.ip`, `principal.user.userid` |
-| `metrics.dns_bytes_inbound` | Received DNS response volume | `principal.asset.hostname`, `principal.asset.ip`, `principal.user.userid` |
-| `metrics.dns_bytes_outbound` | Sent DNS query volume | `principal.asset.hostname`, `principal.asset.ip`, `principal.user.userid` |
-| `metrics.dns_bytes_total` | Bidirectional DNS volume | `principal.asset.hostname`, `principal.asset.ip`, `principal.user.userid` |
+| `metrics.dns_bytes_outbound` | Sent DNS query volume (use `metric: value_sum`) | `principal.asset.hostname`, `principal.user.userid` |
+| `metrics.dns_queries_success` | Successful DNS resolution queries | `principal.asset.hostname`, `principal.user.userid` |
+| `metrics.dns_queries_fail` | Failed / NXDOMAIN DNS queries | `principal.asset.hostname`, `principal.user.userid` |
+| `metrics.dns_queries_total` | Total DNS query count | `principal.asset.hostname`, `principal.user.userid` |
 
 ---
 
@@ -85,20 +91,31 @@ This catalog details all 38 active pre-computed behavioral risk metrics availabl
 * **Log Scope:** `metadata.event_type = "PROCESS_LAUNCH"`
 * **Backing Log Types:** `CROWDSTRIKE`, `MICROSOFT_DEFENDER_ATF`, `SENTINELONE`, `CARBONBLACK`, `SYSMON`
 
+> [!IMPORTANT]
+> **Mandatory Companion Dimensions for Process Executions (`principal.process.file.sha256` & `metadata.event_type`)**:
+> In Chronicle Malachite, all endpoint execution baseline tables (`file_executions_*`) require both `principal.process.file.sha256` AND `metadata.event_type` in the metric filter.
+> Chronicle does not provide a raw host-level process launch count baseline (`process_launches_total` does not exist). Always profile executions by binary hash or aggregate raw process launches in Stage 1.
+
 | Metric Function | Description | Supported Dimensions (Entity Types) |
 | :--- | :--- | :--- |
-| `metrics.file_executions_total` | Total executions of a hash | `principal.asset.hostname`, `principal.asset.ip`, `target.process.file.sha256` |
-| `metrics.process_launches_total` | Total processes launched | `principal.asset.hostname`, `principal.asset.ip`, `principal.user.userid` |
+| `metrics.file_executions_total` | Total process executions for binary hash | `principal.asset.hostname`, `principal.user.userid` (requires sha256 + event_type) |
+| `metrics.file_executions_success` | Successful process executions | `principal.asset.hostname`, `principal.user.userid` (requires sha256 + event_type) |
+| `metrics.file_executions_fail` | Blocked / failed process executions | `principal.asset.hostname`, `principal.user.userid` (requires sha256 + event_type) |
 
 ---
 
-## 5. User Concurrency & Session Drift
-* **Log Scope:** `metadata.event_type = "USER_LOGIN"`
+## 5. Security & EDR Rule Alerts
+* **Log Scope:** `metadata.event_type = "SCAN_UNCATEGORIZED"`
+* **Backing Log Types:** `CB_EDR`, `CS_EDR`, `MICROSOFT_GRAPH_ALERT`, `SENTINELONE_ALERTS`
 
 | Metric Function | Description | Supported Dimensions (Entity Types) |
 | :--- | :--- | :--- |
-| `metrics.user_distinct_assets` | Distinct assets accessed by user | `target.user.userid` |
-| `metrics.asset_distinct_users` | Distinct users logging into asset | `principal.asset.hostname`, `principal.asset.ip` |
+| `metrics.alert_event_name_count` | Security rule and EDR alerts fired per entity | `principal.asset.hostname`, `principal.user.userid` |
+
+> [!NOTE]
+> **Lateral Movement & Asset Concurrency Baselining**:
+> Chronicle Malachite does not maintain a pre-computed distinct entity baseline (e.g. `metrics.user_distinct_assets` does not exist).
+> To baseline and hunt for lateral movement, compute distinct asset counts in the observation window (`$distinct_assets = count_distinct(principal.asset.hostname)`) and correlate against the user's authentications baseline using canonical `metrics.auth_attempts_success` or `metrics.auth_attempts_total`.
 
 ---
 

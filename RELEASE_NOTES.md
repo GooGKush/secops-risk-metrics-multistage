@@ -1,10 +1,43 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.6.3)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.6.4)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v1.6.3 (Minor Point Release) — September 2026  
+**Latest Version**: v1.6.4 (Minor Point Release) — September 2026  
+
+---
+
+## 📢 What's New in v1.6.4 (Minor Point Release) — Malachite Metric Aggregation Invariants, UEBA Auto-Routing & 100% Dual Regression Parity
+
+### 1. Chronicle Malachite Metric Aggregation Invariants (`value_sum` vs. `event_count_sum`)
+* **Strict Compiler Parameter Conformance**:
+  - In Google SecOps YARA-L 2.0, metric baseline functions strictly accept two aggregation types:
+    1. `metric: value_sum`: Strictly required for byte/volume telemetry metrics (`metrics.network_bytes_*`, `metrics.dns_bytes_*`, `metrics.workspace_network_bytes_*`). Passing `metric_value_sum` or `metric: total_bytes` triggers fatal compiler rejection.
+    2. `metric: event_count_sum`: Strictly required for all count-based telemetry metrics (`metrics.auth_attempts_*`, `metrics.resource_*`, `metrics.http_queries_*`, `metrics.file_executions_*`, `metrics.network_flows_*`, `metrics.dns_queries_*`, `metrics.workspace_total_*`, `metrics.alert_event_name_count`).
+  - Corrected `scripts/template_router.py` to route byte-volume metrics exclusively through `metric: value_sum`.
+  - Added strict AST validator checks in `scripts/preflight_validator.py` and submission tests in `scripts/submission_tests.py` to catch illegal parameters before query emission.
+
+### 2. Telemetry Catalog Alignment & Companion Dimension Validation
+* **Production Schema Reality Enforcement**:
+  - Catalog and pre-flight validators synchronized with production Google SecOps Malachite capabilities (`references/metrics-catalog.md`, `references/360-behavioral-radar-guide.md`, `scripts/generate_references.py`).
+  - Deprecated non-existent metric tables (`metrics.process_launches_total`, `metrics.user_distinct_assets`).
+  - Host process launch profiling mapped to canonical `metrics.file_executions_total` with mandatory companion dimensions (`principal.process.file.sha256` and `metadata.event_type`).
+  - Lateral movement baselining documented with canonical observation-window aggregation patterns (`count_distinct(principal.asset.hostname)` correlated with user authentication baselines).
+
+### 3. Bi-Directional Steering & Explicit UEBA Routing
+* **Direct UEBA Auto-Routing**:
+  - Configured prompt steering so that any query mentioning "UEBA" or leaning on behavioral concepts ("behavior", "behavioral", "risk", 360° health checks, peer comparisons) routes directly to `secops-risk-metrics-multistage`.
+  - Enforced clear boundary ensuring rule-authoring skills (`secops-detection-engineering`, `secops-yara-l`) only activate when the user explicitly requests to write, create, or deploy a detection rule or alert.
+  - Trimmed `SKILL.md` to strictly satisfy the $\le 20\text{ KB}$ budget (20,454 bytes) and $\le 250$ line count ceiling while preserving all guardrail contracts.
+
+### 4. Verification & Testing Parity
+* **100% Dual-Engine Regression Parity (26/26 Scenarios Passed)**:
+  - Executed full 26-scenario regression suite (`REG-P0-01` through `REG-P2-15`) under 8 concurrent workers in Dual Mode (`--engine dual -j 8`).
+  - Achieved 100% invariant pass parity between Dimension A (`agentapi` workspace dialogs) and Dimension B (`direct-mcp` headless client).
+  - Resolved relapsed protocol checks in `REG-P1-08` (Timing Jitter Boundary) and `REG-P1-12` (360° Radar Mode B).
+* **193/193 Unit Tests Passed**: All guardrail contracts, AST logic, and mathematical models pass cleanly.
+* **27/27 Submission Compiler Tests Passed**: 100% clean compilation on Google SecOps compiler test harness.
 
 ---
 

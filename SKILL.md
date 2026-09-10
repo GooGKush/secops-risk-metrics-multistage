@@ -1,7 +1,7 @@
 ---
 name: secops-risk-metrics-multistage
 author: Greg Kushmerek
-description: Multi-stage statistical outlier hunting in Google SecOps via Risk Analytics metrics (`metrics.*`) DAGs.
+description: UEBA behavioral threat hunting via 30d SecOps metrics DAGs.
 compatibility: Requires Google SecOps with Risk Analytics and SecOps GUS MCP.
 ---
 
@@ -12,7 +12,7 @@ Executes multi-sector statistical outlier hunting using 30-day Risk Analytics (`
 ---
 
 ## 🔀 Bi-Directional Skill Steering & Handoff Protocol
-* **30-Day Baselines** (`metrics.*`) / **Peer Cohorts** / **Multi-Sector Fusion**: Execute this skill (`secops-risk-metrics-multistage`).
+* **UEBA / 30-Day Baselines** (`metrics.*`) / **Behavioral Risk** / **Multi-Sector Fusion**: Execute this skill (`secops-risk-metrics-multistage`).
 * **Dual-Layer Defense for Trickle Attacks**: Layer 1 is Mode B Longitudinal CUSUM Drift ($S_t^+ \ge 4.0\sigma$ on `metrics.dns_queries_total`); Layer 2 is handoff to `secops-statistical-hunter` ($CV \le 0.20$).
 * **Sub-Second Jitter Boundary**: Metrics tables cannot compute sub-second deltas; for beaconing jitter, emit Skill Handoff Card to `secops-statistical-hunter` and yield turn (0 tools called).
 * **Privileged Lateral Movement & Unseen Endpoints**: Bipartite user-host history requires bounded lookback over raw `USER_LOGIN` logs; emit **Skill Handoff Card** to `secops-statistical-hunter` (`intent: PRIVILEGED_LATERAL_EXPANSION`) and yield turn (0 tools called).

@@ -174,7 +174,7 @@ When the entity is a Host (`ASSET`), telemetry scope maps as follows:
 | **Network Egress** | `metadata.event_type = "NETWORK_CONNECTION"` | `metrics.network_bytes_outbound` | `principal.asset.hostname` |
 | **DNS Resolution** | `metadata.event_type = "NETWORK_DNS"` | `metrics.dns_queries_total` | `principal.asset.hostname` |
 | **Cloud CRUD** | `metadata.event_type = "RESOURCE_CREATION"` | `metrics.resource_creation_total` | `principal.asset.hostname` |
-| **Process Launches** | `metadata.event_type = "PROCESS_LAUNCH"` | `metrics.process_launches_total` | `principal.asset.hostname` |
+| **Process Launches** | `metadata.event_type = "PROCESS_LAUNCH"` | `metrics.file_executions_total` | `principal.asset.hostname` |
 
 ---
 

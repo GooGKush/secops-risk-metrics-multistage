@@ -1031,6 +1031,29 @@ class MalachiteASTValidator:
                 f"MISSING_MANDATORY_FILTER in stage '{stage_name}': Metric 'metrics.{m_name}' is missing required companion dimension(s): {sorted(list(missing_dims))}.{hint}"
             )
 
+        # Check metric type parameter (value_sum vs event_count_sum)
+        if "metric_value_sum" in args_body:
+          errors.append(
+              f"INVALID_METRIC_TYPE in stage '{stage_name}': 'metric_value_sum' is invalid in Google SecOps YARA-L 2.0. "
+              "Use 'metric: value_sum' for volume metrics or 'metric: event_count_sum' for count metrics."
+          )
+        m_type_match = re.search(r"\bmetric\s*:\s*([a-zA-Z0-9_]+)", args_body)
+        if m_type_match:
+          m_type_val = m_type_match.group(1)
+          if m_type_val not in ("value_sum", "event_count_sum"):
+            errors.append(
+                f"INVALID_METRIC_TYPE in stage '{stage_name}': Unsupported metric type '{m_type_val}' for 'metrics.{m_name}'. "
+                "In Google SecOps YARA-L 2.0, metric baseline functions strictly accept 'value_sum' or 'event_count_sum'."
+            )
+          elif "bytes" in m_lower and m_type_val != "value_sum":
+            errors.append(
+                f"METRIC_TYPE_MISMATCH in stage '{stage_name}': Byte-volume metric 'metrics.{m_name}' must use 'metric: value_sum', found '{m_type_val}'."
+            )
+          elif "bytes" not in m_lower and m_type_val == "value_sum":
+            errors.append(
+                f"METRIC_TYPE_MISMATCH in stage '{stage_name}': Count-based metric 'metrics.{m_name}' must use 'metric: event_count_sum', found '{m_type_val}'."
+            )
+
       # Invariant: Maximum 1 ECG (Entity Context Graph) lookup per stage
       graph_aliases = set(re.findall(r"\$([a-zA-Z0-9_]+)\.graph\.", stage_body))
       if len(graph_aliases) > 1:
@@ -1093,6 +1116,29 @@ class MalachiteASTValidator:
             hint = " In Chronicle Malachite, process execution metrics require both 'metadata.event_type' and 'principal.process.file.sha256'."
           errors.append(
               f"MISSING_MANDATORY_FILTER in root stage: Metric 'metrics.{m_name}' is missing required companion dimension(s): {sorted(list(missing_dims))}.{hint}"
+          )
+
+      # Check metric type parameter (value_sum vs event_count_sum) in root stage
+      if "metric_value_sum" in args_body:
+        errors.append(
+            "INVALID_METRIC_TYPE in root stage: 'metric_value_sum' is invalid in Google SecOps YARA-L 2.0. "
+            "Use 'metric: value_sum' for volume metrics or 'metric: event_count_sum' for count metrics."
+        )
+      m_type_match = re.search(r"\bmetric\s*:\s*([a-zA-Z0-9_]+)", args_body)
+      if m_type_match:
+        m_type_val = m_type_match.group(1)
+        if m_type_val not in ("value_sum", "event_count_sum"):
+          errors.append(
+              f"INVALID_METRIC_TYPE in root stage: Unsupported metric type '{m_type_val}' for 'metrics.{m_name}'. "
+              "In Google SecOps YARA-L 2.0, metric baseline functions strictly accept 'value_sum' or 'event_count_sum'."
+          )
+        elif "bytes" in m_lower and m_type_val != "value_sum":
+          errors.append(
+              f"METRIC_TYPE_MISMATCH in root stage: Byte-volume metric 'metrics.{m_name}' must use 'metric: value_sum', found '{m_type_val}'."
+          )
+        elif "bytes" not in m_lower and m_type_val == "value_sum":
+          errors.append(
+              f"METRIC_TYPE_MISMATCH in root stage: Count-based metric 'metrics.{m_name}' must use 'metric: event_count_sum', found '{m_type_val}'."
           )
 
     # Check for events: header in root stage

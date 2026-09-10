@@ -39,7 +39,7 @@ class TestHybridPipelines(unittest.TestCase):
     self.assertIn('metadata.event_type = "NETWORK_CONNECTION"', query)
     self.assertIn("principal.asset.hostname = $entity", query)
     self.assertIn("metrics.network_bytes_outbound(", query)
-    self.assertIn("period: 1d, window: 30d, metric: total_bytes, agg: avg", query)
+    self.assertIn("period: 1d, window: 30d, metric: value_sum, agg: avg", query)
     self.assertIn("$diff = $observed_val - $hist_mean", query)
     self.assertIn("$denom = $hist_stddev + 1.0", query)
 
