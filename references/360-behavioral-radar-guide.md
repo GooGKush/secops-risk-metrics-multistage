@@ -348,7 +348,7 @@ And embeds in chat:
 
 * **Target Entity**: `<target_entity_id>` (Information Technology)
 * **Composite Threat Distance**: $D = 0.68\sigma$
-* **Calibrated Risk Index**: $\text{CRI} = 18 / 100$ (🟢 Nominal Volumetric Baseline)
+* **Calibrated Risk Index**: $\text{CRI} = 20 / 100$ (🟢 Nominal Volumetric Baseline)
 * **Evaluated Horizon**: Mode A (24-Hour Snapshot vs. 30-Day Pre-Computed Baseline)
 
 ---
@@ -391,7 +391,7 @@ order: $z desc
 | **Cloud Infrastructure** | 0 events | 0.0 events | 0.0 events | $+0.00\sigma$ | 14 | `▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱` | 🟢 Nominal |
 | **Workspace Data** | 0 actions | 0.0 actions | 0.0 actions | $+0.00\sigma$ | 14 | `▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱` | 🟢 Nominal |
 | **Network Egress** | 0 bytes | 0.0 bytes | 0.0 bytes | $+0.00\sigma$ | 14 | `▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱` | 🟢 Nominal |
-| **Composite Threat Distance** | — | — | — | $D = 0.68\sigma$ | **18 / 100** | `▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱` | 🟢 **Nominal Baseline** |
+| **Composite Threat Distance** | — | — | — | $D = 0.68\sigma$ | **20 / 100** | `▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱` | 🟢 **Nominal Baseline** |
 
 ```markdown
 PROVENANCE STAMP:

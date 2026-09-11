@@ -65,8 +65,8 @@ Visualizes an entity's 30-day baseline envelope (historical mean line with a sha
   "description": "Dual-Y Outlier Hunt (Volume vs Threat Distance / Z-Score)",
   "data": {
     "values": [
-      {"entity": "srv-db-01.corp", "observed": 450, "score": 8.4, "cri": 98},
-      {"entity": "srv-app-04.corp", "observed": 280, "score": 4.2, "cri": 68}
+      {"entity": "srv-db-01.corp", "observed": 450, "score": 8.4, "cri": 96},
+      {"entity": "srv-app-04.corp", "observed": 280, "score": 4.2, "cri": 67}
     ]
   },
   "resolve": {"scale": {"y": "independent"}},
@@ -112,9 +112,9 @@ Visualizes a fleetwide cross-sector risk landscape by encoding entities along th
   "description": "Multi-Sector Fleet Threat Matrix (5-Sector Heatmap)",
   "data": {
     "values": [
-      {"entity": "WRK-FIN-01", "sector": "IAM & Auth", "z_score": 3.8, "cri": 78},
-      {"entity": "WRK-FIN-01", "sector": "Cloud CRUD", "z_score": 0.2, "cri": 15},
-      {"entity": "WRK-FIN-01", "sector": "Workspace", "z_score": 4.1, "cri": 82},
+      {"entity": "WRK-FIN-01", "sector": "IAM & Auth", "z_score": 3.8, "cri": 62},
+      {"entity": "WRK-FIN-01", "sector": "Cloud CRUD", "z_score": 0.2, "cri": 16},
+      {"entity": "WRK-FIN-01", "sector": "Workspace", "z_score": 4.1, "cri": 66},
       {"entity": "WRK-FIN-01", "sector": "Net Egress", "z_score": 0.0, "cri": 14},
       {"entity": "WRK-FIN-01", "sector": "DNS Activity", "z_score": 0.5, "cri": 18}
     ]
@@ -145,8 +145,8 @@ Visualizes ranked fleet entities sorted in descending order by Composite Threat 
   "description": "Ranked Fleet Threat Outliers (Composite Threat Distance D)",
   "data": {
     "values": [
-      {"entity": "admin@demo.wsexample.org", "threat_distance_d": 4.10, "cri": 82, "status": "Critical"},
-      {"entity": "serhatg", "threat_distance_d": 3.65, "cri": 71, "status": "High"},
+      {"entity": "admin@demo.wsexample.org", "threat_distance_d": 4.10, "cri": 66, "status": "Critical"},
+      {"entity": "serhatg", "threat_distance_d": 3.65, "cri": 60, "status": "High"},
       {"entity": "ACC-WIN11-10$", "threat_distance_d": 0.57, "cri": 19, "status": "Nominal"}
     ]
   },
@@ -186,7 +186,7 @@ To guarantee data integrity while supporting rich graphical visualizations and e
 
 ### B. The Post-Search Collation & Visual Reduction Plane (Sanctioned Repo Scripts Allowed)
 * **Post-Search Execution Exemption**: Once verified JSON results are returned from `udm_search`, local Python execution via `run_command` is permitted SOLELY on sanctioned repository scripts (`scripts/radar_collector.py`, `scripts/triage_formatter.py`, `scripts/chart_generator.py`).
-* **Post-Search Collation**: When hunts fan out across decoupled micro-queries (due to Chronicle's 4-join limit) or multi-day sliding horizons, sanctioned scripts are authorized to merge the results and compute exact mathematical composite formulas ($D = \sqrt{\sum Z_i^2}$, Calibrated Risk Index $\text{CRI}$, and CUSUM drift) that Chronicle YARA-L cannot compute natively.
+* **Post-Search Collation**: When hunts fan out across decoupled micro-queries (due to Chronicle's 4-join limit) or multi-day sliding horizons, sanctioned scripts are authorized to merge the results and compute exact mathematical composite formulas ($D = \sqrt{\sum \max(0, Z_i)^2}$, Calibrated Risk Index $\text{CRI}$, and CUSUM drift) that Chronicle YARA-L cannot compute natively.
 * **Anti-Scratch-Script Guardrail**: Writing or executing ad-hoc scratch scripts (`scratch/test.py`) during threat hunts is strictly prohibited.
 
 ### C. The Tri-Surface Visual Rendering Contract (Jetski Embed vs. Generic MCP vs. CLI)
@@ -284,7 +284,7 @@ Visualizes an entire fleet ($N$ entities) evaluated against all 5 canonical beha
   <rect x="504" y="70" width="70" height="26" rx="4" fill="#f1f3f4" stroke="#dadce0" stroke-width="1"/>
   <text x="539" y="88" font-size="11" font-weight="600" fill="#5f6368" text-anchor="middle">+0.50σ</text>
   <rect x="580" y="70" width="85" height="26" rx="13" fill="#fce8e6" stroke="#fad2cf" stroke-width="1"/>
-  <text x="622" y="88" font-size="10" font-weight="700" fill="#c5221f" text-anchor="middle">D=5.61σ (96)</text>
+  <text x="622" y="88" font-size="10" font-weight="700" fill="#c5221f" text-anchor="middle">D=5.61σ (83)</text>
 </svg>
 ```
 

@@ -527,15 +527,16 @@ outcome:
       artifact_path: Optional[str] = None,
       scale_mode: str = "zscore",
   ) -> str:
-    """Renders cross-client dual-surface snippet (<agent-embed> for Jetski + Base64 image for MCP clients)."""
-    data_uri = EntityRadarCollector.generate_data_uri_image(
-        entity_id, spokes, composite_d, cri, scale_mode=scale_mode
-    )
+    """Renders the Jetski embed surface: <agent-embed> iframe plus a direct artifact link.
+
+    Deliberately omits a base64 data-URI: Jetski's Markdown pipeline (rehype-sanitize)
+    and CSP block `data:image/svg+xml;base64`, which renders as a broken image
+    placeholder. SVG renders correctly inside the sandboxed <agent-embed> iframe.
+    """
     src_path = artifact_path if artifact_path else f"radar_{entity_id}.html"
     file_uri = src_path if src_path.startswith("file://") else f"file://{src_path}"
     return (
         f'<agent-embed src="{file_uri}"></agent-embed>\n'
-        f'{data_uri}\n'
         f'[📊 Open 360° Risk Radar (SVG/HTML)]({file_uri})'
     )
 

@@ -184,10 +184,10 @@ class TestGuardrailContracts(unittest.TestCase):
 
   def test_search_only_prohibits_rule_deployment_tools(self):
     """SKILL.md must strictly prohibit calling create_rule or validate_rule during threat hunting."""
-    self.assertIn("Pure Threat Hunting Scope (SEARCH-ONLY — ZERO RULE CREATION / DEPLOYMENT)", self.skill_content)
+    self.assertIn("Pure Threat Hunting Scope (SEARCH-ONLY)", self.skill_content)
     self.assertIn("create_rule", self.skill_content)
     self.assertIn("validate_rule", self.skill_content)
-    self.assertIn("STRICTLY PROHIBITED", self.skill_content)
+    self.assertIn("outside this skill's authority", self.skill_content)
 
   def test_bidirectional_steering_and_handoff_protocol(self):
     """SKILL.md must define the bi-directional steering protocol and handoff to secops-statistical-hunter."""
@@ -451,8 +451,8 @@ class TestGuardrailContracts(unittest.TestCase):
     with open(guide_path, 'r', encoding='utf-8') as f:
       g_content = f.read()
 
-    self.assertIn("CRITICAL NOMENCLATURE VIOLATION", s_content)
-    self.assertIn("Strict Nomenclature Mandate", s_content)
+    self.assertIn("a Query, never a Rule", s_content)
+    self.assertIn("Treat any drift toward Rule authoring as out of scope", s_content)
     self.assertIn("Query vs. Rule Nomenclature", g_content)
     self.assertIn("Ad-Hoc & Dashboard Logic is a Query", g_content)
 
@@ -670,8 +670,8 @@ class TestGuardrailContracts(unittest.TestCase):
 
   def test_zero_streaming_detection_rule_syntax_mandate(self):
     """SKILL.md must strictly forbid outputting streaming detection rules or rule blocks."""
-    self.assertIn("Zero Streaming Detection Rule Syntax", self.skill_content)
-    self.assertIn("CRITICAL NOMENCLATURE & ARCHITECTURAL VIOLATION", self.skill_content)
+    self.assertIn("`rule ... { ... }`", self.skill_content)
+    self.assertIn("a Query, never a Rule", self.skill_content)
 
   def test_event_section_arithmetic_rejection(self):
     """Common Compiler rejects variable arithmetic above match: (in event/stage join sections)."""
@@ -870,8 +870,9 @@ class TestGuardrailContracts(unittest.TestCase):
       guide_content = f.read()
 
     # Verify SKILL.md mandate
-    self.assertIn("Multi-Turn Continuity & Follow-Up Mandate", skill_content)
-    self.assertIn("NEVER degrade to raw log dumps", skill_content)
+    self.assertIn("Entity Shift", skill_content)
+    self.assertIn("Re-enter State 1 for new entity", skill_content)
+    self.assertIn("RAW_LOG_DUMP_DETECTED", skill_content)
 
     # Verify multi-stage guide documentation
     self.assertIn("Multi-Turn Continuity & Conversational Anaphora Resolution", guide_content)
@@ -933,8 +934,8 @@ class TestGuardrailContracts(unittest.TestCase):
 
     # Pre-Preview Compilation Gate
     self.assertIn("Mandatory Upfront Query Preview Protocol (Mandatory Query Preview)", skill_content)
-    self.assertIn("1-shot pre-preview compiler probe", skill_content)
-    self.assertIn("Display query in markdown ONLY if probe compiles cleanly", skill_content)
+    self.assertIn("Probe once with ISO 8601 UTC timestamps", skill_content)
+    self.assertIn("Display the query only on a clean 200 OK", skill_content)
 
     # Consultative Pivot Protocol in SKILL.md
     self.assertIn("Consultative Pivot & Handoff Protocol", skill_content)
@@ -993,7 +994,7 @@ class TestGuardrailContracts(unittest.TestCase):
 
     self.assertIn("Tool-Precondition Code Block Embargo", skill_content)
     self.assertIn("Tool-Precondition Code Block Embargo (Zero Broken Queries)", guide_content)
-    self.assertIn("Emitting ```yara without an immediate preceding successful probe is STRICTLY PROHIBITED", skill_content)
+    self.assertIn("emitting ```yara without an immediately preceding successful probe is STRICTLY PROHIBITED", skill_content)
     self.assertIn("query preview must be withheld", guide_content)
 
   def test_twophase_chained_hunt_specification_contract(self):
@@ -1198,9 +1199,9 @@ class TestGuardrailContracts(unittest.TestCase):
       radar_content = f.read()
 
     # SKILL.md assertions
-    self.assertIn("HARD PRE-FLIGHT CLEARANCE GATE (NO QUERY = NO CLEARANCE)", skill_content)
-    self.assertIn("Clearance Request (Step 5) MUST NEVER BE ASKED unless a valid, compilable multi-stage YARA-L query has been successfully probed", skill_content)
-    self.assertIn("Explicit Clearance Question & Turn Termination (GATED ON STEP 4 QUERY DISPLAY)", skill_content)
+    self.assertIn("State 2 Entry Condition", skill_content)
+    self.assertIn("State 2 begins only if the preceding turn displayed a PRE-FLIGHT HUNTING SPECIFICATION card and a probed (200 OK) multi-stage YARA-L query", skill_content)
+    self.assertIn("Clearance Question (final sentence of Turn 1, then yield)", skill_content)
 
     # Reference guide assertions
     self.assertIn("The Hard Pre-Flight Clearance Gate (NO QUERY = NO CLEARANCE)", guide_content)
@@ -1219,7 +1220,7 @@ class TestGuardrailContracts(unittest.TestCase):
       guide_content = f.read()
 
     # SKILL.md assertions
-    self.assertIn("1-shot pre-preview compiler probe with ISO 8601 timestamps", skill_content)
+    self.assertIn("Probe once with ISO 8601 UTC timestamps", skill_content)
     self.assertIn("<ISO_10M_AGO>", skill_content)
     self.assertIn("<ISO_NOW>", skill_content)
     self.assertIn("Relative 'now-10m' is invalid", skill_content)

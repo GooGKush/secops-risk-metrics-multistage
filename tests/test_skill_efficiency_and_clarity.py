@@ -82,7 +82,7 @@ class TestSkillEfficiencyAndClarity(unittest.TestCase):
     self.assertTrue("MANDATORY STEP 1: PRE-FLIGHT CLEARANCE" in self.skill_content or "State 1: Pre-Flight Clearance" in self.skill_content)
     self.assertIn("Turn 1 Tool Invariant", self.skill_content)
     self.assertIn("PRE-FLIGHT HUNTING SPECIFICATION", self.skill_content)
-    self.assertIn("Explicit Clearance Question & Turn Termination", self.skill_content)
+    self.assertIn("Clearance Question (final sentence of Turn 1, then yield)", self.skill_content)
 
   def test_step2_six_pillars_hierarchy(self):
     """SKILL.md must define all 6 required pillars of the Step 2 triage report."""

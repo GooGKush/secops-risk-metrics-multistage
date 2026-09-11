@@ -291,11 +291,12 @@ class TestRadarCollector(unittest.TestCase):
     self.assertEqual(proc_spokes[4].z_score, 5.5)
 
   def test_generate_dual_surface_embed(self):
-    """Dual-surface embed must emit <agent-embed>, Base64 markdown image, and direct file link."""
+    """Jetski embed must emit <agent-embed> and a direct file link, and must never emit a
+    Base64 data-URI (blocked by rehype-sanitize + CSP; renders as a broken image)."""
     payload = self.collector.build_radar_payload("tim.smith@altostrat.com", "USER", self.sample_spokes)
     dual_embed = payload["dual_surface_embed"]
     self.assertIn("<agent-embed", dual_embed)
-    self.assertIn("![360° Behavioral Risk Radar: tim.smith@altostrat.com](data:image/svg+xml;base64,", dual_embed)
+    self.assertNotIn("data:image/svg+xml;base64", dual_embed)
     self.assertIn("[📊 Open 360° Risk Radar (SVG/HTML)](file://", dual_embed)
 
   def test_empty_spokes_handling(self):
