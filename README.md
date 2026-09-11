@@ -1,6 +1,6 @@
 # Google SecOps Multi-Stage Risk Metrics Threat Hunter (`secops-risk-metrics-multistage`)
 
-[![Version](https://img.shields.io/badge/version-v1.6.7-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-209%2F209%20passing%20(100%25)-brightgreen.svg)](tests/) [![Submission Tests](https://img.shields.io/badge/submission%20tests-27%2F27%20passing%20(100%25)-brightgreen.svg)](scripts/submission_tests.py) [![Dual Platform Regression](https://img.shields.io/badge/dual--platform%20regression-26%2F26%20passing%20(100%25)-brightgreen.svg)](reports/)
+[![Version](https://img.shields.io/badge/version-v1.6.8-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-213%2F213%20passing%20(100%25)-brightgreen.svg)](tests/) [![Submission Tests](https://img.shields.io/badge/submission%20tests-27%2F27%20passing%20(100%25)-brightgreen.svg)](scripts/submission_tests.py) [![Dual Platform Regression](https://img.shields.io/badge/dual--platform%20regression-27%2F27%20passing%20(100%25)-brightgreen.svg)](reports/)
 
 A specialized, production-grade AI agent skill package for **Google Security Operations (SecOps / Chronicle SIEM & SOAR)** that constructs, validates, and executes **Multi-Stage YARA-L 2.0 Directed Acyclic Graph (DAG) statistical threat hunting pipelines**, **360° Entity Behavioral Risk Radars**, and **Progressively Disclosed Consultative Threat Hunting**.
 
@@ -37,6 +37,7 @@ secops-risk-metrics-multistage/
 │   │   ├── identity-and-access.md        # Credential compromise, circadian shifts, & dormancy breaks
 │   │   └── insider-risk-360.md           # Holistic multi-silo insider profiling & 360° radar
 │   ├── metrics-catalog.md                # Full catalog of 38 pre-computed behavioral risk metrics
+│   ├── model-concordance-guide.md        # AST concordance contracts, outcome variables & prohibited fallbacks across all 14 models
 │   ├── multi-stage-metrics-guide.md      # Multi-stage YARA-L DAG contracts, condition gating, & Entity Graph rules
 │   ├── soar-playbook-radar-integration.md# Chronicle SOAR playbook integration for 360° radar
 │   ├── statistical-hunting-cooperative-framework.md # Federated bilateral handoff protocol

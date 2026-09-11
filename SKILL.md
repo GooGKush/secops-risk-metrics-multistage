@@ -71,7 +71,7 @@ When profiling multiple sectors (*"multi-sector fusion"*, *"visualize all risk v
 
 ### 🔍 Phase 1B: Pre-Flight Spec & Query Preview (Once Scope & Vectors are Established)
 Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to both"*, or via CTI mapping):
-1. **Turn 1 Tool Invariant**: Zero external inspection; name spot-check and 1-shot compiler probe (`udm_search`) on primary baseline filter permitted (in hybrid hunts, probe primary baseline stream only; never secondary streams on Turn 1).
+1. **Turn 1 Tool Invariant**: Zero external inspection; name spot-check and 1-shot compiler probe (`udm_search`; max 1 retry if error) on primary baseline filter permitted (in hybrid hunts, probe primary baseline stream only; never secondary streams on Turn 1).
 2. **Identity Disambiguation & Confirmation Protocol (ZERO GUESSING & IMMEDIATE HALT)**:
    - *Technical IDs vs Display Names*: Display names (with spaces) are NOT `user.userid`. First names (`frank`) must be spot-checked in UDM.
    - *14-Day UDM Spot-Check*: `udm_search(query='target.user.userid = "<name>" nocase or principal.user.userid = "<name>" nocase', startTime: "<ISO_14D_AGO>", endTime: "<ISO_NOW>", maxEvents: 5)`.

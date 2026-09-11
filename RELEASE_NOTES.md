@@ -1,10 +1,54 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.6.7)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.6.8)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v1.6.7 (Minor Point Release) — September 2026  
+**Latest Version**: v1.6.8 (Minor Point Release) — September 2026  
+
+---
+
+## 📢 What's New in v1.6.8 (Minor Point Release) — Affirmative Model Concordance Contracts, AST Invariant Scaffolding & Zero-Fallback Governance
+
+### 1. Eliminating the "Aspirational Pre-Flight" Problem
+* **Architectural Root-Cause Resolution**:
+  - Addressed the structural gap between Phase 1B (Pre-Flight Plan) and State 2 (Execution) where an agent could declare a sophisticated statistical model (such as Longitudinal CUSUM, Empirical Bayes, or Hurdle) in prose, but emit a generic univariate Gaussian $Z$-score fallback in the emitted YARA-L query AST.
+  - Established a strict, bidirectional concordance invariant requiring the candidate query's `outcome:` derivations and `order:` clause to faithfully instantiate the declared mathematical archetype.
+
+### 2. Authoritative 14-Model Reference Guide (`references/model-concordance-guide.md`)
+* **Comprehensive Mathematical & AST Specification**:
+  - Authored a full specification documenting all 14 Stage 2 statistical models supported by `MultiStageTemplateRouter`:
+    1. Standard Parametric $Z$-Score (`standard_z_score.yl2`)
+    2. Median Absolute Deviation (MAD) Modified $Z$ (`mad.yl2`)
+    3. Variance & Fano Factor Dispersion (`variance_fano.yl2`)
+    4. Poisson Rarity (`poisson_rarity.yl2`)
+    5. Coefficient of Variation (`coefficient_of_variation.yl2`)
+    6. Hourly Temporal $Z$-Score (`hourly_temporal_zscore.yl2`)
+    7. Empirical Bayes Poisson-Gamma Conjugate (`poisson_gamma_bayesian.yl2`)
+    8. Empirical Bayes Beta-Binomial Conjugate (`beta_binomial_bayesian.yl2`)
+    9. Longitudinal CUSUM Drift (`longitudinal_cusum.yl2`)
+    10. Two-Part Hurdle Model (`two_part_hurdle.yl2`)
+    11. Asymmetric Directional $Z$ (`asymmetric_directional_z.yl2`)
+    12. Piecewise CRI Score Translation (`piecewise_cri.yl2`)
+    13. Fleet Prevalence Shield (`fleet_prevalence_shield.yl2`)
+    14. Adaptive Context Thresholding (`adaptive_context_threshold.yl2`)
+  - Outlines the exact mandatory outcome variables, required algebraic operations, sorting criteria, and prohibited degradation antipatterns.
+  - Includes a Pre-Display Self-Concordance Checklist for agent self-verification before emitting queries.
+
+### 3. Progressive Scaffolding & Affirmative Guidance in `SKILL.md`
+* **Direct Template Linkage in Pre-Flight Card**:
+  - Updated the Pre-Flight Hunting Specification Card to affirmatively prompt for both model and template: `• Statistical Model: [Model & Template, e.g. CUSUM Drift (longitudinal_cusum.yl2)]`.
+* **Affirmative Concordance Invariant**:
+  - Replaced prohibitive negative phrasing with constructive, template-directed instructions:
+    `* *Model Concordance Invariant*: When declaring a statistical model, instantiate its template in templates/stage2_math_models/ (see references/model-concordance-guide.md). Emitted outcome: derivations and order: clause MUST faithfully implement that template's mathematical AST signature (e.g. CUSUM $cusum_drift_score, Poisson $poisson_z, or Empirical Bayes $posterior_mean).`
+  - Preserved strict token and instruction budgets: 20,470 bytes (<= 20,480 bytes) and 169 lines (<= 250 lines).
+
+### 4. Comprehensive Unit & Regression Test Verification
+* **New Unit Test Suite (`tests/test_model_concordance.py`)**:
+  - Validates 100% enum coverage across all 14 models, verifies template AST invariants, verifies router query emission, and confirms reference guide synchronization.
+* **100% Unit Test Pass (213/213 passed)**.
+* **100% Static Compiler Pass (27/27 passed)**.
+* **100% Dual-Engine Live Regression Pass (27/27 passed)** across both AgentAPI and Direct MCP on tenant `gus-sdl`.
 
 ---
 
