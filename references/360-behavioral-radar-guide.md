@@ -36,6 +36,7 @@ Execute independent decoupled sector queries, retrieve the observed metrics per 
   - **Objective**: Audit $N$ entities across an organization or peer group to identify who exhibited anomalous activity across any of the 5 sectors.
   - **Pillar 1 Surface**: **Multi-Sector Fleet Heatmap Matrix** (`radar_fleet_heatmap.html`) or **Ranked Fleet Outlier Bar Chart** (`radar_fleet_ranking.html`). Linear and matrix layouts provide clean, readable comparisons without radial centroid collapse.
   - **Recommended Horizon**: **Mode B (14-Day Longitudinal Timeline)**. Because security anomalies and data exfiltration are bursty, episodic events, a 14-day sliding window surfaces historical bursts that a 24-hour snapshot misses.
+  - **Sector Consistency**: Both single-entity and fleetwide threat fusion evaluate and report across all 5 canonical sectors: Authentication, Cloud CRUD, Workspace Exfiltration, Network Flow, and DNS / Web Activity.
   - **Interactive Drill-Down**: Offer the 5-spoke radial radar as a 1-click drill-down when the analyst selects a specific high-risk entity from the ranked list.
 
 ---
@@ -74,9 +75,9 @@ Because MCP clients operate across varied environments (web browsers, IDEs, desk
 
 ### Tier 3: Pure Headless / Command-Line Client & Programmatic Environments (agentapi, generic MCP)
 * **Execution**: In programmatic or terminal environments without local shell execution (`agentapi`, headless MCP), the agent renders directly in Markdown:
-  - **Pillar 1**: Inline `<svg>` radar chart (Surface Option B).
+  - **Pillar 1**: Inline `<svg viewBox="0 0 620 480">` radar chart (Surface Option B). 360° behavioral radar profiles evaluate all 5 sectors and render the 5-spoke visual radar even when all sectors reflect nominal baseline activity ($D = 0.00\sigma, \text{CRI} = 0$).
   - **Pillar 2**: The canonical decoupled representative micro-query (`stage auth_risk` with `order: $z desc`).
-  - **Pillars 3–6**: Grounded 5-sector matrix, CRI summary, and forensic vector breakdown.
+  - **Pillars 3–6**: Grounded 5-sector matrix, CRI summary, and forensic vector breakdown across all 5 canonical sectors.
   *(Alternatively, in text-only terminals without SVG capability, the agent presents the Deterministic 5-Sector Terminal Scorecard evaluating discrete event counts and a $k$-of-5 Sector Hurdle).*
 * **Benefit**: Zero external shell dependencies, fully compliant with programmatic and zero-auth execution models.
 
@@ -176,15 +177,17 @@ $$D = \sqrt{\sum_{i=1}^5 Z_i^2}$$
 ---
 
 ### 4.2 ASSET Entity Sector Specifications
-When the entity is a Host (`ASSET`), telemetry scope maps as follows:
+When the entity is a Host (`ASSET`), telemetry scope maps across the same 5 canonical sectors:
 
 | Sector | Telemetry Filter | Metrics Table | Primary Dimension |
 | :--- | :--- | :--- | :--- |
 | **Authentication** | `metadata.event_type = "USER_LOGIN"` | `metrics.auth_attempts_total` | `principal.asset.hostname` |
+| **Cloud CRUD** | `metadata.event_type = "RESOURCE_CREATION"` | `metrics.resource_creation_total` | `principal.asset.hostname` |
+| **Workspace Exfiltration** | `metadata.event_type = "USER_RESOURCE_ACCESS"` | `metrics.workspace_total_download_actions` | `principal.asset.hostname` |
 | **Network Egress** | `metadata.event_type = "NETWORK_CONNECTION"` | `metrics.network_bytes_outbound` | `principal.asset.hostname` |
 | **DNS Resolution** | `metadata.event_type = "NETWORK_DNS"` | `metrics.dns_queries_total` | `principal.asset.hostname` |
-| **Cloud CRUD** | `metadata.event_type = "RESOURCE_CREATION"` | `metrics.resource_creation_total` | `principal.asset.hostname` |
-| **Process Launches** | `metadata.event_type = "PROCESS_LAUNCH"` | `metrics.file_executions_total` | `principal.asset.hostname` |
+
+*(Note: In dedicated endpoint anomaly pipelines, Process Launches map to `metrics.file_executions_total`; in the universal 360° Threat Fusion Radar, all entities evaluate the 5 canonical sectors: Auth, Cloud, Workspace, Network, and DNS).*
 
 ---
 

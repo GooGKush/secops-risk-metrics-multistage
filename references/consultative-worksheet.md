@@ -88,6 +88,7 @@ When engaging the analyst during Phase 1A, use the **Summary View** templates be
   1. *Time-of-Day Execution Anomalies*: Detect endpoint binary launches occurring during historically dead hours (**Hourly Temporal Z-Score** on `file_executions_total`).
   2. *Living-off-the-Land Surge*: Surface statistically rare binary executions for a specific host and hash (**Poisson Rarity** on `file_executions_success`).
   3. *EDR Alert Accumulation*: Detect subtle increases in vendor alerts on critical assets before an incident is declared (**Longitudinal CUSUM Drift** on `alert_event_name_count`).
+  4. *Enterprise Software Rollout / Patch Tuesday Normalization*: Separate targeted endpoint malware execution from corporate package updates (**Archetype 3: Dual-Plane Fleet Prevalence Normalization** via `templates/pipelines/hybrid_metric_fleet_prevalence_2stage.yl2` using token-centric match topology `$token by 1d` on binary hash `target.process.file.sha256 = $token` and hyperbolic prevalence dampener `1.0 / (k_fleet + 1.0)`).
 * *Deep Dive Guide*: `references/consultative/endpoint-and-covert.md`
 
 ### Domain 5: Comprehensive Insider Risk & Multi-Vector Health Check

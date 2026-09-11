@@ -1,10 +1,60 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.6.8)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.6.9)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v1.6.8 (Minor Point Release) — September 2026  
+**Latest Version**: v1.6.9 (Minor Point Release) — September 2026  
+
+---
+
+## 📢 What's New in v1.6.9 (Minor Point Release) — 100% Dual-Engine Parity, Compiler Conditional Safety, Canonical 5-Sector Host Fleet Alignment & Regex Invariant Scaffolding
+
+### 1. 100% Dual-Engine Invariant Parity Across Full Suite (27/27 Passing)
+* **Complete Cross-Engine Concordance**:
+  - The entire 27-scenario regression suite (`secops-regress`) achieved 100% invariant parity across both `agentapi` and `direct-mcp` execution engines running against production-like Chronicle SIEM tenant `gus-sdl`.
+  - Zero unaddressed invariant defects, zero regressions, and zero non-deterministic behavioral fallbacks across all P0, P1, and P2 test suites.
+
+### 2. Outcome `if()` Compiler Invariant & Compound Arithmetic Safety (`REG-P1-06`)
+* **Chronicle Common Compiler Invariant Resolution**:
+  - Identified and codified the Chronicle SIEM Common Compiler (`compiler.go`) grammar constraint forbidding compound arithmetic expressions inside the `then` and `else` branches of ternary `if(condition, then, else)`.
+  - Added affirmative guidance in `SKILL.md` (line 137) and `references/compiler-submission-policy.md` directing agents to bind intermediate placeholder variables for compound math prior to `if()` evaluation (`$val = $a + $b; $safe = if($cond, $val, $def)`).
+
+### 3. Canonical 5-Sector Host Fleet Threat Fusion Alignment (`REG-P2-16`)
+* **Elimination of Host Fleet Sector Drift**:
+  - Aligned Section 4.2 of `references/360-behavioral-radar-guide.md` and visual reporting to the 5 canonical sectors (`Auth`, `Cloud`, `Workspace Exfiltration`, `Network`, `DNS`) for all entity types (both User and Asset scopes).
+  - Corrected an architectural drift where Sector 5 was mistakenly mapped to `Process Launches` for asset fleets, restoring true omnidirectional threat fusion consistency.
+
+### 4. Technical Username vs. Display Name Disambiguation Contract (`REG-P1-11`)
+* **Streamlined Technical Logon Recognition**:
+  - Refined Section B of `references/multi-stage-metrics-guide.md` to establish that dot-delimited usernames (`laura.hill`, `frank.kolzig`) and corporate email addresses are already technical `user.userid` identifiers.
+  - Agents immediately recognize technical usernames and proceed directly to pre-flight formulation without triggering false-positive display-name disambiguation halts.
+
+### 5. ANTLR Grammar Match Binding Invariant (`REG-P1-19`)
+* **Strict Member Access Prohibition in Match Blocks**:
+  - Codified the ANTLR grammar invariant forbidding member access dot-notation inside YARA-L `match:` blocks (`$s1.user` or `$e.host` is invalid).
+  - Required all match dimensions to be bound to simple identifiers in preceding event predicates (`$user = $s1.user; match: $user by 1d`).
+
+### 6. Autocorrection Probe Loop Ceiling (`REG-P1-17`, `REG-P2-11`)
+* **Deterministic Turn 1 Termination**:
+  - Codified the strict Turn 1 probe ceiling in `SKILL.md` (line 69): `(max 1 retry; maximum 2 probes on Turn 1)`.
+  - Eliminates recursive autocorrection loops and ensures clean consultative handoffs and clearance prompts.
+
+### 7. Native YARA-L 2.0 Regular Expression Syntax (`REG-P1-21`)
+* **Affirmative Regex Syntax Guidance**:
+  - Progressively loaded affirmative regex syntax guidance into `references/multi-stage-metrics-guide.md` (Section 2, Item 6) and `SKILL.md` (line 137).
+  - Explicitly documents that regex evaluation in event predicates uses `re.regex($var, /pattern/)` or direct assignment `$var = /pattern/ nocase`, eliminating Python-style `re.match()` syntax errors.
+
+### 8. 360° Visual Radar Preservation Across All Baselines (`REG-P2-15`)
+* **Surface Integrity for Headless MCP / Webview Clients**:
+  - Delineated single-vector Zero-Telemetry Clean Hunt Exemptions from omnidirectional 360° Entity Behavioral Risk Radars in `SKILL.md` (Item 107) and `references/360-behavioral-radar-guide.md` (Tier 3).
+  - Preserves the inline `<svg viewBox="0 0 620 480">` radar visualization and full 6-pillar report across all 5 sectors even when baseline activity is nominal ($D = 0.00\sigma, \text{CRI} = 0$).
+
+### 9. Verification & Code Quality Metrics
+* **213 / 213 Pytest Unit Tests Passed (100% Green)**.
+* **27 / 27 Static Compiler Submissions Passed (100% Clean AST)**.
+* **27 / 27 Live Dual-Engine Regression Scenarios Passed (100% Invariant Parity)**.
+* **Strict `SKILL.md` Budget Honored**: 163 lines ($\le 250$ lines), 20,460 bytes ($\le 20,480$ bytes).
 
 ---
 

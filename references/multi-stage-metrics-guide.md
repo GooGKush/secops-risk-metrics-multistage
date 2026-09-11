@@ -529,6 +529,8 @@ When an analyst's inquiry is open-ended (e.g. *"find privilege abuse"*, *"look f
    - **Maximum Supported UEBA Multi-Stage DAG**: **2 Named UEBA Stages + Root Stage** (Total joins = $1 + 1 + 1 = \mathbf{3\text{ joins}} \le 4$, e.g. `dual_sector_fusion_3stage.yl2`).
    - Attempting to chain 3 or 4 independent named stages with UEBA metrics in a single search query yields 5 to 7 joins and triggers `compilation error maximum number of joins exceeded. limit query to at most 4 joins`.
    - For 4-sector cross-vector profiling (e.g. Auth + Cloud + Workspace + Network + Endpoint), execute decoupled parallel 2-stage micro-queries (the 360° behavioral radar pattern) or route raw non-metrics correlation to `secops-statistical-hunter`. Do NOT abandon search mode to improvise continuous detection rules.
+6. **Regular Expression Pattern Matching Syntax**: Regular expression pattern evaluation in YARA-L 2.0 event predicates uses `re.regex($var, /pattern/)` or direct regex assignment `$var = /pattern/ nocase` (e.g. `$sa = /@.*gserviceaccount\.com$/ nocase`).
+
 
 ---
 
@@ -919,10 +921,11 @@ Under the **Hard Pre-Flight Clearance Gate**, this sequence is strictly prohibit
 2. **Immediate Halt on Query Failure**: If the query cannot be probed or compiled, the agent MUST NOT ask for clearance. The agent must halt immediately, state the compilation or data issue, and ask the analyst for clarification.
 
 ### B. Identity Disambiguation & 14-Day UDM Spot-Check
-1. **The Single-Token Trap**:
-   Analyst inputs with single unqualified first names (e.g., `"greg"`, `"frank"`) must NOT be presumed to be valid technical user IDs (`user.userid`). In enterprise Chronicle environments, technical user IDs are corporate emails (`user@company.com`) or standardized usernames (`jsmith`, `srv-backup`).
-2. **Pre-Execution 14-Day UDM Spot-Check**:
-   Before generating a Pre-Flight Hunting Specification Card for a standalone first name:
+1. **The Single-Token Trap vs. Qualified Technical User IDs**:
+   Analyst inputs with single unqualified first names (e.g., `"greg"`, `"frank"`) or display names containing spaces (`"Frank Kolzig"`) must NOT be presumed to be valid technical user IDs (`user.userid`).
+   Conversely, qualified identifier strings containing a dot (e.g. `laura.hill`, `frank.kolzig`) or `@` email addresses (`user@company.com`) are already standardized technical `user.userid` values. They require zero display-name resolution and are ready immediately for baseline lookups and 1-shot compiler probing.
+2. **Pre-Execution 14-Day UDM Spot-Check (For Unqualified Names Only)**:
+   Before generating a Pre-Flight Hunting Specification Card for a standalone first name or human display name:
    ```python
    udm_search(
        query='target.user.userid = "<name>" nocase or principal.user.userid = "<name>" nocase or target.user.user_display_name = "<name>" nocase or principal.user.user_display_name = "<name>" nocase',

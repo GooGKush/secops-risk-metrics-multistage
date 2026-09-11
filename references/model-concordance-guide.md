@@ -319,9 +319,10 @@ order:
   $cri_score desc
 ```
 
-### 13. `FLEET_PREVALENCE_SHIELD` (`fleet_prevalence_shield.yl2`)
-* **Hypothesis**: Concurrent spikes across many fleet entities indicate global events (e.g. Patch Tuesday), not targeted attacks.
-* **Mandatory AST Contract**:
+### 13. `FLEET_PREVALENCE_SHIELD` (`fleet_prevalence_shield.yl2` & `hybrid_metric_fleet_prevalence_2stage.yl2`)
+* **Hypothesis**: Concurrent spikes across many fleet entities indicate global events (e.g. Patch Tuesday / enterprise IT rollouts), not targeted attacks.
+* **Variant A: Single-Plane Metric Prevalence Shield (`fleet_prevalence_shield.yl2`)**:
+  - *Mandatory AST Contract*:
 ```yara
 outcome:
   $observed = max($stage1_extract.observed_val)
@@ -340,6 +341,12 @@ outcome:
 order:
   $shielded_z desc
 ```
+* **Variant B: Dual-Plane Token-Centric Normalization (`hybrid_metric_fleet_prevalence_2stage.yl2`)**:
+  - *Use Case*: Process execution hunts for unfamiliar binaries during deployments (`target.process.file.sha256 = $token`).
+  - *Match Topology*: Match on `$token by 1d`, joining Stage 1 personal surge with Stage 2 fleet breadth.
+  - *Hyperbolic Prevalence Dampener*: `$prevalence_dampener = 1.0 / ($fleet_adopters + 1.0)`
+  - *Outlier Scoring*: `$normalized_odds_score = $personal_z * $prevalence_dampener` (order: `$normalized_odds_score desc`).
+
 
 ### 14. `ADAPTIVE_CONTEXT_THRESHOLD` (`adaptive_context_threshold.yl2`)
 * **Hypothesis**: Sensitivity should dynamically tighten during off-hours or dormant periods ($1.75\sigma$ vs $3.00\sigma$).
@@ -373,3 +380,8 @@ Before emitting any query preview under a Pre-Flight Card in Phase 1B, verify:
 2. **Outcome Variable Audit**: Does the emitted query's `outcome:` block contain all mandatory variables specified in the matrix above?
 3. **Primary Ranking Target**: Does the `order:` clause sort by the primary model output variable (e.g. `$cusum_drift_score desc`, `$hurdle_threat_score desc`, `$bayes_shift_ratio desc`)?
 4. **No Univariate Fallback**: If an advanced model (e.g. Bayesian, CUSUM, Hurdle, Piecewise CRI) was declared, ensure it is NOT replaced by a bare standard $Z$-score.
+5. **Outcome `if(...)` Compiler Invariant**: Chronicle SIEM compiler strictly forbids compound arithmetic inside the `then` or `else` clauses of `if(cond, then, else)`. Always assign compound arithmetic to an intermediate placeholder first:
+   ```yara
+   $raw_regularized_stddev = $baseline_stddev + 1.0
+   $safe_stddev = if($baseline_stddev > 0, $raw_regularized_stddev, 1.0)
+   ```
