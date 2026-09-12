@@ -1200,7 +1200,8 @@ class TestGuardrailContracts(unittest.TestCase):
 
     # SKILL.md assertions
     self.assertIn("State 2 Entry Condition", skill_content)
-    self.assertIn("State 2 begins only if the preceding turn displayed a PRE-FLIGHT HUNTING SPECIFICATION card and a probed (200 OK) multi-stage YARA-L query", skill_content)
+    self.assertIn("PRE-FLIGHT HUNTING SPECIFICATION card and the candidate multi-stage YARA-L query with its baseline filter probed clean (200 OK)", skill_content)
+    self.assertIn("Mode A/B clearance means execute now", skill_content)
     self.assertIn("Clearance Question (final sentence of Turn 1, then yield)", skill_content)
 
     # Reference guide assertions

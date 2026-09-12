@@ -81,7 +81,7 @@ Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to bo
    • Entity Graph Dimension: [Prevalence (rolling_max <= 3) / N/A]
    • Evaluation Horizon Mode:[Mode A: 24h OR Mode B: 14d]
    • Statistical Model:      [Model & Template, e.g. CUSUM Drift (`longitudinal_cusum.yl2`)]
-   • Significance Threshold: [Z >= 3.0σ (High Confidence) | 2.0σ <= Z < 3.0σ (Investigative Band) | D >= 3.5σ]
+   • Significance Threshold: [Z >= 3.0σ | 2.0σ <= Z < 3.0σ | D >= 3.5σ]
    ```
    * *Mandatory Upfront Query Preview Protocol (Mandatory Query Preview)* & *Tool-Precondition Code Block Embargo*: Probe once with ISO 8601 UTC timestamps: `secops-gus:udm_search(query="<single_event_udm_filter>", startTime="<ISO_10M_AGO>", endTime="<ISO_NOW>", maxEvents=1)`. Relative 'now-10m' is invalid. Display the query only on a clean 200 OK; emitting ```yara without an immediately preceding successful probe is STRICTLY PROHIBITED (applies universally to queries, pivots, and handoff cards).
    * *Peer Cohort & Roster*: List cohort entities; if $N < 7$, flag `⚠️ Sparse Baseline Caution (N < 7)`. Peer Cohort Roster Requirement applies.
@@ -95,7 +95,7 @@ Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to bo
 
 ### 📊 State 2: Deterministic Multi-Stage Execution & 6-Pillar Report (After Clearance) (MANDATORY STEP 2: PRESENT FULL 6-SECTION REPORT)
 
-1. **State 2 Entry Condition**: State 2 begins only if the preceding turn displayed a PRE-FLIGHT HUNTING SPECIFICATION card and a probed (200 OK) multi-stage YARA-L query. Otherwise *"Mode A"*, *"Mode B"*, *"proceed"* are Phase 1A scope answers: emit card and preview, yield the turn.
+1. **State 2 Entry Condition**: If the preceding turn displayed a PRE-FLIGHT HUNTING SPECIFICATION card and the candidate multi-stage YARA-L query with its baseline filter probed clean (200 OK), Mode A/B clearance means execute now. Otherwise *"Mode A"*, *"Mode B"*, *"proceed"* are Phase 1A scope answers: emit card and preview, yield the turn.
 2. **Execution Telemetry Retrieval Mandate**: On explicit Mode A/B clearance, execute single-event `udm_search(query="<single_event_udm_filter>")`. Multi-stage YARA-L in `udm_search` is PROHIBITED (causes 400); belongs in Pillar 2.
 3. **Deterministic 6-Pillar Report Structure**: Synthesize findings into the complete 6-pillar report:
 #### 1. Statistical Outlier Report: `[Target Metric]` ([Statistical Model]) (`window: 30d`). Single visual surface: <agent-embed> in Jetski (`run_command` present); <svg> in MCP/webview; Client Tool (if present); ASCII on request. Zero data-uri or raw SVG in chat Markdown. Unicode magnitude bars (`▰▰▰▰▱▱▱▱`). Surface routing and sanctioned-script policy: `references/chart-specifications-guide.md`.
