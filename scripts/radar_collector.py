@@ -474,7 +474,7 @@ outcome:
       z_formatted_title = f"{s.z_score:+.2f}σ"
       svg_parts.append(f'  <circle cx="{px:.1f}" cy="{py:.1f}" r="4.5" fill="{pt_color}" stroke="#ffffff" stroke-width="1.5">')
       svg_parts.append(
-          f'    <title>{s.spoke_name}\n• 24h Observed: {s.observed} {s.unit}\n• 30d Baseline Mean: {s.baseline_mean:.1f}\n• 30d StdDev: {s.baseline_stddev:.1f}\n• Deviation: {z_formatted_title}</title>'
+          f'    <title>{s.spoke_name}\n• Observed: {s.observed} {s.unit}\n• 30d Baseline Mean: {s.baseline_mean:.1f}\n• 30d StdDev: {s.baseline_stddev:.1f}\n• Deviation: {z_formatted_title}</title>'
       )
       svg_parts.append('  </circle>')
 
@@ -890,7 +890,7 @@ outcome:
 
     elements = []
     elements.append(f'<text x="20" y="28" font-size="15" font-weight="700" fill="#202124">{html.escape(title)}</text>')
-    elements.append(f'<text x="20" y="46" font-size="12" fill="#5f6368">Entity: {html.escape(entity)} | Mode B (14-Day Timeline) | Threshold: +{threshold_sigma:.1f}σ</text>')
+    elements.append(f'<text x="20" y="46" font-size="12" fill="#5f6368">Entity: {html.escape(entity)} | Mode B ({n_points}-Day Timeline) | Threshold: +{threshold_sigma:.1f}σ</text>')
 
     # Grid & Left Y-Axis (Volume)
     for step in [0.0, 0.25, 0.5, 0.75, 1.0]:

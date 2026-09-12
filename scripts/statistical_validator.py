@@ -26,7 +26,7 @@ against the pre-computed risk metrics library:
 4. STAT_ANTIPATTERN_DISTRIBUTION_MISMATCH: Evaluating discrete rare events with continuous
    Gaussian models without active baseline days gating (N >= 3) or Poisson rarity.
 5. STAT_ANTIPATTERN_COLLINEAR_VECTOR_FUSION: Fusing collinear vectors from the same telemetry
-   silo under orthogonal Euclidean threat distance norms (D = sqrt(sum Z^2)).
+   silo under orthogonal Euclidean threat distance norms (D = sqrt(sum max(0,Z)^2)).
 """
 
 from dataclasses import dataclass

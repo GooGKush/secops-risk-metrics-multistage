@@ -113,11 +113,12 @@ class CommonMarkTriageFormatter:
     report.extend([
         "",
         "> [!TIP]",
-        "> **🎯 Calibrated Risk Index (CRI, 0–100 Scale) Interpretation Guide**:",
-        "> • **CRI 85–100 (🔴 Critical)**: Coordinated multi-stage breach or extreme statistical surge ($D \\ge 6.0\\sigma$). Trigger immediate containment.",
-        "> • **CRI 50–84 (🟠 High)**: Statistically confirmed anomaly breaching the $3.0\\sigma$ baseline boundary ($p < 0.0013$). Prioritize for Tier-2 SOC investigation.",
-        "> • **CRI 30–49 (🟡 Elevated)**: Noticeable behavioral drift ($D \\approx 2.0–2.9\\sigma$). Add to observation queue / monitor.",
-        "> • **CRI 0–29 (🟢 Nominal)**: Routine background enterprise baseline variance ($D < 2.0\\sigma$). Suppress alert.",
+        "> **🎯 Calibrated Risk Index (CRI, 0–100 Scale) Interpretation Guide** — $S$ denotes this report's score column: a scalar $Z$ for single-metric reports, the multi-sector threat distance $D$ for multi-sector reports. Bands mirror the Chronicle severity ladder applied to ingested findings, so a finding carries the same label here and in its UDM event.",
+        "> • **CRI 80–100 (🔴 Critical)**: Coordinated multi-stage breach or extreme statistical surge ($S \\ge 5.3\\sigma$). Trigger immediate containment.",
+        "> • **CRI 60–79 (🟠 High)**: Pronounced outlier well past the significance boundary ($3.7\\sigma \\le S < 5.3\\sigma$). Prioritize for Tier-2 SOC investigation.",
+        "> • **CRI 40–59 (🟡 Medium)**: Spans the $3.0\\sigma$ significance boundary ($2.3\\sigma \\le S < 3.7\\sigma$; $p < 0.0013$ for a scalar $Z$, $p \\approx 0.0088$ for a clamped 3-sector $D$). Findings at $\\text{CRI} \\ge 50$ are eligible for Clean Hand-Off ingestion.",
+        "> • **CRI 20–39 (🔵 Low)**: Behavioral drift below the significance boundary ($0.7\\sigma \\le S < 2.3\\sigma$). Add to observation queue / monitor.",
+        "> • **CRI 0–19 (🟢 Informational)**: Routine background enterprise baseline variance ($S < 0.7\\sigma$). Suppress alert.",
         "",
         "---",
         "",
@@ -148,8 +149,8 @@ class CommonMarkTriageFormatter:
         "##### 📐 Mathematical Formulations & Parameter Derivations",
         f"* **Model Formulation**: {statistical_model}",
         "* **Degrees of Freedom ($N$)**: 30 daily observation periods.",
-        r"* **Multi-Sector Threat Norm ($D$)**: Euclidean Distance $D = \sqrt{\sum Z_i^2}$ follows a Chi distribution with 3 degrees of freedom ($\chi_3$). Expected mean $\mathbb{E}[D] \approx 1.596$.",
-        r"* **Calibrated Risk Index**: $\text{CRI} = \text{round}\left(\frac{100}{1 + \exp(-0.6 \cdot (Z - 3.0))}\right)$.",
+        r"* **Multi-Sector Threat Norm ($D$)**: Euclidean Distance $D = \sqrt{\sum \max(0, Z_i)^2}$ over $K = 3$ sectors. Clamping makes $D$ a rectified norm, not $\chi_3$: null mean $\mathbb{E}[D] \approx 0.97$, with point mass $P(D = 0) = 12.5\%$ when no sector exceeds baseline.",
+        r"* **Calibrated Risk Index**: $\text{CRI} = \text{clamp}\left(\text{round}\left(\frac{100}{1 + \exp(-0.6 \cdot (S - 3.0))}\right),\, 0,\, 100\right)$, evaluated on the score column $S$ defined above. Because $S$ is non-negative under clamping, the attainable floor is $\text{CRI} = 14$ at $S = 0$.",
         "</details>",
     ])
 

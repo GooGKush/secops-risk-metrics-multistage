@@ -30,7 +30,7 @@ In multi-stage hunting workflows:
 | 4 | `POISSON` | Discrete Poisson Rarity Z-Score | `$diff`, `$safe_lambda`, `$sqrt_lambda`, `$poisson_z` | `math.sqrt($safe_lambda)` | `order: $poisson_z desc` | Linear stddev denominator instead of square-root mean |
 | 5 | `COEFFICIENT_OF_VARIATION` | CV Predictability & Surge Ratio | `$safe_hist_avg`, `$cv`, `$surge_ratio` | Relative dispersion ($\sigma / \mu$) | `order: $surge_ratio desc` | Standard Gaussian $Z$ without CV stability factor |
 | 6 | `HOURLY_TEMPORAL_ZSCORE` | Intra-Day Hourly Temporal Z-Score | `$observed_hour`, `$avg_hourly`, `$hourly_diff`, `$safe_stddev_hourly`, `$hourly_z`, `$hourly_surge_ratio` | Match `by 1h`, intra-day fold surge ratio | `order: $hourly_z desc` | Daily aggregation (`by 1d`) when hourly profiling is declared |
-| 7 | `BAYESIAN_GAMMA` | Empirical Bayes Poisson-Gamma Conjugate | `$variance_raw`, `$safe_variance`, `$beta_prior`, `$alpha_prior`, `$alpha_post`, `$beta_post`, `$posterior_mean`, `$bayes_shift_ratio` | Method of Moments hyperparameters, posterior conjugate updating | `order: $bayes_shift_ratio desc` | Bare $Z$-score omitting Gamma hyperparameters ($lpha, eta$) |
+| 7 | `BAYESIAN_GAMMA` | Empirical Bayes Poisson-Gamma Conjugate | `$variance_raw`, `$safe_variance`, `$beta_prior`, `$alpha_prior`, `$alpha_post`, `$beta_post`, `$posterior_mean`, `$bayes_shift_ratio` | Method of Moments hyperparameters, posterior conjugate updating | `order: $bayes_shift_ratio desc` | Bare $Z$-score omitting Gamma hyperparameters ($\alpha, \beta$) |
 | 8 | `BAYESIAN_BETA_BINOMIAL` | Beta-Binomial Bayesian Ratio Regularization | `$avg_fail_prob`, `$safe_variance`, `$one_minus_p`, `$sample_factor`, `$alpha_prior`, `$beta_prior`, `$alpha_post`, `$beta_post`, `$posterior_fail_prob` | Binomial variance, sample factor weighting, conjugate update | `order: $posterior_fail_prob desc` | Raw failure counts without Beta prior sample factor |
 | 9 | `LONGITUDINAL_CUSUM` | Longitudinal CUSUM Drift Accumulation | `$raw_drift`, `$safe_stddev`, `$slack_allowance`, `$slack_excess`, `$cusum_drift_score` | Page's CUSUM slack allowance ($0.5\sigma$), half-rectification (`if > 0`) | `order: $cusum_drift_score desc` | Standard $Z$-score omitting slack deduction or rectification |
 | 10 | `TWO_PART_HURDLE` | Two-Part Hurdle Model (Zero-Inflated) | `$is_active_today`, `$dormant_score`, `$diff`, `$safe_stddev`, `$intensity_z`, `$hurdle_threat_score` | Bernoulli hurdle trigger, conditional continuous intensity | `order: $hurdle_threat_score desc` | Single-equation continuous model without dormant penalty |
@@ -101,6 +101,7 @@ order:
 ### 4. `POISSON` (`poisson_rarity.yl2`)
 * **Hypothesis**: Discrete integer event arrival rarity where variance equals mean ($\sigma = \sqrt{\lambda}$).
 * **Mandatory AST Contract**:
+<!-- yara-fragment: root-stage AST contract excerpt -->
 ```yara
 outcome:
   $k = max($stage1_extract.observed_val)
@@ -137,6 +138,7 @@ order:
 ### 6. `HOURLY_TEMPORAL_ZSCORE` (`hourly_temporal_zscore.yl2`)
 * **Hypothesis**: Intra-day burst occurring within a narrow 1-hour window compared against hourly historical norms.
 * **Mandatory AST Contract**:
+<!-- yara-fragment: root-stage AST contract excerpt -->
 ```yara
 match:
   $entity, $ws by 1h

@@ -13,7 +13,6 @@ Executes multi-sector outlier hunting using 30-day Risk Analytics (`metrics.*`).
 
 ## 🔀 Bi-Directional Skill Steering & Handoff Protocol
 * **UEBA / 30-Day Baselines** (`metrics.*`) / **Behavioral Risk** / **Multi-Sector Fusion**: Execute `secops-risk-metrics-multistage`.
-* **Dual-Layer Defense for Trickle Attacks**: Layer 1 is Mode B Longitudinal CUSUM Drift ($S_t^+ \ge 4.0\sigma$ on `metrics.dns_queries_total`); Layer 2 is handoff to `secops-statistical-hunter` ($CV \le 0.20$).
 * **Sub-Second Jitter Boundary**: Metrics tables cannot compute sub-second deltas; for beaconing jitter, emit Skill Handoff Card to `secops-statistical-hunter` and yield turn (0 tools called).
 * **Privileged Lateral Movement & Unseen Endpoints**: Bipartite history requires raw `USER_LOGIN`; emit Skill Handoff Card to `secops-statistical-hunter` (`intent: PRIVILEGED_LATERAL_EXPANSION`) and yield turn (0 tools called).
 * **Scheduled Exfiltration & Cron Periodicity Demarcation**: Daily metrics (`period: 1d`) cannot prove cron cadence. Offer: 1) Mode B Longitudinal CUSUM Drift (`longitudinal_cusum.yl2`) / Entity Graph prevalence (`references/multi-stage-metrics-guide.md`, section 29) for 30d accumulation; 2) For cron proof, emit **Skill Handoff Card** to `secops-statistical-hunter` (`intent: SCHEDULED_EXFILTRATION_TIMING`, evaluating raw `NETWORK_CONNECTION` $\Delta t / CV \le 0.20$) and yield turn (0 tools called).
@@ -23,10 +22,11 @@ Executes multi-sector outlier hunting using 30-day Risk Analytics (`metrics.*`).
 
 ---
 
-## ⏱️ Evaluation Modes: Snapshot vs. 30-Day Longitudinal Sliding Timeline
+## ⏱️ Evaluation Modes
 
-1. **Mode A: Current-Day Snapshot (`FLEET_ROLLUP`)**: 24h window vs 30d baseline (`window: 30d`). Target dates (e.g. "Aug 12") auto-bypass Mode B.
-2. **Mode B: 30-Day Longitudinal Sliding Timeline (`TIMELINE_BREAKDOWN`)**: Multi-day horizon (`match: $entity by 1d`). Tracks daily evolution and drift.
+1. **Mode A: Current-Day Snapshot (`FLEET_ROLLUP`)**: today `00:00Z`→now vs 30d baseline (`window: 30d`); rolling `now-24h` straddles two daily buckets. Target dates (e.g. "Aug 12") auto-bypass Mode B.
+2. **Mode B: Longitudinal Sliding Timeline (`TIMELINE_BREAKDOWN`)**: 2–14 day horizon (`match: $entity by 1d`), any start date in the last year.
+* **Window Invariant**: Each day scored is compared to its own trailing 30d baseline (`period: 1d, window: 30d`). The search window sets how many days are scored (1–14 max), never the baseline. Over 14d: say so, offer today vs 30d or a 14d timeline.
 
 ---
 
@@ -79,7 +79,7 @@ Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to bo
    • Baseline Horizon Spine: 30-Day (period: 1d, 30d)
    • Peer Cohort & Roster:   [Team/Dept, e.g. IT (Frank, Tim)]
    • Entity Graph Dimension: [Prevalence (rolling_max <= 3) / N/A]
-   • Evaluation Horizon Mode:[Mode A: 24h OR Mode B: 14d]
+   • Evaluation Horizon Mode:[Mode A: today OR Mode B: 2–14d]
    • Statistical Model:      [Model & Template, e.g. CUSUM Drift (`longitudinal_cusum.yl2`)]
    • Significance Threshold: [Z >= 3.0σ | 2.0σ <= Z < 3.0σ | D >= 3.5σ]
    ```
@@ -89,7 +89,7 @@ Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to bo
    * *Noise Level & Significance Threshold Steering (Active Root-Stage Condition Gating)*: Default: $Z \ge 3.0\sigma$ / $D \ge 3.5\sigma$. Sensitivity is tunable: High Confidence ($Z \ge 3.0\sigma$), Investigative Band ($2.0\sigma \le Z < 3.0\sigma$), Directional ($Z \le -3.0\sigma$), or Multi-Vector ($D^2 \ge 16.0$). Enforced in root-stage `condition:` (e.g. `condition: $z >= 2.0 and $z < 3.0`) before `order:`.
    * *Model Concordance Invariant*: When declaring a statistical model, instantiate its template in `templates/stage2_math_models/` (see `references/model-concordance-guide.md`). Emitted `outcome:` derivations and `order:` clause MUST faithfully implement that template's mathematical AST signature (e.g. CUSUM `$cusum_drift_score`, Poisson `$poisson_z`, or Empirical Bayes `$posterior_mean`).
    * *Canonical Preview & Two-Phase Chained Hunt Specification*: Cross-entity hunts emit Two-Phase Chained Hunt Specification: Phase 1 (UEBA Outlier), Bridge Contract ($host, $timestamp, $user, $caller_ip), and Phase 2 (Targeted Cloud UDM Query).
-5. **Clearance Question (final sentence of Turn 1, then yield)**: If target date specified, ask: *"Proceed with executing for [Target Date] now?"*. Otherwise ask: *"Would you like me to proceed with **Mode A (24-Hour Snapshot)** or **Mode B (14-Day Longitudinal Timeline)**? (Adjust noise level/significance threshold before execution if desired.)"*.
+5. **Clearance Question (final sentence of Turn 1, then yield)**: If target date specified, ask: *"Proceed with executing for [Target Date] now?"*. Otherwise ask: *"Would you like me to proceed with **Mode A (Today vs 30-Day Baseline)** or **Mode B (2–14 Day Timeline)**? (Adjust noise level/significance threshold before execution if desired.)"*.
 
 ---
 
@@ -99,7 +99,7 @@ Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to bo
 2. **Execution Telemetry Retrieval Mandate**: On explicit Mode A/B clearance, execute single-event `udm_search(query="<single_event_udm_filter>")`. Multi-stage YARA-L in `udm_search` is PROHIBITED (causes 400); belongs in Pillar 2.
 3. **Deterministic 6-Pillar Report Structure**: Synthesize findings into the complete 6-pillar report:
 #### 1. Statistical Outlier Report: `[Target Metric]` ([Statistical Model]) (`window: 30d`). Single visual surface: <agent-embed> in Jetski (`run_command` present); <svg> in MCP/webview; Client Tool (if present); ASCII on request. Zero data-uri or raw SVG in chat Markdown. Unicode magnitude bars (`▰▰▰▰▱▱▱▱`). Surface routing and sanctioned-script policy: `references/chart-specifications-guide.md`.
-#### 2. Executed Multi-Stage YARA-L Query: Verbatim mirror approved Turn 1 candidate query block. For 360 Radar, display executed sector micro-queries (representative `stage auth_risk` with `order: $z desc`; never `events:`, `$e.`, `rule ... { ... }`, or `math.sqrt`). Raw event filters (e.g. `principal.user.userid = ...`) are STRICTLY PROHIBITED in Pillar 2.
+#### 2. Executed Multi-Stage YARA-L Query: Verbatim mirror approved Turn 1 candidate query block. For 360 Radar, display executed sector micro-queries (representative `stage auth_risk` with `order: $z desc`; never `events:`, `$e.`, `rule ... { ... }`, or `math.sqrt`). A bare raw-event filter with no `stage`/`match`/`outcome` is PROHIBITED in Pillar 2.
 #### 3. Ranked Outlier Summary & Provenance Stamp: Columns: `Entity`, `24h Observed`, `30d Mean (μ)`, `30d StdDev (σ)`, `Z-Score`, `CRI Score`, `Visual Magnitude`. Stamp execution provenance (events scanned, query execution time, projected schema columns).
 #### 4. Forensic Vector Breakdown: Threat translation, scenarios, SOC playbook.
 #### 5. Chronicle UI Manual Pivot (Triage Reference Only): Passive UDM filter the analyst runs in the Chronicle UI.
@@ -118,7 +118,7 @@ Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to bo
 ## 🛡️ Non-Negotiable Execution & Integrity Contracts
 
 ### 1. Native Execution & Truth in Reporting
-* **Hunt Tool Contract**: An active hunt runs on `secops-gus:udm_search` alone — once to probe, once to execute; Clean Hand-Off adds `create_case_comment` / `import_logs` on explicit request. Behavioral truth lives in `metrics.*` 30-day baselines, the sole evidentiary substrate for every score reported. Case, alert, rule, and playbook state describes detections that already fired — a different question, and a different skill.
+* **Hunt Tool Contract**: An active hunt runs on `secops-gus:udm_search` alone — once to probe, once to execute; Clean Hand-Off adds `create_case_comment`/`import_events` on explicit request. Behavioral truth lives in `metrics.*` 30-day baselines, the sole evidentiary substrate for every score reported. Case, alert, rule, and playbook state describes detections that already fired — a different question, and a different skill.
 * **THE DUAL GROUNDING INVARIANTS (THE NON-NEGOTIABLE INTEGRITY CORE)**:
   1. **Zero Data Simulation (NEVER Fabricate Data)** / **Zero Generative Simulation & Strict Data Grounding Contract**: Every score, count, and timestamp MUST come from executed tool output; baselines ($\mu, \sigma$) and $Z, \text{CRI}$ come from the 30-day baseline model. Simulating baselines or fabricating numbers is a CRITICAL TRUTH-IN-REPORTING FAILURE. (Truth Over Completion: 0 events is a valid hunt.)
   2. **Zero Schema/Syntax Fantasy (NEVER Hallucinate UDM Fields or YARA-L Grammar)**: Never invent UDM fields or uncompiled YARA-L grammar. Verified via compiler probe (`<ISO_10M_AGO>` to `<ISO_NOW>`).
@@ -127,7 +127,7 @@ Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to bo
 * **Hermetic Skill Boundary (ZERO CROSS-SKILL DRIFT)**: Once active, the agent MUST NOT read, import, or search other skills. 100% self-contained.
 * **Atomic Pipeline Execution Mandate (ZERO PIECEMEAL FRACTURING & DRIFT)**: Formulate single atomic YARA-L query for Pillar 2; fracturing into piecemeal searches is STRICTLY PROHIBITED. 360° Radar queries 5 sectors in parallel.
 * **Literal Query Display Mandate (ZERO FAKED YARA-L QUERIES)**: Pillar 2 must contain the literal, verbatim multi-stage YARA-L query block displayed in pre-flight preview without modifications.
-* **Post-Flight Audit & RAW_LOG_DUMP_DETECTED Rule**: If `udm_search` returns `"events"` without `"stats"`, abort 6-Pillar formatting. Present auto-corrected query (via `MultiStageTemplateRouter`) or ask to execute.
+* **Post-Flight Audit & RAW_LOG_DUMP_DETECTED Rule**: If `udm_search` returns `"events"` without `"stats"`, abort all reporting. Present auto-corrected queries (via `MultiStageTemplateRouter`) or ask to execute.
 
 ### 2. Compiler & Architectural Invariants
 * **Template-First Routing Mandate**: Queries MUST assemble from templates in `templates/pipelines/` via `MultiStageTemplateRouter`.

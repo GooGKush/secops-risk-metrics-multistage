@@ -252,8 +252,9 @@ Before running a multi-stage statistical hunt, explain the approach to the secur
   * **Step 1 (Parametric Z)**: $Z_{\text{raw}} = (x - \mu) / \sigma_{\text{safe}}$
   * **Step 2 (Winsorization Clamp)**: Clamps extreme values to $[-4.0, +6.0]$:
     $$Z_{\text{clamped}} = \max(-4.0, \min(6.0, Z_{\text{raw}}))$$
-  * **Step 3 (Piecewise Linear CRI Mapping)**:
-    $$\text{CRI} = \begin{cases} 95 & \text{if } Z_{\text{clamped}} \ge 4.0 \quad (\text{Critical Incident}) \\ 85 & \text{if } Z_{\text{clamped}} \ge 3.0 \quad (\text{High Severity Alert}) \\ 65 & \text{if } Z_{\text{clamped}} \ge 2.0 \quad (\text{Elevated Drift}) \\ 40 & \text{if } Z_{\text{clamped}} \ge 1.0 \quad (\text{Guarded / Emerging}) \\ 15 & \text{otherwise} \quad (\text{Nominal Noise}) \end{cases}$$
+  * **Step 3 (Piecewise Linear CRI Mapping)**: This model emits CRI on the same universal $0–100$ scale as every other model, so its severity is read from the canonical ladder (`clean-handoff-udm-schema.md` Phase 2), never from a vocabulary private to this model:
+    $$\text{CRI} = \begin{cases} 95 & \text{if } Z_{\text{clamped}} \ge 4.0 \quad (\text{CRITICAL}) \\ 85 & \text{if } Z_{\text{clamped}} \ge 3.0 \quad (\text{CRITICAL}) \\ 65 & \text{if } Z_{\text{clamped}} \ge 2.0 \quad (\text{HIGH}) \\ 40 & \text{if } Z_{\text{clamped}} \ge 1.0 \quad (\text{MEDIUM}) \\ 15 & \text{otherwise} \quad (\text{INFORMATIONAL}) \end{cases}$$
+    Tiers 95 and 85 are distinct scores that share the `CRITICAL` severity. That is the ladder working as intended — severity is a function of CRI alone, so two scores in the same band must carry the same label.
 * **Post-Hunt Plain-English Cyber Impact Statement Template**:
 ```markdown
 > [!IMPORTANT]
@@ -314,7 +315,7 @@ Beyond 2-stage models, the engine provides pre-composed multi-stage DAG pipeline
 
 ### 2. Multi-Sector Threat Vector Fusion (`MULTI_SECTOR_FUSION_4STAGE`)
 * **Pipeline Architecture**: 4 Stages (IAM Sector $\to$ Process Sector $\to$ Network Sector $\to$ Root Join)
-* **Formulation**: Euclidean Threat Distance $D = \sqrt{Z_{\text{Auth}}^2 + Z_{\text{Proc}}^2 + Z_{\text{Net}}^2}$
+* **Formulation**: Euclidean Threat Distance $D = \sqrt{\max(0, Z_{\text{Auth}})^2 + \max(0, Z_{\text{Proc}})^2 + \max(0, Z_{\text{Net}})^2}$
 * **Outcome**: Correlates subtle multi-vector attack steps (credential abuse + process staging + network egress) into a unified incident score.
 
 ### 3. Hierarchical Empirical Bayes (`EMPIRICAL_BAYES_3STAGE`)

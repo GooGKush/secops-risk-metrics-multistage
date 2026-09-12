@@ -49,7 +49,7 @@ outcome:
 
 Multi-stage DAG queries support two distinct temporal evaluation modes:
 
-### Mode A: Cross-Sectional Fleet Outlier (24h Daily Bucket)
+### Mode A: Cross-Sectional Fleet Outlier (Daily Bucket)
 * **Stage 1:** `match: $entity by 1d` -> Evaluates the full 24-hour total per entity.
 * **Stage 2:** `match: ` (empty group-by) -> Aggregates across the entire fleet population.
 * **Root Stage:** `match: $entity, $window_start by 1d` -> Compares each entity against both its 30-day baseline and the fleet distribution.
@@ -91,6 +91,7 @@ Certain pre-computed Risk Metrics require specific auxiliary UDM fields as dimen
 ### File Executions (`metrics.file_executions_*`)
 * **Mandatory Argument:** `metadata.event_type` **must** be passed as a filter in every `metrics.file_executions_*` call.
 * **Syntax Example:**
+  <!-- yara-fragment: single-stage syntax example for the mandatory event_type filter -->
   ```yara
   stage stage1_extract {
       $event_type = metadata.event_type
@@ -470,7 +471,7 @@ To prevent runtime syntactic improvisation and avoid streaming rule syntax confu
 | **`longitudinal_cusum_2stage.yl2`** | 2 Stages | Longitudinal CUSUM Drift ($S^+$) | Multi-day low-and-slow exfiltration and behavioral drift. |
 | **`dual_baseline_delta_z_3stage.yl2`** | 3 Stages | Dual-Baseline Delta-$Z$ ($\Delta Z$) | Patch Tuesday fleet suppression, enterprise-wide spikes. |
 | **`hierarchical_empirical_bayes_3stage.yl2`** | 3 Stages | Hierarchical Empirical Bayes | Peer group shrinkage, regularizing inactive accounts. |
-| **`multi_sector_fusion_4stage.yl2`** | 4 Stages | Multi-Sector Fusion ($D \sim \chi_3$) | Full-killchain cross-vector correlation (IAM + Proc + Net). |
+| **`multi_sector_fusion_4stage.yl2`** | 4 Stages | Multi-Sector Fusion (rectified $D$, $K = 4$) | Full-killchain cross-vector correlation (IAM + Cloud + Proc + Net). |
 
 ---
 
@@ -555,7 +556,7 @@ Both skills support multi-stage YARA-L execution and share similar mathematical 
    * **In `secops-risk-metrics-multistage` (This Skill)**: Evaluates an individual's 30-day behavioral baseline (`metrics.auth_attempts_*`) against a pre-computed peer department/cohort baseline. Suppresses false positives caused by team-wide operational changes (e.g., DevOps sprint migrations).
    * **In `secops-statistical-hunter`**: The *Patch Tuesday Shield*—compares an entity's raw log surge today against the concurrent enterprise fleet shift ($\Delta Z = Z_{\text{personal}} - Z_{\text{fleet}}$) over raw events to suppress company-wide software updates.
 2. **Multi-Sector Threat Fusion**:
-   * **In `secops-risk-metrics-multistage` (This Skill)**: Fuses decoupled 30-day baseline deviations ($D = \sqrt{\sum Z_i^2}$) across UEBA tables (Auth, Cloud CRUD, Workspace Exfil, Network Egress, Endpoint Tools) using the 360° radar micro-query pattern (respecting the 4-join limit).
+   * **In `secops-risk-metrics-multistage` (This Skill)**: Fuses decoupled 30-day baseline deviations ($D = \sqrt{\sum \max(0, Z_i)^2}$) across UEBA tables (Auth, Cloud CRUD, Workspace Exfil, Network Egress, Endpoint Tools) using the 360° radar micro-query pattern (respecting the 4-join limit).
    * **In `secops-statistical-hunter`**: The *Combined Arms Radar*—fuses raw event counts across orthogonal silos (Auth + Process + Network) in a single historical search window.
 3. **Timing Jitter ($CV \le 0.20$) & Inter-Arrival Analysis ($\Delta t$)**:
    * **Exclusive to `secops-statistical-hunter`**: Pre-computed UEBA tables aggregate daily event sums and cannot compute packet/connection inter-arrival intervals ($\Delta t_i = t_i - t_{i-1}$). Timing regularity, sleep-delay analysis, and robotic beaconing MUST be evaluated over raw UDM telemetry.
@@ -637,9 +638,9 @@ Threat hunting follows a two-tier investigative lifecycle:
 
 ### Tier 1: Fleet/Vector Outlier Hunting (Broad Discovery)
 * **Goal**: Surface top anomalous identities or resources across an entire fleet or category on a specific vector (e.g. Cloud CRUD, Network Bytes, Authentication Spikes).
-* **Execution**: Single atomic multi-stage YARA-L query (Mode A 24h snapshot or Mode B 14d timeline).
+* **Execution**: Single atomic multi-stage YARA-L query (Mode A current-day snapshot or Mode B 2–14d timeline).
 * **Reporting Standard**:
-  * **Pillar 1**: Renders the distribution or timeline of the *target hunt itself* (e.g., bar chart of observed vs baseline $\mu$ for Mode A, or 14-day inception curve for Mode B).
+  * **Pillar 1**: Renders the distribution or timeline of the *target hunt itself* (e.g., bar chart of observed vs baseline $\mu$ for Mode A, or multi-day inception curve for Mode B).
   * **Pillars 2–5**: Query, ranked fleet summary, forensic threat breakdown, and 1-click investigation queries.
   * **Pillar 4 Pivot**: Concludes with the **Consultative 360° Pivot Card**.
 
@@ -683,8 +684,8 @@ Under no circumstances should the assistant treat a follow-up query as a prompt 
    * If the entity is a display name with spaces, apply the **Identity Disambiguation Protocol** (spot-check $\le 5$ events; if 0 events match, halt and ask for technical account identifier).
 
 3. **Time Horizon Substitution & Anchor Mapping**:
-   * Standard snapshot queries operate in **Mode A** ($24\text{h}$ snapshot vs 30d baseline).
-   * Follow-up phrases such as *"looking backwards 14 days starting from [Date]"* or *"14-day timeline"* map directly to **Mode B: 30-Day Longitudinal Sliding Timeline (`TIMELINE_BREAKDOWN`)**.
+   * Standard snapshot queries operate in **Mode A** (current-day snapshot vs 30d baseline).
+   * Follow-up phrases such as *"looking backwards 14 days starting from [Date]"* or *"14-day timeline"* map directly to **Mode B: Longitudinal Sliding Timeline (`TIMELINE_BREAKDOWN`)**.
    * **Date-Anchor Resolution**:
      $$\text{endTime} = \text{Anchor Date (e.g. 2026-08-18T23:59:59Z)}$$
      $$\text{startTime} = \text{Anchor Date} - 14\text{d (e.g. 2026-08-04T00:00:00Z)}$$
@@ -730,7 +731,7 @@ When an analyst requests a cross-entity scenario (such as an endpoint workstatio
 
 ### D. The Pre-Preview Compilation Probe Gate (Compiler Verification)
 Before outputting any candidate multi-stage YARA-L query in the Phase 1B Pre-Flight Specification Card:
-* The agent executes a 1-shot compilation probe via `secops-gus:udm_search(query="<query>", startTime="now-10m", endTime="now", maxEvents=1)`.
+* The agent executes a 1-shot compilation probe via `secops-gus:udm_search(query="<query>", startTime="<ISO_10M_AGO>", endTime="<ISO_NOW>", maxEvents=1)`. Timestamps MUST be absolute ISO 8601 UTC; relative offsets (`"now-10m"`, `"now"`) are rejected by the API — see section 30C.
 * **Zero Broken Previews**: If the probe fails with a compilation error, the agent is strictly prohibited from rendering the broken query in markdown. It must auto-correct syntax or trigger the Consultative Pivot Protocol immediately.
 
 ---
@@ -745,7 +746,7 @@ To eliminate runtime syntax failures and semantic distortions, multi-stage queri
 
 ### B. The `RAW_LOG_DUMP_DETECTED` Post-Flight Inspection Rule
 When `udm_search` completes, the response must be audited before generating any report:
-* If the API response contains `"events"` without `"stats"` (unaggregated raw UDM events) when statistical aggregation was expected, `RAW_LOG_DUMP_DETECTED` is flagged.
+* If the API response contains `"events"` without `"stats"` (unaggregated raw UDM events), `RAW_LOG_DUMP_DETECTED` is flagged.
 * The agent is strictly barred from computing ad-hoc statistics locally in Python to disguise a failed query.
 * Instead, `CommonMarkTriageFormatter` aborts 6-Pillar report generation, presents an auto-corrected canonical template (or initiates the Consultative Pivot Protocol), and prompts the analyst for execution clearance.
 
@@ -776,7 +777,7 @@ When an analyst's hypothesis crosses physical entity boundaries (such as correla
    * **Output**: Detailed chronological timeline of cloud API calls, bucket operations, or IAM modifications.
 
 ### B. Tool-Precondition Code Block Embargo (Zero Broken Queries)
-* Under no circumstances may an agent render a candidate YARA-L query in markdown (\`\`\`yara) without having executed a 1-shot pre-preview compiler probe (`udm_search(query="...", startTime="now-10m", endTime="now", maxEvents=1)`) in the immediately preceding tool call.
+* Under no circumstances may an agent render a candidate YARA-L query in markdown (\`\`\`yara) without having executed a 1-shot pre-preview compiler probe (`udm_search(query="...", startTime="<ISO_10M_AGO>", endTime="<ISO_NOW>", maxEvents=1)`) in the immediately preceding tool call. Timestamps MUST be absolute ISO 8601 UTC — see section 30C.
 * If the compiler probe returns an invalid argument, syntax error, or ANTLR crash, the query preview must be withheld. The agent must auto-correct the query or present the Two-Phase Consultative Pivot.
 
 ### C. Data Provenance & Execution Stamping
@@ -914,7 +915,7 @@ To provide maximum analytical value without compromising mathematical integrity,
 
 ### A. The Hard Pre-Flight Clearance Gate (NO QUERY = NO CLEARANCE)
 A critical guardrail failure occurs when an agent presents a Pre-Flight Hunting Specification Card, omits the YARA-L query preview (due to probe failure or compiler hesitation), and yet proceeds to ask the Step 5 clearance question:
-> *"Would you like to run Mode A (24-Hour Snapshot fleet ranking) or Mode B (14-Day Longitudinal Timeline)?"*
+> *"Would you like to run Mode A (Today vs 30-Day Baseline) or Mode B (2–14 Day Timeline)?"*
 
 Under the **Hard Pre-Flight Clearance Gate**, this sequence is strictly prohibited:
 1. **Query Preview Is Mandatory for Clearance**: Step 5 clearance question MUST NEVER be asked unless a valid, compilable multi-stage YARA-L query has been successfully probed (200 OK via `udm_search`) and displayed in a ````yara code block under the Pre-Flight Card on that turn.

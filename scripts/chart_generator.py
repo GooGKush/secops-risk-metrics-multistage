@@ -202,7 +202,7 @@ class RiskMetricsChartGenerator:
   def generate_mermaid_timeline_chart(
       dates: List[str],
       series_data: Dict[str, List[float]],
-      title: str = "14-Day Longitudinal Threat Scores Timeline",
+      title: str = "Longitudinal Threat Scores Timeline",
       max_y: float = 8.0,
   ) -> str:
     """Generates a Mermaid xychart-beta block for native markdown rendering."""

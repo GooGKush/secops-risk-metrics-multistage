@@ -550,7 +550,7 @@ class PreFlightValidator:
       peer_cohort: str,
       statistical_model: str,
       entity_graph_dimension: str = "N/A",
-      evaluation_mode: str = "Mode A: 24h (Default)",
+      evaluation_mode: str = "Mode A: Today (Default)",
       significance_threshold: str = "Z >= 3.0σ (CRI >= 50)",
       active_days: Optional[int] = None,
       min_baseline_days: Optional[int] = None,

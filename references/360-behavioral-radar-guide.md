@@ -26,7 +26,7 @@ In Google SecOps Chronicle SIEM, multi-sector entity behavioral profiling adopts
 3. **Entity Role Affinity**: Auth (`target.user.userid`), Cloud (`principal.user.userid`), and Network/DNS (`principal.asset.hostname`) retain their natural UDM entity keys.
 
 **The Canonical Architecture**:
-Execute independent decoupled sector queries, retrieve the observed metrics per sector, and compute the **Euclidean Norm Join ($D = \sqrt{\sum Z_i^2}$)** client-side.
+Execute independent decoupled sector queries, retrieve the observed metrics per sector, and compute the **Euclidean Norm Join ($D = \sqrt{\sum \max(0, Z_i)^2}$)** client-side.
 
 ### 1.3 Single-Entity Profiling vs. Fleetwide Threat Fusion
 * **Single-Entity 360° Profiling (User or Host)**:
@@ -35,7 +35,7 @@ Execute independent decoupled sector queries, retrieve the observed metrics per 
 * **Fleetwide 360° Threat Fusion (Multi-Entity Sweep / Fleet Audit)**:
   - **Objective**: Audit $N$ entities across an organization or peer group to identify who exhibited anomalous activity across any of the 5 sectors.
   - **Pillar 1 Surface**: **Multi-Sector Fleet Heatmap Matrix** (`radar_fleet_heatmap.html`) or **Ranked Fleet Outlier Bar Chart** (`radar_fleet_ranking.html`). Linear and matrix layouts provide clean, readable comparisons without radial centroid collapse.
-  - **Recommended Horizon**: **Mode B (14-Day Longitudinal Timeline)**. Because security anomalies and data exfiltration are bursty, episodic events, a 14-day sliding window surfaces historical bursts that a 24-hour snapshot misses.
+  - **Recommended Horizon**: **Mode B (2–14 Day Timeline)**, run at the 14-day maximum. Because security anomalies and data exfiltration are bursty, episodic events, a 14-day sliding window surfaces historical bursts that a single-day snapshot misses.
   - **Sector Consistency**: Both single-entity and fleetwide threat fusion evaluate and report across all 5 canonical sectors: Authentication, Cloud CRUD, Workspace Exfiltration, Network Flow, and DNS / Web Activity.
   - **Interactive Drill-Down**: Offer the 5-spoke radial radar as a 1-click drill-down when the analyst selects a specific high-risk entity from the ranked list.
 
@@ -104,9 +104,9 @@ PRE-FLIGHT HUNTING SPECIFICATION:
 • Baseline Horizon Spine: 30-Day Pre-Computed (period: 1d, 30d)
 • Peer Cohort & Roster:   [Department / Peer Group, e.g. Information Technology]
 • Entity Graph Dimension: N/A (360° Omnidirectional Behavioral Radar)
-• Evaluation Horizon Mode:Mode A: 24h Snapshot OR Mode B: 14d Timeline
+• Evaluation Horizon Mode:Mode A: today OR Mode B: 2–14d
 • Statistical Model:      360° Entity Behavioral Risk Radar (5-Sector Fusion)
-• Significance Threshold: Z >= 3.0σ (CRI >= 50) / D >= 3.5σ
+• Significance Threshold: Z >= 3.0σ / D >= 3.5σ (CRI >= 57)
 ```
 
 ### 3.3 Single Representative Query Preview (IAM & Auth)
@@ -123,14 +123,26 @@ stage auth_risk {
     $obs = count(metadata.id)
     $avg = max(metrics.auth_attempts_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, target.user.userid: "%(entity_id)s"))
     $std = max(metrics.auth_attempts_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, target.user.userid: "%(entity_id)s"))
-    $z = ($obs - $avg) / ($std + 1.0)
 }
 
-order: $z desc
+// Root stage is mandatory: it must declare match/outcome and consume the named stage.
+$user = $auth_risk.user
+
+match:
+  $user by 1d
+
+outcome:
+  $observed = max($auth_risk.obs)
+  $baseline = max($auth_risk.avg)
+  $dispersion = max($auth_risk.std)
+  $z = ($observed - $baseline) / ($dispersion + 1.0)
+
+order:
+  $z desc
 ```
 
 *Yield Turn Prompt*:
-> *"Would you like me to proceed with **Mode A (24-Hour Snapshot)** or **Mode B (14-Day Longitudinal Timeline)**? (For open-ended fleet sweeps, Mode B is recommended to capture episodic bursts; Mode A is optimal for active incident triage.)"*
+> *"Would you like me to proceed with **Mode A (Today vs 30-Day Baseline)** or **Mode B (2–14 Day Timeline)**? (For open-ended fleet sweeps, Mode B is recommended to capture episodic bursts; Mode A is optimal for active incident triage.)"*
 
 ---
 
@@ -140,7 +152,7 @@ For 360° behavioral radar profiling, each sector evaluates a single **universal
 $$Z_i = \frac{\text{Observed}_i - \mu_i}{\sigma_i + 1.0}$$
 
 Zero conditional event filtering (`security_result.action`) and zero conditional aggregations (`count(if(...))`) are evaluated. Each sector operates as an independent micro-query, and the five sector Z-scores are joined client-side in the report presentation layer to compute the Euclidean distance:
-$$D = \sqrt{\sum_{i=1}^5 Z_i^2}$$
+$$D = \sqrt{\sum_{i=1}^5 \max(0, Z_i)^2}$$
 
 ### 4.1 USER Entity Sector Specifications
 
@@ -349,7 +361,7 @@ And embeds in chat:
 * **Target Entity**: `<target_entity_id>` (Information Technology)
 * **Composite Threat Distance**: $D = 0.68\sigma$
 * **Calibrated Risk Index**: $\text{CRI} = 20 / 100$ (🟢 Nominal Volumetric Baseline)
-* **Evaluated Horizon**: Mode A (24-Hour Snapshot vs. 30-Day Pre-Computed Baseline)
+* **Evaluated Horizon**: Mode A (Today `00:00Z`→now vs. 30-Day Pre-Computed Baseline)
 
 ---
 
@@ -370,15 +382,27 @@ stage auth_risk {
     $obs = count(metadata.id)
     $avg = max(metrics.auth_attempts_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, target.user.userid: "<target_entity_id>"))
     $std = max(metrics.auth_attempts_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, target.user.userid: "<target_entity_id>"))
-    $z = ($obs - $avg) / ($std + 1.0)
 }
 
-order: $z desc
+// Root stage is mandatory: it must declare match/outcome and consume the named stage.
+$user = $auth_risk.user
+
+match:
+  $user by 1d
+
+outcome:
+  $observed = max($auth_risk.obs)
+  $baseline = max($auth_risk.avg)
+  $dispersion = max($auth_risk.std)
+  $z = ($observed - $baseline) / ($dispersion + 1.0)
+
+order:
+  $z desc
 ```
 
 > [!NOTE]
 > **Single-Sector Micro-Query Standard (Mode A & Mode B)**:
-> Chronicle SIEM evaluates orthogonal telemetry planes independently. In both Mode A (24h snapshot) and Mode B (14d longitudinal timeline), the 360° report displays exclusively this single representative micro-query (`stage auth_risk` with `order: $z desc`) in Pillar 2. All 5 sector Z-scores are joined in the report presentation layer (Pillars 1, 3, 4, and 6) to compute Euclidean distance $D$ and CRI. Never emit a detection rule (`rule ... { ... }`) or `math.sqrt` in Pillar 2.
+> Chronicle SIEM evaluates orthogonal telemetry planes independently. In both Mode A (current-day snapshot) and Mode B (2–14d longitudinal timeline), the 360° report displays exclusively this single representative micro-query (`stage auth_risk` with `order: $z desc`) in Pillar 2. All 5 sector Z-scores are joined in the report presentation layer (Pillars 1, 3, 4, and 6) to compute Euclidean distance $D$ and CRI. Never emit a detection rule (`rule ... { ... }`) or `math.sqrt` in Pillar 2.
 
 ---
 

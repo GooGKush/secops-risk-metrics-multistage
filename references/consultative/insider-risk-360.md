@@ -17,10 +17,10 @@ Every individual action is intentionally tuned to fall below alert thresholds. T
 ### Strategy A: Decoupled Multi-Sector Fusion (The 360° Behavioral Radar)
 * **Target Architecture**: `templates/pipelines/radar_360_decoupled_sector.yl2`
 * **Telemetry Sectors**: Authentication, Cloud CRUD, Google Workspace, Network Traffic, DNS.
-* **Math Model**: **Euclidean Threat Distance ($D = \sqrt{\sum_{i=1}^5 Z_i^2}$)**
+* **Math Model**: **Euclidean Threat Distance ($D = \sqrt{\sum_{i=1}^5 \max(0, Z_i)^2}$)**
 * **How It Defeats the Blind Spot**:
-  Even if each individual sector generates only a modest score ($Z_i pprox 2.0\sigma$), the Euclidean vector distance reveals a critical statistical outlier:
-  $$D = \sqrt{2.0^2 + 2.0^2 + 2.0^2 + 2.0^2 + 2.0^2} = \sqrt{20} pprox 4.47\sigma$$
+  Even if each individual sector generates only a modest score ($Z_i \approx 2.0\sigma$), the Euclidean vector distance reveals a critical statistical outlier:
+  $$D = \sqrt{2.0^2 + 2.0^2 + 2.0^2 + 2.0^2 + 2.0^2} = \sqrt{20} \approx 4.47\sigma$$
   An anomaly score of $+4.47\sigma$ represents a one-in-a-million statistical rarity, instantly prioritizing the entity for tier-1 SOC triage.
 
 ### Strategy B: Peer Group Divergence (Fleet Prevalence Shield)

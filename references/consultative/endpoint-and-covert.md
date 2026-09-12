@@ -17,7 +17,7 @@ EDR rules are predominantly binary and signature-oriented:
 ### Strategy A: Time-of-Day Contextualization (Hourly Temporal Z-Score)
 * **Target Metric**: `metrics.file_executions_total`
 * **Math Model**: `hourly_temporal_zscore.yl2`
-* **How It Defeats the Blind Spot**: Replaces broad daily baselines with hour-of-day expectations ($H = 	ext{timestamp.hour}$). A process launch that is completely normal during the workday triggers a massive anomaly score when executed during an entity's historically dead hours.
+* **How It Defeats the Blind Spot**: Replaces broad daily baselines with hour-of-day expectations ($H = \text{timestamp.hour}$). A process launch that is completely normal during the workday triggers a massive anomaly score when executed during an entity's historically dead hours.
 
 ### Strategy B: Rare Process Prevalence (Poisson Rarity / Fleet Prevalence Shield)
 * **Target Metric**: `metrics.file_executions_success`

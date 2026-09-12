@@ -22,7 +22,7 @@ flowchart TD
         direction TB
         B --> C["1. Fan-Out 4–5 Pre-Computed UEBA Queries (O(1) lookups)"]
         C --> D["2. Calculate Spoke Z-Scores: (Obs - Mean) / (StdDev + 1.0)"]
-        D --> E["3. Calculate Composite Norm: D = sqrt(sum Zi^2) & CRI [0-100]"]
+        D --> E["3. Calculate Composite Norm: D = sqrt(sum max(0,Zi)^2) & CRI [0-100]"]
         E --> F["4. Generate Self-Contained SVG Widget & Markdown Table"]
     end
     
@@ -50,7 +50,7 @@ In Chronicle SOAR (IDE / Integration Management):
 ### Output Parameters (Script Results):
 | Parameter Name | Type | Description |
 | :--- | :--- | :--- |
-| `Composite_D` | Float | Multi-sector Euclidean distance ($D = \sqrt{\sum Z_i^2}$). |
+| `Composite_D` | Float | Multi-sector Euclidean distance ($D = \sqrt{\sum \max(0, Z_i)^2}$). |
 | `CRI_Score` | Integer | Calibrated Risk Index $[0–100]$. |
 | `Is_Anomalous` | Boolean | `true` if $D \ge \text{Threshold}$, else `false`. |
 | `Top_Outlier_Sector` | String | Name of the spoke with the highest positive $Z$-score. |
@@ -167,6 +167,7 @@ flowchart LR
 ### Why Monolithic 5-Stage YARA-L Joins Fail in Chronicle SIEM
 When evaluating an entity across 5 orthogonal vectors (Auth, Cloud, Workspace, Net, DNS), attempting to combine all 5 sectors into a single monolithic YARA-L rule is a severe architectural anti-pattern (`STAT_ANTIPATTERN_MONOLITHIC_RADAR_JOIN`):
 
+<!-- yara-fragment: anti-pattern demonstration; intentionally invalid -->
 ```yara
 // ❌ ANTI-PATTERN: Monolithic 5-Sector Inner Join (COMPILER ERROR & SILENT DROP)
 stage s1_auth { ... match: $user by 1d ... }

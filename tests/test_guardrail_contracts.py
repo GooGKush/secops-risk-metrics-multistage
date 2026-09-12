@@ -4,8 +4,10 @@ and Zero Python Simulation guardrail contracts in secops-risk-metrics-multistage
 Author: Greg Kushmerek
 """
 
+import glob
 import json
 import os
+import re
 import sys
 import unittest
 
@@ -197,10 +199,13 @@ class TestGuardrailContracts(unittest.TestCase):
     self.assertIn("Non-Metrics Telemetry Steering Mandate", self.skill_content)
 
   def test_evaluation_modes_distinguish_snapshot_and_timeline(self):
-    """SKILL.md must explicitly distinguish between 24h Snapshot Mode and 30-Day Longitudinal Timeline Mode."""
-    self.assertIn("Evaluation Modes: Snapshot vs. 30-Day Longitudinal Sliding Timeline", self.skill_content)
+    """SKILL.md must distinguish current-day Snapshot Mode from the Longitudinal Timeline Mode, and pin the window invariant."""
+    self.assertIn("Evaluation Modes", self.skill_content)
     self.assertIn("Mode A: Current-Day Snapshot", self.skill_content)
-    self.assertIn("Mode B: 30-Day Longitudinal Sliding Timeline", self.skill_content)
+    self.assertIn("Mode B: Longitudinal Sliding Timeline", self.skill_content)
+    # The search window sets how many days are SCORED; the 30d baseline is fixed.
+    self.assertIn("Window Invariant", self.skill_content)
+    self.assertIn("`period: 1d, window: 30d`", self.skill_content)
   def test_zero_gratuitous_entity_graph_injection_contract(self):
     """SKILL.md must strictly mandate that Entity Graph constructs are on-demand or algorithmically grounded only."""
     self.assertIn("Zero Gratuitous Entity Graph Injection (ON-DEMAND / ALGORITHMIC GROUNDING ONLY)", self.skill_content)
@@ -298,6 +303,106 @@ class TestGuardrailContracts(unittest.TestCase):
     self.assertIn("secops_risk_metrics_synthetic_alert_catchall", ch_content)
     self.assertIn("One Event Per Outlier Entity", ch_content)
     self.assertIn("Hunt Campaign ID", ch_content)
+
+  def test_clean_handoff_ingestion_vector_contract(self):
+    """Phase 4 must bind ingestion to a callable import_events tool, never to import_logs."""
+    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    ch_path = os.path.join(skill_dir, 'references', 'clean-handoff-udm-schema.md')
+    with open(ch_path, 'r', encoding='utf-8') as f:
+      ch_content = f.read()
+
+    # The primary vector must be a named, invocable tool -- not a prose abstraction.
+    # A rung with no tool name can never be executed, so the error-triggered
+    # fallback beneath it can never fire either. Pin the full call signature:
+    # the bare tool name also appears in Phase 3 and would pass vacuously.
+    self.assertIn('secops-gus:import_events(udmEvents=', ch_content)
+    self.assertIn('IngestionService.ImportEvents', ch_content)
+
+    # ImportEvents carries neither field; naming either one selects the wrong method.
+    self.assertIn('no `forwarderId` and no `logType`', ch_content)
+
+    # Capability detection keeps the binding forward-compatible: the vector must
+    # resume automatically whenever the tool reappears in the client.
+    self.assertIn('Capability Detection', ch_content)
+    self.assertIn('Do not substitute `import_logs`', ch_content)
+
+    # import_logs is a different method producing parsed logs, not UDM events,
+    # and must never be offered as a degraded substitute.
+    self.assertIn('A Different Method, Not a Fallback', ch_content)
+
+    # Ingestion capability must not depend on the MCP surface: when the tool is
+    # absent the same RPC is reached directly over REST.
+    self.assertIn('Direct `ImportEvents` API Call', ch_content)
+    self.assertIn('scripts/chronicle_ingest.py', ch_content)
+    self.assertIn('/events:import', ch_content)
+    self.assertIn('inlineSource', ch_content)
+    # Capability detection must descend to the API call, not to the artifact.
+    self.assertIn('descend to the Direct ImportEvents API Call', ch_content)
+
+    # That script must actually exist and be sanctioned, or the doc names a
+    # path the agent is forbidden to execute.
+    self.assertTrue(os.path.exists(
+        os.path.join(skill_dir, 'scripts', 'chronicle_ingest.py')))
+    chart_path = os.path.join(skill_dir, 'references', 'chart-specifications-guide.md')
+    with open(chart_path, 'r', encoding='utf-8') as f:
+      chart_content = f.read()
+    self.assertIn('scripts/chronicle_ingest.py', chart_content)
+    self.assertIn('Clearance-Gated Script', chart_content)
+
+    # SKILL.md's Hunt Tool Contract must name the events route, not the logs route.
+    self.assertIn('import_events', self.skill_content)
+    self.assertNotIn('import_logs', self.skill_content)
+
+  def test_cri_severity_ladder_consistency_contract(self):
+    """Every schema's severity must be derivable from its own CRI via the canonical ladder."""
+    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    ch_path = os.path.join(skill_dir, 'references', 'clean-handoff-udm-schema.md')
+    with open(ch_path, 'r', encoding='utf-8') as f:
+      ch_content = f.read()
+
+    def ladder(cri):
+      """Canonical CRI severity ladder (references/clean-handoff-udm-schema.md)."""
+      if cri >= 80:
+        return 'CRITICAL'
+      if cri >= 60:
+        return 'HIGH'
+      if cri >= 40:
+        return 'MEDIUM'
+      if cri >= 20:
+        return 'LOW'
+      return 'INFORMATIONAL'
+
+    # The ladder must be stated, not merely implied by the payloads.
+    self.assertIn('Severity Is Derived, Never Asserted', ch_content)
+    for band, sev in (('80–100', 'CRITICAL'), ('60–79', 'HIGH'), ('40–59', 'MEDIUM'),
+                      ('20–39', 'LOW'), ('0–19', 'INFORMATIONAL')):
+      self.assertIn(f'| {band} | `{sev}` |', ch_content)
+
+    # Walk every schema and check its severity against its own risk_score.
+    # This is the check whose absence let three of nine drift out of agreement.
+    pet, risk, checked = None, None, 0
+    for line in ch_content.split('\n'):
+      m = re.search(r'"product_event_type":\s*"([A-Z_]+)"', line)
+      if m:
+        pet, risk = m.group(1), None
+      m = re.search(r'"risk_score":\s*(\d+)', line)
+      if m:
+        risk = int(m.group(1))
+      m = re.search(r'"severity":\s*"([A-Z]+)"', line)
+      if m and pet is not None:
+        self.assertIsNotNone(risk, f'{pet}: severity with no preceding risk_score')
+        self.assertEqual(
+            m.group(1), ladder(risk),
+            f'{pet}: severity {m.group(1)} contradicts CRI {risk} (ladder says {ladder(risk)})')
+        checked += 1
+    self.assertEqual(checked, 9, f'expected 9 schema severities, checked {checked}')
+
+    # The report bands must mirror the same ladder so a finding carries one label.
+    tf_path = os.path.join(skill_dir, 'scripts', 'triage_formatter.py')
+    with open(tf_path, 'r', encoding='utf-8') as f:
+      tf_content = f.read()
+    for band in ('CRI 80–100', 'CRI 60–79', 'CRI 40–59', 'CRI 20–39', 'CRI 0–19'):
+      self.assertIn(band, tf_content)
 
   def test_variable_role_classification_contract(self):
     """SKILL.md and multi-stage guide must define the 4 Variable Functional Roles."""
@@ -878,7 +983,7 @@ class TestGuardrailContracts(unittest.TestCase):
     self.assertIn("Multi-Turn Continuity & Conversational Anaphora Resolution", guide_content)
     self.assertIn("The Anti-Context-Collapse Mandate", guide_content)
     self.assertIn("looking backwards 14 days", guide_content)
-    self.assertIn("Mode B: 30-Day Longitudinal Sliding Timeline", guide_content)
+    self.assertIn("Mode B: Longitudinal Sliding Timeline", guide_content)
 
   def test_generic_client_visualization_tool_contract(self):
     """SKILL.md and chart specifications guide must support generic client visualization tool discovery without proprietary hardcoding."""
@@ -1107,11 +1212,11 @@ class TestGuardrailContracts(unittest.TestCase):
     self.assertIn("applies universally to queries, pivots, and handoff cards", skill_content)
 
     # Dual-Layer Trickle Defense
-    self.assertIn("Dual-Layer Defense for Trickle Attacks", skill_content)
+    # SKILL.md keeps only the steering pointer; the mechanism lives in the guide.
     self.assertIn("Mode B Longitudinal CUSUM Drift", skill_content)
-    self.assertIn("metrics.dns_queries_total", skill_content)
     self.assertIn("secops-statistical-hunter", skill_content)
     self.assertIn("Dual-Layer Trickle Defense", guide_content)
+    self.assertIn("metrics.dns_queries_total", guide_content)
     self.assertIn("Layer 1 (Longitudinal CUSUM Drift)", guide_content)
     self.assertIn("Layer 2 (Ad-Hoc Timing Jitter Handoff)", guide_content)
 
@@ -1230,6 +1335,205 @@ class TestGuardrailContracts(unittest.TestCase):
     self.assertIn("Strict ISO 8601 Timestamps for Compiler Probes", guide_content)
     self.assertIn("API Rejection of Relative Time Offsets", guide_content)
 
+  def test_no_relative_timestamps_in_probe_examples(self):
+    """No instructional file may show a udm_search probe using relative timestamps.
+
+    Chronicle's API rejects "now-10m"/"now" with an unrecoverable error (see
+    multi-stage-metrics-guide.md section 30C). The rest of this suite is
+    presence-based (assertIn), which cannot detect a bad example reintroduced
+    alongside the correct rule, so this guard asserts absence instead.
+
+    RELEASE_NOTES.md is deliberately excluded: it is historical changelog prose,
+    not instructional text the agent follows.
+    """
+    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    targets = [os.path.join(skill_dir, 'SKILL.md')]
+    targets += sorted(
+        glob.glob(os.path.join(skill_dir, 'references', '**', '*.md'), recursive=True))
+
+    relative_arg = re.compile(r'(?:start|end)Time\s*=\s*"now')
+    offenders = []
+    for path in targets:
+      with open(path, 'r', encoding='utf-8') as f:
+        for lineno, line in enumerate(f, 1):
+          if relative_arg.search(line):
+            offenders.append(f"{os.path.relpath(path, skill_dir)}:{lineno}")
+
+    self.assertEqual(
+        [], offenders,
+        "Compiler probes must use absolute ISO 8601 UTC timestamps "
+        "(<ISO_10M_AGO> / <ISO_NOW>); relative offsets are rejected by the "
+        f"Chronicle API. Offending lines: {offenders}"
+    )
+
+  def test_no_retired_evaluation_mode_labels(self):
+    """Retired Mode A/B labels must not reappear in agent- or consumer-facing text.
+
+    Mode A is a current-day window (00:00Z -> now), NOT a rolling 24 hours: a
+    rolling window straddles two daily metrics buckets. Mode B spans 2-14 days,
+    with 14 as the ceiling rather than the only option.
+
+    Rule 1 (Mode A) is a case-insensitive proximity rule, so any re-drift phrasing
+    is caught, not just the exact strings that were removed once.
+
+    Rule 2 (Mode B) is deliberately a name deny-list and NOT a proximity rule: a
+    rendered caption legitimately reads "Mode B (7-Day Timeline)" when seven days
+    were requested. Only the retired *names*, which embed a fixed horizon in the
+    mode's title, are forbidden.
+
+    RELEASE_NOTES.md is excluded as historical changelog prose.
+    """
+    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    targets = [os.path.join(skill_dir, 'SKILL.md')]
+    targets += sorted(
+        glob.glob(os.path.join(skill_dir, 'references', '**', '*.md'), recursive=True))
+    targets += sorted(glob.glob(os.path.join(skill_dir, 'scripts', '*.py')))
+
+    # Rule 1: any 24-hour token within 40 chars of "Mode A", either order.
+    hour24 = r'24\s*-?\s*(?:h\b|hr|hour)'
+    mode_a = re.compile(
+        rf'(?:Mode\s+A.{{0,40}}?{hour24})|(?:{hour24}.{{0,40}}?Mode\s+A)', re.IGNORECASE)
+    # Rule 2: retired Mode B names that bake a fixed horizon into the title.
+    mode_b = re.compile(r'\d+\s*-?\s*day\s+longitudinal', re.IGNORECASE)
+
+    offenders = []
+    for path in targets:
+      rel = os.path.relpath(path, skill_dir)
+      with open(path, 'r', encoding='utf-8') as f:
+        for lineno, line in enumerate(f, 1):
+          if mode_a.search(line):
+            offenders.append(f"{rel}:{lineno} (Mode A / 24-hour)")
+          if mode_b.search(line):
+            offenders.append(f"{rel}:{lineno} (retired Mode B name)")
+
+    self.assertEqual(
+        [], offenders,
+        "Retired evaluation-mode labels found. Mode A is a current-day window, "
+        "not a rolling 24h; Mode B is 'Longitudinal Sliding Timeline' with no "
+        f"fixed horizon in its name. Offenders: {offenders}"
+    )
+
+  def test_no_hardcoded_horizon_in_rendered_chart_text(self):
+    """Chart text emitted by scripts/ must derive its horizon from the data.
+
+    A hardcoded day count ships a mislabeled deliverable: request 7 days, receive
+    a chart captioned "14-Day Timeline". Horizon values in emitted SVG/HTML text
+    must be f-string interpolations, never literals.
+
+    Interpolations are stripped before matching, so `{n_points}-Day Timeline`
+    passes while `14-Day Timeline` fails. The 30-day baseline is exempt: it is a
+    genuine platform constant (every scored day is compared to its own trailing
+    30-day baseline), not a user-selected horizon.
+    """
+    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    interpolation = re.compile(r'\{[^{}]*\}')
+    horizon_literal = re.compile(r'\d+\s*-?\s*(?:d\b|day|days|h\b|hr|hour|hours)',
+                                 re.IGNORECASE)
+    baseline_const = re.compile(r'30\s*-?\s*(?:d\b|day)', re.IGNORECASE)
+
+    offenders = []
+    for path in sorted(glob.glob(os.path.join(skill_dir, 'scripts', '*.py'))):
+      rel = os.path.relpath(path, skill_dir)
+      with open(path, 'r', encoding='utf-8') as f:
+        for lineno, line in enumerate(f, 1):
+          if '<text' not in line and '<title>' not in line and '<tspan' not in line:
+            continue
+          stripped = baseline_const.sub('', interpolation.sub('', line))
+          for m in horizon_literal.finditer(stripped):
+            offenders.append(f"{rel}:{lineno} ({m.group(0).strip()})")
+
+    self.assertEqual(
+        [], offenders,
+        "Hardcoded horizon literal in emitted chart text. Interpolate the real "
+        f"day count instead (e.g. '{{n_points}}-Day Timeline'). Offenders: {offenders}"
+    )
+
+  def test_composite_distance_formula_is_always_clamped(self):
+    """Every statement of the composite threat distance D must clamp at zero.
+
+    D = sqrt(sum(max(0, Z_i)^2)), never sqrt(sum(Z_i^2)).
+
+    Squaring destroys sign, so without the clamp a sector 2 sigma BELOW its
+    baseline contributes exactly as much "threat" as one 2 sigma above. An entity
+    quieter than normal on every sector scores D ~ 3.1 / CRI ~ 52 unclamped
+    versus D = 0 / CRI 14 clamped, crossing the CRI >= 50 escalation threshold
+    purely for being quiet.
+
+    The defect hides in testing because when all sectors are elevated the clamp
+    is a no-op and both forms agree.
+    """
+    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    targets = [os.path.join(skill_dir, 'SKILL.md'), os.path.join(skill_dir, 'README.md')]
+    for sub, pattern in (('references', '**/*.md'), ('scripts', '*.py'),
+                         ('templates', '**/*.yl2')):
+      targets += sorted(glob.glob(os.path.join(skill_dir, sub, pattern), recursive=True))
+
+    # A sqrt whose radicand is a sum of squared Z terms.
+    composite = re.compile(
+        r'sqrt\s*\{?\s*(?:\\sum|sum|\()?[^\n]{0,80}?Z[_\s]*(?:_?\{?i\}?|\{\\text)?[^\n]{0,40}?\^\s*2',
+        re.IGNORECASE)
+    offenders = []
+    for path in targets:
+      rel = os.path.relpath(path, skill_dir)
+      with open(path, 'r', encoding='utf-8') as f:
+        for lineno, line in enumerate(f, 1):
+          if 'sqrt' not in line.lower() or 'lambda' in line:
+            continue
+          if not composite.search(line):
+            continue
+          if 'max(0' in line:
+            continue
+          # A numeric instantiation (all literal values) is arithmetic, not a
+          # formula statement; clamping literals adds noise without meaning.
+          if not re.search(r'Z[_\s\{]', line):
+            continue
+          offenders.append(f"{rel}:{lineno}")
+
+    self.assertEqual(
+        [], offenders,
+        "Unclamped composite threat distance. Use "
+        r"D = \sqrt{\sum \max(0, Z_i)^2}; without the clamp, below-baseline "
+        f"sectors inflate risk. Offenders: {offenders}"
+    )
+
+  def test_no_interpreted_latex_escapes(self):
+    """LaTeX backslash escapes must not be stored as raw control characters.
+
+    Writing markdown through a non-raw Python string turns \\alpha into BEL,
+    \\beta into BACKSPACE, \\text into TAB and \\frac into FORMFEED. The math
+    then renders as garbage. Four files were corrupted this way.
+    """
+    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    targets = [os.path.join(skill_dir, 'SKILL.md'), os.path.join(skill_dir, 'README.md')]
+    for sub, pattern in (('references', '**/*.md'), ('scripts', '*.py'),
+                         ('templates', '**/*.yl2')):
+      targets += sorted(glob.glob(os.path.join(skill_dir, sub, pattern), recursive=True))
+
+    ctrl = {'\x07': r'\a (alpha/approx)', '\x08': r'\b (beta)',
+            '\x0b': r'\v (vec)', '\x0c': r'\f (frac)'}
+    # A bare TAB directly preceding a LaTeX word is a swallowed \t.
+    swallowed_tab = re.compile(r'\t(?=ext\{|imes\b|au\b|heta\b|ilde\b)')
+
+    offenders = []
+    for path in targets:
+      rel = os.path.relpath(path, skill_dir)
+      with open(path, 'r', encoding='utf-8') as f:
+        for lineno, line in enumerate(f, 1):
+          for ch, name in ctrl.items():
+            if ch in line:
+              offenders.append(f"{rel}:{lineno} [{name}]")
+          if swallowed_tab.search(line):
+            offenders.append(f"{rel}:{lineno} [\\t (text)]")
+
+    self.assertEqual(
+        [], offenders,
+        "Raw control character where a LaTeX escape belongs. Write markdown via "
+        f"raw strings (r\"...\") so backslashes survive. Offenders: {offenders}"
+    )
+
+
+
+
   def test_identity_disambiguation_spotcheck_contract(self):
     """SKILL.md and guide must enforce 14-day UDM spot-checks and immediate halt for unresolved first names."""
     skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -1265,7 +1569,7 @@ class TestGuardrailContracts(unittest.TestCase):
     # SKILL.md assertions
     self.assertIn("Executed Multi-Stage YARA-L Query", skill_content)
     self.assertIn("For 360 Radar, display executed sector micro-queries", skill_content)
-    self.assertIn("Raw event filters (e.g. `principal.user.userid = ...`) are STRICTLY PROHIBITED in Pillar 2", skill_content)
+    self.assertIn("A bare raw-event filter with no `stage`/`match`/`outcome` is PROHIBITED in Pillar 2", skill_content)
 
     # Guide assertions
     self.assertIn("Pillar 2 Executed Multi-Stage Query Integrity", guide_content)

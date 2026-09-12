@@ -46,6 +46,7 @@ flowchart LR
 
 To automatically promote ingested synthetic events into **Alerts** and **SOAR Cases**, the customer tenant maintains this persistent detection rule:
 
+<!-- yara-fragment: continuous detection rule, not an ad-hoc multi-stage search -->
 ```yara
 rule secops_risk_metrics_synthetic_alert_catchall {
   meta:
@@ -269,7 +270,7 @@ rule secops_risk_metrics_synthetic_alert_catchall {
         "category_details": ["SHADOW_COPY_DELETION", "INHIBIT_SYSTEM_RECOVERY"],
         "action": ["UNKNOWN_ACTION"],
         "risk_score": 82,
-        "severity": "HIGH",
+        "severity": "CRITICAL",
         "summary": "Volume shadow copy deletion tool executed 4 times on database server with zero historical baseline.",
         "description": "Poisson rarity calculation identified an arrival probability P(X >= 4) < 1e-6 indicating deliberate recovery inhibition.",
         "detection_fields": [
@@ -335,7 +336,7 @@ rule secops_risk_metrics_synthetic_alert_catchall {
         "category_details": ["BAYESIAN_SHRINKAGE_ANOMALY"],
         "action": ["UNKNOWN_ACTION"],
         "risk_score": 68,
-        "severity": "MEDIUM",
+        "severity": "HIGH",
         "summary": "User frank.kolzig exhibited a confirmed 4.3× Bayesian posterior rate surge above stable 30-day baseline.",
         "description": "Hierarchical empirical Bayesian updating demonstrated a statistically significant shift from prior distribution toward high-frequency failure state.",
         "detection_fields": [
@@ -402,7 +403,7 @@ rule secops_risk_metrics_synthetic_alert_catchall {
         "category_details": ["PEER_COHORT_BREAKOUT_ANOMALY"],
         "action": ["UNKNOWN_ACTION"],
         "risk_score": 67,
-        "severity": "MEDIUM",
+        "severity": "HIGH",
         "summary": "User frank.kolzig performed 103 authentication operations, exceeding IT Department peer norm by +4.16σ.",
         "description": "Cross-sectional comparison against organizational department roster identified isolated outlier behavior relative to peer group baseline.",
         "detection_fields": [
@@ -700,6 +701,17 @@ When an analyst requests an alert, notification, case, or event submission for h
 
 ### 📦 Phase 2: Payload Construction & Multi-Event Batching
 * **1:1 Finding Cardinality**: Exactly one UDM event is constructed per outlier entity ($Z \ge 3.0\sigma$, $\text{CRI} \ge 50$).
+* **Severity Is Derived, Never Asserted**: `security_result.severity` is a pure function of the finding's CRI. It is never chosen per model, per threat name, or by judgement. `security_result.risk_score` always carries the same CRI integer.
+
+  | CRI | `severity` |
+  |---|---|
+  | 80–100 | `CRITICAL` |
+  | 60–79 | `HIGH` |
+  | 40–59 | `MEDIUM` |
+  | 20–39 | `LOW` |
+  | 0–19 | `INFORMATIONAL` |
+
+  Because the ingestion floor is $\text{CRI} \ge 50$, an emitted event is never below `MEDIUM`. Note that the $3.0\sigma$ significance boundary ($\text{CRI} = 50$) falls inside the `MEDIUM` band rather than on a band edge; the two scales answer different questions and are not expected to coincide.
 * **Correlated Batch Structure**: When multiple findings are flagged in a hunt, all events are bound with a shared `Hunt Campaign ID` UUID and combined into a JSON array:
   ```json
   [
@@ -709,22 +721,40 @@ When an analyst requests an alert, notification, case, or event submission for h
   ```
 
 ### 📋 Phase 3: Pre-Ingestion Clearance Card
-Before calling any ingestion or case mutation APIs, the agent must present the literal UDM payload preview (or indexed summary of batch findings), display the target customer ID (`8cbac5ae-8267-4da7-b405-cdbc6fa3f1d5`) and project (`gus-sdl`), and yield the turn for analyst authorization:
+Before calling any ingestion or case mutation APIs, the agent must present the literal UDM payload preview (or indexed summary of batch findings), display the target customer ID (`8cbac5ae-8267-4da7-b405-cdbc6fa3f1d5`) and project (`gus-sdl`), name the ingestion vector it will invoke (`secops-gus:import_events`, or the direct `ImportEvents` API call via `scripts/chronicle_ingest.py` when that tool is absent from the client), and yield the turn for analyst authorization:
 > *"Would you like me to ingest this Synthetic UDM Security Event (Campaign: `<campaign_id>`) into Google SecOps (`gus-sdl`) to trigger the Catch-All Alert Rule and spawn a Case?"*
 
 ### ⚡ Phase 4: Ingestion Execution Architecture & Safe Fallback Ladder
 
-1. **Primary Ingestion Vector: Direct In-Band Chronicle API Ingestion**:
-   * When the service account managing the MCP server has standard SecOps IAM roles, transmitting synthetic UDM events is a direct Chronicle API ingestion call.
-   * Direct API ingestion requires no physical forwarder infrastructure or forwarder routing.
+1. **Primary Ingestion Vector — `secops-gus:import_events` (Direct UDM Event API)**:
+   * Synthetic UDM events are transmitted with `secops-gus:import_events(udmEvents=[...], projectId="gus-sdl", customerId="8cbac5ae-8267-4da7-b405-cdbc6fa3f1d5", region="us")`, which maps to the Chronicle `IngestionService.ImportEvents` RPC.
+   * `udmEvents` is always a **list**, even for a single finding. Events arriving by this route bypass parsing entirely and are stamped `metadata.log_type = "UDM"` — the observable signature confirming the correct vector was used.
+   * This route accepts **no `forwarderId` and no `logType`**; neither field exists on `ImportEvents`. Supplying either means the wrong method was selected.
 
-2. **Forwarder Appliance Routing (Strict Fallback Only)**:
-   * The use of a forwarder (`forwarderId`) is strictly a fallback mechanism for segmented on-prem networks or collector pipelines that explicitly require forwarder routing.
-   * If forwarder ingestion is used, ensure `forwarderId` references a valid, verified forwarder UUID (never a Pub/Sub Feed ID or placeholder).
+2. **Capability Detection (Forward-Compatible Tool Binding)**:
+   * `import_events` may be absent from an MCP client's tool list for reasons unrelated to tenant permissions or IAM. Bind by presence, never by assumption:
+     * **Present** → this is the ingestion route. Use it.
+     * **Absent** → descend to the Direct ImportEvents API Call (item 3). Do not substitute `import_logs`, do not enumerate forwarders, do not probe log types.
+   * Absence is an environment state, not a failure. Report it plainly and continue the hand-off. When the tool returns to the client, the primary vector resumes with no change to this protocol.
 
-3. **Resilient Operational Fallback Ladder (Zero MCP Client Crashes)**:
-   * If in-band API ingestion encounters an environment restriction or API error:
+3. **Direct `ImportEvents` API Call (MCP-Independent Ingestion Path)**:
+   * The skill's ability to ingest does not depend on the MCP server exposing a tool for it. When `import_events` is absent, the same RPC is invoked directly over REST with `scripts/chronicle_ingest.py`, a sanctioned script under the Post-Search Execution Exemption:
+     ```
+     python3 scripts/chronicle_ingest.py --events-file <batch.json> \
+       --project-id gus-sdl --customer-id 8cbac5ae-8267-4da7-b405-cdbc6fa3f1d5 --region us
+     ```
+   * `POST https://us-chronicle.googleapis.com/v1alpha/projects/gus-sdl/locations/us/instances/<customer-id>/events:import`, body `{"inlineSource": {"events": [{"udm": …}]}}`. Add `--dry-run` to render the exact request for the clearance card without transmitting.
+   * This is **post-search and post-clearance only**, never during an active hunt, which is what keeps it inside the exemption rather than in violation of the Native Execution Guarantee.
+   * **IAM belongs to the deploying environment.** The script authenticates from `CHRONICLE_ACCESS_TOKEN`, falling back to application default credentials, and requires `chronicle.googleapis.com/events.import`. It distinguishes a rejected credential *type* (`ACCESS_TOKEN_TYPE_UNSUPPORTED` — supply a service-account token) from a missing *permission* (HTTP 403 — grant the IAM role), because the remedies differ. It never attempts to acquire or escalate credentials itself.
+   * Chronicle rejects the entire batch if any single event is malformed, so every event is validated locally before transmission.
+
+4. **`import_logs` and Forwarder Routing (A Different Method, Not a Fallback)**:
+   * `secops-gus:import_logs` is **not** a degraded form of `import_events`. It submits raw logs for parser normalization against a named `logType` and requires a valid `forwarderId`. It cannot produce a `metadata.log_type = "UDM"` event, so it does not satisfy this contract.
+   * It is reserved for segmented on-prem networks and collector pipelines that explicitly require forwarder routing, and then only with a verified forwarder UUID (never a Pub/Sub Feed ID or placeholder).
+
+5. **Resilient Operational Fallback Ladder (Zero MCP Client Crashes)**:
+   * Only after both the MCP tool and the direct API call are unavailable or rejected:
      1. **Preserve Context & Stability**: Do not execute speculative tool loops, search through hundreds of parsers, or probe invalid log types.
-     2. **Deliver Structured Payload Artifact**: Provide the complete, validated UDM JSON payload (or multi-event batch) in a clean markdown artifact or copyable block for analyst testing and manual promotion.
+     2. **Deliver Structured Payload Artifact**: Provide the complete, validated UDM JSON payload (or multi-event batch) in a clean markdown artifact or copyable block for analyst testing and manual promotion. `--dry-run` output is the canonical form of this artifact.
      3. **Offer In-Band Case Wall Attachment**: Offer direct attachment of the hunt findings to an active investigation or case using `secops-gus:create_case_comment(case_id="<ID>", comment=...)`.
 

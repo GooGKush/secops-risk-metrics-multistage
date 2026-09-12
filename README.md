@@ -26,8 +26,7 @@ secops-risk-metrics-multistage/
 │   ├── 360-behavioral-radar-guide.md     # Canonical 360° radar execution playbook & visual architecture
 │   ├── calibrated-risk-index-guide.md    # CRI [0–100] sigmoid score translation guide
 │   ├── chart-specifications-guide.md     # Vega-Lite & Chart.js declarative visual contracts
-│   ├── clean-handoff-guide.md            # Affirmative clean hand-off execution procedures & API calls
-│   ├── clean-handoff-udm-schema.md       # 9 UDM event schemas & Catch-All case promotion rule
+│   ├── clean-handoff-udm-schema.md       # 9 UDM event schemas, CRI severity ladder & ingestion vectors
 │   ├── compiler-submission-policy.md     # Chronicle SIEM Malachite compiler grammar & invariants
 │   ├── consultative-worksheet.md         # Master consultative guidance worksheet & attack vector taxonomy
 │   ├── consultative/                     # Specialized domain consultative deep-dives
@@ -83,8 +82,8 @@ secops-risk-metrics-multistage/
 │       └── variance_fano.yl2
 ├── scripts/                              # Verification, execution, collector, & formatting utilities
 │   ├── chart_generator.py                # Formats hunt outputs into Vega-Lite & Chart.js specs
+│   ├── chronicle_ingest.py               # Direct ImportEvents REST ingestion (MCP-independent path)
 │   ├── clean_handoff.py                  # Synthetic UDM telemetry formulation & Chronicle ingestion
-│   ├── data_reduction.py                 # Multi-stage DAG syntax reduction engine
 │   ├── federated_handoff.py              # Cross-skill bilateral threat hunt handoff protocol
 │   ├── generate_references.py            # Code-as-SSOT reference documentation generator
 │   ├── preflight_validator.py            # Pre-flight syntax and outcome contract validator
@@ -129,7 +128,7 @@ secops-risk-metrics-multistage/
 3. **360° Entity Behavioral Risk Radar (All-Vectors Profiling)**:
    * Generates comprehensive behavioral fingerprints across the **5 canonical risk sectors**: Authentication & Access, Cloud Resource CRUD, Workspace & SaaS, Network Egress, and DNS & Web Activity.
    * Leverages decoupled 2-stage parallel micro-queries to eliminate inner-join drops (`maxJoinCount = 4` protection), synthesizing findings into the Euclidean Threat Distance norm:
-     $$D = \sqrt{\sum_{i=1}^{5} Z_i^2}$$
+     $$D = \sqrt{\sum_{i=1}^{5} \max(0, Z_i)^2}$$
 4. **Adaptive Multi-Surface Visualization & Dual-Platform Parity**:
    * Renders single-surface visual outputs matched to client capabilities: `<agent-embed>` standalone HTML widgets in Jetski Web / Antigravity, clean inline `<svg>` in headless MCP webviews, and Canonical ASCII progress bars in Pillar 3 CommonMark tables. Enforces a strict single-surface guarantee to prevent duplicate visual clutter.
 5. **Noise Level Tuning & Root-Stage `condition:` Gating**:

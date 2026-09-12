@@ -3,7 +3,7 @@
 // Skill: secops-risk-metrics-multistage
 // Sector: IAM & Authentication (Representative Canonical Spoke)
 // Execution: Evaluated independently alongside Cloud, Workspace, Network, and DNS
-// Topology: Client-Side Euclidean Join (D = sqrt(sum Z_i^2))
+// Topology: Client-Side Euclidean Join (D = sqrt(sum max(0,Z_i)^2))
 // Platform Limit: maxJoinCount = 4 (Zero Monolithic Joins)
 // ============================================================================
 
@@ -25,7 +25,22 @@ stage auth_risk {
         period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
         target.user.userid: $user
     ))
-    $z = ($obs - $avg) / ($std + 1.0)
 }
 
-order: $z desc
+// --- ROOT STAGE: Single-Sector Z-Score Projection (1 Join Total) ---
+// Required: a multi-stage query's root MUST declare a match or outcome section,
+// and every named stage MUST be consumed by the root. Omitting this root is a
+// compile error, not a stylistic shortcut.
+$user = $auth_risk.user
+
+match:
+  $user by 1d
+
+outcome:
+  $observed = max($auth_risk.obs)
+  $baseline = max($auth_risk.avg)
+  $dispersion = max($auth_risk.std)
+  $z = ($observed - $baseline) / ($dispersion + 1.0)
+
+order:
+  $z desc

@@ -60,9 +60,12 @@ class TestStatisticalAssumptions(unittest.TestCase):
     self.assertGreater(weekend_z, 10.0)  # True weekend intrusion detected
     self.assertLess(blended_z, 0.0)       # False negative in blended 30d baseline!
 
-  def test_assumption_3_multi_sector_chi_distribution_and_delta_z(self):
-    """Assumption 3: Multi-sector threat norm D follows Chi(3); D >= 3.0 has p ≈ 0.029, while D >= 4.02 matches 1D 3σ."""
-    # Monte Carlo simulation of 20,000 independent 3D standard normal vectors
+  def test_assumption_3_multi_sector_rectified_norm_and_delta_z(self):
+    """Assumption 3: Clamped multi-sector norm D is a rectified mixture, not Chi(3); E[D] ~ 0.97 and P(D = 0) = 12.5%."""
+    # Monte Carlo simulation of 20,000 independent 3D standard normal vectors.
+    # D clamps each component at zero (see scripts/radar_collector.py), so under
+    # the null D is NOT Chi(3). It is the rectified mixture sum_j C(K,j) 2^-K Chi(j):
+    # only the j sectors that exceed baseline contribute, and all-quiet yields D = 0.
     n_samples = 20000
     norms = []
     delta_zs = []
@@ -73,23 +76,36 @@ class TestStatisticalAssumptions(unittest.TestCase):
       z_net = random.gauss(0, 1)
       z_fleet = random.gauss(0, 1)
 
-      d = math.sqrt(z_auth**2 + z_proc**2 + z_net**2)
+      d = math.sqrt(
+          max(0.0, z_auth) ** 2 + max(0.0, z_proc) ** 2 + max(0.0, z_net) ** 2
+      )
       norms.append(d)
 
       delta_z = z_auth - z_fleet
       delta_zs.append(delta_z)
 
-    # Theoretical mean of Chi(3) = sqrt(2) * Gamma(2) / Gamma(1.5) ≈ 1.5957
+    # Theoretical mean of the rectified mixture (K=3) = 0.9687; Chi(3) would be 1.5957.
     empirical_mean_d = statistics.mean(norms)
-    self.assertAlmostEqual(empirical_mean_d, 1.596, delta=0.05)
+    self.assertAlmostEqual(empirical_mean_d, 0.969, delta=0.05)
 
-    # Probability of D >= 3.0 in Chi(3) is ~2.9%
+    # Theoretical E[D^2] = K/2 = 1.5 (half of the Chi-squared(3) value of 3.0).
+    empirical_mean_d_sq = statistics.mean(d * d for d in norms)
+    self.assertAlmostEqual(empirical_mean_d_sq, 1.5, delta=0.08)
+
+    # Point mass at zero: all K sectors at or below baseline, P = 2^-K = 12.5%.
+    # This is the defining feature of clamping and is absent from any Chi distribution.
+    p_d_zero = sum(1 for d in norms if d == 0.0) / n_samples
+    self.assertTrue(0.110 <= p_d_zero <= 0.140, f"Expected P(D=0) ~ 0.125, got {p_d_zero}")
+
+    # Probability of D >= 3.0 under the rectified mixture is ~0.88%
+    # (Chi(3) would give 2.93%, so the unclamped form over-alerts by ~3.3x).
     p_d_ge_3 = sum(1 for d in norms if d >= 3.0) / n_samples
-    self.assertTrue(0.025 <= p_d_ge_3 <= 0.035, f"Expected p ≈ 0.029, got {p_d_ge_3}")
+    self.assertTrue(0.006 <= p_d_ge_3 <= 0.013, f"Expected p ~ 0.0088, got {p_d_ge_3}")
 
-    # Probability of D >= 4.02 in Chi(3) is ~0.135% (matching 1D 3-sigma Gaussian rarity)
-    p_d_ge_4 = sum(1 for d in norms if d >= 4.02) / n_samples
-    self.assertTrue(0.0005 <= p_d_ge_4 <= 0.003, f"Expected p ≈ 0.00135, got {p_d_ge_4}")
+    # Clamping moves the critical value matching 1D 3-sigma rarity (p = 0.00135)
+    # from 4.02 (Chi(3)) down to 3.586.
+    p_d_ge_crit = sum(1 for d in norms if d >= 3.586) / n_samples
+    self.assertTrue(0.0007 <= p_d_ge_crit <= 0.0030, f"Expected p ~ 0.00135, got {p_d_ge_crit}")
 
     # Standard deviation of Delta Z = Z1 - Z2 is sqrt(1 + 1) = sqrt(2) ≈ 1.414
     empirical_std_delta_z = statistics.stdev(delta_zs)

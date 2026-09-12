@@ -230,6 +230,7 @@ A persistent gap in SOC alert triage is distinguishing routine high-volume opera
 When the exfiltration protocol is known in advance (e.g. hunting specifically for HTTP data theft), Chronicle SIEM supports joining `metrics.*` in Stage 1 with raw `UDM_EVENTS` in Stage 2 within a single multi-stage YARA-L 2.0 query:
 
 * **Stage 1 (Macro Sieve)**:
+  <!-- yara-fragment: stage 1 of 3; root stage shown in a later block -->
   ```yara
   stage stage1_macro_baseline {
       metadata.event_type = "NETWORK_CONNECTION"
@@ -244,6 +245,7 @@ When the exfiltration protocol is known in advance (e.g. hunting specifically fo
   }
   ```
 * **Stage 2 (Micro Signature)**:
+  <!-- yara-fragment: stage 2 of 3; root stage shown in a later block -->
   ```yara
   stage stage2_raw_telemetry {
       metadata.event_type = "NETWORK_HTTP"

@@ -136,7 +136,7 @@ class TestRadarCollector(unittest.TestCase):
     self.assertIn("Cloud Deletions", svg)
     self.assertIn("<tspan", svg)
     self.assertIn("<title>", svg)
-    self.assertIn("24h Observed: 640.0", svg)
+    self.assertIn("Observed: 640.0", svg)
 
   def test_generate_self_contained_svg_negative_and_zero_deviations(self):
     """SVG must format negative and zero deviations cleanly without '+-' sign duplication or text truncation."""
