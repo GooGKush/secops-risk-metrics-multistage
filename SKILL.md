@@ -86,7 +86,6 @@ Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to bo
    * *Mandatory Upfront Query Preview Protocol (Mandatory Query Preview)* & *Tool-Precondition Code Block Embargo*: Probe once with ISO 8601 UTC timestamps: `secops-gus:udm_search(query="<single_event_udm_filter>", startTime="<ISO_10M_AGO>", endTime="<ISO_NOW>", maxEvents=1)`. Relative 'now-10m' is invalid. Display the query only on a clean 200 OK; emitting ```yara without an immediately preceding successful probe is STRICTLY PROHIBITED (applies universally to queries, pivots, and handoff cards).
    * *Peer Cohort & Roster*: List cohort entities; if $N < 7$, flag `⚠️ Sparse Baseline Caution (N < 7)`. Peer Cohort Roster Requirement applies.
    * *Interactive Entity Graph Dimension Mandate*: Express joins under `• Entity Graph Dimension: [Exact Filter]` (Domain Rarity, Fleet Prevalence, Binary Rarity, IP Rarity `rolling_max <= 3`, `day_count = 10` platform invariant).
-   * *Noise Level & Significance Threshold Steering (Active Root-Stage Condition Gating)*: Default: $Z \ge 3.0\sigma$ / $D \ge 3.5\sigma$. Sensitivity is tunable: High Confidence ($Z \ge 3.0\sigma$), Investigative Band ($2.0\sigma \le Z < 3.0\sigma$), Directional ($Z \le -3.0\sigma$), or Multi-Vector ($D^2 \ge 16.0$). Enforced in root-stage `condition:` (e.g. `condition: $z >= 2.0 and $z < 3.0`) before `order:`.
    * *Model Concordance Invariant*: When declaring a statistical model, instantiate its template in `templates/stage2_math_models/` (see `references/model-concordance-guide.md`). Emitted `outcome:` derivations and `order:` clause MUST faithfully implement that template's mathematical AST signature (e.g. CUSUM `$cusum_drift_score`, Poisson `$poisson_z`, or Empirical Bayes `$posterior_mean`).
    * *Canonical Preview & Two-Phase Chained Hunt Specification*: Cross-entity hunts emit Two-Phase Chained Hunt Specification: Phase 1 (UEBA Outlier), Bridge Contract ($host, $timestamp, $user, $caller_ip), and Phase 2 (Targeted Cloud UDM Query).
 5. **Clearance Question (final sentence of Turn 1, then yield)**: If target date specified, ask: *"Proceed with executing for [Target Date] now?"*. Otherwise ask: *"Would you like me to proceed with **Mode A (Today vs 30-Day Baseline)** or **Mode B (2–14 Day Timeline)**? (Adjust noise level/significance threshold before execution if desired.)"*.
@@ -96,7 +95,7 @@ Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to bo
 ### 📊 State 2: Deterministic Multi-Stage Execution & 6-Pillar Report (After Clearance) (MANDATORY STEP 2: PRESENT FULL 6-SECTION REPORT)
 
 1. **State 2 Entry Condition**: If the preceding turn displayed a PRE-FLIGHT HUNTING SPECIFICATION card and the candidate multi-stage YARA-L query with its baseline filter probed clean (200 OK), Mode A/B clearance means execute now. Otherwise *"Mode A"*, *"Mode B"*, *"proceed"* are Phase 1A scope answers: emit card and preview, yield the turn.
-2. **Execution Telemetry Retrieval Mandate**: On explicit Mode A/B clearance, execute single-event `udm_search(query="<single_event_udm_filter>")`. Multi-stage YARA-L in `udm_search` is PROHIBITED (causes 400); belongs in Pillar 2.
+2. **Execution Telemetry Retrieval Mandate**: On explicit Mode A/B clearance, execute the approved multi-stage `metrics.*` query via `udm_search` (360 Radar: one call per sector). Responses return `"stats"`.
 3. **Deterministic 6-Pillar Report Structure**: Synthesize findings into the complete 6-pillar report:
 #### 1. Statistical Outlier Report: `[Target Metric]` ([Statistical Model]) (`window: 30d`). Single visual surface: <agent-embed> in Jetski (`run_command` present); <svg> in MCP/webview; Client Tool (if present); ASCII on request. Zero data-uri or raw SVG in chat Markdown. Unicode magnitude bars (`▰▰▰▰▱▱▱▱`). Surface routing and sanctioned-script policy: `references/chart-specifications-guide.md`.
 #### 2. Executed Multi-Stage YARA-L Query: Verbatim mirror approved Turn 1 candidate query block. For 360 Radar, display executed sector micro-queries (representative `stage auth_risk` with `order: $z desc`; never `events:`, `$e.`, `rule ... { ... }`, or `math.sqrt`). A bare raw-event filter with no `stage`/`match`/`outcome` is PROHIBITED in Pillar 2.
@@ -104,7 +103,7 @@ Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to bo
 #### 4. Forensic Vector Breakdown: Threat translation, scenarios, SOC playbook.
 #### 5. Chronicle UI Manual Pivot (Triage Reference Only): Passive UDM filter the analyst runs in the Chronicle UI.
 #### 6. Collapsible Technical Appendix (Statistical & Mathematical Appendix): ($N=30d$), CRI, $D = \sqrt{\sum \max(0, Z_i)^2}$ (`references/calibrated-risk-index-guide.md`).
-4. **Zero-Telemetry Clean Hunt Exemption (True Negative Audit Summary)**: When post-clearance `udm_search` returns 0 events (`{}`/`[]`), emit a 2-Section Clean Hunt Audit:
+4. **Zero-Telemetry Clean Hunt Exemption (True Negative Audit Summary)**: When post-clearance `udm_search` returns 0 events (`{}`/`[]`) or an empty `stats` result set, emit a 2-Section Clean Hunt Audit:
    - `#### 1. Statistical Outlier Report: [Target Metric] (Nominal Baseline)`: 0 observed events ($Z = 0.00\sigma, \text{CRI} = 0$, 🟢 **Nominal Fleet Baseline**).
    - `#### 2. Executed Multi-Stage YARA-L Query`: Literal query and scope.
    - **Pillars 3, 4, 5, and 6 are waived** (360° radar profiles evaluate all 5 sectors with visual radar).
@@ -126,7 +125,7 @@ Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to bo
 * **Native Execution Guarantee (ZERO PYTHON SIMULATION SCRIPTING)**: Zero Local Script Invocations During Hunting (ZERO RUN_COMMAND VALIDATION). Local simulation is a CRITICAL COMPLIANCE VIOLATION. Author natively via SecOps GUS MCP.
 * **Hermetic Skill Boundary (ZERO CROSS-SKILL DRIFT)**: Once active, the agent MUST NOT read, import, or search other skills. 100% self-contained.
 * **Atomic Pipeline Execution Mandate (ZERO PIECEMEAL FRACTURING & DRIFT)**: Formulate single atomic YARA-L query for Pillar 2; fracturing into piecemeal searches is STRICTLY PROHIBITED. 360° Radar queries 5 sectors in parallel.
-* **Literal Query Display Mandate (ZERO FAKED YARA-L QUERIES)**: Pillar 2 must contain the literal, verbatim multi-stage YARA-L query block displayed in pre-flight preview without modifications.
+* **Literal Query Display Mandate (ZERO FAKED YARA-L QUERIES)**: Pillar 2 must contain the literal multi-stage YARA-L block from pre-flight preview; 360 Radar mirrors its representative sector query.
 * **Post-Flight Audit & RAW_LOG_DUMP_DETECTED Rule**: If `udm_search` returns `"events"` without `"stats"`, abort all reporting. Present auto-corrected queries (via `MultiStageTemplateRouter`) or ask to execute.
 
 ### 2. Compiler & Architectural Invariants
@@ -140,7 +139,7 @@ Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to bo
   - *Max 4 Joins Invariant (ZERO MONOLITHIC JOINS — maxJoinCount=4 & Inner-Join Drop)*: Limits queries to <= 4 joins (`maxJoinCount = 4`). Never fuse >= 3 orthogonal sectors into a single query (`STAT_ANTIPATTERN_MONOLITHIC_RADAR_JOIN`; auto-bypass Mode B).
 * **Variable Role Classification & Anti-Passive-Decoration Mandate**: Variables: `[JOIN_KEY]`, `[SCORING_DIMENSION]`, `[ACTIVE_FILTER]`, `[TRIAGE_DECORATION]`. Primary vectors MUST NEVER act solely as `[TRIAGE_DECORATION]`.
 * **Inner-Join Drop Prevention Standard (PRESERVING FULL POPULATION)**: Baseline full fleet in Stage 1 and profile destinations via `array_distinct(target.hostname)`.
-* **Noise Gating via Root `condition:`**: Root stage supports `condition:` post-aggregation before `order:` (e.g. `condition: $z >= 2.0 and $z < 3.0`). Placed strictly AFTER `outcome:` and BEFORE `order:`.
+* **Noise Gating via Root `condition:`**: Default $Z \ge 3.0\sigma$ / $D \ge 3.5\sigma$; tunable to Investigative ($2.0\sigma \le Z < 3.0\sigma$), Directional ($Z \le -3.0\sigma$), or Multi-Vector ($D^2 \ge 16.0$). Root stage supports `condition:` post-aggregation, placed strictly AFTER `outcome:` and BEFORE `order:` (e.g. `condition: $z >= 2.0 and $z < 3.0`).
 
 ### 3. Scope, Steering, Typography & Parsimony
 * **Pure Threat Hunting Scope (SEARCH-ONLY)**: Output is ad-hoc Multi-Stage YARA-L (`stage ...` + Root) — a Query, never a Rule. `create_rule` and `validate_rule` are outside this skill's authority. Streaming detection Rules are a different product surface: converting a hunt into a Rule discards the 30-day baseline comparison this skill exists to perform, and hands the task to a different skill. Treat any drift toward Rule authoring as out of scope and say so.
