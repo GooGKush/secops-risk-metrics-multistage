@@ -25,6 +25,8 @@ stage auth_risk {
         period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
         target.user.userid: $user
     ))
+    $diff = $obs - $avg
+    $z = $diff / ($std + 1.0)
 }
 
 // --- ROOT STAGE: Single-Sector Z-Score Projection (1 Join Total) ---
@@ -37,10 +39,10 @@ match:
   $user by 1d
 
 outcome:
+  $z = max($auth_risk.z)
   $observed = max($auth_risk.obs)
   $baseline = max($auth_risk.avg)
   $dispersion = max($auth_risk.std)
-  $z = ($observed - $baseline) / ($dispersion + 1.0)
 
 order:
   $z desc

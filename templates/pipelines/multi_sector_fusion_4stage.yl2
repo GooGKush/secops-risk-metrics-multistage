@@ -24,6 +24,8 @@ stage auth_sector {
         period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
         principal.user.userid: $user
     ))
+    $a_diff = $auth_obs - $auth_avg
+    $z_auth = $a_diff / ($auth_std + 1.0)
 }
 
 // --- STAGE 2: Sector 2 - Cloud Infrastructure CRUD ---
@@ -51,6 +53,8 @@ stage cloud_sector {
         metadata.vendor_name: $c_vendor,
         metadata.product_name: $c_product
     ))
+    $c_diff = $cloud_obs - $cloud_avg
+    $z_cloud = $c_diff / ($cloud_std + 1.0)
 }
 
 // --- STAGE 3: Sector 3 - Endpoint Administrative Tools / LOLBins ---
@@ -78,6 +82,8 @@ stage proc_sector {
         principal.process.file.sha256: $p_hash,
         metadata.event_type: $p_event
     ))
+    $p_diff = $proc_obs - $proc_avg
+    $z_proc = $p_diff / ($proc_std + 1.0)
 }
 
 // --- STAGE 4: Sector 4 - Network Egress Data Volume ---
@@ -99,6 +105,8 @@ stage net_sector {
         period: 1d, window: 30d, metric: value_sum, agg: stddev,
         principal.user.userid: $user
     ))
+    $n_diff = $net_bytes_obs - $net_bytes_avg
+    $z_net = $n_diff / ($net_bytes_std + 1.0)
 }
 
 // --- ROOT STAGE: Multi-Sector Threat Fusion & Distance Scoring ---
@@ -111,21 +119,11 @@ match:
   $user by 1d
 
 outcome:
-  // Sector 1: Auth Z-Score
-  $a_diff = max($auth_sector.auth_obs) - max($auth_sector.auth_avg)
-  $z_auth = $a_diff / (max($auth_sector.auth_std) + 1.0)
-
-  // Sector 2: Cloud CRUD Z-Score
-  $c_diff = max($cloud_sector.cloud_obs) - max($cloud_sector.cloud_avg)
-  $z_cloud = $c_diff / (max($cloud_sector.cloud_std) + 1.0)
-
-  // Sector 3: Process Z-Score
-  $p_diff = max($proc_sector.proc_obs) - max($proc_sector.proc_avg)
-  $z_proc = $p_diff / (max($proc_sector.proc_std) + 1.0)
-
-  // Sector 4: Network Z-Score
-  $n_diff = max($net_sector.net_bytes_obs) - max($net_sector.net_bytes_avg)
-  $z_net = $n_diff / (max($net_sector.net_bytes_std) + 1.0)
+  // Sector Z-Scores fused from Stages 1-4
+  $z_auth = max($auth_sector.z_auth)
+  $z_cloud = max($cloud_sector.z_cloud)
+  $z_proc = max($proc_sector.z_proc)
+  $z_net = max($net_sector.z_net)
 
   // Euclidean Vector Threat Norm D^2 = Z_auth^2 + Z_cloud^2 + Z_proc^2 + Z_net^2
   $z_auth_sq = $z_auth * $z_auth

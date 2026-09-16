@@ -77,6 +77,18 @@ stage stage1_extract {
         metadata.vendor_name: $vendor,
         metadata.product_name: $product
     ))
+
+    // In-Stage Local-Baseline Isolation (Outcomes-in-Outcomes)
+    // 1. Destination Outlier Score
+    $dest_diff = $observed_reads - $dest_avg
+    $dest_z = $dest_diff / ($dest_stddev + 1.0)
+
+    // 2. Caller Origin IP Outlier Score
+    $origin_diff = $observed_reads - $origin_avg
+    $origin_z = $origin_diff / ($origin_stddev + 1.0)
+
+    // 3. Composite Dual-Branch Threat Score
+    $composite_risk = $dest_z + $origin_z
 }
 
 // --- ROOT STAGE: Dual-Branch Evaluation & Composite Risk Ranking ---
@@ -91,28 +103,13 @@ match:
 
 outcome:
   $obs = max($stage1_extract.observed_reads)
-  $dest_mu = max($stage1_extract.dest_avg)
-  $dest_sigma = max($stage1_extract.dest_stddev)
   $dest_days = max($stage1_extract.dest_active_days)
-
-  $origin_mu = max($stage1_extract.origin_avg)
-  $origin_sigma = max($stage1_extract.origin_stddev)
   $origin_days = max($stage1_extract.origin_active_days)
 
-  // 1. Destination Outlier Score: Local-Baseline Isolation
-  // For established destinations (mu > 0, sigma > 0), measures volumetric surge
-  // For unobserved destinations (mu = 0, sigma = 0), universal floor (+ 1.0) scales acute score = obs
-  $dest_diff = $obs - $dest_mu
-  $dest_z = $dest_diff / ($dest_sigma + 1.0)
-
-  // 2. Caller Origin IP Outlier Score
-  // For established IPs, measures volume surge
-  // For unobserved IPs (mu = 0, sigma = 0), scales acute novelty score = obs
-  $origin_diff = $obs - $origin_mu
-  $origin_z = $origin_diff / ($origin_sigma + 1.0)
-
-  // 3. Composite Dual-Branch Threat Score
-  $composite_risk = $dest_z + $origin_z
+  // Fused Outlier Scores from Stage 1
+  $dest_z = max($stage1_extract.dest_z)
+  $origin_z = max($stage1_extract.origin_z)
+  $composite_risk = max($stage1_extract.composite_risk)
 
 order:
   $composite_risk desc

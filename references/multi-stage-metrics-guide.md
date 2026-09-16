@@ -52,6 +52,22 @@ Chronicle SIEM's Malachite Common Compiler strictly validates argument types for
   - `count_distinct($str_field)`: Counts unique string cardinality (e.g. `$fleet_adopters = count_distinct(principal.asset.hostname)`).
   - `any_value($str_field)`: Emits an arbitrary scalar string from the aggregated group.
 
+### 1.2 Outcomes in Outcomes (OIO) & In-Stage Mathematical Derivations
+In Chronicle SIEM's Malachite Common Compiler, Outcome variables can reference previously defined Outcome variables within the same `outcome:` block (`UsesOutcomesInOutcomes`).
+The compiler evaluates this via **AST Expression Inlining** (`substituteOutcomeVarsInAssignments`), resolving parent references into a single composite projection tree at compile time.
+
+#### Benefits in Multi-Stage DAGs
+1. **Bandwidth & Column Reduction**: Eliminates the need to export 3–6 raw baseline metrics (`obs`, `avg`, `stddev`, etc.) per stage into intermediate query state. Stages export a pre-computed `$z_score` or `$anomaly_ratio`, cutting intermediate projection width by up to 66%.
+2. **Match-Key Isolation Across Multi-Sector Fusions**: When an intermediate stage matches on companion dimensions (e.g. `$user, $vendor, $product by 1d` in Cloud CRUD or `$user, $hash, $event by 1d` in Endpoint tools), computing the sector $Z$-score inside that stage preserves the local per-dimension baseline before the Root stage aggregates entities across the enterprise.
+3. **Streamlined Root Stage**: The Root stage simply aggregates `$z_sector = max($stage.z_sector)` rather than re-computing compound arithmetic.
+
+#### Invariant Compiler Rules for OIO
+* **Strict Definition-Before-Reference**: Parent outcome variables must precede referencing outcome variables (`outcomeDefinedBeforeReference`).
+* **Acyclic Dependency Graph**: No circular references (`noCyclicalOutcomeDependency`).
+* **No Nested Aggregations on Outcomes**: An outcome variable cannot be enclosed inside an aggregate function within the same stage (e.g. `$x = max($z)` inside Stage 1 is prohibited). Math operations (`-`, `+`, `*`, `/`, `if()`) are fully supported.
+* **No Outcomes Inside Metric Arguments**: Outcome variables cannot be passed as entity parameters into `metrics.*` function calls (`noAggregationOrOutcomeInUEBACall`).
+* **50 Operator Cap**: Top-level arithmetic expressions have a safety cap of 50 operations (`validateNumberOfArithmeticOperations`).
+
 ---
 
 ## 2. Temporal Windowing: Intra-Day vs. 30-Day Baselines

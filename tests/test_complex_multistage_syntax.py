@@ -305,6 +305,62 @@ order:
     self.assertIn("match:\n      $host", sample_domain_prev_query)
     self.assertIn("outcome:\n      $obs = max($stage_rare_dns.rare_dns_obs)", sample_domain_prev_query)
 
+  def test_outcomes_in_outcomes_in_stage_derivations(self):
+    """Verifies that multi-stage pipelines leverage Outcomes-in-Outcomes (OIO) within intermediate stages."""
+    # 1. multi_sector_fusion_4stage.yl2
+    ms_path = os.path.join(self.templates_dir, "multi_sector_fusion_4stage.yl2")
+    with open(ms_path, "r", encoding="utf-8") as f:
+      ms_content = f.read()
+    self.assertIn("$z_auth = $a_diff / ($auth_std + 1.0)", ms_content)
+    self.assertIn("$z_cloud = $c_diff / ($cloud_std + 1.0)", ms_content)
+    self.assertIn("$z_proc = $p_diff / ($proc_std + 1.0)", ms_content)
+    self.assertIn("$z_net = $n_diff / ($net_bytes_std + 1.0)", ms_content)
+    self.assertIn("$z_auth = max($auth_sector.z_auth)", ms_content)
+    self.assertIn("$z_cloud = max($cloud_sector.z_cloud)", ms_content)
+    self.assertIn("$z_proc = max($proc_sector.z_proc)", ms_content)
+    self.assertIn("$z_net = max($net_sector.z_net)", ms_content)
+
+    # 2. dual_sector_fusion_3stage.yl2
+    ds_path = os.path.join(self.templates_dir, "dual_sector_fusion_3stage.yl2")
+    with open(ds_path, "r", encoding="utf-8") as f:
+      ds_content = f.read()
+    self.assertIn("$z_auth = $a_diff / ($auth_std + 1.0)", ds_content)
+    self.assertIn("$z_net = $n_diff / ($net_bytes_std + 1.0)", ds_content)
+    self.assertIn("$z_auth = max($auth_sector.z_auth)", ds_content)
+    self.assertIn("$z_net = max($net_sector.z_net)", ds_content)
+
+    # 3. cloud_repository_scope_dual_branch.yl2
+    cr_path = os.path.join(self.templates_dir, "cloud_repository_scope_dual_branch.yl2")
+    with open(cr_path, "r", encoding="utf-8") as f:
+      cr_content = f.read()
+    self.assertIn("$dest_z = $dest_diff / ($dest_stddev + 1.0)", cr_content)
+    self.assertIn("$origin_z = $origin_diff / ($origin_stddev + 1.0)", cr_content)
+    self.assertIn("$composite_risk = $dest_z + $origin_z", cr_content)
+    self.assertIn("$dest_z = max($stage1_extract.dest_z)", cr_content)
+    self.assertIn("$origin_z = max($stage1_extract.origin_z)", cr_content)
+    self.assertIn("$composite_risk = max($stage1_extract.composite_risk)", cr_content)
+
+    # 4. dual_baseline_delta_z_3stage.yl2
+    dz_path = os.path.join(self.templates_dir, "dual_baseline_delta_z_3stage.yl2")
+    with open(dz_path, "r", encoding="utf-8") as f:
+      dz_content = f.read()
+    self.assertIn("$personal_z = $personal_diff / ($hist_stddev + 1.0)", dz_content)
+    self.assertIn("$personal_z = max($host_extract.personal_z)", dz_content)
+
+    # 5. part_of_the_whole_multilevel.yl2
+    pw_path = os.path.join(self.templates_dir, "part_of_the_whole_multilevel.yl2")
+    with open(pw_path, "r", encoding="utf-8") as f:
+      pw_content = f.read()
+    self.assertIn("$z_personal = $personal_diff / ($personal_std + 1.0)", pw_content)
+    self.assertIn("$z_personal = max($all_entities.z_personal)", pw_content)
+
+    # 6. radar_360_decoupled_sector.yl2
+    rd_path = os.path.join(self.templates_dir, "radar_360_decoupled_sector.yl2")
+    with open(rd_path, "r", encoding="utf-8") as f:
+      rd_content = f.read()
+    self.assertIn("$z = $diff / ($std + 1.0)", rd_content)
+    self.assertIn("$z = max($auth_risk.z)", rd_content)
+
 
 if __name__ == '__main__':
   unittest.main()
