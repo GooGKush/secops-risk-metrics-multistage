@@ -64,6 +64,7 @@ When engaging the analyst during Phase 1A, use the **Summary View** templates be
   1. *Low-and-Slow Trickle*: Accumulate minor daily upload deviations over 14–30 days (**Longitudinal CUSUM Drift** on `network_bytes_outbound`).
   2. *Bulk Hoarding Burst*: Penalize sudden exponential download surges while absorbing routine daily variance (**Piecewise CRI / Shock Absorber** on `workspace_total_download_actions`).
   3. *Covert Protocol Egress*: Detect data staging and tunneling via DNS queries (**Poisson-Gamma Bayesian** on `dns_bytes_outbound`).
+  4. *Multilevel Network Triad Breakout*: Compare Outbound, Inbound, and Total Byte volume simultaneously against team cohort and enterprise wholes to catch asymmetric data siphoning (**Part-of-the-Whole Triad** via `part_of_the_whole_triad_multilevel.yl2`).
 * *Deep Dive Guide*: `references/consultative/data-exfiltration.md`
 
 ### Domain 2: Identity, Credential Abuse & Privilege Drift
@@ -72,6 +73,7 @@ When engaging the analyst during Phase 1A, use the **Summary View** templates be
   1. *Low-Frequency Credential Spray*: Detect rare failure clusters across multiple users without tripping lockouts (**Beta-Binomial Bayesian** on `auth_attempts_fail`).
   2. *Dormant Account Wakeup*: Surface idle users or service accounts suddenly initiating sessions (**Two-Part Hurdle Model** on `auth_attempts_success` or `workspace_auth_attempts_total`).
   3. *Off-Hours / Unusual Login Volume*: Identify sudden access surges against a user's 30-day baseline (**Standard Z-Score** on `auth_attempts_total`).
+  4. *Multilevel Authentication Triad*: Simultaneously compare an individual's Total, Failed, and Successful attempts against their peer team cohort and enterprise whole to distinguish high legitimate login volume from targeted credential attacks (**Part-of-the-Whole Triad** via `part_of_the_whole_triad_multilevel.yl2`).
 * *Deep Dive Guide*: `references/consultative/identity-and-access.md`
 
 ### Domain 3: Cloud Infrastructure Tampering & Sabotage

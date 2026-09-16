@@ -10,7 +10,8 @@ When responding to audit recommendations, user feedback, new metrics, or operati
 
 Always adhere to the **Progressive-Load First Directive**:
 1. **Assess Progressive-Load Locations First**:
-   * **Domain Reference Documentation (`references/*.md`)**: Detailed specifications, extended schema catalogs, operational translation tables, forensic playbooks, and mathematical derivations **MUST** be placed in `references/` (e.g., `multi-stage-metrics-guide.md`, `compiler-submission-policy.md`, `metrics-catalog.md`).
+   * **Domain Reference Documentation (`references/*.md`)**: Detailed specifications, extended schema catalogs, operational translation tables, forensic playbooks, and mathematical derivations **MUST** be placed in `references/` (e.g., `multi-stage-metrics-guide.md`, `metrics-catalog.md`).
+   * **Maintainer & CI Policy (`docs/*.md`)**: Contribution policy, submission gates, and test-matrix documentation **MUST** be placed in `docs/`, never in `references/`. `references/` is loaded by the agent at runtime; anything there that names a script or a shell command routes the agent into `scripts/` instead of the guidance it needs (e.g., `compiler-submission-policy.md`).
    * **Deterministic Logic & Code Validation (`scripts/`)**: Algorithmic rules, AST validators, parameter assertions, and CLI helpers **MUST** be implemented in `scripts/` (e.g., `preflight_validator.py`, `template_router.py`).
    * **Query Modules (`templates/`)**: New AST snippets, stage extractors, and math pipelines **MUST** reside in `templates/`.
 2. **Preserve `SKILL.md` as a Lean Orchestrator**:
@@ -50,7 +51,7 @@ Always adhere to the **Progressive-Load First Directive**:
 
 ## 🧪 Testing & Validation Standards
 
-Every contribution must strictly adhere to the **[Pre-Submission Compiler Policy](references/compiler-submission-policy.md)** and pass all automated verification suites before code submission or pull requests:
+Every contribution must strictly adhere to the **[Pre-Submission Compiler Policy](docs/compiler-submission-policy.md)** and pass all automated verification suites before code submission or pull requests:
 
 ```bash
 # 1. Run canonical submission test suite (19 pipeline, router, and radar cases)

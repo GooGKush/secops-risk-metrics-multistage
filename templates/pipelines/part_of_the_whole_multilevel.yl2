@@ -1,0 +1,88 @@
+// ============================================================================
+// ARCHITECTURE: 3-PART HIERARCHICAL MULTILEVEL PART-OF-THE-WHOLE DAG
+// Skill: secops-risk-metrics-multistage
+// Purpose: Evaluates an individual against their personal 30-day baseline,
+//          their immediate peer team cohort, and the entire enterprise population.
+// Math: Multilevel Z-Scores: Z_Personal, Z_vs_Team, Z_vs_Enterprise
+// ============================================================================
+
+// Stage 1: Enterprise Population Telemetry + 30-Day Historical Baselines
+stage all_entities {
+    metadata.event_type = "{{event_type}}"
+    {{entity_field}} = {{entity_var}}
+    {{entity_var}} != ""
+
+  match:
+    {{entity_var}} by 1d
+
+  outcome:
+    $obs = {{observation_agg}}
+    $personal_avg = max({{target_metric_func_avg}})
+    $personal_std = max({{target_metric_func_stddev}})
+}
+
+// Stage 2: Team Cohort Whole (Macro baseline across designated peers)
+stage team_cohort_stats {
+    $u = $all_entities.{{entity_name}}
+    $ws = $all_entities.window_start
+    (
+      {{cohort_filter}}
+    )
+
+  match:
+    $ws by 1d
+
+  outcome:
+    $team_avg = avg($all_entities.obs)
+    $team_std = stddev($all_entities.obs)
+    $team_size = count_distinct($all_entities.{{entity_name}})
+}
+
+// Stage 3: Enterprise Whole (Macro baseline across the entire organization)
+stage enterprise_stats {
+    $ws = $all_entities.window_start
+
+  match:
+    $ws by 1d
+
+  outcome:
+    $fleet_avg = avg($all_entities.obs)
+    $fleet_std = stddev($all_entities.obs)
+    $fleet_size = count_distinct($all_entities.{{entity_name}})
+}
+
+// Root Stage: The "One" (or Team Members) Evaluated Against Both Wholes
+{{entity_var}} = $all_entities.{{entity_name}}
+$ws = $all_entities.window_start
+$ws = $team_cohort_stats.ws
+$ws = $enterprise_stats.ws
+
+(
+  {{target_entity_filter}}
+)
+
+match:
+  {{entity_var}}, $ws by 1d
+
+outcome:
+  $observed = max($all_entities.obs)
+  $p_avg = max($all_entities.personal_avg)
+  $p_std = max($all_entities.personal_std)
+
+  $t_avg = max($team_cohort_stats.team_avg)
+  $t_std = max($team_cohort_stats.team_std)
+
+  $e_avg = max($enterprise_stats.fleet_avg)
+  $e_std = max($enterprise_stats.fleet_std)
+
+  // 1. Personal Historical Z-Score
+  $z_personal = ($observed - $p_avg) / ($p_std + 1.0)
+
+  // 2. Team Cross-Sectional Z-Score ("Part of the Team")
+  $z_vs_team = ($observed - $t_avg) / ($t_std + 1.0)
+
+  // 3. Enterprise Cross-Sectional Z-Score ("Part of the Enterprise")
+  $z_vs_enterprise = ($observed - $e_avg) / ($e_std + 1.0)
+
+order:
+  $z_vs_team desc

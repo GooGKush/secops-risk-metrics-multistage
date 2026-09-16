@@ -214,15 +214,17 @@ class TestSubmissionCompilerPolicy(unittest.TestCase):
     self.assertTrue(any("at most 2 raw event extraction stages" in e for e in errors))
 
   def test_policy_document_covers_all_test_case_ids(self):
-    """Ensures compiler-submission-policy.md explicitly documents all 20 test IDs."""
-    doc_path = SKILL_ROOT / "references" / "compiler-submission-policy.md"
-    self.assertTrue(doc_path.exists(), "compiler-submission-policy.md is missing")
+    """Ensures docs/compiler-submission-policy.md explicitly documents all 20 test IDs."""
+    # Relocated out of references/ : this is maintainer/CI policy, not runtime
+    # guidance, and its script pointers were routing the agent into scripts/.
+    doc_path = SKILL_ROOT / "docs" / "compiler-submission-policy.md"
+    self.assertTrue(doc_path.exists(), "docs/compiler-submission-policy.md is missing")
     content = doc_path.read_text(encoding="utf-8")
     for tc in self.matrix:
       self.assertIn(
           tc.test_id,
           content,
-          f"Test ID {tc.test_id} not documented in references/compiler-submission-policy.md",
+          f"Test ID {tc.test_id} not documented in docs/compiler-submission-policy.md",
       )
 
 

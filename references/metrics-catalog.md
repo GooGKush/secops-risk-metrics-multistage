@@ -1,4 +1,5 @@
-<!-- AUTO-GENERATED FROM scripts/preflight_validator.py. DO NOT EDIT MANUALLY. -->
+<!-- Generated file. Maintainers: edit scripts/preflight_validator.py (METRIC_CATALOG) and re-run scripts/generate_references.py. Do not hand-edit this file. -->
+<!-- Agents at runtime: this catalog is the authoritative reference for metric names, dimensions, and entity types. It is complete; do not open the generator or the validator. -->
 
 > ⚡ **JETSKI / WORKSPACE & MCP AGENT DIRECTIVE**:
 > Query templates in `templates/pipelines/` and `templates/stage1_extractors/` provide pre-validated AST structures.

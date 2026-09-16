@@ -1,10 +1,41 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.6.9)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.7.0)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v1.6.9 (Minor Point Release) — September 2026  
+**Latest Version**: v1.7.0 (Major Milestone Release) — September 2026  
+
+---
+
+## 📢 What's New in v1.7.0 — Progressive Disclosure Architecture, UDM Hunting Dictionary, Compiler Variable Binding Contract & Hierarchical Baselining
+
+### 1. Progressive Disclosure Architecture & Byte Reclamation
+* **Strict Runtime vs Maintainer Separation**:
+  - Relocated CI/maintainer test criteria (`compiler-submission-policy.md`) out of runtime `references/` into `docs/`, ensuring the agent's context window is strictly reserved for operational hunting contracts.
+  - Reclaimed instruction budget across `SKILL.md` and progressively loaded reference manuals, improving model focus and instruction following.
+
+### 2. Dedicated UDM Protobuf Hunting Dictionary (`references/udm-hunting-field-dictionary.md`)
+* **Precision Field Extraction from `udm.proto`**:
+  - Added an exhaustive field-level hunting dictionary derived directly from Chronicle's `udm.proto` schema.
+  - Documents exact protobuf field types, repeated fields (`repeated string`, repeated submessages), and cross-sector mappings across Principal, Target, Security Result, Cloud Infrastructure, and Repository telemetry.
+
+### 3. Common Compiler Variable Binding & Entity Scoping Contract
+* **Grammar Rule Codification (`references/multi-stage-metrics-guide.md` §10.1)**:
+  - Formulated affirmative compiler grammar rules for match variable binding: variables (`$var`) bind to UDM fields or upstream stages, while entity constraints belong directly on canonical UDM attributes in event stage predicates (`principal.user.userid = "name"`, `$sa = principal.user.userid`).
+  - Added explicit drilldown guidance in `references/360-behavioral-radar-guide.md` (§1.3) for clean transitions from fleet-wide sweeps to individual 5-spoke radar profiles without syntax errors.
+
+### 4. Multi-Level Peer Cohort Baselining Templates
+* **Hierarchical Threat Fusion**:
+  - Introduced `templates/pipelines/part_of_the_whole_multilevel.yl2` and `part_of_the_whole_triad_multilevel.yl2` for 3-part individual vs. department vs. enterprise-wide anomaly scoring.
+
+### 5. Direct `import_logs` Ingestion Path
+* **Autonomous Synthetic Telemetry Ingestion**:
+  - Added direct Chronicle `import_logs` path in `clean-handoff-udm-schema.md` for synthetic event generation, eliminating external connector dependencies during test and validation cycles.
+
+### 6. Test Suite Expansion & CRI Concordance
+* **242 / 242 Unit Tests Passing (100% Green)**.
+* Standardized Calibrated Risk Index (CRI) 5-tier severity ladder (Critical $\ge 85$, High $70-84$, Medium $50-69$, Low $25-49$, Nominal $<25$) across all documentation and templates.
 
 ---
 

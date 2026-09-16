@@ -572,7 +572,12 @@ class TestGuardrailContracts(unittest.TestCase):
       g_content = f.read()
 
     self.assertIn("Zero-Hallucination Compiler Grammar Contract", s_content)
-    self.assertIn("Max 4 Joins Invariant", s_content)
+    # The 4-join invariant was retired from SKILL.md (always-loaded) in favour of
+    # the guide's strictly superior treatment: the join-accounting formula, the
+    # "2 Named UEBA Stages + Root" ceiling, and the literal compiler error string.
+    # SKILL.md:132 cites this guide, so the content stays reachable.
+    self.assertIn("The Chronicle 4-Join Limit & UEBA Join Accounting Formula", g_content)
+    self.assertIn("maxJoinCount = 4", g_content)
     self.assertIn("Strict Reference-List Only `in` Operator", g_content)
     self.assertIn("Strict Function-Call Metric Syntax", g_content)
 
@@ -1066,9 +1071,15 @@ class TestGuardrailContracts(unittest.TestCase):
     with open(guide_path, 'r', encoding='utf-8') as f:
       guide_content = f.read()
 
-    # SKILL.md template-first routing mandate
+    # SKILL.md template-first routing mandate.
+    # Asserts the routing rule points at DOCUMENTATION, not at a code symbol.
+    # This previously asserted "MultiStageTemplateRouter"; naming that class in
+    # SKILL.md sent the agent into scripts/template_router.py to read routing
+    # logic (9 reads on run_20260914_153056) while the skill simultaneously
+    # forbids executing scripts.
     self.assertIn("Template-First Routing Mandate", skill_content)
-    self.assertIn("MultiStageTemplateRouter", skill_content)
+    self.assertIn("multi-stage-metrics-guide.md", skill_content)
+    self.assertNotIn("MultiStageTemplateRouter", skill_content)
     self.assertIn("templates/pipelines/", skill_content)
 
     # SKILL.md post-flight raw dump detection
@@ -1076,14 +1087,20 @@ class TestGuardrailContracts(unittest.TestCase):
     self.assertIn('"events"', skill_content)
     self.assertIn('"stats"', skill_content)
 
-    # Modular references index in SKILL.md
+    # Modular references index in SKILL.md.
+    # Previously asserted "template_router.py" was listed here. Listing a
+    # Python module in the file map made it look like runtime guidance; the
+    # map now advertises the template tree and explicitly scopes scripts/,
+    # tests/ and evals/ out of the agent's path.
     self.assertIn("clean-handoff-udm-schema.md", skill_content)
     self.assertIn("soar-playbook-radar-integration.md", skill_content)
-    self.assertIn("template_router.py", skill_content)
+    self.assertIn("templates/", skill_content)
+    self.assertNotIn("template_router.py", skill_content)
 
     # Multi-stage guide documentation
     self.assertIn("Template-First Query Architecture & Post-Flight Integrity", guide_content)
-    self.assertIn("MultiStageTemplateRouter", guide_content)
+    self.assertIn("Template-First Assembly", guide_content)
+    self.assertNotIn("MultiStageTemplateRouter", guide_content)
     self.assertIn("RAW_LOG_DUMP_DETECTED", guide_content)
 
   def test_tool_precondition_code_block_embargo_contract(self):
@@ -1221,10 +1238,11 @@ class TestGuardrailContracts(unittest.TestCase):
     self.assertIn("Layer 2 (Ad-Hoc Timing Jitter Handoff)", guide_content)
 
   def test_progressive_load_first_directive_contract(self):
-    """CONTRIBUTING.md and compiler-submission-policy.md must mandate Progressive-Load First Directive."""
+    """CONTRIBUTING.md and docs/compiler-submission-policy.md must mandate Progressive-Load First Directive."""
     skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     contrib_path = os.path.join(skill_dir, 'CONTRIBUTING.md')
-    policy_path = os.path.join(skill_dir, 'references', 'compiler-submission-policy.md')
+    # Relocated out of references/ : maintainer/CI policy, not runtime guidance.
+    policy_path = os.path.join(skill_dir, 'docs', 'compiler-submission-policy.md')
 
     with open(contrib_path, 'r', encoding='utf-8') as f:
       contrib_content = f.read()
@@ -1273,15 +1291,18 @@ class TestGuardrailContracts(unittest.TestCase):
     with open(radar_guide_path, 'r', encoding='utf-8') as f:
       radar_guide_content = f.read()
 
-    # SKILL.md contracts
-    self.assertIn("ZERO MONOLITHIC JOINS — maxJoinCount=4 & Inner-Join Drop", skill_content)
-    self.assertIn("STAT_ANTIPATTERN_MONOLITHIC_RADAR_JOIN", skill_content)
-    self.assertIn("auto-bypass Mode B", skill_content)
+    # Contract location moved out of SKILL.md (always-loaded, 20 KB budget) into
+    # the radar guide. SKILL.md previously carried "ZERO MONOLITHIC JOINS —
+    # maxJoinCount=4 & Inner-Join Drop" / "auto-bypass Mode B"; the join limit is
+    # now in multi-stage-metrics-guide.md §20.5 and the Mode B bypass rule was
+    # added here, since grep confirmed it had NO downstream coverage before.
+    self.assertNotIn("Max 4 Joins Invariant", skill_content)
 
     # Radar guide contracts
     self.assertIn("The Monolithic 5-Stage Join Trap & Decoupled Micro-Query Guarantee", radar_guide_content)
     self.assertIn("STAT_ANTIPATTERN_MONOLITHIC_RADAR_JOIN", radar_guide_content)
     self.assertIn("maxJoinCount = 4", radar_guide_content)
+    self.assertIn("auto-bypass Mode B", radar_guide_content)
     self.assertIn("Silent Inner-Join Drop", radar_guide_content)
     self.assertIn("Decoupled 5-Sector Architecture & `radar_collector.py`", radar_guide_content)
 

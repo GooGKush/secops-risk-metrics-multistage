@@ -50,6 +50,8 @@ class PipelineArchitecture(str, Enum):
   HYBRID_METRIC_ENTROPY_CONCENTRATION_2STAGE = "HYBRID_METRIC_ENTROPY_CONCENTRATION_2STAGE"
   HYBRID_METRIC_ORTHOGONAL_SPACE_2STAGE = "HYBRID_METRIC_ORTHOGONAL_SPACE_2STAGE"
   HYBRID_METRIC_FLEET_PREVALENCE_2STAGE = "HYBRID_METRIC_FLEET_PREVALENCE_2STAGE"
+  PART_OF_THE_WHOLE_MULTILEVEL = "PART_OF_THE_WHOLE_MULTILEVEL"
+  PART_OF_THE_WHOLE_TRIAD_MULTILEVEL = "PART_OF_THE_WHOLE_TRIAD_MULTILEVEL" 
 
 
 @dataclass
@@ -541,6 +543,35 @@ class PreFlightValidator:
         "match_mode": match_mode.value,
         "math_guardrails": math_guardrails,
         "sparse_callout": sparse_callout,
+    }
+
+  @classmethod
+  def audit_triad(
+      cls,
+      target_metrics: List[str],
+      entity_type: EntityType,
+      min_baseline_days: Optional[int] = None,
+  ) -> Dict[str, Any]:
+    """Audits 1 to 3 metrics for an atomic multilevel triad pipeline."""
+    if not (1 <= len(target_metrics) <= 3):
+      raise ValueError(f"Triad audit requires 1 to 3 metrics, got {len(target_metrics)}.")
+
+    audits = [
+        cls.audit(m, entity_type=entity_type, min_baseline_days=min_baseline_days)
+        for m in target_metrics
+    ]
+    event_types = set(a["required_event_type"] for a in audits)
+    if len(event_types) > 1:
+      raise ValueError(
+          f"Heterogeneous event types not permitted in atomic triad: {event_types}. "
+          "All metrics must share identical event_type."
+      )
+    return {
+        "status": "VALID",
+        "required_event_type": audits[0]["required_event_type"],
+        "target_field": audits[0]["target_field"],
+        "metrics": target_metrics,
+        "audits": audits,
     }
 
   @classmethod

@@ -6,6 +6,12 @@
 //          or unsigned binaries) in a single unified multi-stage query.
 // Join Budget: 1 metric lookup (Stage 1) + 1 stage join (Root) = 2 joins total (<= 4).
 // Invariant: Both stages MUST share identical match key ($entity) and window (by 1d).
+//
+// CANONICAL UDM SIGNATURE FIELD GUIDANCE (DO NOT HALLUCINATE):
+// - NETWORK_HTTP: {{raw_signature_field}} MUST be network.http.user_agent (NOT target.user_agent)
+// - PROCESS_LAUNCH: {{raw_signature_field}} MUST be principal.process.file.sha256 or principal.process.command_line
+// - USER_LOGIN: {{raw_signature_field}} MUST be principal.ip or principal.asset.hostname
+// See references/udm-hunting-field-dictionary.md for complete canonical mapping.
 // ============================================================================
 
 // Stage 1: Macro 30-Day Volumetric Baseline Outlier Sieve (metrics.*)

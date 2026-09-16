@@ -38,6 +38,7 @@ Execute independent decoupled sector queries, retrieve the observed metrics per 
   - **Recommended Horizon**: **Mode B (2–14 Day Timeline)**, run at the 14-day maximum. Because security anomalies and data exfiltration are bursty, episodic events, a 14-day sliding window surfaces historical bursts that a single-day snapshot misses.
   - **Sector Consistency**: Both single-entity and fleetwide threat fusion evaluate and report across all 5 canonical sectors: Authentication, Cloud CRUD, Workspace Exfiltration, Network Flow, and DNS / Web Activity.
   - **Interactive Drill-Down**: Offer the 5-spoke radial radar as a 1-click drill-down when the analyst selects a specific high-risk entity from the ranked list.
+  - **Drill-Down Query Construction**: When transitioning from a fleetwide sweep to an individual drilldown, constrain the target entity directly on the canonical UDM attribute in the stage predicates (e.g., `target.user.userid = "ola.burch"` with `$user = target.user.userid`). Variables bind to UDM fields rather than string literals, ensuring valid YARA-L compiler syntax.
 
 ---
 

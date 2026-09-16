@@ -43,6 +43,15 @@ outcome:
   ))
 ```
 
+### 1.1 Outcome Projection & Aggregation Type Matching (Compiler Contract)
+Chronicle SIEM's Malachite Common Compiler strictly validates argument types for aggregate functions in `outcome:`:
+* **Match Variables Are Auto-Projected**: Variables declared in the `match:` block (e.g. `match: $entity by 1d` or `match: $token by 1d`) are automatically preserved as primary row keys. They do **not** need to be re-aggregated in `outcome:`.
+* **`max(...)` and `min(...)` Are Strictly Numeric**: `max()` and `min()` only accept numeric data types (`TypeInt` and `TypeFloat`). Applying `max()` or `min()` to string variables (such as `$token`, `$sha256`, `$hash`, `$user`, `$host`, or `$ip`) causes an immediate compiler crash (`400 Request contains an invalid argument`).
+* **Non-Match Categorical / String Attributes**: When an attribute is not part of the `match:` key but must be projected across the aggregation window, use:
+  - `array_distinct($str_field)`: Gathers all unique string values seen across the window into an array (e.g. `$affected_hosts = array_distinct($stage1.entity)`).
+  - `count_distinct($str_field)`: Counts unique string cardinality (e.g. `$fleet_adopters = count_distinct(principal.asset.hostname)`).
+  - `any_value($str_field)`: Emits an arbitrary scalar string from the aggregated group.
+
 ---
 
 ## 2. Temporal Windowing: Intra-Day vs. 30-Day Baselines
@@ -81,6 +90,7 @@ Multi-stage DAG queries support two distinct temporal evaluation modes:
 | Using Display Name in User metric filters (e.g. "James Holden") | Resolve to technical `userid` (e.g. "jholden") via spot check (`user_display_name = "<name>" nocase`) or user confirmation | Pre-computed `metrics.*` tables are indexed strictly by technical `user.userid`, never display names. Literal display names yield zero matches. |
 | `graph.entity.metrics.*` in predicates | Use `metrics.*()` in `outcome:` | `metrics` is a built-in function, not an Entity Graph protobuf field. |
 | Direct literal filter without match variable (`target.user.userid = "name"` with `match: $user`) | `target.user.userid = "name"`<br>`$user = target.user.userid` | Any placeholder variable in `match:` must be explicitly assigned to a UDM field in that stage's event predicates (`$user = target.user.userid`). |
+| Assigning literal string to match variable (`$sa = "ola.burch"`) | Direct UDM field filter with field-to-variable binding:<br>`principal.user.userid = "ola.burch"`<br>`$sa = principal.user.userid` | In YARA-L, match variables (`$var`) represent event fields or upstream stage outcomes; they cannot be assigned string literals directly (`$var = "literal"`). Entity filters must always be declared directly on canonical UDM attributes in the event predicates, then bound to variables. |
 
 ---
 
@@ -311,6 +321,25 @@ Google SecOps's **Common Compiler** (SIEM Search Engine) governs Multi-Stage UDM
 3. **Hurdle Gating in Root Stage `condition:`**:
    * Root stage queries execute continuous scalar transformations inside `outcome:`, evaluate multi-evidence hurdle boundaries and statistical significance thresholds inside `condition:`, and rank qualifying results via `order:`.
 
+### 10.1 Variable Binding and Entity Scoping Rules (Compiler Contract)
+
+When scoping a hunt to a specific entity or transitioning from a fleet-wide sweep to an individual drilldown (e.g. drilling down to `ola.burch`):
+
+1. **UDM Field Predicate Filtering**:
+   Declare entity filters directly against canonical UDM attributes in the event stage predicates:
+   ```yara
+   stage auth_risk {
+       metadata.event_type = "USER_LOGIN"
+       target.user.userid = "ola.burch"
+       $user = target.user.userid
+     match:
+       $user by 1d
+   ```
+2. **Variable Role Distinction**:
+   * **Event and Match Variables (`$var`)**: In YARA-L 2.0, dollar-prefixed variables represent event dimensions, aggregation keys, or upstream stage outcomes. They bind to UDM fields (`$user = target.user.userid`) or upstream stages (`$user = $stage1.user`).
+   * **Compiler Invariant**: Assigning a literal string directly to a variable (e.g. `$sa = "ola.burch"` or `$user = "ola.burch"`) is invalid YARA-L syntax and results in a compiler syntax error.
+   * **Entity Drilldowns from Fleet Sweeps**: When pivoting from a fleet sweep (`$user = target.user.userid`) to a single entity drilldown, place the literal string equality constraint on the UDM field in the stage body (`target.user.userid = "ola.burch"`), maintaining valid variable-to-field binding (`$user = target.user.userid`).
+
 ---
 
 ## 11. Architectural Assurance: Background 30-Day Rolling Pre-Computation
@@ -471,6 +500,8 @@ To prevent runtime syntactic improvisation and avoid streaming rule syntax confu
 | **`longitudinal_cusum_2stage.yl2`** | 2 Stages | Longitudinal CUSUM Drift ($S^+$) | Multi-day low-and-slow exfiltration and behavioral drift. |
 | **`dual_baseline_delta_z_3stage.yl2`** | 3 Stages | Dual-Baseline Delta-$Z$ ($\Delta Z$) | Patch Tuesday fleet suppression, enterprise-wide spikes. |
 | **`hierarchical_empirical_bayes_3stage.yl2`** | 3 Stages | Hierarchical Empirical Bayes | Peer group shrinkage, regularizing inactive accounts. |
+| **`part_of_the_whole_multilevel.yl2`** | 4 Stages / 3 Wholes | Multilevel Hierarchical Z ($Z_{\text{personal}}, Z_{\text{vs\_team}}, Z_{\text{vs\_enterprise}}$) | Part-of-the-whole baselining against personal, peer cohort, and enterprise whole. |
+| **`part_of_the_whole_triad_multilevel.yl2`** | 4 Stages / 3 Wholes | Multilevel Triad Breakdown (3 Sibling Metrics + Composite $D$) | Sibling metric ratio analysis (e.g. Total + Fail + Success) against team and enterprise. |
 | **`multi_sector_fusion_4stage.yl2`** | 4 Stages | Multi-Sector Fusion (rectified $D$, $K = 4$) | Full-killchain cross-vector correlation (IAM + Cloud + Proc + Net). |
 
 ---
@@ -485,6 +516,27 @@ When an analyst's inquiry is open-ended (e.g. *"find privilege abuse"*, *"look f
 | **1. Specific Suspect User** | Analyst has an identity in mind (`user@domain.com`). | Compares the individual directly against their department or historical baseline. |
 | **2. Role / Department Cohort** | High-privilege teams (DevOps, DBAs, Cloud Ops, Finance). | **Prevents Heterogeneous Population Noise**: Comparing a Cloud Admin to an HR recruiter yields false positives; pooling within role peers ensures true baselining. |
 | **3. Enterprise-Wide Leaderboard** | Open fleet-wide anomaly audit. | Evaluates all active identities and ranks top statistical outliers via Delta-$Z$ or CRI. |
+
+### 3-Part Multilevel "Part-of-the-Whole" Modeling (`part_of_the_whole_multilevel.yl2`)
+When comparing an individual to a team cohort, single-tier comparisons create blind spots:
+1. **Enterprise-only comparisons** flag high-volume roles (DevOps/SRE) as false positives and conceal compromises in low-volume roles (HR/Legal).
+2. **Team-only comparisons** suffer from small-$N$ instability ($N < 7$) and miss team-wide operational rollouts.
+3. **The 3-Part Solution**: Evaluates an entity simultaneously across three tiers via `templates/pipelines/part_of_the_whole_multilevel.yl2`:
+   - **Personal Historical $Z$**: $Z_{\text{personal}} = (\text{obs} - \mu_{\text{personal}}) / (\sigma_{\text{personal}} + 1.0)$
+   - **Team Cross-Sectional $Z$**: $Z_{\text{vs\_team}} = (\text{obs} - \mu_{\text{team}}) / (\sigma_{\text{team}} + 1.0)$
+   - **Enterprise Cross-Sectional $Z$**: $Z_{\text{vs\_enterprise}} = (\text{obs} - \mu_{\text{enterprise}}) / (\sigma_{\text{enterprise}} + 1.0)$
+This produces 4 diagnostic states: **Individual Rogue** (high $Z_{\text{team}}$ & high $Z_{\text{enterprise}}$), **Role Benign** (low $Z_{\text{team}}$ & high $Z_{\text{enterprise}}$), **Stealth Compromise** (high $Z_{\text{team}}$ & low $Z_{\text{enterprise}}$), and **Team Campaign/Rollout** (low $Z_{\text{team}}$ & elevated team mean).
+
+### 4. Intra-Event Metric Triad Breakouts (`part_of_the_whole_triad_multilevel.yl2`)
+When hunting within a single telemetry vector, single-metric evaluations can obscure behavioral context:
+* **The Sibling Metric Advantage**: Evaluating 3 sibling metrics simultaneously (e.g. `auth_attempts_total`, `auth_attempts_fail`, `auth_attempts_success`) within the same UDM `event_type` (`USER_LOGIN`) allows full 3-tier baselining without consuming additional joins.
+* **Math Formulation**: For each metric $m \in \{1, 2, 3\}$, calculates $Z_{\text{vs\_team}, m}$ and $Z_{\text{vs\_enterprise}, m}$. Then fuses the team-level deviations into an intra-event composite threat norm:
+  $$D_{\text{vs\_team}}^2 = \sum_{m=1}^3 \max(0, Z_{\text{vs\_team}, m})^2$$
+* **Canonical Triads**:
+  - **Auth Triad (`USER`, `ASSET`)**: `auth_attempts_total`, `auth_attempts_fail`, `auth_attempts_success`
+  - **Network Triad (`USER`, `ASSET`)**: `network_bytes_outbound`, `network_bytes_inbound`, `network_bytes_total`
+  - **DNS Triad (`USER`, `ASSET`)**: `dns_queries_total`, `dns_queries_fail`, `dns_bytes_outbound`
+  - **Endpoint Process Triad (`ASSET`)**: `file_executions_total`, `file_executions_fail`, `file_executions_success`
 
 ### 2. The 6 Operational Behavioral Vector Families:
 1. ☁️ **Cloud Infrastructure & Data Store CRUD**: `metrics.resource_read_*`, `metrics.resource_written_*`, `metrics.resource_creation_*`, `metrics.resource_deletion_*` (GCP CloudAudit, AWS CloudTrail, Azure Activity). Supports baselining service accounts (`principal.user.userid`) and caller origin IPs (`principal.ip`) against cloud data repositories (`target.resource.name`).
@@ -531,6 +583,9 @@ When an analyst's inquiry is open-ended (e.g. *"find privilege abuse"*, *"look f
    - Attempting to chain 3 or 4 independent named stages with UEBA metrics in a single search query yields 5 to 7 joins and triggers `compilation error maximum number of joins exceeded. limit query to at most 4 joins`.
    - For 4-sector cross-vector profiling (e.g. Auth + Cloud + Workspace + Network + Endpoint), execute decoupled parallel 2-stage micro-queries (the 360° behavioral radar pattern) or route raw non-metrics correlation to `secops-statistical-hunter`. Do NOT abandon search mode to improvise continuous detection rules.
 6. **Regular Expression Pattern Matching Syntax**: Regular expression pattern evaluation in YARA-L 2.0 event predicates uses `re.regex($var, /pattern/)` or direct regex assignment `$var = /pattern/ nocase` (e.g. `$sa = /@.*gserviceaccount\.com$/ nocase`).
+7. **No `variance()` Aggregate**: YARA-L 2.0 does **not** support `variance(...)`. The compiler accepts only `avg()`, `stddev()`, `min()`, `max()`, `sum()`, `count()`, and `count_distinct()`. To obtain variance, export `stddev(...)` from the intermediate stage and square it in the root outcome (`$sigma_sq = $sigma * $sigma`).
+8. **Strict Math Namespacing**: Bare numeric functions are illegal. Use `math.round(...)`, never `round(...)`.
+9. **Stage Name Grammar**: Stage identifiers must NOT begin with `$`. Write `stage stage1_extract`, never `stage $stage1_extract`.
 
 
 ---
@@ -602,10 +657,10 @@ The pipeline computes two orthogonal anomaly scores:
 ### 3. Canonical Compiler-Verified Pipeline
 This architecture is codified in `templates/pipelines/cloud_repository_scope_dual_branch.yl2` and verified by `PIPE-08-CLOUD-SCOPE`. It consumes only 1 internal UEBA join ($\le 4$ join limit) and enforces mandatory companion dimensions (`metadata.vendor_name`, `metadata.product_name`).
 
-### 4. Multi-Database Account Template Router Binding Contract
+### 4. Multi-Database Account Binding Contract
 When hunting compromised accounts (e.g. Scattered Spider, OAuth token theft) across multiple databases or cloud object stores:
-1. **Mandatory Dimension Binding**: The template router (`MultiStageTemplateRouter`) programmatically enforces that `target.resource.name: $resource` is bound in both the Stage 1 match key (`$sa, $vendor, $product, $resource, $ip by 1d`) and Root stage match key (`$sa, $product, $resource, $ip, $ws by 1d`).
-2. **Automated Routing**: Calling `build_query()` for `resource_read_total` or `resource_written_total` on an account entity automatically routes to `CLOUD_REPOSITORY_SCOPE_DUAL_BRANCH`.
+1. **Mandatory Dimension Binding**: Bind `target.resource.name: $resource` in both the Stage 1 match key (`$sa, $vendor, $product, $resource, $ip by 1d`) and the Root stage match key (`$sa, $product, $resource, $ip, $ws by 1d`).
+2. **Routing Rule**: For `resource_read_total` or `resource_written_total` on an account entity, use `templates/pipelines/cloud_repository_scope_dual_branch.yl2`.
 3. **Linter Enforcement**: `StatisticalAntipatternAuditor` flags `STAT_ANTIPATTERN_DYNAMIC_RANGE_MASKING` on any query using cloud resource store metrics under an account entity if `target.resource.name` is omitted from the match key, preventing account-level aggregation.
 
 ### 5. Multi-Tier Cloud Telemetry Spectrum & UDM Enum Taxonomy (`GCP_CLOUDAUDIT`)
@@ -738,17 +793,29 @@ Before outputting any candidate multi-stage YARA-L query in the Phase 1B Pre-Fli
 
 ## 27. Template-First Query Architecture & Post-Flight Integrity
 
-### A. Template-First Assembly via `MultiStageTemplateRouter`
-To eliminate runtime syntax failures and semantic distortions, multi-stage queries are deterministically assembled from canonical templates:
+### A. Template-First Assembly (template selection rule)
+To eliminate runtime syntax failures and semantic distortions, assemble every multi-stage query from the canonical templates below rather than authoring one from scratch. Open the chosen `.yl2` with `view_file` and fill in its placeholders — the template files are the authoritative source, and no script needs to be read or run to select one:
 1. **Stage 1 Extractors (`templates/stage1_extractors/`)**: Provide guaranteed 6-point outcome tuples (`$observed_val`, `$historical_avg`, `$historical_stddev`, `$historical_active_days`, `$historical_max`, `$historical_sum`) with immutable entity bindings.
 2. **Stage 2 Math Models (`templates/stage2_math_models/`)**: Provide clean AST implementations of all 14 models: Standard $Z$, Robust MAD, Discrete Poisson Rarity, Fano Factor Dispersion, Coefficient of Variation, Hourly Temporal $Z$, Bayesian Gamma & Beta-Binomial, Longitudinal CUSUM, Two-Part Hurdle, Asymmetric Directional ReLU, Piecewise Winsorized CRI, Fleet Prevalence Shield, and Adaptive Context Sensitivity.
 3. **Pre-Composed Pipelines (`templates/pipelines/`)**: End-to-end validated pipelines for complex multi-stage hunts (e.g. `cloud_repository_scope_dual_branch.yl2`, `mad_modified_z_2stage.yl2`).
 
 ### B. The `RAW_LOG_DUMP_DETECTED` Post-Flight Inspection Rule
-When `udm_search` completes, the response must be audited before generating any report:
-* If the API response contains `"events"` without `"stats"` (unaggregated raw UDM events), `RAW_LOG_DUMP_DETECTED` is flagged.
-* The agent is strictly barred from computing ad-hoc statistics locally in Python to disguise a failed query.
-* Instead, `CommonMarkTriageFormatter` aborts 6-Pillar report generation, presents an auto-corrected canonical template (or initiates the Consultative Pivot Protocol), and prompts the analyst for execution clearance.
+Before generating any report, audit which responses the analysis rests on. Two things separate a legitimate call from a violation: its position in the hunt lifecycle, and whether it carries its own aggregation.
+
+* **Scoping probes** precede the analytical query. Bare UDM filters that resolve an identity, confirm an asset exists, or establish that a telemetry vector is populated (e.g. `principal.user.userid = "j.doe" nocase`, `metadata.event_type = "USER_LOGIN"`). These legitimately return `"events"` and are never flagged.
+* **Analytical queries** are multi-stage queries carrying `metrics.*` lookups in `outcome:`, whose results populate the 6-Pillar report or the 360° Radar.
+* **Once the analysis is under way, every query carries its own `match:` / `outcome:` aggregation.** A stage whose *events section* selects raw rows is entirely normal — every YARA-L query selects rows, and `match:` / `outcome:` are what turn them into statistics. What is forbidden is a query with no aggregation at all, whose rows land in context to be counted by hand.
+
+**Worked example — a permitted hybrid.** Stage 1 baselines outbound network bytes against `metrics.network_bytes_outbound`. Stage 2 hands off to the `secops-statistical-hunter` plane to characterise observed user-agent strings: its events section selects the raw HTTP rows, `match:` buckets them by entity and agent string, and `outcome:` aggregates them into counts and a concentration score. That stage returns `"stats"` and is fully compliant. It would only become a violation if the same user-agent rows were fetched with no `match:` / `outcome:` and tallied in the agent's head.
+
+`RAW_LOG_DUMP_DETECTED` is flagged when any of these holds:
+1. An **analytical** query returns `"events"` without `"stats"` — the `metrics.*` lookup did not execute.
+2. A query with **no** `match:` / `outcome:` aggregation is issued **after** the analytical query and returns `"events"` — the agent is gathering its own data rather than reading aggregates.
+3. A report is generated when **no** aggregated `"stats"` response was returned at any point — raw rows have become the evidence base.
+
+Statistics are computed by the F1 data plane and read from `"stats"`. Deriving a mean, standard deviation, entropy, or Z-score from returned `"events"` rows — in Python or by inspection — is the failure this rule exists to catch. Where a baseline is genuinely unavailable from `metrics.*`, the sanctioned route is the `secops-statistical-hunter` interface, which aggregates inside the query; it is not a licence to pull rows into context.
+
+On detection, `CommonMarkTriageFormatter` aborts 6-Pillar report generation, presents an auto-corrected canonical template (or initiates the Consultative Pivot Protocol), and prompts the analyst for execution clearance.
 
 ### C. Clean Hand-Off & SOAR Playbook Integration
 * **Clean Hand-Off Schema**: See `references/clean-handoff-udm-schema.md` for the synthetic UDM event structure used to promote outliers ($Z \ge 3.0\sigma$, $\text{CRI} \ge 50$) to Chronicle alerts and cases.
@@ -1088,3 +1155,15 @@ To operationalize advanced statistical models without tripping Chronicle's join 
 
 ---
 *Created and maintained by Greg Kushmerek for Google SecOps Chronicle SIEM threat hunting workflows.*
+
+---
+
+## 32. Authoritative UDM Schema & Anti-Hallucination Field Guide
+
+To prevent query compilation errors caused by invalid UDM field references (e.g. `target.user_agent` vs `network.http.user_agent`), always verify UDM fields against the canonical field dictionary in [`references/udm-hunting-field-dictionary.md`](references/udm-hunting-field-dictionary.md).
+
+Key Invariants:
+- **`NETWORK_HTTP`**: User agent is `network.http.user_agent`. HTTP methods and response codes are `network.http.method` and `network.http.response_code`. Destination URLs are `target.url` and `target.hostname`.
+- **`NETWORK_FLOW` / `NETWORK_CONNECTION`**: Transfer volumes are `network.sent_bytes` and `network.received_bytes`. L4 protocol is `network.ip_protocol` (`"TCP"`, `"UDP"`). L7 protocol is `network.application_protocol` (`"HTTP"`, `"DNS"`).
+- **`PROCESS_LAUNCH`**: Executable paths and hashes are under the file sub-message: `principal.process.file.full_path` and `principal.process.file.sha256`. Command line is `principal.process.command_line`.
+- **`USER_LOGIN`**: Authenticated account is `target.user.userid`. Client source machine is `principal.asset.hostname` / `principal.asset.ip`.

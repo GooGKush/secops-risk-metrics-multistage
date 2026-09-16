@@ -140,6 +140,75 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
           f"Model {model.value} produced unexpected statistical violations: {violations}",
       )
 
+  def test_part_of_the_whole_multilevel_pipeline(self):
+    """Verifies that PART_OF_THE_WHOLE_MULTILEVEL renders 3-part hierarchy correctly."""
+    query = self.router.build_pipeline_query(
+        PipelineArchitecture.PART_OF_THE_WHOLE_MULTILEVEL,
+        target_metric="auth_attempts_total",
+        entity_type=EntityType.USER,
+        cohort_entities=["user1", "user2"],
+        target_entity="user1",
+        hypothesis_goal="Compare user1 to team cohort and enterprise whole",
+    )
+    self.assertIn("stage all_entities {", query)
+    self.assertIn("stage team_cohort_stats {", query)
+    self.assertIn("stage enterprise_stats {", query)
+    self.assertIn('$u = "user1" or\n      $u = "user2"', query)
+    self.assertIn('$user = "user1"', query)
+    self.assertIn("$z_personal =", query)
+    self.assertIn("$z_vs_team =", query)
+    self.assertIn("$z_vs_enterprise =", query)
+    self.assertIn("order:\n  $z_vs_team desc", query)
+
+  def test_part_of_the_whole_triad_multilevel_user(self):
+    """Verifies that PART_OF_THE_WHOLE_TRIAD_MULTILEVEL renders a 3-metric user auth triad."""
+    query = self.router.build_pipeline_query(
+        PipelineArchitecture.PART_OF_THE_WHOLE_TRIAD_MULTILEVEL,
+        entity_type=EntityType.USER,
+        target_metrics=["auth_attempts_total", "auth_attempts_fail", "auth_attempts_success"],
+        cohort_entities=["alice", "bob"],
+        target_entity="alice",
+        hypothesis_goal="Evaluate Alice against IT team and enterprise across auth triad",
+    )
+    self.assertIn("stage all_entities {", query)
+    self.assertIn("stage team_cohort_stats {", query)
+    self.assertIn("stage enterprise_stats {", query)
+    self.assertIn("$m1_obs =", query)
+    self.assertIn("$m2_obs =", query)
+    self.assertIn("$m3_obs =", query)
+    self.assertIn("$m1_team_avg = avg($all_entities.m1_obs)", query)
+    self.assertIn("$m1_fleet_avg = avg($all_entities.m1_obs)", query)
+    self.assertIn("$z1_vs_team =", query)
+    self.assertIn("$z2_vs_team =", query)
+    self.assertIn("$z3_vs_team =", query)
+    self.assertIn("$d_vs_team_sq =", query)
+    self.assertIn("order:\n  $d_vs_team_sq desc", query)
+
+  def test_part_of_the_whole_triad_multilevel_host(self):
+    """Verifies that PART_OF_THE_WHOLE_TRIAD_MULTILEVEL renders a 3-metric host network triad."""
+    query = self.router.build_pipeline_query(
+        PipelineArchitecture.PART_OF_THE_WHOLE_TRIAD_MULTILEVEL,
+        entity_type=EntityType.ASSET,
+        target_metrics=["network_bytes_outbound", "network_bytes_inbound", "network_bytes_total"],
+        cohort_entities=["host-a", "host-b"],
+        target_entity="host-a",
+        hypothesis_goal="Evaluate host-a against cluster peers and fleet across network triad",
+    )
+    self.assertIn("stage all_entities {", query)
+    self.assertIn("principal.asset.hostname = $host", query)
+    self.assertIn('$host = "host-a"', query)
+    self.assertIn("$d_vs_team_sq =", query)
+
+  def test_part_of_the_whole_triad_heterogeneous_rejection(self):
+    """Verifies that bundling heterogeneous event types raises ValueError."""
+    with self.assertRaises(ValueError) as ctx:
+      self.router.build_pipeline_query(
+          PipelineArchitecture.PART_OF_THE_WHOLE_TRIAD_MULTILEVEL,
+          entity_type=EntityType.USER,
+          target_metrics=["auth_attempts_total", "network_bytes_outbound"],
+      )
+    self.assertIn("Heterogeneous event types not permitted", str(ctx.exception))
+
 
 if __name__ == "__main__":
   unittest.main()

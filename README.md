@@ -1,6 +1,6 @@
 # Google SecOps Multi-Stage Risk Metrics Threat Hunter (`secops-risk-metrics-multistage`)
 
-[![Version](https://img.shields.io/badge/version-v1.6.9-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-213%2F213%20passing%20(100%25)-brightgreen.svg)](tests/) [![Submission Tests](https://img.shields.io/badge/submission%20tests-27%2F27%20passing%20(100%25)-brightgreen.svg)](scripts/submission_tests.py) [![Dual Platform Regression](https://img.shields.io/badge/dual--platform%20regression-27%2F27%20passing%20(100%25)-brightgreen.svg)](reports/)
+[![Version](https://img.shields.io/badge/version-v1.7.0-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-242%2F242%20passing%20(100%25)-brightgreen.svg)](tests/) [![Submission Tests](https://img.shields.io/badge/submission%20tests-27%2F27%20passing%20(100%25)-brightgreen.svg)](scripts/submission_tests.py) [![Dual Platform Regression](https://img.shields.io/badge/dual--platform%20regression-27%2F27%20passing%20(100%25)-brightgreen.svg)](reports/)
 
 A specialized, production-grade AI agent skill package for **Google Security Operations (SecOps / Chronicle SIEM & SOAR)** that constructs, validates, and executes **Multi-Stage YARA-L 2.0 Directed Acyclic Graph (DAG) statistical threat hunting pipelines**, **360° Entity Behavioral Risk Radars**, and **Progressively Disclosed Consultative Threat Hunting**.
 
@@ -20,6 +20,8 @@ secops-risk-metrics-multistage/
 ├── CONTRIBUTING.md                       # Contribution guidelines & test requirements
 ├── LICENSE                               # Apache 2.0 License
 ├── llms.txt                              # AI agent summary & guardrail reference
+├── docs/
+│   └── compiler-submission-policy.md     # Maintainer/CI submission gates & test matrix (NOT runtime guidance)
 ├── evals/
 │   └── evals.json                        # E2E evaluation benchmark prompts & assertions
 ├── references/                           # Deep-dive engineering guides & data contracts
@@ -27,7 +29,6 @@ secops-risk-metrics-multistage/
 │   ├── calibrated-risk-index-guide.md    # CRI [0–100] sigmoid score translation guide
 │   ├── chart-specifications-guide.md     # Vega-Lite & Chart.js declarative visual contracts
 │   ├── clean-handoff-udm-schema.md       # 9 UDM event schemas, CRI severity ladder & ingestion vectors
-│   ├── compiler-submission-policy.md     # Chronicle SIEM Malachite compiler grammar & invariants
 │   ├── consultative-worksheet.md         # Master consultative guidance worksheet & attack vector taxonomy
 │   ├── consultative/                     # Specialized domain consultative deep-dives
 │   │   ├── cloud-infrastructure.md       # Cloud CRUD, service account abuse, & privilege escalation
@@ -40,7 +41,8 @@ secops-risk-metrics-multistage/
 │   ├── multi-stage-metrics-guide.md      # Multi-stage YARA-L DAG contracts, condition gating, & Entity Graph rules
 │   ├── soar-playbook-radar-integration.md# Chronicle SOAR playbook integration for 360° radar
 │   ├── statistical-hunting-cooperative-framework.md # Federated bilateral handoff protocol
-│   └── statistical-models-taxonomy.md    # Mathematical taxonomy of all 14 statistical models
+│   ├── statistical-models-taxonomy.md    # Mathematical taxonomy of all 14 statistical models
+│   └── udm-hunting-field-dictionary.md   # Field-level dictionary mapping UDM protobuf fields to hunter dimensions
 ├── templates/                            # Composable YARA-L 2.0 template library
 │   ├── pipelines/                        # Pre-composed multi-stage DAG pipelines
 │   │   ├── cloud_repository_scope_dual_branch.yl2

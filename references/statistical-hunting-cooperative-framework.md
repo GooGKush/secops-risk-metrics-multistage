@@ -141,7 +141,7 @@ To resolve consultative demarcation, the skills communicate via the formal `seco
                  │
                  │ 1. Emits Handoff Payload (JSON Envelope)
                  ▼
-[ Endpoint: multistage_query_builder.py --ingest_handoff ]
+[ Handoff Endpoint (owned by the receiving skill) ]
                  │
                  │ 2. Validates Protocol & Maps Intent
                  │ 3. Compiles Golden Pipeline Template (c2_beaconing_jitter_2stage.yl2)
@@ -182,14 +182,10 @@ The initiating skill (`secops-risk-metrics-multistage`) constructs the JSON payl
 }
 ```
 
-### 6.4 The Ingestion Endpoint
-The receiving skill (`secops-statistical-hunter`) exposes an ingestion endpoint in `scripts/multistage_query_builder.py`:
+### 6.4 What the Receiving Skill Does With the Payload
+`secops-statistical-hunter` owns the ingestion endpoint and runs it itself. This skill never invokes it and never needs to look at it: emit the payload inside the Handoff Card and yield the turn. The steps below are background only, so that the card you render names the correct statistical model.
 
-```bash
-python3 scripts/multistage_query_builder.py --ingest_handoff '<JSON_PAYLOAD>'
-```
-
-The endpoint performs:
+On receipt, the receiving skill:
 1. **Schema Validation**: Verifies `protocol == "secops-threat-hunt-handoff-v1"` and ensures all mandatory envelope fields (`source_skill`, `target_skill`, `intent`, `target_entity`, `search_window`, `statistical_model`) are populated.
 2. **Intent Mapping**: Maps high-level security intents to statistical query pipelines:
    * `SCHEDULED_EXFILTRATION_TIMING` ──► `C2_BEACONING_JITTER` (Inter-arrival time delta, mean, stddev, and $CV \le 0.20$).

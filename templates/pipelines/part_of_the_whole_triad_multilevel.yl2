@@ -1,0 +1,114 @@
+// ============================================================================
+// ARCHITECTURE: 3-METRIC MULTILEVEL PART-OF-THE-WHOLE TRIAD DAG
+// Skill: secops-risk-metrics-multistage
+// Purpose: Evaluates an individual against their personal 30-day baseline,
+//          their immediate peer team cohort, and the enterprise whole across
+//          three sibling metrics within the same UDM event stream.
+// Math: Multilevel Triad Z-Scores (Personal, Team, Enterprise) + Composite D_team^2
+// ============================================================================
+
+// Stage 1: Enterprise Population Telemetry + 30-Day Baselines for 3 Metrics
+stage all_entities {
+    metadata.event_type = "{{event_type}}"
+    {{entity_field}} = {{entity_var}}
+    {{entity_var}} != ""
+
+  match:
+    {{entity_var}} by 1d
+
+  outcome:
+    $m1_obs = {{m1_observation_agg}}
+    $m1_p_avg = max({{m1_metric_func_avg}})
+    $m1_p_std = max({{m1_metric_func_stddev}})
+
+    $m2_obs = {{m2_observation_agg}}
+    $m2_p_avg = max({{m2_metric_func_avg}})
+    $m2_p_std = max({{m2_metric_func_stddev}})
+
+    $m3_obs = {{m3_observation_agg}}
+    $m3_p_avg = max({{m3_metric_func_avg}})
+    $m3_p_std = max({{m3_metric_func_stddev}})
+}
+
+// Stage 2: Team Cohort Whole (Macro baseline across designated peers)
+stage team_cohort_stats {
+    $u = $all_entities.{{entity_name}}
+    $ws = $all_entities.window_start
+    (
+      {{cohort_filter}}
+    )
+
+  match:
+    $ws by 1d
+
+  outcome:
+    $m1_team_avg = avg($all_entities.m1_obs)
+    $m1_team_std = stddev($all_entities.m1_obs)
+
+    $m2_team_avg = avg($all_entities.m2_obs)
+    $m2_team_std = stddev($all_entities.m2_obs)
+
+    $m3_team_avg = avg($all_entities.m3_obs)
+    $m3_team_std = stddev($all_entities.m3_obs)
+
+    $team_size = count_distinct($all_entities.{{entity_name}})
+}
+
+// Stage 3: Enterprise Whole (Macro baseline across the entire organization)
+stage enterprise_stats {
+    $ws = $all_entities.window_start
+
+  match:
+    $ws by 1d
+
+  outcome:
+    $m1_fleet_avg = avg($all_entities.m1_obs)
+    $m1_fleet_std = stddev($all_entities.m1_obs)
+
+    $m2_fleet_avg = avg($all_entities.m2_obs)
+    $m2_fleet_std = stddev($all_entities.m2_obs)
+
+    $m3_fleet_avg = avg($all_entities.m3_obs)
+    $m3_fleet_std = stddev($all_entities.m3_obs)
+
+    $fleet_size = count_distinct($all_entities.{{entity_name}})
+}
+
+// Root Stage: Multilevel Triad Scoring & Composite Team Distance
+{{entity_var}} = $all_entities.{{entity_name}}
+$ws = $all_entities.window_start
+$ws = $team_cohort_stats.ws
+$ws = $enterprise_stats.ws
+
+(
+  {{target_entity_filter}}
+)
+
+match:
+  {{entity_var}}, $ws by 1d
+
+outcome:
+  $m1_observed = max($all_entities.m1_obs)
+  $m2_observed = max($all_entities.m2_obs)
+  $m3_observed = max($all_entities.m3_obs)
+
+  // 1. Team Cross-Sectional Z-Scores ("Part of the Team")
+  $z1_vs_team = ($m1_observed - max($team_cohort_stats.m1_team_avg)) / (max($team_cohort_stats.m1_team_std) + 1.0)
+  $z2_vs_team = ($m2_observed - max($team_cohort_stats.m2_team_avg)) / (max($team_cohort_stats.m2_team_std) + 1.0)
+  $z3_vs_team = ($m3_observed - max($team_cohort_stats.m3_team_avg)) / (max($team_cohort_stats.m3_team_std) + 1.0)
+
+  // 2. Enterprise Cross-Sectional Z-Scores ("Part of the Enterprise")
+  $z1_vs_enterprise = ($m1_observed - max($enterprise_stats.m1_fleet_avg)) / (max($enterprise_stats.m1_fleet_std) + 1.0)
+  $z2_vs_enterprise = ($m2_observed - max($enterprise_stats.m2_fleet_avg)) / (max($enterprise_stats.m2_fleet_std) + 1.0)
+  $z3_vs_enterprise = ($m3_observed - max($enterprise_stats.m3_fleet_avg)) / (max($enterprise_stats.m3_fleet_std) + 1.0)
+
+  // 3. Personal Historical Z-Scores
+  $z1_personal = ($m1_observed - max($all_entities.m1_p_avg)) / (max($all_entities.m1_p_std) + 1.0)
+  $z2_personal = ($m2_observed - max($all_entities.m2_p_avg)) / (max($all_entities.m2_p_std) + 1.0)
+  $z3_personal = ($m3_observed - max($all_entities.m3_p_avg)) / (max($all_entities.m3_p_std) + 1.0)
+
+  // 4. Composite Threat Norm Across the Triad vs Team Cohort
+  $d_vs_team_sq = ($z1_vs_team * $z1_vs_team) + ($z2_vs_team * $z2_vs_team) + ($z3_vs_team * $z3_vs_team)
+
+order:
+  $d_vs_team_sq desc

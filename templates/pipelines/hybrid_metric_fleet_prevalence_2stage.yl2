@@ -56,10 +56,11 @@ match:
   $token by 1d
 
 outcome:
-  $token_name = max($token)
+  // Non-match string fields must use array_distinct() or count_distinct() (max/min reject strings).
+  // Match variables ($token) are already preserved as primary row keys.
+  $affected_hosts = array_distinct($stage1_personal_surge.surging_entity)
   $personal_z = max($stage1_personal_surge.personal_z)
   $active_baseline_days = max($stage1_personal_surge.hist_active_days)
-  $affected_hosts = array_distinct($stage1_personal_surge.surging_entity)
 
   $fleet_adopters = max($stage2_fleet_prevalence.fleet_adopters)
   $total_events = max($stage2_fleet_prevalence.total_fleet_events)

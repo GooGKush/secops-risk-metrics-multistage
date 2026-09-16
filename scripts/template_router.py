@@ -5,7 +5,7 @@ __version__ = "2.1.1"
 
 from pathlib import Path
 import re
-from typing import Optional
+from typing import List, Optional
 from .preflight_validator import EntityType, MatchMode, PipelineArchitecture, PreFlightValidator, StatisticalModel
 
 
@@ -142,6 +142,9 @@ class MultiStageTemplateRouter:
       min_threshold: Optional[float] = None,
       max_threshold: Optional[float] = None,
       condition_expression: Optional[str] = None,
+      cohort_entities: Optional[List[str]] = None,
+      target_entity: Optional[str] = None,
+      target_metrics: Optional[List[str]] = None,
   ) -> str:
     """Renders 3-Stage and 4-Stage advanced DAG pipelines."""
     if pipeline_type == PipelineArchitecture.MULTI_SECTOR_FUSION_4STAGE:
@@ -245,6 +248,108 @@ class MultiStageTemplateRouter:
         cond_block = f"condition:\n  {score_var} <= {max_threshold}\n\n"
         rendered = re.sub(r'(\border:\s*)', f"{cond_block}\\1", rendered, count=1)
 
+      return rendered + "\n"
+
+    elif pipeline_type == PipelineArchitecture.PART_OF_THE_WHOLE_MULTILEVEL:
+      if not target_metric:
+        target_metric = "auth_attempts_total"
+        entity_type = EntityType.USER
+      audit = PreFlightValidator.audit(
+          target_metric=target_metric,
+          entity_type=entity_type,
+          min_baseline_days=min_baseline_days,
+      )
+      pipeline_file = self.template_dir / "pipelines" / "part_of_the_whole_multilevel.yl2"
+      raw = pipeline_file.read_text().strip()
+      metric_type_arg = "metric: value_sum" if "bytes" in target_metric else "metric: event_count_sum"
+      obs_agg = "sum(network.sent_bytes)" if "bytes" in target_metric else "count(metadata.id)"
+
+      entity_var = "$user" if entity_type == EntityType.USER else "$host"
+      entity_name = entity_var.lstrip("$")
+
+      if cohort_entities:
+        cohort_filter = " or\n      ".join(f'$u = "{c}"' for c in cohort_entities)
+      else:
+        cohort_filter = '$u != ""'
+
+      if target_entity:
+        target_filter = f'{entity_var} = "{target_entity}"'
+      elif cohort_entities:
+        target_filter = " or\n  ".join(f'{entity_var} = "{c}"' for c in cohort_entities)
+      else:
+        target_filter = f'{entity_var} != ""'
+
+      rendered = raw.replace("{{event_type}}", audit["required_event_type"])
+      rendered = rendered.replace("{{entity_field}}", audit["target_field"])
+      rendered = rendered.replace("{{entity_var}}", entity_var)
+      rendered = rendered.replace("{{entity_name}}", entity_name)
+      rendered = rendered.replace("{{observation_agg}}", obs_agg)
+      rendered = rendered.replace("{{cohort_filter}}", cohort_filter)
+      rendered = rendered.replace("{{target_entity_filter}}", target_filter)
+      rendered = rendered.replace(
+          "{{target_metric_func_avg}}",
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: avg, {audit['target_field']}: {entity_var})"
+      )
+      rendered = rendered.replace(
+          "{{target_metric_func_stddev}}",
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: stddev, {audit['target_field']}: {entity_var})"
+      )
+      if hypothesis_goal:
+        rendered = f"// Goal: {hypothesis_goal}\n" + rendered
+      return rendered + "\n"
+
+    elif pipeline_type == PipelineArchitecture.PART_OF_THE_WHOLE_TRIAD_MULTILEVEL:
+      if not target_metrics:
+        if entity_type == EntityType.USER:
+          target_metrics = ["auth_attempts_total", "auth_attempts_fail", "auth_attempts_success"]
+        else:
+          target_metrics = ["network_bytes_outbound", "network_bytes_inbound", "network_bytes_total"]
+
+      triad_audit = PreFlightValidator.audit_triad(
+          target_metrics=target_metrics,
+          entity_type=entity_type,
+          min_baseline_days=min_baseline_days,
+      )
+      pipeline_file = self.template_dir / "pipelines" / "part_of_the_whole_triad_multilevel.yl2"
+      raw = pipeline_file.read_text().strip()
+
+      entity_var = "$user" if entity_type == EntityType.USER else "$host"
+      entity_name = entity_var.lstrip("$")
+
+      if cohort_entities:
+        cohort_filter = " or\n      ".join(f'$u = "{c}"' for c in cohort_entities)
+      else:
+        cohort_filter = '$u != ""'
+
+      if target_entity:
+        target_filter = f'{entity_var} = "{target_entity}"'
+      elif cohort_entities:
+        target_filter = " or\n  ".join(f'{entity_var} = "{c}"' for c in cohort_entities)
+      else:
+        target_filter = f'{entity_var} != ""'
+
+      rendered = raw.replace("{{event_type}}", triad_audit["required_event_type"])
+      rendered = rendered.replace("{{entity_field}}", triad_audit["target_field"])
+      rendered = rendered.replace("{{entity_var}}", entity_var)
+      rendered = rendered.replace("{{entity_name}}", entity_name)
+      rendered = rendered.replace("{{cohort_filter}}", cohort_filter)
+      rendered = rendered.replace("{{target_entity_filter}}", target_filter)
+
+      for idx, m in enumerate(target_metrics[:3], 1):
+        metric_type_arg = "metric: value_sum" if "bytes" in m else "metric: event_count_sum"
+        obs_agg = "sum(network.sent_bytes)" if "bytes" in m else "count(metadata.id)"
+        rendered = rendered.replace(f"{{{{m{idx}_observation_agg}}}}", obs_agg)
+        rendered = rendered.replace(
+            f"{{{{m{idx}_metric_func_avg}}}}",
+            f"metrics.{m}(period: 1d, window: 30d, {metric_type_arg}, agg: avg, {triad_audit['target_field']}: {entity_var})"
+        )
+        rendered = rendered.replace(
+            f"{{{{m{idx}_metric_func_stddev}}}}",
+            f"metrics.{m}(period: 1d, window: 30d, {metric_type_arg}, agg: stddev, {triad_audit['target_field']}: {entity_var})"
+        )
+
+      if hypothesis_goal:
+        rendered = f"// Goal: {hypothesis_goal}\n" + rendered
       return rendered + "\n"
 
     elif pipeline_type == PipelineArchitecture.HYBRID_METRIC_RAW_ENRICHMENT_2STAGE:

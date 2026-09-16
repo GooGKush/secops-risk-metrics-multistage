@@ -167,6 +167,9 @@ flowchart LR
 ### Why Monolithic 5-Stage YARA-L Joins Fail in Chronicle SIEM
 When evaluating an entity across 5 orthogonal vectors (Auth, Cloud, Workspace, Net, DNS), attempting to combine all 5 sectors into a single monolithic YARA-L rule is a severe architectural anti-pattern (`STAT_ANTIPATTERN_MONOLITHIC_RADAR_JOIN`):
 
+> [!IMPORTANT]
+> **Never fuse three or more orthogonal sectors into one query, and auto-bypass Mode B when the request would require it.** Mode B (longitudinal timeline) multiplies the join count by preserving a per-period bucket across stages, so a multi-sector request in Mode B exceeds `maxJoinCount = 4` before any metrics lookup is added. On encountering that combination, drop to decoupled per-sector micro-queries rather than attempting the fused form. Join accounting is in `references/multi-stage-metrics-guide.md` §20.5.
+
 <!-- yara-fragment: anti-pattern demonstration; intentionally invalid -->
 ```yara
 // ❌ ANTI-PATTERN: Monolithic 5-Sector Inner Join (COMPILER ERROR & SILENT DROP)
