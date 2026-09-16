@@ -133,7 +133,6 @@ rule secops_risk_metrics_synthetic_alert_catchall {
       {
         "threat_name": "Statistical Outlier: Volumetric Egress Anomaly",
         "threat_id": "T1048.003",
-        "threat_id_namespace": "MITRE_ATTACK",
         "category": ["DATA_EXFILTRATION"],
         "category_details": ["VOLUMETRIC_EGRESS_OUTLIER"],
         "action": ["UNKNOWN_ACTION"],
@@ -143,6 +142,7 @@ rule secops_risk_metrics_synthetic_alert_catchall {
         "description": "Multi-stage baseline evaluation detected an anomalous egress surge exceeding statistical significance threshold (Z >= 3.0σ, CRI >= 50).",
         "detection_fields": [
           { "key": "contacted_domains", "value": "storage.googleapis.com, mega.nz" },
+          { "key": "threat_framework", "value": "MITRE_ATTACK" },
           { "key": "mitre_tactics", "value": "TA0010_EXFILTRATION" },
           { "key": "mitre_techniques", "value": "T1048.003" }
         ]
@@ -198,7 +198,6 @@ rule secops_risk_metrics_synthetic_alert_catchall {
       {
         "threat_name": "Statistical Outlier: Super-Poisson Password Spray",
         "threat_id": "T1110.003",
-        "threat_id_namespace": "MITRE_ATTACK",
         "category": ["AUTH_VIOLATION", "CREDENTIAL_ACCESS"],
         "category_details": ["CREDENTIAL_SPRAY", "BRUTE_FORCE"],
         "action": ["UNKNOWN_ACTION"],
@@ -208,6 +207,7 @@ rule secops_risk_metrics_synthetic_alert_catchall {
         "description": "Dispersion analysis revealed synchronized wave patterns (Fano Factor F=12.4 >> 1.0) indicating automated distributed credential attack.",
         "detection_fields": [
           { "key": "spray_target_sample", "value": "frank.kolzig, tim.smith, sarah.j" },
+          { "key": "threat_framework", "value": "MITRE_ATTACK" },
           { "key": "mitre_tactics", "value": "TA0006_CREDENTIAL_ACCESS" },
           { "key": "mitre_techniques", "value": "T1110.003" }
         ]
@@ -265,7 +265,6 @@ rule secops_risk_metrics_synthetic_alert_catchall {
       {
         "threat_name": "Statistical Outlier: Discrete Poisson Rarity on Quiet Host",
         "threat_id": "T1490",
-        "threat_id_namespace": "MITRE_ATTACK",
         "category": ["SUSPICIOUS_ACTIVITY", "POLICY_VIOLATION"],
         "category_details": ["SHADOW_COPY_DELETION", "INHIBIT_SYSTEM_RECOVERY"],
         "action": ["UNKNOWN_ACTION"],
@@ -275,6 +274,7 @@ rule secops_risk_metrics_synthetic_alert_catchall {
         "description": "Poisson rarity calculation identified an arrival probability P(X >= 4) < 1e-6 indicating deliberate recovery inhibition.",
         "detection_fields": [
           { "key": "sample_commands", "value": "vssadmin delete shadows /all /quiet" },
+          { "key": "threat_framework", "value": "MITRE_ATTACK" },
           { "key": "mitre_tactics", "value": "TA0040_IMPACT" },
           { "key": "mitre_techniques", "value": "T1490" }
         ]
@@ -331,7 +331,6 @@ rule secops_risk_metrics_synthetic_alert_catchall {
       {
         "threat_name": "Statistical Outlier: Bayesian Posterior Surge",
         "threat_id": "T1078",
-        "threat_id_namespace": "MITRE_ATTACK",
         "category": ["AUTH_VIOLATION", "SUSPICIOUS_ACTIVITY"],
         "category_details": ["BAYESIAN_SHRINKAGE_ANOMALY"],
         "action": ["UNKNOWN_ACTION"],
@@ -340,6 +339,7 @@ rule secops_risk_metrics_synthetic_alert_catchall {
         "summary": "User frank.kolzig exhibited a confirmed 4.3× Bayesian posterior rate surge above stable 30-day baseline.",
         "description": "Hierarchical empirical Bayesian updating demonstrated a statistically significant shift from prior distribution toward high-frequency failure state.",
         "detection_fields": [
+          { "key": "threat_framework", "value": "MITRE_ATTACK" },
           { "key": "mitre_tactics", "value": "TA0006_CREDENTIAL_ACCESS" },
           { "key": "mitre_techniques", "value": "T1078" }
         ]
@@ -398,7 +398,6 @@ rule secops_risk_metrics_synthetic_alert_catchall {
       {
         "threat_name": "Statistical Outlier: Peer Group Breakout",
         "threat_id": "T1078",
-        "threat_id_namespace": "MITRE_ATTACK",
         "category": ["AUTH_VIOLATION", "SUSPICIOUS_ACTIVITY"],
         "category_details": ["PEER_COHORT_BREAKOUT_ANOMALY"],
         "action": ["UNKNOWN_ACTION"],
@@ -408,6 +407,7 @@ rule secops_risk_metrics_synthetic_alert_catchall {
         "description": "Cross-sectional comparison against organizational department roster identified isolated outlier behavior relative to peer group baseline.",
         "detection_fields": [
           { "key": "peer_roster", "value": "frank.kolzig, tim.smith" },
+          { "key": "threat_framework", "value": "MITRE_ATTACK" },
           { "key": "mitre_tactics", "value": "TA0001_INITIAL_ACCESS,TA0006_CREDENTIAL_ACCESS" },
           { "key": "mitre_techniques", "value": "T1078,T1047" }
         ]
@@ -462,7 +462,6 @@ rule secops_risk_metrics_synthetic_alert_catchall {
       {
         "threat_name": "Statistical Outlier: Fleet-Normalized Delta-Z Isolation",
         "threat_id": "T1036",
-        "threat_id_namespace": "MITRE_ATTACK",
         "category": ["SUSPICIOUS_ACTIVITY"],
         "category_details": ["FLEET_NORMALIZED_DELTA_Z"],
         "action": ["UNKNOWN_ACTION"],
@@ -471,6 +470,7 @@ rule secops_risk_metrics_synthetic_alert_catchall {
         "summary": "Host wrk-shasek experienced a +5.1σ isolated anomaly while the general fleet remained quiet.",
         "description": "Dual-baseline subtraction (personal Z minus fleet macro Z) successfully eliminated macro rollout noise, confirming an isolated entity anomaly.",
         "detection_fields": [
+          { "key": "threat_framework", "value": "MITRE_ATTACK" },
           { "key": "mitre_tactics", "value": "TA0005_DEFENSE_EVASION" },
           { "key": "mitre_techniques", "value": "T1036" }
         ]
@@ -532,7 +532,6 @@ rule secops_risk_metrics_synthetic_alert_catchall {
       {
         "threat_name": "Statistical Outlier: Multi-Sector Threat Fusion",
         "threat_id": "T1003.003",
-        "threat_id_namespace": "MITRE_ATTACK",
         "category": ["CREDENTIAL_ACCESS", "DATA_EXFILTRATION"],
         "category_details": ["MULTI_SECTOR_THREAT_FUSION"],
         "action": ["UNKNOWN_ACTION"],
@@ -543,6 +542,7 @@ rule secops_risk_metrics_synthetic_alert_catchall {
         "detection_fields": [
           { "key": "sample_commands", "value": "ntdsutil 'ac i ntds' ifm, c:\\diskutil.exe" },
           { "key": "sample_paths", "value": "C:\\Windows\\Temp\\compass.7z, C:\\diskutil.exe" },
+          { "key": "threat_framework", "value": "MITRE_ATTACK" },
           { "key": "mitre_tactics", "value": "TA0006,TA0008,TA0010" },
           { "key": "mitre_techniques", "value": "T1003.003,T1078,T1560" }
         ]
@@ -602,7 +602,6 @@ rule secops_risk_metrics_synthetic_alert_catchall {
       {
         "threat_name": "Statistical Outlier: Longitudinal CUSUM Drift",
         "threat_id": "T1048",
-        "threat_id_namespace": "MITRE_ATTACK",
         "category": ["DATA_EXFILTRATION"],
         "category_details": ["LONGITUDINAL_CUSUM_DRIFT"],
         "action": ["UNKNOWN_ACTION"],
@@ -611,6 +610,7 @@ rule secops_risk_metrics_synthetic_alert_catchall {
         "summary": "Host acc-win11-5 accumulated +4.8σ of persistent positive egress drift starting on 2026-08-18.",
         "description": "Sequential cumulative sum analysis detected low-and-slow data transfer consistently exceeding daily expected variance.",
         "detection_fields": [
+          { "key": "threat_framework", "value": "MITRE_ATTACK" },
           { "key": "mitre_tactics", "value": "TA0010_EXFILTRATION" },
           { "key": "mitre_techniques", "value": "T1048" }
         ]
@@ -671,7 +671,6 @@ rule secops_risk_metrics_synthetic_alert_catchall {
       {
         "threat_name": "Statistical Outlier: Rare Binary Execution",
         "threat_id": "T1204.002",
-        "threat_id_namespace": "MITRE_ATTACK",
         "category": ["SOFTWARE_MALICIOUS", "SUSPICIOUS_ACTIVITY"],
         "category_details": ["RARE_BINARY_EXECUTION", "INFANT_INFRASTRUCTURE"],
         "action": ["UNKNOWN_ACTION"],
@@ -681,6 +680,7 @@ rule secops_risk_metrics_synthetic_alert_catchall {
         "description": "Cross-sectional fleet prevalence analysis confirmed rare execution signature on enterprise infrastructure.",
         "detection_fields": [
           { "key": "sample_paths", "value": "C:\\diskutil.exe" },
+          { "key": "threat_framework", "value": "MITRE_ATTACK" },
           { "key": "mitre_tactics", "value": "TA0002_EXECUTION" },
           { "key": "mitre_techniques", "value": "T1204.002" }
         ]

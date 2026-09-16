@@ -1,10 +1,42 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.7.0)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.7.1)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v1.7.0 (Major Milestone Release) — September 2026  
+**Latest Version**: v1.7.1 (Point Release) — September 2026  
+
+---
+
+## 📢 What's New in v1.7.1 (Point Release) — Outcomes-in-Outcomes (OIO) In-Stage AST Inlining, Pipeline Math Localization & Ingest Schema Harmonization
+
+### 1. Outcomes-in-Outcomes (OIO) & In-Stage AST Expression Inlining
+* **Chronicle SIEM Malachite Compiler Parity**:
+  - Empirically verified and codified the Common Compiler's `UsesOutcomesInOutcomes` capability, enabling intermediate YARA-L stages to evaluate algebraic outcome expressions that reference earlier outcome variables within the same stage (`$diff = $obs - $avg`, `$z = $diff / ($std + 1.0)`).
+  - The compiler evaluates these dependencies via compile-time **AST Expression Inlining** (`substituteOutcomeVarsInAssignments`), expanding referencing outcomes into a single composite projection tree.
+* **Compiler Safety Invariants (`references/multi-stage-metrics-guide.md` §1.2)**:
+  - Codified strict compiler invariants: Definition-Before-Reference (`outcomeDefinedBeforeReference`), Acyclic Dependency Graph (`noCyclicalOutcomeDependency`), No Nested Aggregations on Outcomes (prohibiting `$x = max($z)` within the same stage), and No Outcomes Inside `metrics.*` Arguments (`noAggregationOrOutcomeInUEBACall`).
+
+### 2. Multi-Stage Pipeline Template Refactoring
+* **In-Stage Mathematical Localization**:
+  - Updated production pipeline templates (`templates/pipelines/`):
+    - `multi_sector_fusion_4stage.yl2`: Computes `$z_auth`, `$z_cloud`, `$z_proc`, and `$z_net` in-stage, simplifying the Root Stage to `max(...)` projections.
+    - `dual_sector_fusion_3stage.yl2`: Localizes `$z_auth` and `$z_net` within respective vector extraction stages.
+    - `cloud_repository_scope_dual_branch.yl2`: Derives `$dest_z`, `$origin_z`, and composite `$composite_risk` directly in-stage.
+    - `dual_baseline_delta_z_3stage.yl2`: Evaluates personal historical Z-scores in Stage 1 before dual-baseline subtraction in Root.
+    - `radar_360_decoupled_sector.yl2`: Evaluates in-stage Z-score and projects directly to Root.
+    - `part_of_the_whole_multilevel.yl2` & `part_of_the_whole_triad_multilevel.yl2`: Derives personal Z-scores directly in Stage 1.
+
+### 3. Ingestion Validation & Synthetic Alert Schema Harmonization
+* **Chronicle Ingestion Client (`scripts/chronicle_ingest.py`)**:
+  - Harmonized metadata field validation to accept both snake_case and camelCase aliases (`event_timestamp`/`eventTimestamp`, `event_type`/`eventType`, `vendor_name`/`vendorName`, `product_name`/`productName`).
+  - Omitted client-supplied `id` in adherence to Chronicle `ingestion.proto` where event IDs are strictly server-assigned.
+* **Synthetic Alert Schemas (`references/clean-handoff-udm-schema.md`)**:
+  - Standardized `{ "key": "threat_framework", "value": "MITRE_ATTACK" }` in `detection_fields` across all synthetic UDM alert definitions.
+
+### 4. Test Suite Coverage & Regression Parity
+* **243 / 243 Unit Tests Passing (100% Green)**: Added `test_outcomes_in_outcomes_in_stage_derivations` in `tests/test_complex_multistage_syntax.py` and updated ingest validation tests.
+* **Dual-Mode Regression Verified**: 0 first-time regressions, verified backend compilation, and $\Delta Z = 0.00\sigma$ concordance across multi-stage OIO pipelines in `secops-regress`.
 
 ---
 

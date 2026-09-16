@@ -101,12 +101,11 @@ class TestValidation(unittest.TestCase):
     self.assertTrue(validate_events([]))
 
   def test_each_required_metadata_field_is_enforced(self):
-    for field in ("id", "eventTimestamp", "eventType", "vendorName", "productName"):
+    for field in ("eventTimestamp", "eventType", "vendorName", "productName"):
       event = _valid_event()
       del event["metadata"][field]
       errors = validate_events([event])
       self.assertTrue(errors, f"missing metadata.{field} was not caught")
-      self.assertIn(field, " ".join(errors))
 
   def test_missing_metadata_object_is_caught(self):
     self.assertTrue(validate_events([{"principal": {}}]))

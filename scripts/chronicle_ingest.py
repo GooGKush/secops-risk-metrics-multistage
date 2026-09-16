@@ -40,12 +40,12 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 # Chronicle rejects the entire batch if any single event is malformed, so these
 # are checked locally before the request is built.
+# Note: id is server-assigned (bytes id = 15) and must not be supplied by client.
 REQUIRED_METADATA_FIELDS = (
-    "id",
-    "eventTimestamp",
-    "eventType",
-    "vendorName",
-    "productName",
+    ("event_timestamp", "eventTimestamp"),
+    ("event_type", "eventType"),
+    ("vendor_name", "vendorName"),
+    ("product_name", "productName"),
 )
 
 # ImportEvents is restricted to v1alpha, v1beta, v1 (ingestion.proto:71).
@@ -111,9 +111,9 @@ def validate_events(udm_events: Sequence[Dict[str, Any]]) -> List[str]:
     if not isinstance(metadata, dict):
       errors.append(f"event[{i}]: missing required 'metadata' object")
       continue
-    for field in REQUIRED_METADATA_FIELDS:
-      if not metadata.get(field):
-        errors.append(f"event[{i}]: missing required 'metadata.{field}'")
+    for field_aliases in REQUIRED_METADATA_FIELDS:
+      if not any(metadata.get(f) for f in field_aliases):
+        errors.append(f"event[{i}]: missing required 'metadata.{field_aliases[0]}'")
 
   return errors
 
