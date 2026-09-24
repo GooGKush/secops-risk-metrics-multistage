@@ -28,7 +28,7 @@ Extensive live compilation testing against Google SecOps customer instances has 
 * **Multi-Sector Fusion Architecture**:
   * Combining 2 orthogonal sectors (e.g., Auth + Network) in a monolithic 3-stage query (`stage auth_sector`, `stage net_sector`, and root stage) is valid and fully supported (`PIPE-06-DUAL-SECTOR`).
   * Combining $\ge 3$ raw event sectors (e.g., Auth + Cloud + Process + Network) in a single monolithic query causes `INVALID_ARGUMENT: maxJoinCount exceeded`.
-  * **Resolution**: High-order multi-sector analysis (such as the 5-sector 360° Risk Radar) MUST use the **Decoupled Micro-Query Architecture** (`scripts/radar_collector.py`), where individual sector queries execute in parallel and correlate in memory.
+  * **Resolution**: High-order multi-sector analysis (such as the 6-sector 360° Risk Radar) MUST use the **Decoupled Micro-Query Architecture** (`scripts/radar_collector.py`), where individual sector queries execute in parallel and correlate in memory.
 
 ### 2.2 Aggregation and Mathematical Function Syntax
 * **No `variance()` Aggregate**: YARA-L 2.0 does **not** support `variance(...)`. The compiler accepts only:

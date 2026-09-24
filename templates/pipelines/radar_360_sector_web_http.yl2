@@ -1,0 +1,45 @@
+// ============================================================================
+// ARCHITECTURE: 360° ENTITY BEHAVIORAL RISK RADAR (DECOUPLED SECTOR MICRO-QUERY)
+// Skill: secops-risk-metrics-multistage
+// Sector: Web & HTTP Proxy Activity (Representative Canonical Spoke)
+// Execution: Evaluated independently alongside Auth, Cloud, Workspace, Network, and DNS
+// Topology: Client-Side Euclidean Join (D = sqrt(sum max(0,Z_i)^2))
+// Platform Limit: maxJoinCount = 4 (Zero Monolithic Joins)
+// ============================================================================
+
+stage web_http_risk {
+    metadata.event_type = "NETWORK_HTTP"
+    principal.user.userid = $user
+    $user != ""
+
+  match:
+    $user by 1d
+
+  outcome:
+    $obs = count(metadata.id)
+    $avg = max(metrics.http_queries_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+        principal.user.userid: $user
+    ))
+    $std = max(metrics.http_queries_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+        principal.user.userid: $user
+    ))
+    $diff = $obs - $avg
+    $z = $diff / ($std + 1.0)
+}
+
+// --- ROOT STAGE: Single-Sector Z-Score Projection (1 Join Total) ---
+$user = $web_http_risk.user
+
+match:
+  $user by 1d
+
+outcome:
+  $z = max($web_http_risk.z)
+  $observed = max($web_http_risk.obs)
+  $baseline = max($web_http_risk.avg)
+  $dispersion = max($web_http_risk.std)
+
+order:
+  $z desc

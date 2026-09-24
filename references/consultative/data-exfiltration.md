@@ -29,6 +29,12 @@ Static detection rules designed to detect data loss rely almost exclusively on h
 * **Math Model**: `poisson_gamma_bayesian.yl2`
 * **How It Defeats the Blind Spot**: DNS traffic is inherently noisy. A conjugate Poisson-Gamma model updates prior historical byte rate expectations with observed payloads, flagging statistically impossible payload densities without relying on static query count thresholds.
 
+### Strategy D: The High-Frequency Micro-Session Detector (Flow Frequency Baseline)
+* **Target Metric**: `metrics.network_flows_outbound`
+* **Math Model**: `c2_beacon_flow_frequency_2stage.yl2`
+* **How It Defeats the Blind Spot**: Attackers exfiltrating small, serialized tokens or maintaining C2 heartbeats keep byte footprints tiny (<1 KB/session). While `metrics.network_bytes_outbound` shows zero deviation, baselining session count (`metrics.network_flows_outbound`) with `metric: event_count_sum` catches acute connection frequency departures ($Z_{\text{flows}} \ge 3.0\sigma$).
+
+
 ---
 
 ## 3. Operational Triage SLA & Chronicle Pivot

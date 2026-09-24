@@ -159,6 +159,53 @@ class MultiStageTemplateRouter:
         raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
       return pipeline_file.read_text().strip() + "\n"
 
+    elif pipeline_type == PipelineArchitecture.RADAR_360_SECTOR_WEB_HTTP:
+      pipeline_file = self.template_dir / "pipelines" / "radar_360_sector_web_http.yl2"
+      if not pipeline_file.exists():
+        raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
+      return pipeline_file.read_text().strip() + "\n"
+
+    elif pipeline_type == PipelineArchitecture.HYBRID_METRIC_HTTP_UA_PREVALENCE_2STAGE:
+      pipeline_file = self.template_dir / "pipelines" / "hybrid_metric_http_ua_prevalence_2stage.yl2"
+      if not pipeline_file.exists():
+        raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
+      raw = pipeline_file.read_text().strip()
+      if hypothesis_goal:
+        raw = f"// Goal: {hypothesis_goal}\n" + raw
+      rendered = raw
+      if condition_expression:
+        cond_block = f"condition:\n  {condition_expression}\n\n"
+        rendered = re.sub(r'(\border:\s*)', f"{cond_block}\\1", rendered, count=1)
+      elif min_threshold is not None and max_threshold is not None:
+        order_match = re.search(r'order:\s*\n\s*([$][a-zA-Z0-9_]+)', rendered)
+        score_var = order_match.group(1) if order_match else "$normalized_odds_score"
+        cond_block = f"condition:\n  {score_var} >= {min_threshold} and {score_var} < {max_threshold}\n\n"
+        rendered = re.sub(r'(\border:\s*)', f"{cond_block}\\1", rendered, count=1)
+      elif min_threshold is not None:
+        order_match = re.search(r'order:\s*\n\s*([$][a-zA-Z0-9_]+)', rendered)
+        score_var = order_match.group(1) if order_match else "$normalized_odds_score"
+        cond_block = f"condition:\n  {score_var} >= {min_threshold}\n\n"
+        rendered = re.sub(r'(\border:\s*)', f"{cond_block}\\1", rendered, count=1)
+      return rendered + "\n"
+
+    elif pipeline_type == PipelineArchitecture.HTTP_ERROR_RATIO_SURGE_2STAGE:
+      pipeline_file = self.template_dir / "pipelines" / "http_error_ratio_surge_2stage.yl2"
+      if not pipeline_file.exists():
+        raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
+      raw = pipeline_file.read_text().strip()
+      if hypothesis_goal:
+        raw = f"// Goal: {hypothesis_goal}\n" + raw
+      return raw + "\n"
+
+    elif pipeline_type == PipelineArchitecture.HTTP_TARGET_SURGE_2STAGE:
+      pipeline_file = self.template_dir / "pipelines" / "http_target_surge_2stage.yl2"
+      if not pipeline_file.exists():
+        raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
+      raw = pipeline_file.read_text().strip()
+      if hypothesis_goal:
+        raw = f"// Goal: {hypothesis_goal}\n" + raw
+      return raw + "\n"
+
     elif pipeline_type == PipelineArchitecture.DUAL_BASELINE_3STAGE:
       if not target_metric:
         target_metric = "http_queries_total"
@@ -374,7 +421,7 @@ class MultiStageTemplateRouter:
       raw_event_type = "NETWORK_HTTP"
       raw_entity_field = "principal.asset.hostname" if entity_type == EntityType.ASSET else "principal.user.userid"
       raw_event_filter = ""
-      raw_signature_field = "target.user_agent"
+      raw_signature_field = "network.http.user_agent"
       max_signature_diversity = 2
       min_raw_events = 5
 

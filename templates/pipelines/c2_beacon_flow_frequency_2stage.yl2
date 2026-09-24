@@ -1,0 +1,88 @@
+// ============================================================================
+// ARCHITECTURE: 2-STAGE C2 BEACON & FLOW FREQUENCY OUTLIER PIPELINE
+// Skill: secops-risk-metrics-multistage
+// Common Compiler Conformance: YARA-L 2.0 Multi-Stage DAG Engine
+// Models Supported:
+//   Flow Frequency Anomaly ($Z \ge 3.0\sigma$) & Micro-Payload Concentration
+// Join Budget: 1 metric lookup (Stage 1) + 1 stage join (Root) = 2 joins total (<= 4).
+// Match Topology: Entity-centric match key ($host by 1d) joining flow surge to target persistence.
+// ============================================================================
+
+// Stage 1: Personal Host Outbound Flow Baseline & Payload Density Derivation
+stage stage1_outbound_flow_frequency {
+    metadata.event_type = "NETWORK_CONNECTION"
+    principal.asset.hostname = $host
+    $host != ""
+    network.sent_bytes != 0
+
+  match:
+    $host by 1d
+
+  outcome:
+    $observed_flows = count(metadata.id)
+    $observed_bytes = sum(network.sent_bytes)
+
+    $hist_flow_avg = max(metrics.network_flows_outbound(
+        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+        principal.asset.hostname: $host
+    ))
+    $hist_flow_stddev = max(metrics.network_flows_outbound(
+        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+        principal.asset.hostname: $host
+    ))
+    $hist_flow_active_days = max(metrics.network_flows_outbound(
+        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+        principal.asset.hostname: $host
+    ))
+    $hist_flow_max = max(metrics.network_flows_outbound(
+        period: 1d, window: 30d, metric: event_count_sum, agg: max,
+        principal.asset.hostname: $host
+    ))
+
+    $diff = $observed_flows - $hist_flow_avg
+    $denom = $hist_flow_stddev + 1.0
+    $flow_z = $diff / $denom
+    $bytes_per_flow = $observed_bytes / ($observed_flows + 0.001)
+}
+
+// Stage 2: Target Destination & Port Dispersion (C2 Infrastructure Breadth)
+stage stage2_target_dispersion {
+    metadata.event_type = "NETWORK_CONNECTION"
+    principal.asset.hostname = $host
+    $host != ""
+    network.sent_bytes != 0
+
+  match:
+    $host by 1d
+
+  outcome:
+    $distinct_dst_ips = count_distinct(target.ip)
+    $distinct_dst_ports = count_distinct(target.port)
+    $sample_dst_ips = array_distinct(target.ip)
+}
+
+// Stage 3 (Root Stage): Compound C2 Beaconing & Micro-Session Scoring
+$host = $stage1_outbound_flow_frequency.host
+$host = $stage2_target_dispersion.host
+
+match:
+  $host by 1d
+
+outcome:
+  $flow_z = max($stage1_outbound_flow_frequency.flow_z)
+  $observed_flows = max($stage1_outbound_flow_frequency.observed_flows)
+  $observed_bytes = max($stage1_outbound_flow_frequency.observed_bytes)
+  $bytes_per_flow = max($stage1_outbound_flow_frequency.bytes_per_flow)
+  $distinct_ips = max($stage2_target_dispersion.distinct_dst_ips)
+  $distinct_ports = max($stage2_target_dispersion.distinct_dst_ports)
+  $sample_ips = array_distinct($stage2_target_dispersion.sample_dst_ips)
+
+  // Beacon Score: High session frequency amplified when payload density is low (< 4KB/flow)
+  $beacon_score = $flow_z * if($bytes_per_flow < 4096, 2.0, 1.0)
+
+condition:
+  $flow_z >= 3.0
+  and $observed_flows >= 50
+
+order:
+  $beacon_score desc

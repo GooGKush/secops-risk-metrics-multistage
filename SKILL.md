@@ -13,9 +13,9 @@ Executes multi-sector outlier hunting using 30-day Risk Analytics (`metrics.*`).
 
 ## 🔀 Bi-Directional Skill Steering & Handoff Protocol
 * **UEBA / 30-Day Baselines** (`metrics.*`) / **Behavioral Risk** / **Multi-Sector Fusion**: Execute `secops-risk-metrics-multistage`.
-* **Sub-Second Jitter Boundary**: Metrics cannot compute sub-second deltas; for jitter, emit Skill Handoff Card to `secops-statistical-hunter` and yield turn (0 tools called).
+* **Sub-Second Jitter Boundary**: For sub-second jitter, emit Skill Handoff Card to `secops-statistical-hunter` and yield turn (0 tools called).
 * **Privileged Lateral Movement**: Bipartite history requires raw `USER_LOGIN`; emit Skill Handoff Card to `secops-statistical-hunter` (`intent: PRIVILEGED_LATERAL_EXPANSION`) and yield turn (0 tools called).
-* **Scheduled Exfiltration & Cron Periodicity Demarcation**: Daily metrics cannot prove sub-day cron cadence. Offer: 1) Mode B Longitudinal CUSUM Drift (`longitudinal_cusum.yl2`) / Entity Graph prevalence for 30d accumulation; 2) For cron proof, emit **Skill Handoff Card** to `secops-statistical-hunter` (`intent: SCHEDULED_EXFILTRATION_TIMING`, evaluating raw `NETWORK_CONNECTION` $\Delta t / CV \le 0.20$) and yield turn (0 tools called).
+* **Scheduled Exfiltration & Cron Periodicity Demarcation**: Daily metrics cannot prove sub-day cron cadence. Offer: 1) Mode B Longitudinal CUSUM Drift (`longitudinal_cusum.yl2`) / Entity Graph prevalence for 30d accumulation; 2) For cron proof, emit **Skill Handoff Card** to `secops-statistical-hunter` (`intent: SCHEDULED_EXFILTRATION_TIMING`) and yield turn (0 tools called).
 * **Corporate Rollouts & Patch Tuesday**: Deploy Fleet Prevalence Normalization (`templates/pipelines/hybrid_metric_fleet_prevalence_2stage.yl2`) with token matching (`$token by 1d` on `target.process.file.sha256 = $token`) and dampener `1.0 / (k_fleet + 1.0)`, or handoff to `secops-statistical-hunter` (`intent: FLEET_PREVALENCE_NORMALIZATION`).
 * **Part of the Whole / Peer Cohort Hierarchy**: Deploy `templates/pipelines/part_of_the_whole_multilevel.yl2` for 3-part individual vs team vs enterprise baselines.
 * **Non-Metrics Telemetry Steering Mandate** (Git, raw UDM): Emit **Skill Handoff Card** and steer to `secops-statistical-hunter`.
@@ -45,17 +45,17 @@ When a hunt is initiated, **NEVER CALL SEARCH TOOLS ON THAT TURN**.
 ### 🧭 Phase 1A: Consultative Vector & Scope Discovery (Dual-Requirement Gate)
 Phase 1B is **ONLY UNLOCKED** when **BOTH** are explicitly defined:
 1. **Entity Scope** (user, cohort, fleet / cloud) **AND**
-2. **Telemetry Vector(s)** (Cloud CRUD, Workspace, Net Egress, Endpoint, Auth).
+2. **Telemetry Vector(s)** (Cloud CRUD, Workspace, Net Egress, Endpoint, Auth, Web/HTTP).
 
-> **Expert Bypass**: When scope/vector and model are specified (e.g. *"Run CUSUM on Frank's DNS"*), jump to Phase 1B Pre-Flight Card. When unspecified, consult `references/consultative-worksheet.md` (Tier 1 Spikes, Tier 2 Trickles/Drift, Tier 3 Orthogonal $D \ge 3.5\sigma$ 360° Radar). Present **Summary View** with **Threat Hypothesis**, **Recommended Method & Rationale**, **Alternative Vectors**.
+> **Expert Bypass**: When scope/vector and model are specified (e.g. *"Run CUSUM on Frank's DNS"*), jump to Phase 1B Pre-Flight Card. When unspecified, consult `references/consultative-worksheet.md` (Tier 1–3, 4 Rigor Checks). Present **Summary View** with **Threat Hypothesis**, **Recommended Method & Rationale**, **Alternative Vectors**.
 
 > **Anti-Auth-Defaulting Guardrail & Conversational Break (CONVERSATIONAL BREAK)**:
 > In open-ended consultative inquiries (unspecified vectors), **THE AGENT MUST NOT DEFAULT TO `metrics.auth_attempts_*` OR `USER_LOGIN`**. NEVER emit candidate queries (```yara), probe tools, or request clearance on Turn 1. Yield turn (0 tools called) and present the **Summary View** asking: *"Across which behavioral vector(s) would you like to evaluate [Target Entities]?"*
 
 ### 🕸️ 360° Entity Behavioral Risk Radar & Multi-Sector Threat Fusion
 For multi-sector profiling (*"multi-sector fusion"*, *"360 health check"*), see `references/360-behavioral-radar-guide.md`.
-* **Architecture**: Decoupled micro-queries (`templates/pipelines/radar_360_decoupled_sector.yl2`) across 5 canonical sectors (Auth, Cloud, Workspace, Network, DNS; all 5 must be reported).
-* **Scope & Surface Alignment**: 5-spoke radial radar for single entities. Fleet sweeps: Ranked Outlier Bars or Heatmap Matrix (Mode B) evaluating all 5 canonical sectors: Auth, Cloud, Workspace, Network, DNS.
+* **Architecture**: Decoupled micro-queries (`templates/pipelines/radar_360_decoupled_sector.yl2`) across 6 canonical sectors (Auth, Cloud, Workspace, Network, DNS, Web; all 6 must be reported).
+* **Scope & Surface Alignment**: 6-spoke radial radar for single entities. Fleet sweeps: Ranked Outlier Bars or Heatmap Matrix (Mode B) evaluating all 6 sectors.
 * **Query Continuity**: In preview and Pillar 2, display representative micro-query (`stage auth_risk` with `order: $z desc`). Auto-bypass Mode B on target dates.
 * **Native Reporting**: Webview/MCP/agentapi: inline `<svg>` in Pillar 1; Jetski: `<agent-embed>`.
 
@@ -90,6 +90,7 @@ Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to bo
    * *Model Concordance Invariant*: When declaring a statistical model, instantiate its template in `templates/stage2_math_models/` (see `references/model-concordance-guide.md`). Emitted `outcome:` derivations and `order:` clause MUST faithfully implement that template's mathematical AST signature (e.g. CUSUM `$cusum_drift_score`, Poisson `$poisson_z`, or Empirical Bayes `$posterior_mean`).
    * *Canonical Preview & Two-Phase Chained Hunt Specification*: Cross-entity hunts emit Two-Phase Chained Hunt Specification: Phase 1 (UEBA Outlier), Bridge Contract ($host, $timestamp, $user, $caller_ip), and Phase 2 (Targeted Cloud UDM Query).
 5. **Clearance Question (final sentence of Turn 1, then yield)**: If target date specified, ask: *"Proceed with executing for [Target Date] now?"*. Otherwise ask: *"Would you like me to proceed with **Mode A (Today vs 30-Day Baseline)** or **Mode B (2–14 Day Timeline)**? (Adjust noise level/significance threshold before execution if desired.)"*.
+6. **Pre-Flight Tuning & Clarification Loop**: When the analyst asks questions or adjusts parameters (thresholds, dates, models) prior to clearance, answer conversationally, maintain active entity and vector context, present updated Pre-Flight Card, re-probe when query logic changes, and prompt for Mode A/B clearance to proceed.
 
 ---
 
@@ -107,7 +108,7 @@ Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to bo
 4. **Zero-Telemetry Clean Hunt Exemption (True Negative Audit Summary)**: When post-clearance `udm_search` returns 0 events (`{}`/`[]`) or an empty `stats` result set, emit a 2-Section Clean Hunt Audit:
    - `#### 1. Statistical Outlier Report: [Target Metric] (Nominal Baseline)`: 0 observed events ($Z = 0.00\sigma, \text{CRI} = 0$, 🟢 **Nominal Fleet Baseline**).
    - `#### 2. Executed Multi-Stage YARA-L Query`: Literal query and scope.
-   - **Pillars 3, 4, 5, and 6 are waived** (360° radar profiles evaluate all 5 sectors with visual radar).
+    - **Pillars 3, 4, 5, and 6 are waived** (360° radar profiles evaluate all 6 sectors with visual radar).
 
 ### 🔁 State 3: Iteration, Entity Shifts & Federated Bridge (Active Hunt Session Lock & Boundary (ZERO CROSS-SKILL DRIFT))
 * **Entity Shift**: On *"same query for"*, retain Active Hunt Session Lock & Boundary (ZERO CROSS-SKILL DRIFT) and Re-enter State 1 for new entity.
@@ -118,14 +119,14 @@ Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to bo
 ## 🛡️ Non-Negotiable Execution & Integrity Contracts
 
 ### 1. Native Execution & Truth in Reporting
-* **Hunt Tool Contract**: An active hunt runs on `secops-gus:udm_search` alone — once to probe, once to execute; Clean Hand-Off adds `create_case_comment`/`import_events` on explicit request. Behavioral truth lives in `metrics.*` 30-day baselines, the sole evidentiary substrate for every score reported. Case, alert, rule, and playbook state describes detections that already fired — a different question, and a different skill.
+* **Hunt Tool Contract**: An active hunt runs on `secops-gus:udm_search` alone — once to probe, once to execute; Clean Hand-Off adds `create_case_comment`/`import_events` on request. Behavioral truth lives in `metrics.*` 30-day baselines. Case, alert, rule, and playbook state describes detections that already fired — a different skill.
 * **THE DUAL GROUNDING INVARIANTS (THE NON-NEGOTIABLE INTEGRITY CORE)**:
   1. **Zero Data Simulation (NEVER Fabricate Data)** / **Zero Generative Simulation & Strict Data Grounding Contract**: Every score, count, and timestamp MUST come from executed tool output; baselines ($\mu, \sigma$) and $Z, \text{CRI}$ come from the 30-day baseline model. Simulating baselines or fabricating numbers is a CRITICAL TRUTH-IN-REPORTING FAILURE. (Truth Over Completion: 0 events is a valid hunt.)
   2. **Zero Schema/Syntax Fantasy (NEVER Hallucinate UDM Fields or YARA-L Grammar)**: Never invent UDM fields or uncompiled YARA-L grammar. Verified via compiler probe (`<ISO_10M_AGO>` to `<ISO_NOW>`).
 * **Hard Stop on API Error (MANDATORY STOP — ZERO SILENT FALLBACK)**: If API query fails, STOP IMMEDIATELY. Zero simulation.
 * **Native Execution Guarantee (ZERO PYTHON SIMULATION SCRIPTING)**: Zero Local Script Invocations During Hunting (ZERO RUN_COMMAND VALIDATION). Local simulation is a CRITICAL COMPLIANCE VIOLATION. Author natively via SecOps GUS MCP.
 * **Hermetic Skill Boundary (ZERO CROSS-SKILL DRIFT)**: Once active, the agent MUST NOT read, import, or search other skills. 100% self-contained.
-* **Atomic Pipeline Execution Mandate (ZERO PIECEMEAL FRACTURING & DRIFT)**: Formulate single atomic YARA-L query for Pillar 2; fracturing into piecemeal searches is STRICTLY PROHIBITED. 360° Radar queries 5 sectors in parallel.
+* **Atomic Pipeline Execution Mandate (ZERO PIECEMEAL FRACTURING & DRIFT)**: Formulate single atomic YARA-L query for Pillar 2; fracturing into piecemeal searches is STRICTLY PROHIBITED. 360° Radar queries 6 sectors in parallel.
 * **Literal Query Display Mandate (ZERO FAKED YARA-L QUERIES)**: Pillar 2 must contain the literal multi-stage YARA-L block from pre-flight preview; 360 Radar mirrors its representative sector query.
 * **Post-Flight Audit & RAW_LOG_DUMP_DETECTED Rule**: Scoping probes run *before* the analysis; every query after it carries its own `match:`/`outcome:` aggregation. A query that returns `"events"` without `"stats"` once the analysis is under way is `RAW_LOG_DUMP_DETECTED` — abort reporting and present auto-corrected queries (rebuilt from `templates/pipelines/`) or ask to execute.
 
@@ -134,12 +135,12 @@ Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to bo
 * **Zero-Hallucination Compiler Grammar Contract**:
   - *Entity Role & Match Binding Invariant*: Match blocks accept ONLY simple bound identifiers ($host by 1d, $user by 1d), NEVER member access ($s1.user or $e.host in match: is invalid). Variables in match: MUST bind first in predicates ($host = principal.asset.hostname; $user = target.user.userid).
   - *Compiler Structural Boundary*: Arithmetic (`$a - $b`) STRICTLY PROHIBITED above `match:`. Reside in `outcome:` below `match:`.
-  - *Syntax Invariants*: `%list` or `or` for set membership; `re.regex($var, /pat/)` or `$var = /pat/` for regex; bare bound identifiers in `match:`; predicates in stage body; `by 1d` for daily grouping; `$dist_sq` in place of `sqrt(...)`; repeated multiplication in place of `^`; ≤20 `outcome:` vars; `if(cond, then, else)` with 3 args; placeholders for compound math (`$v = $a + $b; $safe = if($c, $v, $d)`); `max()`/`min()` numeric only (`Int`/`Float`; never on `$token`/`$host`/`$user`; non-match strings use `array_distinct($t)` or `count_distinct($t)`).
+  - *Syntax Invariants*: `%list` or `or` for set membership; `re.regex($var, /pat/)` or `$var = /pat/` for regex; bare bound identifiers in `match:`; predicates in stage body; `by 1d` for daily grouping; `$dist_sq` in place of `sqrt(...)`; repeated multiplication in place of `^`; ≤20 `outcome:` vars; `if(cond, then, else)` with 3 args; placeholders for compound math; `max()`/`min()` numeric only (`Int`/`Float`; non-match strings use `array_distinct($t)` or `count_distinct($t)`).
   - *Mandatory Companion Dimensions & Entity Affinity*: Cloud CRUD (`metrics.resource_*`) requires `metadata.vendor_name`, `metadata.product_name`. File metrics (`metrics.file_executions_*`) are Host/Binary scoped (`$host, $sha256`) requiring `metadata.event_type`. NEVER bind `principal.user.userid` to file metrics or force cross-entity joins.
 * **Consultative Pivot & Handoff Protocol (ZERO FORCED JOINS)**: When vectors cross entity boundaries or lack baselines, NEVER synthesize fake schemas. Offer 3 paths: 1) Cloud-First, 2) Asset-First, 3) Handoff to `secops-statistical-hunter`.
 * **Variable Role Classification & Anti-Passive-Decoration Mandate**: Variables: `[JOIN_KEY]`, `[SCORING_DIMENSION]`, `[ACTIVE_FILTER]`, `[TRIAGE_DECORATION]`. Primary vectors MUST NEVER act solely as `[TRIAGE_DECORATION]`.
 * **Inner-Join Drop Prevention Standard (PRESERVING FULL POPULATION)**: Baseline full fleet in Stage 1 and profile destinations via `array_distinct(target.hostname)`.
-* **Noise Gating via Root `condition:`**: Default $Z \ge 3.0\sigma$ / $D \ge 3.5\sigma$; tunable to Investigative ($2.0\sigma \le Z < 3.0\sigma$), Directional ($Z \le -3.0\sigma$), or Multi-Vector ($D^2 \ge 16.0$). Root stage supports `condition:` post-aggregation, placed strictly AFTER `outcome:` and BEFORE `order:` (e.g. `condition: $z >= 2.0 and $z < 3.0`).
+* **Noise Gating via Root `condition:`**: Default $Z \ge 3.0\sigma$ / $D \ge 3.5\sigma$; tunable to Investigative ($2.0\sigma \le Z < 3.0\sigma$). Root stage supports `condition:` placed strictly AFTER `outcome:` and BEFORE `order:` (e.g. `condition: $z >= 2.0 and $z < 3.0`).
 
 ### 3. Scope, Steering, Typography & Parsimony
 * **Pure Threat Hunting Scope (SEARCH-ONLY)**: Output is ad-hoc Multi-Stage YARA-L (`stage ...` + Root) — a Query, never a Rule. `create_rule` and `validate_rule` are outside this skill's authority. Detection Rules discard 30d baselines and belong to a different skill. Treat any drift toward Rule authoring as out of scope.

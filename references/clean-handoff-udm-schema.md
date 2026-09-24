@@ -80,7 +80,7 @@ rule secops_risk_metrics_synthetic_alert_catchall {
 
 ---
 
-## 3. 📋 The 9 Canonical `product_event_type` Schemas
+## 3. 📋 The 10 Canonical `product_event_type` Schemas
 
 ### 1. `VOLUMETRIC_BASELINE_ANOMALY` (Standard Z-Score, MAD, CV)
 ```json
@@ -683,6 +683,75 @@ rule secops_risk_metrics_synthetic_alert_catchall {
           { "key": "threat_framework", "value": "MITRE_ATTACK" },
           { "key": "mitre_tactics", "value": "TA0002_EXECUTION" },
           { "key": "mitre_techniques", "value": "T1204.002" }
+        ]
+      }
+    ]
+  }
+}
+```
+
+### 10. `BEHAVIORAL_RISK_RADAR_360` (Decoupled 6-Sector Threat Distance)
+```json
+{
+  "udm": {
+    "metadata": {
+      "event_timestamp": "2026-08-26T21:00:00Z",
+      "ingested_timestamp": "2026-08-26T21:00:00Z",
+      "product_name": "SecOps Risk Metrics Hunter",
+      "vendor_name": "Google SecOps",
+      "event_type": "GENERIC_EVENT",
+      "product_event_type": "BEHAVIORAL_RISK_RADAR_360",
+      "description": "360° Behavioral Risk Radar Anomaly: user-jdoe breached multi-sector threshold with Euclidean Threat Distance D=6.68σ (CRI: 84)",
+      "ingestion_labels": [
+        { "key": "hunt_campaign_id", "value": "hunt-c7f8a91b" },
+        { "key": "source_skill", "value": "secops-risk-metrics-multistage" }
+      ]
+    },
+    "observer": {
+      "hostname": "secops-risk-metrics-hunter",
+      "application": "Google SecOps Multi-Stage Risk Analytics"
+    },
+    "principal": {
+      "user": { "userid": "jdoe" },
+      "asset": { "hostname": "ws-jdoe.corp.local" }
+    },
+    "target": {
+      "resource": {
+        "name": "BEHAVIORAL_RISK_RADAR_360",
+        "resource_type": "RESOURCE_TYPE_UNSPECIFIED",
+        "attribute": {
+          "labels": [
+            { "key": "Hunt Campaign ID", "value": "hunt-c7f8a91b" },
+            { "key": "Statistical Model", "value": "Decoupled 6-Sector Threat Distance" },
+            { "key": "Sector 1 Auth Z-Score", "value": "3.45" },
+            { "key": "Sector 2 Cloud Z-Score", "value": "2.10" },
+            { "key": "Sector 3 Workspace Z-Score", "value": "0.40" },
+            { "key": "Sector 4 Network Z-Score", "value": "3.80" },
+            { "key": "Sector 5 DNS Z-Score", "value": "1.15" },
+            { "key": "Sector 6 Web Proxy Z-Score", "value": "4.25" },
+            { "key": "Euclidean Threat Distance D", "value": "6.68" },
+            { "key": "Calibrated Risk Index (CRI)", "value": "84" },
+            { "key": "Sectors Breached", "value": "4/6" }
+          ]
+        }
+      }
+    },
+    "security_result": [
+      {
+        "threat_name": "Statistical Outlier: Multi-Sector Behavioral Risk Surge",
+        "threat_id": "T1078, T1048, T1071.001",
+        "category": ["UNWANTED_ACTIVITY", "SUSPICIOUS_BEHAVIOR"],
+        "category_details": ["MULTI_SECTOR_BREACH", "CROSS_VECTOR_ANOMALY"],
+        "action": ["UNKNOWN_ACTION"],
+        "risk_score": 84,
+        "severity": "CRITICAL",
+        "summary": "Entity jdoe exhibited coordinated behavioral anomalies across 4 of 6 risk sectors (Web/Proxy +4.25σ, Network +3.80σ, Auth +3.45σ, Cloud +2.10σ; Euclidean Distance D=6.68σ).",
+        "description": "Decoupled 6-sector behavioral risk radar revealed an extreme cross-vector statistical outlier breaching the Euclidean significance threshold (D >= 3.0σ, CRI >= 50).",
+        "detection_fields": [
+          { "key": "active_sectors", "value": "AUTH, CLOUD, NETWORK, WEB_PROXY" },
+          { "key": "threat_framework", "value": "MITRE_ATTACK" },
+          { "key": "mitre_tactics", "value": "TA0001_INITIAL_ACCESS, TA0010_EXFILTRATION, TA0011_COMMAND_AND_CONTROL" },
+          { "key": "mitre_techniques", "value": "T1078, T1048.003, T1071.001" }
         ]
       }
     ]

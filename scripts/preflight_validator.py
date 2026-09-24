@@ -51,7 +51,11 @@ class PipelineArchitecture(str, Enum):
   HYBRID_METRIC_ORTHOGONAL_SPACE_2STAGE = "HYBRID_METRIC_ORTHOGONAL_SPACE_2STAGE"
   HYBRID_METRIC_FLEET_PREVALENCE_2STAGE = "HYBRID_METRIC_FLEET_PREVALENCE_2STAGE"
   PART_OF_THE_WHOLE_MULTILEVEL = "PART_OF_THE_WHOLE_MULTILEVEL"
-  PART_OF_THE_WHOLE_TRIAD_MULTILEVEL = "PART_OF_THE_WHOLE_TRIAD_MULTILEVEL" 
+  PART_OF_THE_WHOLE_TRIAD_MULTILEVEL = "PART_OF_THE_WHOLE_TRIAD_MULTILEVEL"
+  HYBRID_METRIC_HTTP_UA_PREVALENCE_2STAGE = "HYBRID_METRIC_HTTP_UA_PREVALENCE_2STAGE"
+  HTTP_ERROR_RATIO_SURGE_2STAGE = "HTTP_ERROR_RATIO_SURGE_2STAGE"
+  HTTP_TARGET_SURGE_2STAGE = "HTTP_TARGET_SURGE_2STAGE"
+  RADAR_360_SECTOR_WEB_HTTP = "RADAR_360_SECTOR_WEB_HTTP"
 
 
 @dataclass
@@ -249,8 +253,12 @@ METRIC_CATALOG: Dict[str, MetricDefinition] = {
         metric_id=17,
         metric_name="http_queries_success",
         event_type="NETWORK_HTTP",
-        supported_entity_types=[EntityType.USER, EntityType.ASSET],
-        dimension_fields={EntityType.USER: "principal.user.userid", EntityType.ASSET: "principal.asset.hostname"},
+        supported_entity_types=[EntityType.USER, EntityType.ASSET, EntityType.RESOURCE],
+        dimension_fields={
+            EntityType.USER: "principal.user.userid",
+            EntityType.ASSET: "principal.asset.hostname",
+            EntityType.RESOURCE: "target.hostname",
+        },
         backing_log_types=["CHROME_MANAGEMENT", "ZSCALER", "SQUID_PROXY", "PALO_ALTO_FIREWALL", "BLUECOAT_PROXY"],
         is_vendor_scoped=False,
         default_floor_days=7,
@@ -260,8 +268,12 @@ METRIC_CATALOG: Dict[str, MetricDefinition] = {
         metric_id=18,
         metric_name="http_queries_fail",
         event_type="NETWORK_HTTP",
-        supported_entity_types=[EntityType.USER, EntityType.ASSET],
-        dimension_fields={EntityType.USER: "principal.user.userid", EntityType.ASSET: "principal.asset.hostname"},
+        supported_entity_types=[EntityType.USER, EntityType.ASSET, EntityType.RESOURCE],
+        dimension_fields={
+            EntityType.USER: "principal.user.userid",
+            EntityType.ASSET: "principal.asset.hostname",
+            EntityType.RESOURCE: "target.hostname",
+        },
         backing_log_types=["CHROME_MANAGEMENT", "ZSCALER", "SQUID_PROXY", "PALO_ALTO_FIREWALL", "BLUECOAT_PROXY"],
         is_vendor_scoped=False,
         default_floor_days=7,
@@ -271,8 +283,12 @@ METRIC_CATALOG: Dict[str, MetricDefinition] = {
         metric_id=19,
         metric_name="http_queries_total",
         event_type="NETWORK_HTTP",
-        supported_entity_types=[EntityType.USER, EntityType.ASSET],
-        dimension_fields={EntityType.USER: "principal.user.userid", EntityType.ASSET: "principal.asset.hostname"},
+        supported_entity_types=[EntityType.USER, EntityType.ASSET, EntityType.RESOURCE],
+        dimension_fields={
+            EntityType.USER: "principal.user.userid",
+            EntityType.ASSET: "principal.asset.hostname",
+            EntityType.RESOURCE: "target.hostname",
+        },
         backing_log_types=["CHROME_MANAGEMENT", "ZSCALER", "SQUID_PROXY", "PALO_ALTO_FIREWALL", "BLUECOAT_PROXY"],
         is_vendor_scoped=False,
         default_floor_days=7,
@@ -912,6 +928,7 @@ class MalachiteASTValidator:
   @staticmethod
   def validate_query(query_text: str) -> List[str]:
     errors = []
+    standard_params = {"period", "window", "metric", "agg", "filter"}
 
     # 1. Methodology & Goal Comment Header
     if not re.search(r"//\s*(?:Goal:|ARCHITECTURE:)", query_text, re.IGNORECASE):
@@ -991,6 +1008,12 @@ class MalachiteASTValidator:
             "Root stages join via '$user = $stage1.user' and '$stage1.outcome_var'."
         )
 
+      # Check for hallucinated user agent UDM paths in stage body
+      if re.search(r"\b(?:target|principal)\.(?:http\.)?user_agent\b", stage_body) or re.search(r"(?<!network\.)\bhttp\.user_agent\b", stage_body):
+        errors.append(
+            f"INVALID_UDM_PATH in stage '{stage_name}': User-Agent string is located at 'network.http.user_agent' in UDM (udm.proto Line 3889), not 'target.user_agent'."
+        )
+
       # Check that placeholder variables in match section are defined in event section and no arithmetic above match
       match_block = re.search(r"\bmatch:\s*(.*?)(?=\b(?:outcome|condition|order)\s*:|\}|$|\Z)", stage_body, re.DOTALL)
       if match_block:
@@ -1043,6 +1066,13 @@ class MalachiteASTValidator:
                 hint = " (In Chronicle, device IP filtering requires 'principal.asset.ip' or 'principal.asset.hostname')"
               elif param == "target.ip" and "target.asset.ip" in valid_filters:
                 hint = " (In Chronicle, device IP filtering requires 'target.asset.ip' or 'target.asset.hostname')"
+              elif m_lower.startswith("http_queries"):
+                if param == "target.url":
+                  hint = " (In Chronicle Malachite, HTTP metrics only baseline 'target.hostname'. Full URL/URI analysis must be performed in raw event companion stages or via secops-statistical-hunter.)"
+                elif param in ("target.ip", "target.asset.ip"):
+                  hint = " (In Chronicle Malachite, HTTP metrics support 'target.hostname'. For IP destination baselines use 'metrics.dns_bytes_outbound' or secops-statistical-hunter.)"
+                elif param in ("network.http.response_code", "network.http.method"):
+                  hint = " (In Chronicle Malachite, HTTP methods/response codes are partitioned at ingest into 'metrics.http_queries_fail' and 'metrics.http_queries_success', not dynamic filters.)"
               errors.append(
                   f"INVALID_METRIC_FILTER in stage '{stage_name}': '{param}' is not a supported filter for 'metrics.{m_name}'.{hint}"
               )
@@ -1116,6 +1146,12 @@ class MalachiteASTValidator:
             "(with 'match:' and 'outcome:'/'condition:'). Named stages cannot execute without a terminal root stage."
         )
 
+    # Check for hallucinated user agent UDM paths in root body
+    if re.search(r"\b(?:target|principal)\.(?:http\.)?user_agent\b", root_body) or re.search(r"(?<!network\.)\bhttp\.user_agent\b", root_body):
+      errors.append(
+          "INVALID_UDM_PATH in root stage: User-Agent string is located at 'network.http.user_agent' in UDM (udm.proto Line 3889), not 'target.user_agent'."
+      )
+
     # Check root stage metric filter fields
     root_metric_calls = re.findall(r"metrics\.([a-zA-Z0-9_]+)\s*\(([^)]+)\)", root_body, re.DOTALL)
     for m_name, args_body in root_metric_calls:
@@ -1130,6 +1166,13 @@ class MalachiteASTValidator:
               hint = " (In Chronicle, device IP filtering requires 'principal.asset.ip' or 'principal.asset.hostname')"
             elif param == "target.ip" and "target.asset.ip" in valid_filters:
               hint = " (In Chronicle, device IP filtering requires 'target.asset.ip' or 'target.asset.hostname')"
+            elif m_lower.startswith("http_queries"):
+              if param == "target.url":
+                hint = " (In Chronicle Malachite, HTTP metrics only baseline 'target.hostname'. Full URL/URI analysis must be performed in raw event companion stages or via secops-statistical-hunter.)"
+              elif param in ("target.ip", "target.asset.ip"):
+                hint = " (In Chronicle Malachite, HTTP metrics support 'target.hostname'. For IP destination baselines use 'metrics.dns_bytes_outbound' or secops-statistical-hunter.)"
+              elif param in ("network.http.response_code", "network.http.method"):
+                hint = " (In Chronicle Malachite, HTTP methods/response codes are partitioned at ingest into 'metrics.http_queries_fail' and 'metrics.http_queries_success', not dynamic filters.)"
             errors.append(
                 f"INVALID_METRIC_FILTER in root stage: '{param}' is not a supported filter for 'metrics.{m_name}'.{hint}"
             )

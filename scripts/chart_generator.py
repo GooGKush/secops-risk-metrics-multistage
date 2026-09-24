@@ -229,9 +229,9 @@ class RiskMetricsChartGenerator:
       fleet_records: List[Dict[str, Any]],
       title: Optional[str] = None,
   ) -> Dict[str, Any]:
-    """Generates a Vega-Lite 5-Sector Fleet Heatmap Matrix (Entities x Sectors with Z-score color)."""
+    """Generates a Vega-Lite 6-Sector Fleet Heatmap Matrix (Entities x Sectors with Z-score color)."""
     if not title:
-      title = "Multi-Sector Fleet Threat Matrix (5-Sector Heatmap)"
+      title = "Multi-Sector Fleet Threat Matrix (6-Sector Heatmap)"
 
     entity_count = len(set(r.get("entity", "") for r in fleet_records))
     return {

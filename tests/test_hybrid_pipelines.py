@@ -46,8 +46,8 @@ class TestHybridPipelines(unittest.TestCase):
     # 3. Stage 2 Raw Telemetry Enrichment
     self.assertIn("stage stage2_raw_telemetry {", query)
     self.assertIn('metadata.event_type = "NETWORK_HTTP"', query)
-    self.assertIn("count_distinct(target.user_agent)", query)
-    self.assertIn("array_distinct(target.user_agent)", query)
+    self.assertIn("count_distinct(network.http.user_agent)", query)
+    self.assertIn("array_distinct(network.http.user_agent)", query)
 
     # 4. Root Stage Fusion
     self.assertIn("$entity = $stage1_macro_baseline.entity", query)

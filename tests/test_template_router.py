@@ -209,7 +209,75 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
       )
     self.assertIn("Heterogeneous event types not permitted", str(ctx.exception))
 
+  def test_http_ua_prevalence_pipeline_rendering(self):
+    """Verifies that HYBRID_METRIC_HTTP_UA_PREVALENCE_2STAGE renders cleanly."""
+    query = self.router.build_pipeline_query(
+        PipelineArchitecture.HYBRID_METRIC_HTTP_UA_PREVALENCE_2STAGE,
+        hypothesis_goal="Hunt for rare user-agent adoption across fleet",
+        min_threshold=2.0,
+    )
+    self.assertIn("stage stage1_personal_surge", query)
+    self.assertIn("metrics.http_queries_total", query)
+    self.assertIn("network.http.user_agent = $token", query)
+    self.assertIn("stage stage2_fleet_prevalence", query)
+    self.assertIn("$fleet_adopters = count_distinct(principal.asset.hostname)", query)
+    self.assertIn("condition:\n  $normalized_odds_score >= 2.0", query)
+    self.assertIn("order:\n  $normalized_odds_score desc", query)
+
+  def test_http_error_ratio_surge_pipeline_rendering(self):
+    """Verifies that HTTP_ERROR_RATIO_SURGE_2STAGE renders with failure ratio derivation."""
+    query = self.router.build_pipeline_query(
+        PipelineArchitecture.HTTP_ERROR_RATIO_SURGE_2STAGE,
+        hypothesis_goal="Detect web application fuzzing and scanning",
+    )
+    self.assertIn("stage stage1_http_failure_surge", query)
+    self.assertIn("metrics.http_queries_fail", query)
+    self.assertIn("$fail_ratio = $failed_obs / ($total_obs + 0.001)", query)
+    self.assertIn("stage stage2_target_breadth", query)
+    self.assertIn("order:\n  $recon_score desc", query)
+
+  def test_http_target_surge_pipeline_rendering(self):
+    """Verifies that HTTP_TARGET_SURGE_2STAGE renders destination-centric surge."""
+    query = self.router.build_pipeline_query(
+        PipelineArchitecture.HTTP_TARGET_SURGE_2STAGE,
+        hypothesis_goal="Detect target web server surge and beaconing",
+    )
+    self.assertIn("stage stage1_target_surge", query)
+    self.assertIn("target.hostname = $target_host", query)
+    self.assertIn("metrics.http_queries_total", query)
+    self.assertIn("stage stage2_fleet_target_breadth", query)
+    self.assertIn("order:\n  $target_risk_score desc", query)
+
+  def test_radar_360_sector_web_http_rendering(self):
+    """Verifies that RADAR_360_SECTOR_WEB_HTTP renders micro-query for web sector."""
+    query = self.router.build_pipeline_query(
+        PipelineArchitecture.RADAR_360_SECTOR_WEB_HTTP,
+    )
+    self.assertIn("stage web_http_risk", query)
+    self.assertIn("metadata.event_type = \"NETWORK_HTTP\"", query)
+    self.assertIn("metrics.http_queries_total", query)
+    self.assertIn("principal.user.userid = $user", query)
+    self.assertIn("order:\n  $z desc", query)
+
+  def test_http_triad_multilevel_rendering(self):
+    """Verifies that PART_OF_THE_WHOLE_TRIAD_MULTILEVEL renders an HTTP triad (total, fail, success)."""
+    query = self.router.build_pipeline_query(
+        PipelineArchitecture.PART_OF_THE_WHOLE_TRIAD_MULTILEVEL,
+        entity_type=EntityType.USER,
+        target_metrics=["http_queries_total", "http_queries_fail", "http_queries_success"],
+        cohort_entities=["alice", "bob"],
+        target_entity="alice",
+        hypothesis_goal="Evaluate alice against web peers across HTTP triad",
+    )
+    self.assertIn("stage all_entities {", query)
+    self.assertIn("metadata.event_type = \"NETWORK_HTTP\"", query)
+    self.assertIn("metrics.http_queries_total", query)
+    self.assertIn("metrics.http_queries_fail", query)
+    self.assertIn("metrics.http_queries_success", query)
+    self.assertIn("$d_vs_team_sq =", query)
+
 
 if __name__ == "__main__":
   unittest.main()
+
 

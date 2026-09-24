@@ -264,27 +264,28 @@ class TestRadarCollector(unittest.TestCase):
     self.assertIn("tim.smith@altostrat.com", html_widget)
 
   def test_canonical_nominal_spokes(self):
-    """Canonical nominal spokes must return 5 spokes at 0.00σ baseline for both USER and ASSET."""
+    """Canonical nominal spokes must return 6 spokes at 0.00σ baseline for both USER and ASSET."""
     user_spokes = EntityRadarCollector.get_canonical_nominal_spokes("USER")
-    self.assertEqual(len(user_spokes), 5)
+    self.assertEqual(len(user_spokes), 6)
     for s in user_spokes:
       self.assertEqual(s.z_score, 0.0)
 
     asset_spokes = EntityRadarCollector.get_canonical_nominal_spokes("ASSET")
-    self.assertEqual(len(asset_spokes), 5)
+    self.assertEqual(len(asset_spokes), 6)
     for s in asset_spokes:
       self.assertEqual(s.z_score, 0.0)
 
   def test_parse_scores_argument(self):
     """parse_scores_argument must parse key-value pairs into calibrated MetricSpoke instances."""
-    spokes = EntityRadarCollector.parse_scores_argument("auth=0.0,cloud=3.8,workspace=3.2,net=0.8,dns=10.8", "USER")
-    self.assertEqual(len(spokes), 5)
+    spokes = EntityRadarCollector.parse_scores_argument("auth=0.0,cloud=3.8,workspace=3.2,net=0.8,dns=10.8,web=4.2", "USER")
+    self.assertEqual(len(spokes), 6)
     spoke_map = {s.spoke_name: s.z_score for s in spokes}
     self.assertEqual(spoke_map["Authentication Attempts"], 0.0)
     self.assertEqual(spoke_map["Cloud Resource CRUD"], 3.8)
     self.assertEqual(spoke_map["Workspace & SaaS Exfil"], 3.2)
     self.assertEqual(spoke_map["Network Egress"], 0.8)
-    self.assertEqual(spoke_map["DNS & Web Activity"], 10.8)
+    self.assertEqual(spoke_map["DNS Resolution"], 10.8)
+    self.assertEqual(spoke_map["Web & Proxy Requests"], 4.2)
 
     # Backward-compatible proc/endpoint alias
     proc_spokes = EntityRadarCollector.parse_scores_argument("proc=5.5", "USER")
@@ -431,7 +432,7 @@ stage stage_dns {
     matrix = [
         {
             "entity": "WRK-SHASEK",
-            "sectors": {"IAM & Authentication": 1.2, "Cloud Infrastructure": 0.8, "DNS & Web Activity": 4.10},
+            "sectors": {"IAM & Authentication": 1.2, "Cloud Infrastructure": 0.8, "DNS Resolution": 4.10},
             "threat_distance_d": 4.10,
             "cri": 78,
         }

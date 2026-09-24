@@ -162,48 +162,50 @@ flowchart LR
 
 ---
 
-## 🛑 5. The Monolithic 5-Stage Join Trap & Decoupled Micro-Query Guarantee
+## 5. The Monolithic 6-Stage Join Trap & Decoupled Micro-Query Guarantee
 
-### Why Monolithic 5-Stage YARA-L Joins Fail in Chronicle SIEM
-When evaluating an entity across 5 orthogonal vectors (Auth, Cloud, Workspace, Net, DNS), attempting to combine all 5 sectors into a single monolithic YARA-L rule is a severe architectural anti-pattern (`STAT_ANTIPATTERN_MONOLITHIC_RADAR_JOIN`):
+### Why Multi-Sector Telemetry Requires Decoupled Micro-Queries
+When evaluating an entity across 6 orthogonal vectors (Auth, Cloud, Workspace, Net, DNS, Web), execute decoupled micro-queries rather than combining all 6 sectors into a single inner join query (`STAT_ANTIPATTERN_MONOLITHIC_RADAR_JOIN`):
 
 > [!IMPORTANT]
-> **Never fuse three or more orthogonal sectors into one query, and auto-bypass Mode B when the request would require it.** Mode B (longitudinal timeline) multiplies the join count by preserving a per-period bucket across stages, so a multi-sector request in Mode B exceeds `maxJoinCount = 4` before any metrics lookup is added. On encountering that combination, drop to decoupled per-sector micro-queries rather than attempting the fused form. Join accounting is in `references/multi-stage-metrics-guide.md` §20.5.
+> **Evaluate three or more orthogonal sectors via decoupled micro-queries, and auto-bypass Mode B when the request would require it.** Mode B (longitudinal timeline) multiplies the join count by preserving a per-period bucket across stages, so a multi-sector request in Mode B exceeds `maxJoinCount = 4` before any metrics lookup is added. On encountering that combination, execute decoupled per-sector micro-queries. Join accounting is in `references/multi-stage-metrics-guide.md` §20.5.
 
 <!-- yara-fragment: anti-pattern demonstration; intentionally invalid -->
 ```yara
-// ❌ ANTI-PATTERN: Monolithic 5-Sector Inner Join (COMPILER ERROR & SILENT DROP)
+// Architecture Comparison: Monolithic Multi-Sector Inner Join (Exceeds Join Budget & Drops Disjoint Entities)
 stage s1_auth { ... match: $user by 1d ... }
 stage s2_cloud { ... match: $user by 1d ... }
 stage s3_work { ... match: $user by 1d ... }
 stage s4_net { ... match: $user by 1d ... }
 stage s5_dns { ... match: $user by 1d ... }
+stage s6_web { ... match: $user by 1d ... }
 
 $user = $s1_auth.user
 $user = $s2_cloud.user
 $user = $s3_work.user
 $user = $s4_net.user
 $user = $s5_dns.user
+$user = $s6_web.user
 match: $user by 1d
 outcome:
-  $d_sq = ($s1_auth.z)^2 + ($s2_cloud.z)^2 + ($s3_work.z)^2 + ($s4_net.z)^2 + ($s5_dns.z)^2
+  $d_sq = ($s1_auth.z)^2 + ($s2_cloud.z)^2 + ($s3_work.z)^2 + ($s4_net.z)^2 + ($s5_dns.z)^2 + ($s6_web.z)^2
 ```
 
 This constructs two fatal failure modes:
 1. **Chronicle Compiler Limit (`maxJoinCount = 4`)**:
-   Chronicle SIEM strictly caps multi-stage joins at `maxJoinCount = 4`. A query attempting to join 5 stages exceeds the compiler limit and triggers an unrecoverable compilation error.
+   Chronicle SIEM strictly caps multi-stage joins at `maxJoinCount = 4`. A query attempting to join 5 or 6 stages exceeds the compiler limit and triggers an unrecoverable compilation error.
 2. **Silent Inner-Join Drop**:
    In YARA-L 2.0 DAGs, cross-stage joins are **strict inner joins**. If the target entity had zero cloud resource modifications or zero Google Workspace downloads on that particular date, that stage produces zero rows. Joining with an empty stage drops the entity completely from the query results, yielding 0 rows across all sectors.
 
-### The Decoupled 5-Sector Architecture & `radar_collector.py`
+### The Decoupled 6-Sector Architecture & `radar_collector.py`
 To guarantee zero compilation errors and prevent silent drops:
-* Execute 5 lightweight, independent sector micro-queries in parallel (each evaluating 1 sector against its 30-day baseline).
+* Execute 6 lightweight, independent sector micro-queries in parallel (each evaluating 1 sector against its 30-day baseline).
 * If a sector returns 0 events for the target entity, record nominal baseline ($Z = 0.00\sigma, \text{CRI} = 0$).
 * Feed the resulting vector scores into the deterministic CLI visualizer:
   ```bash
   python3 scripts/radar_collector.py \
     --entity "<entity_id>" \
-    --scores "auth=<Z1>,cloud=<Z2>,workspace=<Z3>,net=<Z4>,dns=<Z5>" \
+    --scores "auth=<Z1>,cloud=<Z2>,workspace=<Z3>,net=<Z4>,dns=<Z5>,web=<Z6>" \
     --output "<artifact_dir>/radar_<entity_id>.html" \
     --format embed
   ```
@@ -215,7 +217,7 @@ To guarantee zero compilation errors and prevent silent drops:
 
 ### A. Turn 1 Pre-Flight Clearance Hard Gate (NO QUERY = NO CLEARANCE)
 When conducting a 360° Entity Behavioral Risk Radar hunt:
-1. **Mandatory Upfront Query Preview**: The agent must display the compilable micro-query template representing the 5-sector decoupled evaluation.
+1. **Mandatory Upfront Query Preview**: The agent must display the compilable micro-query template representing the 6-sector decoupled evaluation.
 2. **Strict Compiler Probe Requirement**: Before displaying ````yara in markdown, the probe query must be validated via `secops-gus:udm_search` with ISO 8601 timestamps (`startTime="<ISO_10M_AGO>"`, `endTime="<ISO_NOW>"`). Relative strings like `"now-10m"` are forbidden.
 3. **Hard Pre-Flight Clearance Gate**: If the query cannot be probed or compiled, the clearance question (Step 5) MUST NOT be asked. The agent must halt immediately and report what blocked query compilation.
 

@@ -1,0 +1,86 @@
+// ============================================================================
+// ARCHITECTURE: 2-STAGE HTTP USER-AGENT FLEET PREVALENCE NORMALIZATION PIPELINE
+// Skill: secops-risk-metrics-multistage
+// Common Compiler Conformance: YARA-L 2.0 Multi-Stage DAG Engine
+// Models Supported:
+//   Cross-Sectional Odds Ratio (Anomalous Browser & Script Tool Adoption)
+// Join Budget: 1 metric lookup (Stage 1) + 1 stage join (Root) = 2 joins total (<= 4).
+// Match Topology: Token-centric match key ($token by 1d) joining personal UA anomaly to fleet breadth.
+// ============================================================================
+
+// Stage 1: Personal Host User-Agent Baseline Surge (metrics.http_queries_total)
+stage stage1_personal_surge {
+    metadata.event_type = "NETWORK_HTTP"
+    principal.asset.hostname = $entity
+    $entity != ""
+    network.http.user_agent = $token
+    $token != ""
+
+  match:
+    $entity, $token by 1d
+
+  outcome:
+    $observed_val = count(metadata.id)
+    $hist_mean = max(metrics.http_queries_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+        principal.asset.hostname: $entity,
+        network.http.user_agent: $token
+    ))
+    $hist_stddev = max(metrics.http_queries_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+        principal.asset.hostname: $entity,
+        network.http.user_agent: $token
+    ))
+    $hist_active_days = max(metrics.http_queries_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+        principal.asset.hostname: $entity,
+        network.http.user_agent: $token
+    ))
+
+    $diff = $observed_val - $hist_mean
+    $denom = $hist_stddev + 1.0
+    $personal_z = $diff / $denom
+    $surging_entity = array_distinct($entity)
+}
+
+// Stage 2: Enterprise-Wide Concurrent Fleet Adoption of the User-Agent (UDM_EVENTS)
+stage stage2_fleet_prevalence {
+    metadata.event_type = "NETWORK_HTTP"
+    network.http.user_agent = $token
+    $token != ""
+
+  match:
+    $token by 1d
+
+  outcome:
+    $fleet_adopters = count_distinct(principal.asset.hostname)
+    $total_fleet_events = count(metadata.id)
+    $sample_fleet_hosts = array_distinct(principal.asset.hostname)
+}
+
+// Stage 3 (Root Stage): Prevalence-Dampened Outlier Odds Fusion
+$token = $stage1_personal_surge.token
+$token = $stage2_fleet_prevalence.token
+
+match:
+  $token by 1d
+
+outcome:
+  $affected_hosts = array_distinct($stage1_personal_surge.surging_entity)
+  $personal_z = max($stage1_personal_surge.personal_z)
+  $active_baseline_days = max($stage1_personal_surge.hist_active_days)
+  $fleet_adopters = max($stage2_fleet_prevalence.fleet_adopters)
+  $total_events = max($stage2_fleet_prevalence.total_fleet_events)
+
+  // Hyperbolic Prevalence Dampener: 1.0 / (k_fleet + 1.0)
+  // Enterprise rollouts (Chrome updates across 500 hosts) collapse to ~0.002
+  // Isolated scripts (curl / python on 1 host) preserve 0.50 full outlier weight
+  $prevalence_dampener = 1.0 / ($fleet_adopters + 1.0)
+  $normalized_odds_score = $personal_z * $prevalence_dampener
+
+condition:
+  $personal_z >= 2.0
+  and $fleet_adopters <= 2
+
+order:
+  $normalized_odds_score desc

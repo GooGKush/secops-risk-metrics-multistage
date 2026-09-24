@@ -147,8 +147,8 @@ match: $user by 1d
 outcome:
   $z_egress = (max($s1.bytes_obs) - max($s1.bytes_avg)) / (max($s1.bytes_std) + 1.0)
 """,
-      "DNS & Web Activity": """
-// Sector: DNS & Web Activity
+      "DNS Resolution": """
+// Sector: DNS Failures
 stage s1 {
     metadata.event_type = "NETWORK_DNS"
     network.dns.response_code != 0
@@ -165,6 +165,24 @@ $user = $s1.user
 match: $user by 1d
 outcome:
   $z_dns_fail = (max($s1.dns_obs) - max($s1.dns_avg)) / (max($s1.dns_std) + 1.0)
+""",
+      "Web & Proxy Activity": """
+// Sector: Web & Proxy Activity
+stage s1 {
+    metadata.event_type = "NETWORK_HTTP"
+    principal.user.userid = "%(entity_id)s"
+    $user = principal.user.userid
+  match:
+    $user by 1d
+  outcome:
+    $http_obs = count(metadata.id)
+    $http_avg = max(metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: "%(entity_id)s"))
+    $http_std = max(metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: "%(entity_id)s"))
+}
+$user = $s1.user
+match: $user by 1d
+outcome:
+  $z_http = (max($s1.http_obs) - max($s1.http_avg)) / (max($s1.http_std) + 1.0)
 """,
   }
 
@@ -229,6 +247,24 @@ match: $asset by 1d
 outcome:
   $z_dns_fail = (max($s1.dns_obs) - max($s1.dns_avg)) / (max($s1.dns_std) + 1.0)
 """,
+      "Web & Proxy Activity": """
+// Sector: Web & Proxy Activity
+stage s1 {
+    metadata.event_type = "NETWORK_HTTP"
+    principal.asset.hostname = "%(entity_id)s"
+    $asset = principal.asset.hostname
+  match:
+    $asset by 1d
+  outcome:
+    $http_obs = count(metadata.id)
+    $http_avg = max(metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.asset.hostname: "%(entity_id)s"))
+    $http_std = max(metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.asset.hostname: "%(entity_id)s"))
+}
+$asset = $s1.asset
+match: $asset by 1d
+outcome:
+  $z_http = (max($s1.http_obs) - max($s1.http_avg)) / (max($s1.http_std) + 1.0)
+""",
   }
 
   def __init__(self, secops_client: Optional[Any] = None):
@@ -236,12 +272,13 @@ outcome:
 
   @staticmethod
   def get_canonical_nominal_spokes(entity_type: str = "USER") -> List[MetricSpoke]:
-    """Returns the 5 canonical nominal spokes (Z=0.00σ) when data is omitted or baseline is nominal."""
+    """Returns the canonical nominal spokes (Z=0.00σ) when data is omitted or baseline is nominal."""
     if entity_type.upper() == "ASSET":
       return [
           MetricSpoke("Authentication", "Authentication & Access", "metrics.auth_attempts_fail", 0.0, 0.0, 0.0, 0.0, "logins", 0),
           MetricSpoke("Network", "Network Traffic Volume", "metrics.network_bytes_outbound", 0.0, 0.0, 0.0, 0.0, "bytes", 0),
           MetricSpoke("DNS", "DNS Resolution", "metrics.dns_queries_fail", 0.0, 0.0, 0.0, 0.0, "queries", 0),
+          MetricSpoke("Web & Proxy", "Web & Proxy Requests", "metrics.http_queries_total", 0.0, 0.0, 0.0, 0.0, "requests", 0),
           MetricSpoke("Cloud", "Cloud Infrastructure", "metrics.resource_creation_total", 0.0, 0.0, 0.0, 0.0, "events", 0),
           MetricSpoke("Endpoint", "Endpoint Process Activity", "PROCESS_LAUNCH", 0.0, 0.0, 0.0, 0.0, "events", 0),
       ]
@@ -250,12 +287,13 @@ outcome:
         MetricSpoke("Cloud Infrastructure", "Cloud Resource CRUD", "metrics.resource_creation_total", 0.0, 0.0, 0.0, 0.0, "events", 0),
         MetricSpoke("Workspace Data", "Workspace & SaaS Exfil", "metrics.workspace_total_download_actions", 0.0, 0.0, 0.0, 0.0, "actions", 0),
         MetricSpoke("Network Egress", "Network Egress", "metrics.network_bytes_outbound", 0.0, 0.0, 0.0, 0.0, "bytes", 0),
-        MetricSpoke("DNS & Web Activity", "DNS & Web Activity", "metrics.dns_queries_fail", 0.0, 0.0, 0.0, 0.0, "queries", 0),
+        MetricSpoke("DNS Resolution", "DNS Resolution", "metrics.dns_queries_fail", 0.0, 0.0, 0.0, 0.0, "queries", 0),
+        MetricSpoke("Web & Proxy Activity", "Web & Proxy Requests", "metrics.http_queries_total", 0.0, 0.0, 0.0, 0.0, "requests", 0),
     ]
 
   @staticmethod
   def parse_scores_argument(scores_str: str, entity_type: str = "USER") -> List[MetricSpoke]:
-    """Parses convenient comma-separated key=value scores (e.g. 'auth=0.0,cloud=3.8,workspace=3.2,net=0.8,proc=10.8')."""
+    """Parses convenient comma-separated key=value scores (e.g. 'auth=0.0,cloud=3.8,workspace=3.2,net=0.8,web=1.5,dns=10.8')."""
     canonical = EntityRadarCollector.get_canonical_nominal_spokes(entity_type)
     if not scores_str:
       return canonical
@@ -265,14 +303,17 @@ outcome:
         "cloud": 1, "crud": 1, "resource": 1,
         "workspace": 2, "saas": 2, "drive": 2, "doc": 2,
         "net": 3, "network": 3, "egress": 3, "byte": 3,
-        "dns": 4, "web": 4, "http": 4, "proc": 4, "endpoint": 4, "process": 4, "launch": 4,
+        "dns": 4,
+        "web": 5, "http": 5, "proxy": 5,
+        "proc": 4, "endpoint": 4, "process": 4, "launch": 4,
     }
     asset_map = {
         "auth": 0, "login": 0, "access": 0,
         "net": 1, "network": 1, "traffic": 1,
         "dns": 2,
-        "cloud": 3, "infra": 3, "crud": 3,
-        "proc": 4, "endpoint": 4, "process": 4,
+        "web": 3, "http": 3, "proxy": 3,
+        "cloud": 4, "infra": 4, "crud": 4,
+        "proc": 5, "endpoint": 5, "process": 5,
     }
     target_map = asset_map if entity_type.upper() == "ASSET" else user_map
 
@@ -741,13 +782,14 @@ outcome:
       fleet_matrix: List[Dict[str, Any]],
       title: str = "360° Multi-Sector Fleet Threat Matrix",
   ) -> str:
-    """Renders a responsive standalone HTML 5-sector heatmap matrix for fleet reviews."""
+    """Renders a responsive standalone HTML 6-sector heatmap matrix for fleet reviews."""
     canonical_sectors = [
         "IAM & Authentication",
         "Cloud Infrastructure",
         "Workspace Data",
         "Network Egress",
-        "DNS & Web Activity",
+        "DNS Resolution",
+        "Web & Proxy Activity",
     ]
     rows = []
     for r in fleet_matrix:
@@ -780,13 +822,13 @@ outcome:
         f'<!DOCTYPE html>\n<html>\n<head>\n  <meta charset="utf-8">\n'
         f'  <title>{title}</title>\n  <style>\n'
         f'    body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 16px; background: #fafafa; display: flex; justify-content: center; }}\n'
-        f'    .card {{ width: 100%; max-width: 860px; background: #ffffff; border: 1px solid #e8eaed; border-radius: 12px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); overflow-x: auto; }}\n'
+        f'    .card {{ width: 100%; max-width: 960px; background: #ffffff; border: 1px solid #e8eaed; border-radius: 12px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); overflow-x: auto; }}\n'
         f'    h3 {{ margin: 0 0 4px 0; font-size: 16px; color: #202124; }}\n'
         f'    p {{ margin: 0 0 16px 0; font-size: 12px; color: #5f6368; }}\n'
         f'    table {{ width: 100%; border-collapse: collapse; font-size: 12px; }}\n'
         f'  </style>\n</head>\n<body>\n  <div class="card">\n'
         f'    <h3>{title}</h3>\n'
-        f'    <p>5-Sector Behavioral Deviations across Fleet Entities</p>\n'
+        f'    <p>Multi-Sector Behavioral Deviations across Fleet Entities</p>\n'
         f'    <table>\n      <thead>\n        <tr>\n'
         f'          <th style="padding:10px 12px; font-size:11px; text-align:left; background:#f8f9fa; border-bottom:2px solid #dadce0;">Entity</th>\n'
         f'          {th_sectors}\n'
@@ -800,33 +842,35 @@ outcome:
       fleet_matrix: List[Dict[str, Any]],
       title: str = "360° Multi-Sector Fleet Threat Matrix",
   ) -> str:
-    """Renders a standalone pure SVG 5-sector heatmap matrix for fleet reviews."""
+    """Renders a standalone pure SVG multi-sector heatmap matrix for fleet reviews."""
     canonical_sectors = [
         "IAM & Authentication",
         "Cloud Infrastructure",
         "Workspace Data",
         "Network Egress",
-        "DNS & Web Activity",
+        "DNS Resolution",
+        "Web & Proxy Activity",
     ]
     col_x = {
         "entity": 20,
-        "IAM & Authentication": 170,
-        "Cloud Infrastructure": 275,
-        "Workspace Data": 380,
-        "Network Egress": 485,
-        "DNS & Web Activity": 590,
-        "composite": 695,
+        "IAM & Authentication": 160,
+        "Cloud Infrastructure": 260,
+        "Workspace Data": 360,
+        "Network Egress": 460,
+        "DNS Resolution": 560,
+        "Web & Proxy Activity": 660,
+        "composite": 770,
     }
-    cell_w = 95
+    cell_w = 92
     cell_h = 28
     row_h = 36
     header_h = 75
-    svg_w = 810
+    svg_w = 885
     svg_h = header_h + max(1, len(fleet_matrix)) * row_h + 20
 
     elements = []
     elements.append(f'<text x="20" y="28" font-size="16" font-weight="700" fill="#202124">{html.escape(title)}</text>')
-    elements.append('<text x="20" y="46" font-size="12" fill="#5f6368">5-Sector Behavioral Deviations across Fleet Entities</text>')
+    elements.append('<text x="20" y="46" font-size="12" fill="#5f6368">Multi-Sector Behavioral Deviations across Fleet Entities</text>')
 
     elements.append('<text x="20" y="68" font-size="11" font-weight="600" fill="#5f6368" text-anchor="start">Entity</text>')
     for s in canonical_sectors:

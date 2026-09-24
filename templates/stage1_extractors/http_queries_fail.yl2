@@ -3,6 +3,7 @@ stage stage1_extract {
     metadata.event_type = "NETWORK_HTTP"
     $event_type = metadata.event_type
     network.http.response_code >= 400
+    network.http.method != ""
     principal.asset.hostname = $entity
     $entity != ""
 

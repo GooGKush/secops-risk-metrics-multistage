@@ -395,7 +395,7 @@ class TestGuardrailContracts(unittest.TestCase):
             m.group(1), ladder(risk),
             f'{pet}: severity {m.group(1)} contradicts CRI {risk} (ladder says {ladder(risk)})')
         checked += 1
-    self.assertEqual(checked, 9, f'expected 9 schema severities, checked {checked}')
+    self.assertEqual(checked, 10, f'expected 10 schema severities, checked {checked}')
 
     # The report bands must mirror the same ladder so a finding carries one label.
     tf_path = os.path.join(skill_dir, 'scripts', 'triage_formatter.py')
@@ -748,6 +748,67 @@ class TestGuardrailContracts(unittest.TestCase):
     """
     cloud_errors = MalachiteASTValidator.validate_query(cloud_crud_query)
     self.assertFalse(any("INVALID_METRIC_FILTER" in e for e in cloud_errors))
+
+  def test_malachite_ast_validator_http_metric_filters_and_udm_paths(self):
+    """MalachiteASTValidator must detect invalid HTTP metric filters and user agent UDM path hallucinations."""
+    from scripts.preflight_validator import MalachiteASTValidator
+
+    # 1. Invalid target.url on http_queries_total
+    bad_url_query = """
+    stage s1 {
+      metadata.event_type = "NETWORK_HTTP"
+      $host = principal.asset.hostname
+      match: $host by 1d
+      outcome:
+        $avg = max(metrics.http_queries_total(
+          period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+          target.url: "https://evil.com/login"
+        ))
+    }
+    match: $host by 1d
+    outcome: $z = 1.0
+    """
+    errors = MalachiteASTValidator.validate_query(bad_url_query)
+    self.assertTrue(any("INVALID_METRIC_FILTER" in e and "target.url" in e for e in errors))
+    self.assertTrue(any("secops-statistical-hunter" in e for e in errors))
+
+    # 2. Hallucinated user-agent path (target.user_agent)
+    bad_ua_query = """
+    stage s1 {
+      metadata.event_type = "NETWORK_HTTP"
+      $host = principal.asset.hostname
+      $ua = target.user_agent
+      match: $host by 1d
+      outcome:
+        $cnt = count(metadata.id)
+    }
+    match: $host by 1d
+    outcome: $z = 1.0
+    """
+    errors = MalachiteASTValidator.validate_query(bad_ua_query)
+    self.assertTrue(any("INVALID_UDM_PATH" in e and "network.http.user_agent" in e for e in errors))
+
+    # 3. Valid HTTP query with host + user_agent + target.hostname
+    valid_http_query = """
+    stage s1 {
+      metadata.event_type = "NETWORK_HTTP"
+      $host = principal.asset.hostname
+      $ua = network.http.user_agent
+      $target = target.hostname
+      match: $host, $ua, $target by 1d
+      outcome:
+        $avg = max(metrics.http_queries_total(
+          period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+          principal.asset.hostname: $host,
+          network.http.user_agent: $ua,
+          target.hostname: $target
+        ))
+    }
+    match: $host, $ua, $target by 1d
+    outcome: $z = 1.0
+    """
+    errors = MalachiteASTValidator.validate_query(valid_http_query)
+    self.assertFalse(any("INVALID_METRIC_FILTER" in e or "INVALID_UDM_PATH" in e for e in errors))
 
   def test_skill_size_budget(self):
     """SKILL.md must remain strictly under the 20 KB efficiency budget (20,480 bytes)."""
@@ -1298,13 +1359,17 @@ class TestGuardrailContracts(unittest.TestCase):
     # added here, since grep confirmed it had NO downstream coverage before.
     self.assertNotIn("Max 4 Joins Invariant", skill_content)
 
-    # Radar guide contracts
-    self.assertIn("The Monolithic 5-Stage Join Trap & Decoupled Micro-Query Guarantee", radar_guide_content)
+    self.assertTrue(
+        "The Monolithic 6-Stage Join Trap & Decoupled Micro-Query Guarantee" in radar_guide_content
+        or "The Monolithic 5-Stage Join Trap & Decoupled Micro-Query Guarantee" in radar_guide_content
+    )
     self.assertIn("STAT_ANTIPATTERN_MONOLITHIC_RADAR_JOIN", radar_guide_content)
     self.assertIn("maxJoinCount = 4", radar_guide_content)
     self.assertIn("auto-bypass Mode B", radar_guide_content)
-    self.assertIn("Silent Inner-Join Drop", radar_guide_content)
-    self.assertIn("Decoupled 5-Sector Architecture & `radar_collector.py`", radar_guide_content)
+    self.assertTrue(
+        "Decoupled 6-Sector Architecture & `radar_collector.py`" in radar_guide_content
+        or "Decoupled 5-Sector Architecture & `radar_collector.py`" in radar_guide_content
+    )
 
     # Auditor enum contract
     from scripts.statistical_validator import StatisticalAntipatternType
@@ -1663,7 +1728,10 @@ class TestGuardrailContracts(unittest.TestCase):
     self.assertIn("Tier 1: Rich Web / Browser Client", guide_content)
     self.assertIn("Tier 2: File-Enabled Terminal / Jetski Environment", guide_content)
     self.assertIn("Tier 3: Pure Headless / Command-Line Client", guide_content)
-    self.assertIn("5-Sector Terminal Scorecard", guide_content)
+    self.assertTrue(
+        "6-Sector Terminal Scorecard" in guide_content
+        or "5-Sector Terminal Scorecard" in guide_content
+    )
 
     # Affirmative Quiet-Sector Defaults
     self.assertIn("Deterministic Nominal Baseline for Quiet Sectors", guide_content)

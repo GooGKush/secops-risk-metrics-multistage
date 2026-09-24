@@ -109,14 +109,15 @@ Visualizes a fleetwide cross-sector risk landscape by encoding entities along th
 ```json
 {
   "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
-  "description": "Multi-Sector Fleet Threat Matrix (5-Sector Heatmap)",
+  "description": "Multi-Sector Fleet Threat Matrix (6-Sector Heatmap)",
   "data": {
     "values": [
       {"entity": "WRK-FIN-01", "sector": "IAM & Auth", "z_score": 3.8, "cri": 62},
       {"entity": "WRK-FIN-01", "sector": "Cloud CRUD", "z_score": 0.2, "cri": 16},
       {"entity": "WRK-FIN-01", "sector": "Workspace", "z_score": 4.1, "cri": 66},
       {"entity": "WRK-FIN-01", "sector": "Net Egress", "z_score": 0.0, "cri": 14},
-      {"entity": "WRK-FIN-01", "sector": "DNS Activity", "z_score": 0.5, "cri": 18}
+      {"entity": "WRK-FIN-01", "sector": "DNS Activity", "z_score": 0.5, "cri": 18},
+      {"entity": "WRK-FIN-01", "sector": "Web & Proxy", "z_score": 0.1, "cri": 15}
     ]
   },
   "mark": "rect",
@@ -219,11 +220,11 @@ To prevent cognitive distortion and preserve investigative clarity, the visual s
 | :--- | :--- | :--- | :--- |
 | **Vector / Fleet Outlier Hunt (Mode A: Current-Day Snapshot)** | Real-time fleet-wide ranking of outliers on a specific behavioral vector during active incident triage. | **Dual-Y Outlier Bar / Distribution Chart**: `<agent-embed>` in Jetski; inline SVG in generic MCP; ASCII table in CLI. | Summarize ranked fleet in Pillar 3. If an entity exhibits extreme novelty ($Z \ge 3.0\sigma$), proactively suggest a 360° deep-dive in Pillar 4. |
 | **Vector / Fleet Outlier Hunt (Mode B: 2–14d Timeline)** | Temporal longitudinal trajectory tracking to determine inception date, burst duration, or gradual CUSUM drift. | **Longitudinal Baseline Envelope & Inception Timeline**: `<agent-embed>` in Jetski; inline SVG in generic MCP; ASCII timeline in CLI. | Analyze onset timing in Pillar 4; suggest 360° cross-sector verification if multi-stage compromise is suspected. |
-| **360° Fleetwide Threat Fusion (Multi-Entity Sweep)** | Broad fleet audit evaluating $N$ entities across all 5 behavioral sectors to uncover episodic bursts and anomalous accounts. | **Multi-Sector Fleet Heatmap Matrix** or **Ranked Fleet Outlier Bar Chart**: Recommended with Mode B (2–14d Timeline) for burst capture. | Rank high-risk entities in Pillar 3; offer 1-click **360° Radial Radar single-entity drill-down** on selected outliers in Pillar 4. |
-| **360° Single-Entity Health Check (Specific Target Entity)** | Multi-vector evaluation of a *single specific entity* across all 5 behavioral sectors to measure aggregate threat distance ($D$). | **360° Behavioral Risk Radar**: Rendered via `scripts/radar_collector.py` as `<agent-embed>` in Jetski; Client visual tool or inline SVG in generic MCP; ASCII radar in CLI. | Recommend host isolation, credential suspension, or SOAR case escalation. |
+| **360° Fleetwide Threat Fusion (Multi-Entity Sweep)** | Broad fleet audit evaluating $N$ entities across all 6 behavioral sectors to uncover episodic bursts and anomalous accounts. | **Multi-Sector Fleet Heatmap Matrix** or **Ranked Fleet Outlier Bar Chart**: Recommended with Mode B (2–14d Timeline) for burst capture. | Rank high-risk entities in Pillar 3; offer 1-click **360° Radial Radar single-entity drill-down** on selected outliers in Pillar 4. |
+| **360° Single-Entity Health Check (Specific Target Entity)** | Multi-vector evaluation of a *single specific entity* across all 6 behavioral sectors to measure aggregate threat distance ($D$). | **360° Behavioral Risk Radar**: Rendered via `scripts/radar_collector.py` as `<agent-embed>` in Jetski; Client visual tool or inline SVG in generic MCP; ASCII radar in CLI. | Recommend host isolation, credential suspension, or SOAR case escalation. |
 
 > [!TIP]
-> **Affirmative Surface Alignment**: Align visual geometry with the operational scope: reserve 5-spoke radial/spider radar charts for single target entities to illustrate individual behavioral signatures. For fleetwide reviews, multi-entity comparisons, and cohort sweeps, present Ranked Outlier Bar Charts or Multi-Sector Fleet Heatmap Matrices, paired with Mode B (2–14 Day Timeline) to uncover episodic burst anomalies. Offer the radial radar as an interactive single-entity drill-down when an outlier is selected from the fleet ranking.
+> **Affirmative Surface Alignment**: Align visual geometry with the operational scope: reserve 6-spoke radial/spider radar charts for single target entities to illustrate individual behavioral signatures. For fleetwide reviews, multi-entity comparisons, and cohort sweeps, present Ranked Outlier Bar Charts or Multi-Sector Fleet Heatmap Matrices, paired with Mode B (2–14 Day Timeline) to uncover episodic burst anomalies. Offer the radial radar as an interactive single-entity drill-down when an outlier is selected from the fleet ranking.
 
 ---
 
@@ -234,12 +235,12 @@ To maintain strict modularity, client-independence, and portability across heter
 ### A. Semantic Tool Discovery Protocol
 When rendering **Pillar 1** of a 360° Entity Health Check:
 1. **Tool Roster Introspection**: The agent inspects its list of active client tools (`gemini_functions` / tool definitions).
-2. **Intent Matching**: If any active tool's name or description declares capability to generate or render radar charts, pentagon risk graphs, or SVG visualizations (e.g. descriptions mentioning *"360-degree behavioral risk pentagon radar"*, *"radar SVG chart"*, or *"render visualization"*):
+2. **Intent Matching**: If any active tool's name or description declares capability to generate or render radar charts, hex risk graphs, or SVG visualizations (e.g. descriptions mentioning *"360-degree behavioral risk radar"*, *"radar SVG chart"*, or *"render visualization"*):
    * The agent **MUST** delegate visual rendering to that client-side tool rather than attempting manual ASCII or raw XML generation.
 3. **Dynamic Schema Binding**:
    * The agent extracts the tool's expected parameter schema.
    * **Entity Binding**: Passes the target identity into the entity argument (e.g. `username`, `entity`, or `user_id`).
-   * **Telemetry Scores Binding**: Maps the 5 computed sector Z-scores into the tool's expected dictionary or keyword structure (e.g. `telemetry_data={"Auth": Z1, "Cloud": Z2, "Workspace": Z3, "Egress": Z4, "DNS": Z5}`).
+   * **Telemetry Scores Binding**: Maps the 6 computed sector Z-scores into the tool's expected dictionary or keyword structure (e.g. `telemetry_data={"Auth": Z1, "Cloud": Z2, "Workspace": Z3, "Egress": Z4, "DNS": Z5, "Web": Z6}`).
 4. **Pillar 1 Output**: The raw SVG or HTML returned by the tool is emitted directly inside Pillar 1. The ASCII fallback card is omitted.
 
 ### B. Fallback Hierarchy When No Visualization Tool Exists
@@ -258,7 +259,7 @@ Pure SVGs execute zero JavaScript, require zero external stylesheets, and scale 
 
 ### A. Multi-Sector Fleet Heatmap Grid (Pure SVG)
 
-Visualizes an entire fleet ($N$ entities) evaluated against all 5 canonical behavioral sectors (IAM, Cloud, Workspace, Egress, DNS) with an integrated Calibrated Risk Index (CRI) badge:
+Visualizes an entire fleet ($N$ entities) evaluated against all 6 canonical behavioral sectors (IAM, Cloud, Workspace, Egress, DNS, Web & Proxy) with an integrated Calibrated Risk Index (CRI) badge:
 
 ```xml
 <svg viewBox="0 0 680 200" width="100%" height="200" xmlns="http://www.w3.org/2000/svg">

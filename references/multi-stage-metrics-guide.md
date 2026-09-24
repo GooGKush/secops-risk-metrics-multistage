@@ -719,8 +719,8 @@ Threat hunting follows a two-tier investigative lifecycle:
 * **Trigger**: Triggered **only** upon:
   1. Explicit analyst request (e.g. *"run a 360 health check on svc-analytics"*, *"compare admin@... to all sectors"*), OR
   2. Analyst confirms the Consultative 360° Pivot Card offered at the conclusion of a Tier 1 fleet hunt.
-* **Execution**: Dispatches 5 decoupled parallel sector micro-queries via `scripts/radar_collector.py`.
-* **Reporting Standard**: Pillar 1 renders the full 360° Behavioral Risk Radar (`<agent-embed>` or Markdown Data-URI SVG) with all 5 sector scores.
+* **Execution**: Dispatches 6 decoupled parallel sector micro-queries via `scripts/radar_collector.py`.
+* **Reporting Standard**: Pillar 1 renders the full 360° Behavioral Risk Radar (`<agent-embed>` or Markdown Data-URI SVG) with all 6 sector scores.
 
 ### The Consultative 360° Pivot Card Pattern
 When a Tier 1 fleet hunt discovers an entity with severe statistical anomalies ($Z \ge 3.0\sigma$, $\text{CRI} \ge 50$, or acute novelty departure), Pillar 4 must proactively suggest a 360° health check:
@@ -729,7 +729,7 @@ When a Tier 1 fleet hunt discovers an entity with severe statistical anomalies (
 > [!TIP]
 > **💡 Recommended Investigative Next Step: 360° Behavioral Radar Deep-Dive**
 > Service account `[entity_id]` exhibited an acute behavioral anomaly ($Z = +[X.XX]\sigma$, CRI: [YY]) on [Target Metric].
-> Would you like to run a full **360° Behavioral Risk Radar** across all 5 telemetry sectors (Authentication, Cloud CRUD, Workspace, Network, Endpoint) to verify if this identity is exhibiting concurrent compromise indicators?
+> Would you like to run a full **360° Behavioral Risk Radar** across all 6 telemetry sectors (Authentication, Cloud Infrastructure, Workspace Data, Network Egress, DNS Resolution, Web & Proxy Activity) to verify if this identity is exhibiting concurrent compromise indicators?
 ```
 
 ---
@@ -766,6 +766,15 @@ Under no circumstances should the assistant treat a follow-up query as a prompt 
    * If both the entity scope and telemetry vectors are unambiguously known from the context, present the updated **Pre-Flight Hunting Specification Card** and literal **Multi-Stage YARA-L Query Preview**.
    * Ask for execution clearance (Mode A vs. Mode B confirmation) and yield the turn (zero search or ingestion tools called on Turn 1 of the follow-up).
 
+### 25.1 In-Flight Dialogue & Pre-Clearance Parameter Tuning
+When the analyst asks questions, requests methodological explanations, or adjusts parameters (significance thresholds, dates, mathematical models) prior to giving Mode A/B clearance:
+1. **Colloquial Explanation**: Answer the question directly using plain-English security analogies or quantitative depth matching the analyst's conversational register.
+2. **Context Retention**: Maintain the active entity scope, telemetry vectors, and baseline configuration in working memory without restarting discovery.
+3. **Specification Refresh**: Present the refreshed Pre-Flight Hunting Specification Card reflecting updated thresholds or models.
+4. **Query Re-Verification**: When query logic changes, execute a 1-shot probe (`udm_search(query=..., maxEvents=1)`) and display the updated candidate query block.
+5. **Prompt for Clearance**: Conclude by asking whether to proceed with Mode A (Today vs 30-Day Baseline) or Mode B (2–14 Day Timeline) and yield the turn.
+
+
 ---
 
 ## 26. Metric Entity Affinity, Cross-Entity Boundaries & The Consultative Pivot Protocol
@@ -782,7 +791,8 @@ In Google SecOps Malachite, pre-computed UEBA metric tables are indexed by immut
 | **Authentication & IAM** | `metrics.auth_attempts_*` | `target.user.userid`, `principal.user.userid` | `target.user.userid` (Logins) | Generic unindexed IP keys |
 | **Workspace & SaaS** | `metrics.workspace_*` | `principal.user.userid` | `metadata.product_name = "Google Workspace"` | Machine hostname |
 | **Network Egress** | `metrics.network_bytes_outbound` | `principal.user.userid`, `principal.asset.hostname` | N/A | N/A |
-| **DNS & HTTP Queries** | `metrics.dns_queries_*`, `metrics.http_queries_*` | `principal.user.userid`, `principal.asset.hostname` | N/A | N/A |
+| **DNS Resolution** | `metrics.dns_queries_*`, `metrics.dns_bytes_outbound` | `principal.user.userid`, `principal.asset.hostname` | N/A | `target.ip` (only for bytes) |
+| **HTTP & Web Proxy** | `metrics.http_queries_*` | `principal.user.userid`, `principal.asset.hostname`, `target.hostname` | Optional: `network.http.user_agent`, `target.hostname` | `target.url`, `target.ip`, `network.http.response_code` |
 
 ### B. The Cross-Entity Boundary & The Anti-Forced-Join Invariant
 In YARA-L multi-stage DAGs, stages that join in the root must share the exact same match variable (`match: $key by 1d`). 
@@ -800,7 +810,13 @@ When an analyst requests a cross-entity scenario (such as an endpoint workstatio
 3. **Path 3: Raw Log Statistical Outlier Handoff (`secops-statistical-hunter`)**:
    * If the analyst needs ad-hoc statistical outlier hunting directly across raw `PROCESS_LAUNCH` logs (e.g. inline MAD, CV, Poisson rarity, or Tukey fences on user-process pairs without pre-computed table limits), seamlessly transition to `secops-statistical-hunter`.
 
-### D. The Pre-Preview Compilation Probe Gate (Compiler Verification)
+### D. The Web & HTTP URI Granularity Boundary (When to Pivot to Statistical Hunter)
+Chronicle Malachite maintains 30-day historical baselines for `metrics.http_queries_*` across exactly 9 pre-computed dimensions: host, user, target hostname, and user-agent token. It does **not** maintain baseline tables for full URL paths (`target.url`), URI query parameters, or payload transfer bytes.
+* **Stay in `secops-risk-metrics-multistage`**: When baselining request volume, failure/4xx ratios, target hostname frequency, novel user-agents, or cross-vector 360° radar vectors.
+* **Hybrid 2-Stage Architecture**: When baselining on `target.hostname` in Stage 1 and extracting high-cardinality URI paths in Stage 2 companion forensics (`$sample_uris = array_distinct(target.url)`).
+* **Pivot to `secops-statistical-hunter`**: When the analyst explicitly requires ad-hoc mathematical anomaly detection directly on URI strings (e.g., path entropy, directory traversal frequency, parameter fuzzing, payload byte distributions) over raw `NETWORK_HTTP` logs.
+
+### E. The Pre-Preview Compilation Probe Gate (Compiler Verification)
 Before outputting any candidate multi-stage YARA-L query in the Phase 1B Pre-Flight Specification Card:
 * The agent executes a 1-shot compilation probe via `secops-gus:udm_search(query="<query>", startTime="<ISO_10M_AGO>", endTime="<ISO_NOW>", maxEvents=1)`. Timestamps MUST be absolute ISO 8601 UTC; relative offsets (`"now-10m"`, `"now"`) are rejected by the API — see section 30C.
 * **Zero Broken Previews**: If the probe fails with a compilation error, the agent is strictly prohibited from rendering the broken query in markdown. It must auto-correct syntax or trigger the Consultative Pivot Protocol immediately.
@@ -1183,3 +1199,32 @@ Key Invariants:
 - **`NETWORK_FLOW` / `NETWORK_CONNECTION`**: Transfer volumes are `network.sent_bytes` and `network.received_bytes`. L4 protocol is `network.ip_protocol` (`"TCP"`, `"UDP"`). L7 protocol is `network.application_protocol` (`"HTTP"`, `"DNS"`).
 - **`PROCESS_LAUNCH`**: Executable paths and hashes are under the file sub-message: `principal.process.file.full_path` and `principal.process.file.sha256`. Command line is `principal.process.command_line`.
 - **`USER_LOGIN`**: Authenticated account is `target.user.userid`. Client source machine is `principal.asset.hostname` / `principal.asset.ip`.
+
+---
+
+## 33. Network Session Frequency & C2 Beaconing Detection (`metrics.network_flows_*`)
+
+### A. The Volumetric Blindspot in Command & Control (C2)
+Traditional network anomaly detection relies heavily on `metrics.network_bytes_outbound` to catch data exfiltration. However, advanced command-and-control (C2) implants, reverse shells, and automated keep-alive polling exhibit the opposite profile:
+* **Payload Footprint**: Extremely low (e.g. 64–512 bytes per packet).
+* **Connection Frequency**: Exceptionally high (hundreds or thousands of periodic sessions per day).
+
+When evaluated against a host's volumetric baseline (e.g. 500 MB/day), 2,000 beaconing sessions transferring a total of 1 MB will produce **zero baseline deviation** ($Z_{\text{bytes}} \approx 0.0\sigma$).
+
+### B. The Flow-Frequency Solution (`metrics.network_flows_outbound`)
+To detect stealthy beaconing, micro-session tunneling, and port/host sweeps, the pipeline queries `metrics.network_flows_outbound`:
+* **Engine Pre-Computation**: Shards 10, 11, and 12 in Malachite aggregate every non-zero byte session as `1 AS total_events`.
+* **Compiler Rule**: Strictly requires `metric: event_count_sum`.
+* **Behavioral Baseline**: Evaluates whether the host is opening an abnormal number of outbound connections compared to its personal 30-day baseline ($Z_{\text{flows}} \ge 3.0\sigma$).
+
+### C. Payload Density & Elephant Flow Classification
+By combining observed outbound bytes with observed outbound flows in Stage 1, the pipeline calculates **Payload Concentration (Bytes per Flow)**:
+
+$$\text{Payload Concentration} = \frac{\sum \text{network.sent\_bytes}}{\text{count}(\text{metadata.id}) + 0.001}$$
+
+* **Low Payload Concentration (< 2,048 bytes/flow) + High $Z_{\text{flows}}$**: Confirms lightweight C2 heartbeats, port scanning, or recon polling.
+* **High Payload Concentration (> 1,000,000 bytes/flow) + High $Z_{\text{bytes}}$**: Confirms bulk exfiltration or "Elephant Flow" data staging.
+
+### D. Canonical Pipeline Template: `c2_beacon_flow_frequency_2stage.yl2`
+Use the pre-built pipeline in `templates/pipelines/c2_beacon_flow_frequency_2stage.yl2` for out-of-the-box C2 beaconing detection combining flow frequency baselining with target IP persistence analysis.
+

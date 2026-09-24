@@ -7,37 +7,39 @@ This guide is the definitive, authoritative reference for executing the **360° 
 ## 🏛️ 1. Architecture & Execution Topology
 
 ### 1.1 The Operational Objective
-The 360° Entity Behavioral Risk Radar (also referred to as Multi-Sector Threat Fusion) profiles an entity across **all five canonical enterprise telemetry sectors** against 30-day pre-computed historical baselines (`metrics.*`) to detect coordinated multi-stage lateral movement, insider threat escalation, and anomalous baseline departures.
+The 360° Entity Behavioral Risk Radar (also referred to as Multi-Sector Threat Fusion) profiles an entity across **all six canonical enterprise telemetry sectors** against 30-day pre-computed historical baselines (`metrics.*`) to detect coordinated multi-stage lateral movement, insider threat escalation, and anomalous baseline departures.
 
 ```
                          [ 1. IAM & Authentication ]
                                      ▲
                                      │
-      [ 5. DNS & Web Activity ] ◄─── ┼ ───► [ 2. Cloud Infrastructure ]
-                                   ╱   ╲
-                                  ▼     ▼
-             [ 4. Network Egress ]       [ 3. Workspace Data ]
+      [ 6. Web & Proxy Activity ] ◄──┼──► [ 2. Cloud Infrastructure ]
+                                     │
+          [ 5. DNS Resolution ] ◄────┼────► [ 3. Workspace Data ]
+                                     │
+                                     ▼
+                           [ 4. Network Egress ]
 ```
 
 ### 1.2 The Decoupled Execution Mandate (Zero Monolithic Joins)
 In Google SecOps Chronicle SIEM, multi-sector entity behavioral profiling adopts a decoupled micro-query architecture:
 1. **Join Depth Optimization**: Queries observe Chronicle's limit of a maximum of 4 joins (`maxJoinCount = 4`).
-2. **Population Preservation**: Multi-stage YARA-L joins evaluate as conjunctions ($S_1 \land S_2 \dots$). Evaluating each sector independently preserves entities that exhibit spikes in specific sectors without requiring simultaneous activity across all five.
-3. **Entity Role Affinity**: Auth (`target.user.userid`), Cloud (`principal.user.userid`), and Network/DNS (`principal.asset.hostname`) retain their natural UDM entity keys.
+2. **Population Preservation**: Multi-stage YARA-L joins evaluate as conjunctions ($S_1 \land S_2 \dots$). Evaluating each sector independently preserves entities that exhibit spikes in specific sectors without requiring simultaneous activity across all six.
+3. **Entity Role Affinity**: Auth (`target.user.userid`), Cloud (`principal.user.userid`), Network/DNS/Web (`principal.asset.hostname` / `principal.user.userid`) retain their natural UDM entity keys.
 
 **The Canonical Architecture**:
 Execute independent decoupled sector queries, retrieve the observed metrics per sector, and compute the **Euclidean Norm Join ($D = \sqrt{\sum \max(0, Z_i)^2}$)** client-side.
 
 ### 1.3 Single-Entity Profiling vs. Fleetwide Threat Fusion
 * **Single-Entity 360° Profiling (User or Host)**:
-  - **Objective**: Profile an individual target entity's multivariate behavioral signature across 5 orthogonal sectors.
-  - **Pillar 1 Surface**: **5-Spoke Radial / Spider Pentagon Radar** (`radar_<entity>.html`). The radial geometry visualizes balance vs. sectoral skew.
+  - **Objective**: Profile an individual target entity's multivariate behavioral signature across 6 orthogonal sectors.
+  - **Pillar 1 Surface**: **6-Spoke Radial / Spider Hexagon Radar** (`radar_<entity>.html`). The radial geometry visualizes balance vs. sectoral skew.
 * **Fleetwide 360° Threat Fusion (Multi-Entity Sweep / Fleet Audit)**:
-  - **Objective**: Audit $N$ entities across an organization or peer group to identify who exhibited anomalous activity across any of the 5 sectors.
+  - **Objective**: Audit $N$ entities across an organization or peer group to identify who exhibited anomalous activity across any of the 6 sectors.
   - **Pillar 1 Surface**: **Multi-Sector Fleet Heatmap Matrix** (`radar_fleet_heatmap.html`) or **Ranked Fleet Outlier Bar Chart** (`radar_fleet_ranking.html`). Linear and matrix layouts provide clean, readable comparisons without radial centroid collapse.
   - **Recommended Horizon**: **Mode B (2–14 Day Timeline)**, run at the 14-day maximum. Because security anomalies and data exfiltration are bursty, episodic events, a 14-day sliding window surfaces historical bursts that a single-day snapshot misses.
-  - **Sector Consistency**: Both single-entity and fleetwide threat fusion evaluate and report across all 5 canonical sectors: Authentication, Cloud CRUD, Workspace Exfiltration, Network Flow, and DNS / Web Activity.
-  - **Interactive Drill-Down**: Offer the 5-spoke radial radar as a 1-click drill-down when the analyst selects a specific high-risk entity from the ranked list.
+  - **Sector Consistency**: Both single-entity and fleetwide threat fusion evaluate and report across all 6 canonical sectors: Authentication, Cloud CRUD, Workspace Exfiltration, Network Flow, DNS Resolution, and Web & Proxy Activity.
+  - **Interactive Drill-Down**: Offer the 6-spoke radial radar as a 1-click drill-down when the analyst selects a specific high-risk entity from the ranked list.
   - **Drill-Down Query Construction**: When transitioning from a fleetwide sweep to an individual drilldown, constrain the target entity directly on the canonical UDM attribute in the stage predicates (e.g., `target.user.userid = "ola.burch"` with `$user = target.user.userid`). Variables bind to UDM fields rather than string literals, ensuring valid YARA-L compiler syntax.
 
 ---
@@ -60,7 +62,7 @@ Because MCP clients operate across varied environments (web browsers, IDEs, desk
 │   Electron)      │        │  (Jetski, IDE)   │        │  (direct-mcp)    │
 ├──────────────────┤        ├──────────────────┤        ├──────────────────┤
 │ Browser V8 Engine│        │ Python collector │        │ Deterministic    │
-│ executes math in │        │ writes HTML/SVG  │        │ 5-Sector Matrix  │
+│ executes math in │        │ writes HTML/SVG  │        │ 6-Sector Matrix  │
 │ client JavaScript│        │ to disk; embeds  │        │ & Hurdle Score-  │
 │ & renders canvas │        │ artifact link    │        │ card (Zero Math) │
 └──────────────────┘        └──────────────────┘        └──────────────────┘
@@ -76,10 +78,10 @@ Because MCP clients operate across varied environments (web browsers, IDEs, desk
 
 ### Tier 3: Pure Headless / Command-Line Client & Programmatic Environments (agentapi, generic MCP)
 * **Execution**: In programmatic or terminal environments without local shell execution (`agentapi`, headless MCP), the agent renders directly in Markdown:
-  - **Pillar 1**: Inline `<svg viewBox="0 0 620 480">` radar chart (Surface Option B). 360° behavioral radar profiles evaluate all 5 sectors and render the 5-spoke visual radar even when all sectors reflect nominal baseline activity ($D = 0.00\sigma, \text{CRI} = 0$).
+  - **Pillar 1**: Inline `<svg viewBox="0 0 620 480">` radar chart (Surface Option B). 360° behavioral radar profiles evaluate all 6 sectors and render the 6-spoke visual radar even when all sectors reflect nominal baseline activity ($D = 0.00\sigma, \text{CRI} = 0$).
   - **Pillar 2**: The canonical decoupled representative micro-query (`stage auth_risk` with `order: $z desc`).
-  - **Pillars 3–6**: Grounded 5-sector matrix, CRI summary, and forensic vector breakdown across all 5 canonical sectors.
-  *(Alternatively, in text-only terminals without SVG capability, the agent presents the Deterministic 5-Sector Terminal Scorecard evaluating discrete event counts and a $k$-of-5 Sector Hurdle).*
+  - **Pillars 3–6**: Grounded 6-sector matrix, CRI summary, and forensic vector breakdown across all 6 canonical sectors.
+  *(Alternatively, in text-only terminals without SVG capability, the agent presents the Deterministic 6-Sector Terminal Scorecard evaluating discrete event counts and a $k$-of-6 Sector Hurdle).*
 * **Benefit**: Zero external shell dependencies, fully compliant with programmatic and zero-auth execution models.
 
 ---
@@ -106,14 +108,14 @@ PRE-FLIGHT HUNTING SPECIFICATION:
 • Peer Cohort & Roster:   [Department / Peer Group, e.g. Information Technology]
 • Entity Graph Dimension: N/A (360° Omnidirectional Behavioral Radar)
 • Evaluation Horizon Mode:Mode A: today OR Mode B: 2–14d
-• Statistical Model:      360° Entity Behavioral Risk Radar (5-Sector Fusion)
+• Statistical Model:      360° Entity Behavioral Risk Radar (6-Sector Fusion)
 • Significance Threshold: Z >= 3.0σ / D >= 3.5σ (CRI >= 57)
 ```
 
 ### 3.3 Single Representative Query Preview (IAM & Auth)
 ```yara
 // Representative Sector Micro-Query: IAM & Authentication
-// (Evaluated alongside Cloud, Workspace, Network, and DNS decoupled micro-queries)
+// (Evaluated alongside Cloud, Workspace, Network, DNS, and Web decoupled micro-queries)
 stage auth_risk {
     metadata.event_type = "USER_LOGIN"
     target.user.userid = "%(entity_id)s"
@@ -147,13 +149,13 @@ order:
 
 ---
 
-## 🔍 4. Phase 2: The 5 Invariate Canonical Sector Queries & Z-Score Standard
+## 🔍 4. Phase 2: The 6 Invariate Canonical Sector Queries & Z-Score Standard
 
 For 360° behavioral radar profiling, each sector evaluates a single **universal total activity baseline** ($X_{\text{total}}$ vs. $\mu_{\text{total}}$). The only calculation needed per sector is the standard parametric Z-score:
 $$Z_i = \frac{\text{Observed}_i - \mu_i}{\sigma_i + 1.0}$$
 
-Zero conditional event filtering (`security_result.action`) and zero conditional aggregations (`count(if(...))`) are evaluated. Each sector operates as an independent micro-query, and the five sector Z-scores are joined client-side in the report presentation layer to compute the Euclidean distance:
-$$D = \sqrt{\sum_{i=1}^5 \max(0, Z_i)^2}$$
+Zero conditional event filtering (`security_result.action`) and zero conditional aggregations (`count(if(...))`) are evaluated. Each sector operates as an independent micro-query, and the six sector Z-scores are joined client-side in the report presentation layer to compute the Euclidean distance:
+$$D = \sqrt{\sum_{i=1}^6 \max(0, Z_i)^2}$$
 
 ### 4.1 USER Entity Sector Specifications
 
@@ -181,26 +183,33 @@ $$D = \sqrt{\sum_{i=1}^5 \max(0, Z_i)^2}$$
 * **Dimension Scope**: `principal.user.userid`
 * **Spoke Unit**: `bytes` (or `MB`)
 
-#### Sector 5: DNS & Web Activity
-* **Telemetry Filter**: `(metadata.event_type = "NETWORK_DNS" or metadata.event_type = "NETWORK_HTTP") and (principal.user.userid = "%(entity_id)s" or target.user.userid = "%(entity_id)s")`
+#### Sector 5: DNS Resolution
+* **Telemetry Filter**: `metadata.event_type = "NETWORK_DNS" and (principal.user.userid = "%(entity_id)s" or target.user.userid = "%(entity_id)s")`
 * **Metrics Function**: `metrics.dns_queries_total`
 * **Dimension Scope**: `principal.user.userid`
 * **Spoke Unit**: `queries`
 
+#### Sector 6: Web & Proxy Activity
+* **Telemetry Filter**: `metadata.event_type = "NETWORK_HTTP" and (principal.user.userid = "%(entity_id)s" or target.user.userid = "%(entity_id)s")`
+* **Metrics Function**: `metrics.http_queries_total`
+* **Dimension Scope**: `principal.user.userid`
+* **Spoke Unit**: `requests`
+
 ---
 
 ### 4.2 ASSET Entity Sector Specifications
-When the entity is a Host (`ASSET`), telemetry scope maps across the same 5 canonical sectors:
+When the entity is a Host (`ASSET`), telemetry scope maps across the 6 canonical sectors:
 
 | Sector | Telemetry Filter | Metrics Table | Primary Dimension |
 | :--- | :--- | :--- | :--- |
 | **Authentication** | `metadata.event_type = "USER_LOGIN"` | `metrics.auth_attempts_total` | `principal.asset.hostname` |
-| **Cloud CRUD** | `metadata.event_type = "RESOURCE_CREATION"` | `metrics.resource_creation_total` | `principal.asset.hostname` |
-| **Workspace Exfiltration** | `metadata.event_type = "USER_RESOURCE_ACCESS"` | `metrics.workspace_total_download_actions` | `principal.asset.hostname` |
 | **Network Egress** | `metadata.event_type = "NETWORK_CONNECTION"` | `metrics.network_bytes_outbound` | `principal.asset.hostname` |
 | **DNS Resolution** | `metadata.event_type = "NETWORK_DNS"` | `metrics.dns_queries_total` | `principal.asset.hostname` |
+| **Web & Proxy Activity** | `metadata.event_type = "NETWORK_HTTP"` | `metrics.http_queries_total` | `principal.asset.hostname` |
+| **Cloud Infrastructure** | `metadata.event_type = "RESOURCE_CREATION"` | `metrics.resource_creation_total` | `principal.asset.hostname` |
+| **Endpoint Activity** | `metadata.event_type = "PROCESS_LAUNCH"` | `metrics.file_executions_total` | `principal.asset.hostname` |
 
-*(Note: In dedicated endpoint anomaly pipelines, Process Launches map to `metrics.file_executions_total`; in the universal 360° Threat Fusion Radar, all entities evaluate the 5 canonical sectors: Auth, Cloud, Workspace, Network, and DNS).*
+*(Note: In dedicated endpoint anomaly pipelines, Process Launches map to `metrics.file_executions_total`; in the universal 360° Threat Fusion Radar, entities evaluate 6 canonical sectors with Euclidean distance $D$).*
 
 ---
 
@@ -229,10 +238,10 @@ When a sector query returns **$> 0$ events**:
 ## 📐 6. Phase 4: Mathematical Join Engine & Local JS Implementation
 
 ### 6.1 The Mathematical Formulation
-For $k = 5$ orthogonal sectors:
+For $k = 6$ orthogonal sectors:
 
 1. **Euclidean Threat Distance ($D$)**:
-   $$D = \sqrt{\sum_{i=1}^{5} \max(0, Z_i)^2}$$
+   $$D = \sqrt{\sum_{i=1}^{6} \max(0, Z_i)^2}$$
 2. **Calibrated Risk Index (CRI $[0–100]$)**:
    $$\text{CRI} = \min\left(100, \max\left(0, \text{round}\left(\frac{100}{1 + e^{-0.6(D - 3.0)}}\right)\right)\right)$$
    * $D = 0.0\sigma \implies \text{CRI} \approx 14$
@@ -256,7 +265,8 @@ For web and Electron MCP clients, embed this self-contained script. The client b
     { sector: "Cloud Infrastructure", spoke: "CRUD",   obs: 14, mu: 2.0, sigma: 3.0 },
     { sector: "Workspace Data",       spoke: "Exfil",  obs: 0, mu: 0.0, sigma: 0.0 },
     { sector: "Network Egress",       spoke: "Egress", obs: 0, mu: 0.0, sigma: 0.0 },
-    { sector: "DNS & Web Activity",   spoke: "DNS",    obs: 0, mu: 0.0, sigma: 0.0 }
+    { sector: "DNS Resolution",       spoke: "DNS",    obs: 0, mu: 0.0, sigma: 0.0 },
+    { sector: "Web & Proxy Activity", spoke: "Web",    obs: 0, mu: 0.0, sigma: 0.0 }
   ];
 
   // 1. Compute exact Z-scores per spoke
@@ -327,8 +337,8 @@ In environments supporting generative UI iframe embeds (e.g. Jetski Web), the ag
     <circle cx="310" cy="240" r="93.75" fill="none" stroke="#d93025" stroke-width="1.5" stroke-dasharray="4,4"/>
     <circle cx="310" cy="240" r="125" fill="none" stroke="#bdc1c6" stroke-width="1"/>
     <text x="313" y="150" font-size="10" font-weight="600" fill="#d93025">+3.0σ (Significance Boundary)</text>
-    <!-- Polygon representing the 5 sectors -->
-    <polygon points="310,130 360,220 310,240 310,240 310,240" fill="rgba(217,48,37,0.25)" stroke="#d93025" stroke-width="2"/>
+    <!-- Polygon representing the 6 sectors -->
+    <polygon points="310,130 360,220 310,240 310,240 310,240 310,240" fill="rgba(217,48,37,0.25)" stroke="#d93025" stroke-width="2"/>
   </svg>
 </body>
 </html>
@@ -372,7 +382,7 @@ And embeds in chat:
 
 ```yara
 // Representative Sector Micro-Query: IAM & Authentication
-// (Evaluated alongside Cloud, Workspace, Network, and DNS decoupled micro-queries)
+// (Evaluated alongside Cloud, Workspace, Network, DNS, and Web decoupled micro-queries)
 stage auth_risk {
     metadata.event_type = "USER_LOGIN"
     target.user.userid = "<target_entity_id>"
@@ -403,7 +413,8 @@ order:
 
 > [!NOTE]
 > **Single-Sector Micro-Query Standard (Mode A & Mode B)**:
-> Chronicle SIEM evaluates orthogonal telemetry planes independently. In both Mode A (current-day snapshot) and Mode B (2–14d longitudinal timeline), the 360° report displays exclusively this single representative micro-query (`stage auth_risk` with `order: $z desc`) in Pillar 2. All 5 sector Z-scores are joined in the report presentation layer (Pillars 1, 3, 4, and 6) to compute Euclidean distance $D$ and CRI. Never emit a detection rule (`rule ... { ... }`) or `math.sqrt` in Pillar 2.
+> Chronicle SIEM evaluates orthogonal telemetry planes independently. In both Mode A (current-day snapshot) and Mode B (2–14d longitudinal timeline), the 360° report displays exclusively this single representative micro-query (`stage auth_risk` with `order: $z desc`) in Pillar 2. All 6 sector Z-scores are joined in the report presentation layer (Pillars 1, 3, 4, and 6) to compute Euclidean distance $D$ and CRI.
+
 
 ---
 
@@ -412,7 +423,8 @@ order:
 | Sector / Spoke | 24h Observed | 30d Mean (μ) | 30d StdDev (σ) | Z-Score | CRI Score | Visual Magnitude | Status |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **IAM & Authentication** | 6 logins | 4.2 logins | 1.8 logins | $+0.64\sigma$ | 19 | `▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱` | 🟢 Nominal |
-| **DNS & Web Activity** | 4 queries | 3.5 queries | 1.2 queries | $+0.23\sigma$ | 16 | `▰▱▱▱▱▱▱▱▱▱▱▱▱▱▱` | 🟢 Nominal |
+| **DNS Resolution** | 4 queries | 3.5 queries | 1.2 queries | $+0.23\sigma$ | 16 | `▰▱▱▱▱▱▱▱▱▱▱▱▱▱▱` | 🟢 Nominal |
+| **Web & Proxy Activity** | 0 requests | 0.0 requests | 0.0 requests | $+0.00\sigma$ | 14 | `▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱` | 🟢 Nominal |
 | **Cloud Infrastructure** | 0 events | 0.0 events | 0.0 events | $+0.00\sigma$ | 14 | `▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱` | 🟢 Nominal |
 | **Workspace Data** | 0 actions | 0.0 actions | 0.0 actions | $+0.00\sigma$ | 14 | `▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱` | 🟢 Nominal |
 | **Network Egress** | 0 bytes | 0.0 bytes | 0.0 bytes | $+0.00\sigma$ | 14 | `▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱` | 🟢 Nominal |
@@ -431,9 +443,10 @@ PROVENANCE STAMP:
 #### 4. Forensic Vector Breakdown
 
 ##### Behavioral Threat Translation
-All five evaluated behavioral sectors remain within expected historical variance ($\pm 1.0\sigma$). The target entity exhibits nominal volumetric activity consistent with historical 30-day baseline profiles:
+All six evaluated behavioral sectors remain within expected historical variance ($\pm 1.0\sigma$). The target entity exhibits nominal volumetric activity consistent with historical 30-day baseline profiles:
 * **IAM & Authentication**: 6 observed logins vs. 30d baseline mean of 4.2 ($\sigma = 1.8$, $Z = +0.64\sigma$), representing normal routine access.
-* **DNS & Web Activity**: 4 queries vs. 30d baseline mean of 3.5 ($\sigma = 1.2$, $Z = +0.23\sigma$), within expected lookup volume.
+* **DNS Resolution**: 4 queries vs. 30d baseline mean of 3.5 ($\sigma = 1.2$, $Z = +0.23\sigma$), within expected lookup volume.
+* **Web & Proxy Activity**: 0 requests vs. 30d baseline mean of 0.0 ($Z = +0.00\sigma$), nominal web browsing traffic.
 * **Cloud, Workspace, and Network Planes**: Zero observed actions across the 24h evaluation window matching zero-baseline history ($Z = +0.00\sigma$).
 * **Composite Threat Distance**: Multi-sector Euclidean distance $D = 0.68\sigma$ ($\text{CRI} = 18 / 100$) indicates volumetric quiescence across all vectors with zero acute surges.
 
@@ -458,7 +471,7 @@ All five evaluated behavioral sectors remain within expected historical variance
 <summary>Click to view Mathematical & Statistical Formulation</summary>
 
 ##### 1. Multi-Sector Euclidean Threat Distance ($D$)
-$$D = \sqrt{\sum_{i=1}^{k} \max(0, Z_i)^2} = \sqrt{(0.64)^2 + (0.23)^2 + 0^2 + 0^2 + 0^2} \approx 0.68\sigma$$
+$$D = \sqrt{\sum_{i=1}^{k} \max(0, Z_i)^2} = \sqrt{(0.64)^2 + (0.23)^2 + 0^2 + 0^2 + 0^2 + 0^2} \approx 0.68\sigma$$
 
 ##### 2. Calibrated Risk Index (CRI)
 $$\text{CRI} = \text{round}\left(\frac{100}{1 + e^{-0.6(0.68 - 3.0)}}\right) = \text{round}\left(\frac{100}{1 + e^{1.392}}\right) \approx 18$$
@@ -482,7 +495,7 @@ When running in a pure command-line terminal without webview or shell calculatio
 ### 🛡️ 360° Entity Behavioral Scorecard: `admin`
 • Evaluation Horizon: 24h Snapshot (2026-09-05 to 2026-09-06)
 • Historical Baseline: 30-Day Pre-Computed Metrics
-• Multi-Sector Consensus: 🚨 2 of 5 Sectors Active (High Threat Fusion)
+• Multi-Sector Consensus: 🚨 2 of 6 Sectors Active (High Threat Fusion)
 
 | Telemetry Sector | 24h Observed | Baseline Status | Vector State |
 | :--- | :--- | :--- | :--- |
@@ -490,12 +503,13 @@ When running in a pure command-line terminal without webview or shell calculatio
 | **2. Cloud Infrastructure** | 14 CRUD actions     | CloudRun/Build modifications | 🚨 **ELEVATED** |
 | **3. Workspace Data**       | 0 downloads         | 30d Nominal Baseline         | 🟢 Nominal Baseline |
 | **4. Network Egress**       | 0 MB                | 30d Nominal Baseline         | 🟢 Nominal Baseline |
-| **5. DNS & Web Activity**   | 0 queries           | 30d Nominal Baseline         | 🟢 Nominal Baseline |
+| **5. DNS Resolution**       | 0 queries           | 30d Nominal Baseline         | 🟢 Nominal Baseline |
+| **6. Web & Proxy Activity** | 0 requests          | 30d Nominal Baseline         | 🟢 Nominal Baseline |
 
 ---
 
 #### Forensic Findings Summary
 * **Authentication**: 4 failed re-authentication challenges triggering `riskySensitiveActionBlocked` on backend `organizations/579698384403`.
 * **Cloud Infrastructure**: CloudRun service modification on `secops-mcp-interface` and service account impersonation on `mcp-web-comms@chronicle-mps.iam.gserviceaccount.com`.
-* **Quiet Sectors**: Zero data hoarding in Google Drive, zero abnormal network egress.
+* **Quiet Sectors**: Zero data hoarding in Google Drive, zero abnormal network egress, zero abnormal DNS/Web queries.
 ```

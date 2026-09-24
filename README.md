@@ -89,7 +89,7 @@ secops-risk-metrics-multistage/
 │   ├── federated_handoff.py              # Cross-skill bilateral threat hunt handoff protocol
 │   ├── generate_references.py            # Code-as-SSOT reference documentation generator
 │   ├── preflight_validator.py            # Pre-flight syntax and outcome contract validator
-│   ├── radar_collector.py                # 5-Sector 360° radar SVG/HTML generator & score collector
+│   ├── radar_collector.py                # 6-Sector 360° radar SVG/HTML generator & score collector
 │   ├── submission_tests.py               # Canonical 27-case compiler verification test harness
 │   ├── template_router.py                # Maps natural language intent to .yl2 templates with condition filtering
 │   └── triage_formatter.py               # Generates 6-section triage reports & CRI scores
@@ -128,9 +128,9 @@ secops-risk-metrics-multistage/
    * Formulates an operational **"Summary View"** highlighting the **Threat Hypothesis**, **Recommended Method & Rationale**, and **Alternative Vectors**, protected by a strict **Anti-Auth-Defaulting Guardrail** (preventing default fall-through to authentication logs during open-ended consultative inquiries).
    * Enforces the **Expert Bypass Fast-Track Protocol**: when an experienced practitioner specifies both scope/vector and statistical model up front, consultation is cleanly bypassed directly to Phase 1B pre-flight clearance, eliminating false rule-generation leakage.
 3. **360° Entity Behavioral Risk Radar (All-Vectors Profiling)**:
-   * Generates comprehensive behavioral fingerprints across the **5 canonical risk sectors**: Authentication & Access, Cloud Resource CRUD, Workspace & SaaS, Network Egress, and DNS & Web Activity.
+   * Generates comprehensive behavioral fingerprints across the **6 canonical risk sectors**: Authentication & Access, Cloud Resource CRUD, Workspace & SaaS, Network Egress, DNS Resolution, and Web & Proxy Activity.
    * Leverages decoupled 2-stage parallel micro-queries to eliminate inner-join drops (`maxJoinCount = 4` protection), synthesizing findings into the Euclidean Threat Distance norm:
-     $$D = \sqrt{\sum_{i=1}^{5} \max(0, Z_i)^2}$$
+     $$D = \sqrt{\sum_{i=1}^{6} \max(0, Z_i)^2}$$
 4. **Adaptive Multi-Surface Visualization & Dual-Platform Parity**:
    * Renders single-surface visual outputs matched to client capabilities: `<agent-embed>` standalone HTML widgets in Jetski Web / Antigravity, clean inline `<svg>` in headless MCP webviews, and Canonical ASCII progress bars in Pillar 3 CommonMark tables. Enforces a strict single-surface guarantee to prevent duplicate visual clutter.
 5. **Noise Level Tuning & Root-Stage `condition:` Gating**:
@@ -177,7 +177,7 @@ Once installed, trigger multi-stage statistical hunting using natural language. 
 * *"What kind of behavioral anomaly hunts can we run against our Google Cloud and AWS infrastructure to catch insider privilege abuse?"*
 
 #### 🕸️ 360° Behavioral Risk Radar & Peer Comparisons
-* *"Show me a 360-degree risk metrics view of user Frank Kolzig across all 5 behavioral sectors."*
+* *"Show me a 360-degree risk metrics view of user Frank Kolzig across all 6 behavioral sectors."*
 * *"Is Frank doing things his teammates don't do? Check his authentication activity against his IT Department peer group roster."*
 * *"Perform a 360 health check on our top executive service accounts to spot cross-silo behavioral dispersion."*
 

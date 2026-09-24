@@ -808,7 +808,7 @@ The skill provides 14 rigorous mathematical models mapped to distinct multi-stag
 | **9. Dual-Baseline Delta-$Z$ ($\Delta Z$)** | $\Delta Z = Z_{\text{Personal}} - Z_{\text{Fleet Today}}$ | 3-Stage DAG (Host + Fleet $\to$ Root) | `pipelines/dual_baseline_delta_z_3stage.yl2` |
 | **10. Hierarchical Empirical Bayes** | $\lambda_{\text{post}} = (1 - B)\bar{X}_i + B\mu_{\text{cohort}}$ | 3-Stage DAG (Host + Cohort $\to$ Root) | `pipelines/hierarchical_empirical_bayes_3stage.yl2` |
 | **11. 4-Stage Multi-Sector Fusion** | $D = \sqrt{Z_{\text{Auth}}^2 + Z_{\text{Proc}}^2 + Z_{\text{Net}}^2}$ | 4-Stage DAG (3 Sectors $\to$ Root) | `pipelines/multi_sector_fusion_4stage.yl2` |
-| **12. 360° Omnibus Entity Radar** | $D_{\text{360}} = \sqrt{\sum_{i=1}^5 Z_i^2}$ | 6-Stage DAG (5 Telemetry Sectors) | `pipelines/omnibus_radar_6stage.yl2` |
+| **12. 360° Omnibus Entity Radar** | $D_{\text{360}} = \sqrt{\sum_{i=1}^6 Z_i^2}$ | Decoupled Parallel Micro-Queries (6 Telemetry Sectors) | `pipelines/radar_360_decoupled_sector.yl2` |
 | **13. Longitudinal CUSUM Drift** | $S_t^+ = \max(0, S_{t-1}^+ + Z_t - k)$ | Multi-Day Longitudinal DAG | `pipelines/longitudinal_cusum_timeline.yl2` |
 | **14. Entity Graph Rarity Outlier** | Baseline $Z$ + $\text{Prevalence} \le 3$ | 2-Stage Decoupled Derived Context | `file_executions_total.yl2` + `entity_prevalence_filter.yl2` |
 
