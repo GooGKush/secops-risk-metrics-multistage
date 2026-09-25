@@ -38,7 +38,7 @@ Execute independent decoupled sector queries, retrieve the observed metrics per 
   - **Objective**: Audit $N$ entities across an organization or peer group to identify who exhibited anomalous activity across any of the 6 sectors.
   - **Pillar 1 Surface**: **Multi-Sector Fleet Heatmap Matrix** (`radar_fleet_heatmap.html`) or **Ranked Fleet Outlier Bar Chart** (`radar_fleet_ranking.html`). Linear and matrix layouts provide clean, readable comparisons without radial centroid collapse.
   - **Recommended Horizon**: **Mode B (2–14 Day Timeline)**, run at the 14-day maximum. Because security anomalies and data exfiltration are bursty, episodic events, a 14-day sliding window surfaces historical bursts that a single-day snapshot misses.
-  - **Sector Consistency**: Both single-entity and fleetwide threat fusion evaluate and report across all 6 canonical sectors: Authentication, Cloud CRUD, Workspace Exfiltration, Network Flow, DNS Resolution, and Web & Proxy Activity.
+  - **Sector Consistency & Euclidean Join Mandate**: Both single-entity and fleetwide threat fusion evaluate and report across all 6 canonical sectors: Authentication, Cloud CRUD, Workspace Exfiltration, Network Flow, DNS Resolution, and Web & Proxy Activity. Outlier ranking and multi-sector fusion MUST join sector Z-scores via the composite Euclidean Threat Distance formula ($D = \sqrt{\sum_{i=1}^6 \max(0, Z_i)^2}$) and Calibrated Risk Index ($\text{CRI} = \text{round}\left(\frac{100}{1 + e^{-0.6(D - 3.0)}}\right)$). Pillar 1, 3, and 6 MUST report composite Threat Distance $D$, and Pillar 6 (Statistical & Mathematical Appendix) MUST provide the Euclidean formulation.
   - **Interactive Drill-Down**: Offer the 6-spoke radial radar as a 1-click drill-down when the analyst selects a specific high-risk entity from the ranked list.
   - **Drill-Down Query Construction**: When transitioning from a fleetwide sweep to an individual drilldown, constrain the target entity directly on the canonical UDM attribute in the stage predicates (e.g., `target.user.userid = "ola.burch"` with `$user = target.user.userid`). Variables bind to UDM fields rather than string literals, ensuring valid YARA-L compiler syntax.
 
@@ -200,16 +200,16 @@ $$D = \sqrt{\sum_{i=1}^6 \max(0, Z_i)^2}$$
 ### 4.2 ASSET Entity Sector Specifications
 When the entity is a Host (`ASSET`), telemetry scope maps across the 6 canonical sectors:
 
-| Sector | Telemetry Filter | Metrics Table | Primary Dimension |
+| Sector | Telemetry Filter | Metrics Table | Primary Dimension & Companion Invariants |
 | :--- | :--- | :--- | :--- |
 | **Authentication** | `metadata.event_type = "USER_LOGIN"` | `metrics.auth_attempts_total` | `principal.asset.hostname` |
 | **Network Egress** | `metadata.event_type = "NETWORK_CONNECTION"` | `metrics.network_bytes_outbound` | `principal.asset.hostname` |
 | **DNS Resolution** | `metadata.event_type = "NETWORK_DNS"` | `metrics.dns_queries_total` | `principal.asset.hostname` |
 | **Web & Proxy Activity** | `metadata.event_type = "NETWORK_HTTP"` | `metrics.http_queries_total` | `principal.asset.hostname` |
-| **Cloud Infrastructure** | `metadata.event_type = "RESOURCE_CREATION"` | `metrics.resource_creation_total` | `principal.asset.hostname` |
-| **Endpoint Activity** | `metadata.event_type = "PROCESS_LAUNCH"` | `metrics.file_executions_total` | `principal.asset.hostname` |
+| **Cloud Infrastructure** | `metadata.event_type = "RESOURCE_CREATION"` | `metrics.resource_creation_total` | `principal.asset.hostname` (requires `metadata.vendor_name`, `metadata.product_name`) |
+| **Endpoint Activity** | `metadata.event_type = "PROCESS_LAUNCH"` | `metrics.file_executions_total` | `principal.asset.hostname` (requires `principal.process.file.sha256: $sha`, `metadata.event_type: "PROCESS_LAUNCH"`) |
 
-*(Note: In dedicated endpoint anomaly pipelines, Process Launches map to `metrics.file_executions_total`; in the universal 360° Threat Fusion Radar, entities evaluate 6 canonical sectors with Euclidean distance $D$).*
+*(Note: In dedicated endpoint anomaly pipelines, Process Launches map to `metrics.file_executions_total` with file hash; in fleet sweeps without individual binary hashes or when host endpoint telemetry is nominal, evaluate observed counts or security rule alerts `metrics.alert_event_name_count`). All 6 sectors synthesize client-side into composite Euclidean Threat Distance $D = \sqrt{\sum_{i=1}^6 \max(0, Z_i)^2}$.*
 
 ---
 
