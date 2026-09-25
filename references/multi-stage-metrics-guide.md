@@ -587,7 +587,10 @@ When hunting within a single telemetry vector, single-metric evaluations can obs
 
 ### 2. Zero-Hallucination Compiler Grammar Rules:
 1. **Strict Reference-List Only `in` Operator**: In YARA-L, `field in ("A", "B")` with literal tuples is **INVALID SYNTAX**. The `in` operator is strictly for reference lists (`field in %ref_list`). Multiple literal strings MUST be written as `(field = "A" or field = "B")` or regex `field = /A|B/`.
-2. **Strict Function-Call Metric Syntax**: Metric functions are NEVER object properties (e.g. `metrics.auth_attempts_24h.mean` is **INVALID SYNTAX**). All metric baselines MUST use canonical function calls: `max(metrics.<name>(period: 1d, window: 30d, metric: <field>, agg: <agg>, ...))`.
+2. **Strict Function-Call Metric Syntax & Valid Metric Types**: Metric functions are NEVER object properties (e.g. `metrics.auth_attempts_24h.mean` is **INVALID SYNTAX**). All metric baselines MUST use canonical function calls: `max(metrics.<name>(period: 1d, window: 30d, metric: <type>, agg: <agg>, ...))`.
+   * The Common Compiler strictly supports only two operational metric types:
+     - `metric: value_sum`: Strictly required for byte/bandwidth volume baselines (`metrics.network_bytes_*`, `metrics.dns_bytes_*`, `metrics.workspace_network_bytes_*`). Retrieves `metric.sum_measure.value`. Passing `total_bytes` or `metric_value_sum` causes fatal compiler failure (`unsupported metric type`).
+     - `metric: event_count_sum`: Required for all event count baselines (`metrics.auth_attempts_*`, `metrics.resource_*`, `metrics.http_queries_*`, `metrics.file_executions_*`, `metrics.network_flows_*`, `metrics.dns_queries_*`, `metrics.workspace_total_*`, `metrics.alert_event_name_count`). Retrieves `metric.total_events`.
 3. **Daily Match Window Syntax**: Daily match windows MUST use `by 1d` (e.g. `match: $entity by 1d`). Using `by 24h` is **INVALID SYNTAX**.
 4. **Linear Outcome Arithmetic**: YARA-L outcome expressions do not support nested `max(0, ...)` or inline `sqrt(...)` inside arithmetic. Compute squared terms `$z_sq = $z * $z`, sum them `$d_sq = $z1_sq + $z2_sq`, and order by `$d_sq desc`.
 5. **The Chronicle 4-Join Limit & UEBA Join Accounting Formula**:
@@ -1089,6 +1092,7 @@ To operationalize advanced statistical models without tripping Chronicle's join 
   A high ratio ($\ge 0.75$) isolates massive single-destination transfers (elephant flows) from diffuse distributed web traffic.
 
 ### Archetype 2: Orthogonal Threat Space (`hybrid_metric_orthogonal_space_2stage.yl2`)
+* **Routing Triggers**: Dormant account awakening, cold-start entity activity, sub-threshold multi-target probing, orthogonal threat space, joint Bayesian log-odds fusion, or multi-dimensional threat distance norm ($D^2$).
 * **Match Topology**: Symmetrical entity match (`$entity by 1d`).
 * **Telemetry Join**: Macro historical intensity baseline $\bowtie$ Contemporary forensic breadth hits.
 * **Model 3: Joint Bayesian Additive Log-Odds Score**:
@@ -1114,15 +1118,15 @@ To operationalize advanced statistical models without tripping Chronicle's join 
     outcome:
       $observed_intensity = sum(network.sent_bytes)
       $hist_mean = max(metrics.network_bytes_outbound(
-          period: 1d, window: 30d, metric: total_bytes, agg: avg,
+          period: 1d, window: 30d, metric: value_sum, agg: avg,
           principal.asset.hostname: $host
       ))
       $hist_stddev = max(metrics.network_bytes_outbound(
-          period: 1d, window: 30d, metric: total_bytes, agg: stddev,
+          period: 1d, window: 30d, metric: value_sum, agg: stddev,
           principal.asset.hostname: $host
       ))
       $hist_active_days = max(metrics.network_bytes_outbound(
-          period: 1d, window: 30d, metric: total_bytes, agg: num_metric_periods,
+          period: 1d, window: 30d, metric: value_sum, agg: num_metric_periods,
           principal.asset.hostname: $host
       ))
 
