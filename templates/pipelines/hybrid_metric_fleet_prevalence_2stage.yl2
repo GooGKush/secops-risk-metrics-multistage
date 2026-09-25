@@ -32,20 +32,20 @@ stage stage1_personal_surge {
     $surging_entity = array_distinct($entity)
 }
 
-// Stage 2: Enterprise-Wide Concurrent Fleet Adoption on Micro-Token (UDM_EVENTS or Entity Graph DERIVED_CONTEXT)
+// Stage 2: Enterprise-Wide Concurrent Fleet Adoption on Micro-Token (UDM_EVENTS with Entity Graph DERIVED_CONTEXT Rarity)
 stage stage2_fleet_prevalence {
-    // Path A: Raw UDM Event Fleet Aggregation
     metadata.event_type = "{{raw_event_type}}"
     {{raw_token_field}} = $token
     $token != ""
     {{raw_event_filter}}
 
-    // Path B: Entity Graph Derived Context Rarity (Rare Binary / Domain Hunting)
-    // $graph.graph.metadata.source_type = "DERIVED_CONTEXT"
-    // $graph.graph.entity.file.sha256 = $token  (or entity.hostname = $token)
-    // $graph.graph.entity.file.prevalence.day_count = 10
-    // $graph.graph.entity.file.prevalence.rolling_max <= 3
-    // $graph.graph.entity.file.prevalence.rolling_max > 0
+    // Entity Graph Derived Context Rarity (Prevalence lookback day_count = 10 platform invariant)
+    $graph.graph.metadata.entity_type = "FILE"
+    $graph.graph.metadata.source_type = "DERIVED_CONTEXT"
+    $graph.graph.entity.file.sha256 = $token
+    $graph.graph.entity.file.prevalence.day_count = 10
+    $graph.graph.entity.file.prevalence.rolling_max <= 3
+    $graph.graph.entity.file.prevalence.rolling_max > 0
 
   match:
     $token by 1d
@@ -54,7 +54,7 @@ stage stage2_fleet_prevalence {
     $fleet_adopters = count_distinct({{fleet_entity_field}})
     $total_fleet_events = count(metadata.id)
     $sample_fleet_hosts = array_distinct({{fleet_entity_field}})
-    // $fleet_prevalence = max($graph.graph.entity.file.prevalence.rolling_max)
+    $fleet_prevalence = max($graph.graph.entity.file.prevalence.rolling_max)
 }
 
 // Stage 3 (Root Stage): Common Compiler Prevalence Normalization
@@ -73,6 +73,7 @@ outcome:
 
   $fleet_adopters = max($stage2_fleet_prevalence.fleet_adopters)
   $total_events = max($stage2_fleet_prevalence.total_fleet_events)
+  $fleet_prevalence = max($stage2_fleet_prevalence.fleet_prevalence)
 
   // Linear Prevalence Dampening Factor: 1.0 / (k_fleet + 1.0)
   // If 500 hosts adopt the hash today, dampener collapses to ~0.002

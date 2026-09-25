@@ -1186,21 +1186,24 @@ To operationalize advanced statistical models without tripping Chronicle's join 
   ```
 
 ### Archetype 3: Fleet Prevalence Normalization (`hybrid_metric_fleet_prevalence_2stage.yl2`)
+* **Routing Triggers**: Workstations with abnormal file execution spikes launching rare binaries or unfamiliar hashes, Patch Tuesday fleet rollouts, corporate software rollout shielding, or fleet-wide token prevalence normalization (`prevalence.rolling_max <= 3`).
 * **Match Topology**: Token-centric match key (`$token by 1d`), joining an entity's anomalous execution to fleet-wide breadth.
-* **Telemetry Join**: Personal process execution baseline (`metrics.file_executions_total`) $\bowtie$ Fleet-wide host execution count on the same binary hash (`principal.process.file.sha256`).
+* **Telemetry Join**: Personal process execution baseline (`metrics.file_executions_total`) $\bowtie$ Fleet-wide host execution count and Entity Graph Derived Context on the same binary hash (`principal.process.file.sha256`).
 * **Model 6: Cross-Sectional Odds Ratio (Patch Tuesday / Corporate Rollout Shield)**:
   $$\text{Dampener} = \frac{1.0}{k_{\text{fleet}} + 1.0}, \quad \text{Normalized Score} = Z_{\text{personal}} \cdot \text{Dampener}$$
   If 500 endpoints execute an updated binary today, the prevalence dampener collapses the score to $\sim 0.002$, neutralizing false positive fleet-wide alerts. If only 1–2 endpoints execute the binary, full anomaly weight ($\ge 0.33$) is preserved.
 * **Implementation Paths in Stage 2**:
-  1. **Raw UDM Fleet Aggregation**: Aggregate raw host adopters via `count_distinct(principal.asset.hostname)`.
-  2. **Entity Graph Derived Context Rarity**: For rare binary or rare domain hunting, join Stage 2 with Entity Graph Derived Context:
-     ```yara
-     $graph.graph.metadata.source_type = "DERIVED_CONTEXT"
-     $graph.graph.entity.file.sha256 = $token
-     $graph.graph.entity.file.prevalence.day_count = 10
-     $graph.graph.entity.file.prevalence.rolling_max <= 3
-     $graph.graph.entity.file.prevalence.rolling_max > 0
-     ```
+  For rare binary or rare domain hunting, pair primary UDM telemetry with Entity Graph Derived Context:
+  ```yara
+  metadata.event_type = "PROCESS_LAUNCH"
+  principal.process.file.sha256 = $token
+  $graph.graph.metadata.entity_type = "FILE"
+  $graph.graph.metadata.source_type = "DERIVED_CONTEXT"
+  $graph.graph.entity.file.sha256 = $token
+  $graph.graph.entity.file.prevalence.day_count = 10
+  $graph.graph.entity.file.prevalence.rolling_max <= 3
+  $graph.graph.entity.file.prevalence.rolling_max > 0
+  ```
 
 ---
 *Created and maintained by Greg Kushmerek for Google SecOps Chronicle SIEM threat hunting workflows.*
