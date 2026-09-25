@@ -58,10 +58,11 @@ outcome:
   $daily_z = ($observed_val - $baseline_mean) / ($baseline_stddev + 1.0)
 
   // 2. Reference Allowance Slack (k = 0.5 sigma) to absorb routine baseline fluctuations
-  $slack_excess = $daily_z - 0.5
+  $deviation = $daily_z - 0.5
 
   // 3. Positive Drift Increments (Half-Rectified Page's CUSUM Slack: max(0, slack))
-  $cusum_drift_score = if($slack_excess > 0, $slack_excess, 0.0)
+  $slack_excess = if($deviation > 0.0, $deviation, 0.0)
+  $cusum_drift_score = $slack_excess
 
 order:
   $cusum_drift_score desc

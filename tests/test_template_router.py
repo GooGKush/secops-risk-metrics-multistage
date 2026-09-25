@@ -232,8 +232,8 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
     )
     self.assertIn("stage stage1_http_failure_surge", query)
     self.assertIn("metrics.http_queries_fail", query)
-    self.assertIn("$fail_ratio = $failed_obs / ($total_obs + 0.001)", query)
-    self.assertIn("stage stage2_target_breadth", query)
+    self.assertIn("$fail_ratio = $observed_fails / ($total_events + 0.001)", query)
+    self.assertIn("stage stage2_total_traffic", query)
     self.assertIn("order:\n  $recon_score desc", query)
 
   def test_http_target_surge_pipeline_rendering(self):

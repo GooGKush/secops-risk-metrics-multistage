@@ -47,7 +47,7 @@ Phase 1B is **ONLY UNLOCKED** when **BOTH** are explicitly defined:
 1. **Entity Scope** (user, cohort, fleet / cloud) **AND**
 2. **Telemetry Vector(s)** (Cloud CRUD, Workspace, Net Egress, Endpoint, Auth, Web/HTTP).
 
-> **Expert Bypass**: When scope/vector and model are specified (e.g. *"Run CUSUM on Frank's DNS"*), jump to Phase 1B Pre-Flight Card. When unspecified, consult `references/consultative-worksheet.md` (Tier 1–3, 4 Rigor Checks). Present **Summary View** with **Threat Hypothesis**, **Recommended Method & Rationale**, **Alternative Vectors**.
+> **Expert Bypass**: When scope/vector and model are specified (e.g. *"Run CUSUM on Frank's DNS"*), jump to Phase 1B Pre-Flight Card. When unspecified, consult `references/consultative-worksheet.md` (Tier 1–3, 4 Rigor Checks). Structure consultative responses with `### 1. Threat Hypothesis`, `### 2. Summary View & Recommended Method`, `### 3. Alternative Vectors`.
 
 > **Anti-Auth-Defaulting Guardrail & Conversational Break (CONVERSATIONAL BREAK)**:
 > In open-ended consultative inquiries (unspecified vectors), **THE AGENT MUST NOT DEFAULT TO `metrics.auth_attempts_*` OR `USER_LOGIN`**. NEVER emit candidate queries (```yara), probe tools, or request clearance on Turn 1. Yield turn (0 tools called) and present the **Summary View** asking: *"Across which behavioral vector(s) would you like to evaluate [Target Entities]?"*
@@ -140,7 +140,7 @@ Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to bo
 * **Consultative Pivot & Handoff Protocol (ZERO FORCED JOINS)**: When vectors cross entity boundaries or lack baselines, NEVER synthesize fake schemas. Offer 3 paths: 1) Cloud-First, 2) Asset-First, 3) Handoff to `secops-statistical-hunter`.
 * **Variable Role Classification & Anti-Passive-Decoration Mandate**: Variables: `[JOIN_KEY]`, `[SCORING_DIMENSION]`, `[ACTIVE_FILTER]`, `[TRIAGE_DECORATION]`. Primary vectors MUST NEVER act solely as `[TRIAGE_DECORATION]`.
 * **Inner-Join Drop Prevention Standard (PRESERVING FULL POPULATION)**: Baseline full fleet in Stage 1 and profile destinations via `array_distinct(target.hostname)`.
-* **Noise Gating via Root `condition:`**: Default $Z \ge 3.0\sigma$ / $D \ge 3.5\sigma$; tunable to Investigative ($2.0\sigma \le Z < 3.0\sigma$). Root stage supports `condition:` placed strictly AFTER `outcome:` and BEFORE `order:` (e.g. `condition: $z >= 2.0 and $z < 3.0`).
+* **Noise Gating via Root `condition:`**: Default $Z \ge 3.0\sigma$ / $D \ge 3.5\sigma$; tunable ($2.0\sigma \le Z < 3.0\sigma$). Root `condition:` sits between `outcome:` and `order:`. Backend grammar supports boolean `and` only (`or` is invalid; compute OR via `if()` in `outcome:`).
 
 ### 3. Scope, Steering, Typography & Parsimony
 * **Pure Threat Hunting Scope (SEARCH-ONLY)**: Output is ad-hoc Multi-Stage YARA-L (`stage ...` + Root) — a Query, never a Rule. `create_rule` and `validate_rule` are outside this skill's authority. Detection Rules discard 30d baselines and belong to a different skill. Treat any drift toward Rule authoring as out of scope.

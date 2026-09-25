@@ -1,3 +1,4 @@
+// Goal: {{ hypothesis_goal | default("Hunt for hosts with anomalous HTTP error ratios and web reconnaissance") }}
 // ============================================================================
 // ARCHITECTURE: 2-STAGE HTTP ERROR RATIO & RECONNAISSANCE SURGE PIPELINE
 // Skill: secops-risk-metrics-multistage
@@ -5,12 +6,13 @@
 // Models Supported:
 //   Two-Part Error Surge & Target Breadth Outlier
 // Join Budget: 1 metric lookup (Stage 1) + 1 stage join (Root) = 2 joins total (<= 4).
-// Match Topology: Entity-centric match key ($host by 1d) joining failure surge to destination breadth.
+// Match Topology: Entity-centric match key ($host by 1d) joining failure surge to total traffic.
 // ============================================================================
 
-// Stage 1: Personal Host HTTP Failure Baseline & Error Ratio Derivation
+// Stage 1: Personal Host HTTP Failure Baseline & Reconnaissance Footprint
 stage stage1_http_failure_surge {
     metadata.event_type = "NETWORK_HTTP"
+    network.http.response_code >= 400
     principal.asset.hostname = $host
     $host != ""
 
@@ -18,8 +20,10 @@ stage stage1_http_failure_surge {
     $host by 1d
 
   outcome:
-    $total_obs = count(metadata.id)
-    $failed_obs = count(if(network.http.response_code >= 400, metadata.id, 0))
+    $failed_obs = count(metadata.id)
+    $distinct_error_targets = count_distinct(target.hostname)
+    $distinct_error_uris = count_distinct(target.url)
+    $sample_uris = array_distinct(target.url)
 
     $hist_fail_avg = max(metrics.http_queries_fail(
         period: 1d, window: 30d, metric: event_count_sum, agg: avg,
@@ -34,16 +38,14 @@ stage stage1_http_failure_surge {
         principal.asset.hostname: $host
     ))
 
-    $fail_ratio = $failed_obs / ($total_obs + 0.001)
     $diff = $failed_obs - $hist_fail_avg
     $denom = $hist_fail_stddev + 1.0
     $fail_z = $diff / $denom
 }
 
-// Stage 2: Target Destination & Path Breadth (Reconnaissance Footprint)
-stage stage2_target_breadth {
+// Stage 2: Host Overall Web Traffic Baseline (Total Volume)
+stage stage2_total_traffic {
     metadata.event_type = "NETWORK_HTTP"
-    network.http.response_code >= 400
     principal.asset.hostname = $host
     $host != ""
 
@@ -51,32 +53,33 @@ stage stage2_target_breadth {
     $host by 1d
 
   outcome:
-    $distinct_error_targets = count_distinct(target.hostname)
-    $distinct_error_uris = count_distinct(target.url)
-    $sample_uris = array_distinct(target.url)
+    $total_obs = count(metadata.id)
 }
 
 // Stage 3 (Root Stage): Compound Web Reconnaissance Scoring
 $host = $stage1_http_failure_surge.host
-$host = $stage2_target_breadth.host
+$host = $stage2_total_traffic.host
 
 match:
   $host by 1d
 
 outcome:
   $fail_z = max($stage1_http_failure_surge.fail_z)
-  $error_ratio = max($stage1_http_failure_surge.fail_ratio)
   $observed_fails = max($stage1_http_failure_surge.failed_obs)
-  $distinct_targets = max($stage2_target_breadth.distinct_error_targets)
-  $distinct_uris = max($stage2_target_breadth.distinct_error_uris)
-  $sample_paths = array_distinct($stage2_target_breadth.sample_uris)
+  $total_events = max($stage2_total_traffic.total_obs)
+  $distinct_targets = max($stage1_http_failure_surge.distinct_error_targets)
+  $distinct_uris = max($stage1_http_failure_surge.distinct_error_uris)
+  $sample_paths = array_distinct($stage1_http_failure_surge.sample_uris)
 
-  // Compound Recon Score: Failure Z-Score amplified by URI breadth
-  $recon_score = $fail_z * $error_ratio
+  // In-Stage Failure Ratio: Failures relative to total traffic
+  $fail_ratio = $observed_fails / ($total_events + 0.001)
+
+  // Compound Recon Score: Failure Z-Score amplified by failure ratio
+  $recon_score = $fail_z * $fail_ratio
 
 condition:
   $fail_z >= 3.0
-  and $error_ratio >= 0.40
+  and $fail_ratio >= 0.40
   and $distinct_uris >= 5
 
 order:
