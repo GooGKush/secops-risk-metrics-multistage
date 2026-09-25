@@ -3,6 +3,10 @@
 // Skill: secops-risk-metrics-multistage
 // Purpose: Detects quiet, low-and-slow behavioral drift across 14-30 sliding days
 // Formula: S_t^+ = max(0, S_{t-1}^+ + ((x_t - mu)/(sigma + 1.0) - k_ref))
+// Telemetry Metric Mappings:
+//   - DNS Query Volume (Counts): metrics.dns_queries_total (metric: event_count_sum, obs: count(metadata.id))
+//   - DNS Byte Volume (Bandwidth): metrics.dns_bytes_outbound (metric: value_sum, obs: sum(network.sent_bytes))
+//   - Network Bytes (Outbound): metrics.network_bytes_outbound (metric: value_sum, obs: sum(network.sent_bytes))
 // ============================================================================
 
 // Stage 1: Daily Standardized Deviation Tracker

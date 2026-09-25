@@ -1187,6 +1187,16 @@ To operationalize advanced statistical models without tripping Chronicle's join 
 * **Model 6: Cross-Sectional Odds Ratio (Patch Tuesday / Corporate Rollout Shield)**:
   $$\text{Dampener} = \frac{1.0}{k_{\text{fleet}} + 1.0}, \quad \text{Normalized Score} = Z_{\text{personal}} \cdot \text{Dampener}$$
   If 500 endpoints execute an updated binary today, the prevalence dampener collapses the score to $\sim 0.002$, neutralizing false positive fleet-wide alerts. If only 1–2 endpoints execute the binary, full anomaly weight ($\ge 0.33$) is preserved.
+* **Implementation Paths in Stage 2**:
+  1. **Raw UDM Fleet Aggregation**: Aggregate raw host adopters via `count_distinct(principal.asset.hostname)`.
+  2. **Entity Graph Derived Context Rarity**: For rare binary or rare domain hunting, join Stage 2 with Entity Graph Derived Context:
+     ```yara
+     $graph.graph.metadata.source_type = "DERIVED_CONTEXT"
+     $graph.graph.entity.file.sha256 = $token
+     $graph.graph.entity.file.prevalence.day_count = 10
+     $graph.graph.entity.file.prevalence.rolling_max <= 3
+     $graph.graph.entity.file.prevalence.rolling_max > 0
+     ```
 
 ---
 *Created and maintained by Greg Kushmerek for Google SecOps Chronicle SIEM threat hunting workflows.*

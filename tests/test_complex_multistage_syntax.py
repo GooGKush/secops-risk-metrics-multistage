@@ -333,8 +333,8 @@ order:
     cr_path = os.path.join(self.templates_dir, "cloud_repository_scope_dual_branch.yl2")
     with open(cr_path, "r", encoding="utf-8") as f:
       cr_content = f.read()
-    self.assertIn("$dest_z = $dest_diff / ($dest_stddev + 1.0)", cr_content)
-    self.assertIn("$origin_z = $origin_diff / ($origin_stddev + 1.0)", cr_content)
+    self.assertIn("$dest_z = ($observed_reads - $dest_avg) / $safe_dest_std", cr_content)
+    self.assertIn("$origin_z = ($observed_reads - $origin_avg) / $safe_origin_std", cr_content)
     self.assertIn("$composite_risk = $dest_z + $origin_z", cr_content)
     self.assertIn("$dest_z = max($stage1_extract.dest_z)", cr_content)
     self.assertIn("$origin_z = max($stage1_extract.origin_z)", cr_content)

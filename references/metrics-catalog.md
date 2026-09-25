@@ -110,10 +110,10 @@ A common detection blindspot is evaluating all network anomalies through byte vo
 
 | Metric Function | Description | Supported Dimensions (Entity Types) |
 | :--- | :--- | :--- |
-| `metrics.dns_bytes_outbound` | Sent DNS query volume (use `metric: value_sum`) | `principal.asset.hostname`, `principal.user.userid` |
+| `metrics.dns_bytes_outbound` | Sent outbound DNS byte volume / bandwidth (use `metric: value_sum`) | `principal.asset.hostname`, `principal.user.userid` |
 | `metrics.dns_queries_success` | Successful DNS resolution queries | `principal.asset.hostname`, `principal.user.userid` |
 | `metrics.dns_queries_fail` | Failed / NXDOMAIN DNS queries | `principal.asset.hostname`, `principal.user.userid` |
-| `metrics.dns_queries_total` | Total DNS query count | `principal.asset.hostname`, `principal.user.userid` |
+| `metrics.dns_queries_total` | Total DNS query volume / query count (use `metric: event_count_sum`) | `principal.asset.hostname`, `principal.user.userid` |
 
 ---
 
