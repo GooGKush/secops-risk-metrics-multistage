@@ -47,10 +47,13 @@ Phase 1B is **ONLY UNLOCKED** when **BOTH** are explicitly defined:
 1. **Entity Scope** (user, cohort, fleet / cloud) **AND**
 2. **Telemetry Vector(s)** (Cloud CRUD, Workspace, Net Egress, Endpoint, Auth, Web/HTTP).
 
-> **Expert Bypass**: When scope/vector and model are specified (e.g. *"Run CUSUM on Frank's DNS"*), jump to Phase 1B Pre-Flight Card. When unspecified, consult `references/consultative-worksheet.md` (Tier 1–3, 4 Rigor Checks). Structure consultative responses with `### 1. Threat Hypothesis`, `### 2. Summary View & Recommended Method`, `### 3. Alternative Vectors`.
-
-> **Anti-Auth-Defaulting Guardrail & Conversational Break (CONVERSATIONAL BREAK)**:
-> In open-ended consultative inquiries (unspecified vectors), **THE AGENT MUST NOT DEFAULT TO `metrics.auth_attempts_*` OR `USER_LOGIN`**. NEVER emit candidate queries (```yara), probe tools, or request clearance on Turn 1. Yield turn (0 tools called) and present the **Summary View** asking: *"Across which behavioral vector(s) would you like to evaluate [Target Entities]?"*
+> **Phase 1A: Open-Ended Consultative Discovery & Conversational Break**:
+> When telemetry vector or model is unspecified, **THE AGENT MUST NOT DEFAULT TO `metrics.auth_attempts_*` OR `USER_LOGIN`**. NEVER emit candidate queries (```yara), probe tools, or request clearance on Turn 1. Consult `references/consultative-worksheet.md` (Tier 1–3, 4 Rigor Checks) and structure the response strictly with:
+> - `### 1. Threat Hypothesis`: Security reasoning and underlying threat narrative.
+> - `### 2. Summary View & Recommended Method`: Target scope and recommended behavioral analytical framework.
+> - `### 3. Focus Areas & Behavioral Vectors`: 3–4 candidate vectors/methods from `references/consultative-worksheet.md`.
+> Conclude with the explicit consultative selection question: *"Across which behavioral vector(s) would you like to evaluate [Target Entities]?"* and **YIELD THE TURN (0 tools called)**.
+> *(Expert Bypass: When scope/vector and model are specified upfront, e.g. "Run CUSUM on Frank's DNS", jump directly to Phase 1B).*
 
 ### 🕸️ 360° Entity Behavioral Risk Radar & Multi-Sector Threat Fusion
 For multi-sector profiling (*"multi-sector fusion"*, *"360 health check"*), see `references/360-behavioral-radar-guide.md`.
@@ -66,13 +69,14 @@ For multi-sector profiling (*"multi-sector fusion"*, *"360 health check"*), see 
 **Map to UEBA Metric Tables**: Map to tables (`metrics.*`). **Transition Directly to Phase 1B**: Emit Pre-Flight Card & Literal Query Preview. **YIELD THE TURN (0 tools called)**.
 
 ### 🔍 Phase 1B: Pre-Flight Spec & Query Preview (Once Scope & Vectors are Established)
-Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to both"*, or via CTI mapping):
-1. **Turn 1 Tool Invariant**: Zero external inspection; name spot-check and 1-shot compiler probe (`udm_search`) on primary baseline filter permitted (max 1 retry; maximum 2 probes on Turn 1).
+Once vectors and scope are confirmed (via initial expert prompt, or on Turn 2 upon analyst vector selection from Phase 1A, or via CTI mapping):
+1. **Pre-Flight Probe Invariant**: Zero external inspection; name spot-check and 1-shot compiler probe (`udm_search`) on primary baseline filter permitted before rendering candidate query (max 1 retry; maximum 2 probes total during pre-flight).
 2. **Identity Disambiguation & Confirmation Protocol (ZERO GUESSING & IMMEDIATE HALT)**:
    - *Technical IDs*: Display names (with spaces) are NOT `user.userid`.
    - *14-Day UDM Spot-Check*: `udm_search(query='target.user.userid = "<name>" nocase or principal.user.userid = "<name>" nocase', startTime: "<ISO_14D_AGO>", endTime: "<ISO_NOW>", maxEvents: 5)`.
    - *HARD RESOLUTION GATE (ZERO GUESSING & NO SPEC CARD)*: If 0 events match, **NEVER GUESS A USERNAME AND NEVER EMIT PRE-FLIGHT CARD**. **HALT IMMEDIATELY (0 tools called)**, asking: *"I could not resolve an active technical `user.userid` for '<Name>' in recent UDM telemetry. What is their corporate email or technical username?"*
 4. **Structured PRE-FLIGHT HUNTING SPECIFICATION Card & Mandatory Query Preview**:
+   Before displaying the candidate query, emit the formal Pre-Flight card:
    ```markdown
    PRE-FLIGHT HUNTING SPECIFICATION:
    • Target Entity / Scope:  [Target User/Host ID or Fleet]
@@ -89,7 +93,7 @@ Once vectors and scope are confirmed (or responding to Phase 1A with *"yes to bo
    * *Interactive Entity Graph Dimension Mandate*: Express joins under `• Entity Graph Dimension: [Exact Filter]` (Domain Rarity, Fleet Prevalence, Binary Rarity, IP Rarity `rolling_max <= 3`, `day_count = 10` platform invariant).
    * *Model Concordance Invariant*: When declaring a statistical model, instantiate its template in `templates/stage2_math_models/` (see `references/model-concordance-guide.md`). Emitted `outcome:` derivations and `order:` clause MUST faithfully implement that template's mathematical AST signature (e.g. CUSUM `$cusum_drift_score`, Poisson `$poisson_z`, or Empirical Bayes `$posterior_mean`).
    * *Canonical Preview & Two-Phase Chained Hunt Specification*: Cross-entity hunts emit Two-Phase Chained Hunt Specification: Phase 1 (UEBA Outlier), Bridge Contract ($host, $timestamp, $user, $caller_ip), and Phase 2 (Targeted Cloud UDM Query).
-5. **Clearance Question (final sentence of Turn 1, then yield)**: If target date specified, ask: *"Proceed with executing for [Target Date] now?"*. Otherwise ask: *"Would you like me to proceed with **Mode A (Today vs 30-Day Baseline)** or **Mode B (2–14 Day Timeline)**? (Adjust noise level/significance threshold before execution if desired.)"*.
+5. **Clearance Question (final sentence of Pre-Flight Preview, then yield)**: If target date specified, ask: *"Proceed with executing for [Target Date] now?"*. Otherwise ask: *"Would you like me to proceed with **Mode A (Today vs 30-Day Baseline)** or **Mode B (2–14 Day Timeline)**? (Adjust noise level/significance threshold before execution if desired.)"*.
 6. **Pre-Flight Tuning & Clarification Loop**: When the analyst asks questions or adjusts parameters (thresholds, dates, models) prior to clearance, answer conversationally, maintain active entity and vector context, present updated Pre-Flight Card, re-probe when query logic changes, and prompt for Mode A/B clearance to proceed.
 
 ---
