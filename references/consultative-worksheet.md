@@ -129,9 +129,9 @@ When engaging the analyst during Phase 1A, use the **Summary View** templates be
 * **Why Static Rules Miss It**: Cloud admin accounts frequently generate noise; static rules either trigger endless false positives or are tuned down, missing rogue infrastructure creations and bulk deletions.
 * **Common-Sense Rigor Check**: Screen for automated Terraform / CI/CD pipeline deployments or cloud provider maintenance before concluding administrative sabotage.
 * **Summary View Options**:
-  1. *Dormant Service Account Provisioning*: Flag inactive service accounts suddenly spinning up compute or storage (**Two-Part Hurdle Model** on `resource_creation_total`).
-  2. *High-Velocity Sabotage*: Detect explosive spikes in resource deletions while ignoring normal system updates (**Asymmetric Directional Z** on `resource_deletion_total`).
-  3. *Cross-Database Enumeration*: Isolate service account access strictly by vendor, product, and resource name to catch unauthorized sweeps (**Local-Baseline Isolation** on `resource_read_total`).
+  1. *Cloud Resource CRUD & Data Access Mutations (Focus 1)*: Monitor sensitive data access, bulk resource reads, and infrastructure deletions across cloud repositories (**Dual-Branch Directional Z-Score** on `metrics.resource_read_total` and `metrics.resource_deletion_total` with `$vendor` and `$product` via `cloud_repository_scope_dual_branch.yl2`).
+  2. *Dormant Service Account Provisioning & Token Drift (Focus 2)*: Detect inactive service accounts suddenly spinning up compute or initiating privileged API sessions (**Two-Part Hurdle Model** on `metrics.resource_creation_total`).
+  3. *Cross-Vector Behavioral Radar & Health Check (Focus 3)*: Profile service account activity omnidirectionally across Cloud, Auth, Workspace, Network, DNS, and Web & Proxy (**6-Sector Behavioral Radar** with Euclidean Distance D >= 3.5σ).
 * *Deep Dive Guide*: `references/consultative/cloud-infrastructure.md`
 
 ### Domain 4: Endpoint Activity, Living-off-the-Land & Covert Signaling
