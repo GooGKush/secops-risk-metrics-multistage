@@ -61,6 +61,20 @@ stage stage1_extract {
         metadata.product_name: $product,
         target.resource.name: $resource
     ))
+    $dest_del_avg = max(metrics.resource_deletion_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+        principal.user.userid: $sa,
+        metadata.vendor_name: $vendor,
+        metadata.product_name: $product,
+        target.resource.name: $resource
+    ))
+    $dest_del_stddev = max(metrics.resource_deletion_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+        principal.user.userid: $sa,
+        metadata.vendor_name: $vendor,
+        metadata.product_name: $product,
+        target.resource.name: $resource
+    ))
     $dest_active_days = max(metrics.resource_read_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
         principal.user.userid: $sa,

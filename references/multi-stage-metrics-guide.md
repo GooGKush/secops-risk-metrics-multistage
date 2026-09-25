@@ -1104,7 +1104,7 @@ To operationalize advanced statistical models without tripping Chronicle's join 
   ```yara
   // Stage 1: Macro Baseline (Axis 1: Historical Intensity)
   stage stage1_macro_intensity {
-      metadata.event_type = "RESOURCE_READ"
+      metadata.event_type = "NETWORK_CONNECTION"
       principal.asset.hostname = $host
       $host != ""
 
@@ -1112,17 +1112,17 @@ To operationalize advanced statistical models without tripping Chronicle's join 
       $host by 1d
 
     outcome:
-      $observed_intensity = count(metadata.id)
-      $hist_mean = max(metrics.resource_read_total(
-          period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+      $observed_intensity = sum(network.sent_bytes)
+      $hist_mean = max(metrics.network_bytes_outbound(
+          period: 1d, window: 30d, metric: total_bytes, agg: avg,
           principal.asset.hostname: $host
       ))
-      $hist_stddev = max(metrics.resource_read_total(
-          period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+      $hist_stddev = max(metrics.network_bytes_outbound(
+          period: 1d, window: 30d, metric: total_bytes, agg: stddev,
           principal.asset.hostname: $host
       ))
-      $hist_active_days = max(metrics.resource_read_total(
-          period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+      $hist_active_days = max(metrics.network_bytes_outbound(
+          period: 1d, window: 30d, metric: total_bytes, agg: num_metric_periods,
           principal.asset.hostname: $host
       ))
 
@@ -1133,18 +1133,18 @@ To operationalize advanced statistical models without tripping Chronicle's join 
 
   // Stage 2: Micro Telemetry (Axis 2: Contemporary Forensic Breadth)
   stage stage2_micro_breadth {
-      metadata.event_type = "RESOURCE_READ"
+      metadata.event_type = "NETWORK_CONNECTION"
       principal.asset.hostname = $host
       $host != ""
-      target.resource.name != ""
+      target.ip != ""
 
     match:
       $host by 1d
 
     outcome:
       $raw_hits = count(metadata.id)
-      $distinct_databases = count_distinct(target.resource.name)
-      $database_sample = array_distinct(target.resource.name)
+      $distinct_breadth = count_distinct(target.ip)
+      $destination_sample = array_distinct(target.ip)
   }
 
   // Root Stage: Common Compiler Orthogonal Threat Space Fusion
@@ -1158,7 +1158,7 @@ To operationalize advanced statistical models without tripping Chronicle's join 
     $z_intensity = max($stage1_macro_intensity.z_intensity)
     $hist_days = max($stage1_macro_intensity.hist_active_days)
     $raw_hits = max($stage2_micro_breadth.raw_hits)
-    $breadth_count = max($stage2_micro_breadth.distinct_databases)
+    $breadth_count = max($stage2_micro_breadth.distinct_breadth)
 
     // Standardized Micro Breadth Score (Zero-dispersion floor safe)
     $z_breadth = ($breadth_count - 1.0) / (2.0 + 1.0)
@@ -1174,8 +1174,11 @@ To operationalize advanced statistical models without tripping Chronicle's join 
     // Continuous Linear Outcome Regularization
     $z = (0.5 * $joint_odds_score) + (0.5 * $threat_distance_sq)
 
+  condition:
+    $threat_distance_sq >= 16.0 or ($joint_odds_score >= 2.5 and $raw_hits >= 3) or ($hist_days <= 2 and $breadth_count >= 3 and $raw_hits >= 1)
+
   order:
-    $z desc
+    $threat_distance_sq desc
   ```
 
 ### Archetype 3: Fleet Prevalence Normalization (`hybrid_metric_fleet_prevalence_2stage.yl2`)
