@@ -75,13 +75,17 @@ outcome:
   // Combined Threat Score: High volume anomaly weighted by entropy collapse
   $threat_score = $macro_z * (1.0 + $concentration_ratio)
 
+  // Micro Anomaly Indicator: Diversity collapse (scripted exfil) OR extreme concentration (elephant flow)
+  $is_skewed = if($diversity_ratio <= {{max_diversity_ratio}}, 1, if($concentration_ratio >= {{min_concentration_ratio}}, 1, 0))
+
 condition:
   // Macro: Volume must breach 30d baseline threshold
   $macro_z >= {{anomaly_threshold}}
   and $active_baseline_days >= {{min_baseline_days}}
   // Micro: Diversity collapse (scripted exfil) OR extreme concentration (elephant flow)
-  and ($diversity_ratio <= {{max_diversity_ratio}} or $concentration_ratio >= {{min_concentration_ratio}})
+  and $is_skewed = 1
   and $raw_events >= {{min_raw_events}}
 
 order:
   $threat_score desc
+

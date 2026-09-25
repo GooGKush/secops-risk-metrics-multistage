@@ -84,6 +84,8 @@ class TestHybridPipelines(unittest.TestCase):
     self.assertIn("$diversity_ratio = $vocab_cardinality / ($raw_events + 1.0)", query)
     self.assertIn("$concentration_ratio = $peak_transfer / ($sum_transfers + 1.0)", query)
     self.assertIn("$threat_score = $macro_z * (1.0 + $concentration_ratio)", query)
+    self.assertIn("$is_skewed = if($diversity_ratio", query)
+    self.assertIn("and $is_skewed = 1", query)
     self.assertIn("match:\n  $entity by 1d", query)
     self.assertIn("order:\n  $threat_score desc", query)
 
