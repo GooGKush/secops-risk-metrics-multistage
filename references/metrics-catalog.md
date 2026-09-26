@@ -215,7 +215,7 @@ In web reconnaissance and API fuzzing hunts, compare failed HTTP queries (`4xx/5
 
 ```yara
 $total_obs = count(metadata.id)
-$fail_obs = count(if(network.http.response_code >= 400, metadata.id, 0))
+$fail_obs = sum(if(network.http.response_code >= 400, 1, 0))
 $fail_ratio = $fail_obs / ($total_obs + 0.001)
 
 $hist_fail_avg = max(metrics.http_queries_fail(

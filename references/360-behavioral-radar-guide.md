@@ -409,7 +409,7 @@ When the entity is a Host (`ASSET`), telemetry scope maps across the 6 canonical
 | **Cloud Infrastructure** | `metrics.resource_creation_total` | `principal.asset.hostname` (requires `metadata.vendor_name`, `metadata.product_name`) |
 | **Endpoint Activity** | `metrics.file_executions_total` | `principal.asset.hostname` (requires `principal.process.file.sha256: $sha`, `metadata.event_type: "PROCESS_LAUNCH"`) |
 
-*(Note: In dedicated endpoint anomaly pipelines, Process Launches map to `metrics.file_executions_total` with file hash; in fleet sweeps without individual binary hashes or when host endpoint telemetry is nominal, evaluate observed counts or security rule alerts `metrics.alert_event_name_count`). All 6 sectors synthesize client-side into composite Euclidean Threat Distance $D = \sqrt{\sum_{i=1}^6 \max(0, Z_i)^2}$.*
+*(Note: In dedicated endpoint anomaly pipelines, Process Launches map to `metrics.file_executions_total` with file hash; in fleet sweeps without individual binary hashes or when host endpoint telemetry is nominal, evaluate observed counts or security rule alerts `metrics.alert_event_name_count`). All 6 canonical sectors (Authentication, Cloud Infrastructure, Workspace / Endpoint Activity, Network Egress, DNS Resolution, Web & Proxy Activity) MUST appear in the ranked triage report table. For Host/Asset scopes where Cloud Infrastructure or Workspace Data is quiet or unobserved, assign the Deterministic Nominal Baseline ($Z = 0.00\sigma$) so all 6 rows are always fully represented. All 6 sectors synthesize client-side into composite Euclidean Threat Distance $D = \sqrt{\sum_{i=1}^6 \max(0, Z_i)^2}$.*
 
 ---
 
@@ -418,11 +418,11 @@ When the entity is a Host (`ASSET`), telemetry scope maps across the 6 canonical
 To eliminate synthetic baseline invention without relying on negative rules, the skill establishes affirmative operational definitions:
 
 ### 5.1 Deterministic Nominal Baseline for Quiet Sectors
-When a sector query returns **0 observed events** within the evaluation window:
+When a sector query returns **0 observed events** within the evaluation window, or when an entity scope lacks telemetry in that domain:
 * **Affirmative Rule**: A sector with zero observed activity operates at its **Nominal Baseline**.
 * **Standardized Assignment**:
   $$\text{Observed} = 0, \quad \mu = 0.0, \quad \sigma = 0.0, \quad Z = 0.00\sigma, \quad \text{CRI} = 0, \quad \text{Status} = \text{🟢 Nominal Baseline}$$
-* **Mathematical Rationale**: In a normalized Gaussian Euclidean space, an unbreached vector contributes $(0.00)^2 = 0$ to total distance $D$.
+* **Mathematical Rationale**: In a normalized Gaussian Euclidean space, an unbreached vector contributes $(0.00)^2 = 0$ to total distance $D$. All 6 canonical sectors must be included in the triage table.
 
 ### 5.2 Active Sector Data Handling
 When a sector micro-query returns **$\ge 1$ matching rows**:

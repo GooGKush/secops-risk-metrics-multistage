@@ -603,10 +603,13 @@ When hunting within a single telemetry vector, single-metric evaluations can obs
    - **Maximum Supported UEBA Multi-Stage DAG**: **2 Named UEBA Stages + Root Stage** (Total joins = $1 + 1 + 1 = \mathbf{3\text{ joins}} \le 4$, e.g. `dual_sector_fusion_3stage.yl2`).
    - Attempting to chain 3 or 4 independent named stages with UEBA metrics in a single search query yields 5 to 7 joins and triggers `compilation error maximum number of joins exceeded. limit query to at most 4 joins`.
    - For 4-sector cross-vector profiling (e.g. Auth + Cloud + Workspace + Network + Endpoint), execute decoupled parallel 2-stage micro-queries (the 360° behavioral radar pattern) or route raw non-metrics correlation to `secops-statistical-hunter`. Do NOT abandon search mode to improvise continuous detection rules.
-6. **Regular Expression Pattern Matching Syntax**: Regular expression pattern evaluation in YARA-L 2.0 event predicates uses `re.regex($var, /pattern/)` or direct regex assignment `$var = /pattern/ nocase` (e.g. `$sa = /@.*gserviceaccount\.com$/ nocase`).
+6. **Regular Expression Pattern Matching Syntax**: Regular expression pattern evaluation in YARA-L 2.0 event predicates uses direct regex assignment `$var = /pattern/ nocase` or `re.regex($var, /pattern/)`. Alternation between multiple regex patterns on a single variable uses internal regex alternation within a single regex literal: `$var = /pattern1|pattern2/ nocase` (e.g. `$sa = /@.*gserviceaccount\.com$|^arn:aws:(iam|sts)::.*:(role|assumed-role)\// nocase`). Placing the pipe operator `|` between separate regex literals is invalid syntax.
 7. **No `variance()` Aggregate**: YARA-L 2.0 does **not** support `variance(...)`. The compiler accepts only `avg()`, `stddev()`, `min()`, `max()`, `sum()`, `count()`, and `count_distinct()`. To obtain variance, export `stddev(...)` from the intermediate stage and square it in the root outcome (`$sigma_sq = $sigma * $sigma`).
 8. **Strict Math Namespacing**: Bare numeric functions are illegal. Use `math.round(...)`, never `round(...)`.
 9. **Stage Name Grammar**: Stage identifiers must NOT begin with `$`. Write `stage stage1_extract`, never `stage $stage1_extract`.
+10. **Outcome Aggregation Function Grammar (`count()` vs. `sum(if())`)**:
+    - `count()` accepts ONLY a single event attribute (e.g., `count(metadata.id)`). Wrapping conditionals or function expressions inside `count(...)` (such as `count(if(...))`) is **INVALID SYNTAX** rejected by the Chronicle compiler with `Request contains an invalid argument`.
+    - For conditional event counting within an outcome block, always formulate as `sum(if(<condition>, 1, 0))` (e.g., `$fail_obs = sum(if(network.http.response_code >= 400, 1, 0))`).
 
 
 ---

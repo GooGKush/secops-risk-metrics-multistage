@@ -20,10 +20,7 @@ stage stage1_extract {
     $ip = principal.ip
 
     // Enforce cloud service account identity construction (GCP *.gserviceaccount.com or AWS IAM role ARN)
-    (
-        $sa = /@.*gserviceaccount\.com$/ nocase or
-        $sa = /^arn:aws:(iam|sts)::.*:(role|assumed-role)\// nocase
-    )
+    $sa = /@.*gserviceaccount\.com$|^arn:aws:(iam|sts)::.*:(role|assumed-role)\// nocase
     $resource != ""
 
   match:

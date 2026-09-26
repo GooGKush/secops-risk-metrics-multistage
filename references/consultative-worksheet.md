@@ -103,6 +103,12 @@ The consultative dialogue adapts dynamically to the analyst's background while m
 
 When engaging the analyst during Phase 1A, use the **Summary View** templates below to present 2–3 targeted hypotheses mapped to the failure modes of static detection rules.
 
+### Phase 1A Consultative Response Structure Mandate
+Every Phase 1A consultative response must be formatted with the following explicit sections:
+1. `### Threat Hypothesis`: Formulate the target security hypothesis, distinguishing malicious deformation from benign operational activity.
+2. `### Summary View` (or `### Recommended Method`): Detail the recommended telemetry vectors, baseline metrics (`metrics.*`), and mathematical anomaly model.
+3. `### Alternative Vectors`: Provide 2–3 alternate vectors or consultative pivots (e.g. Cloud vs. Asset vs. Handoff).
+
 
 ### Domain 1: Data Hoarding & Exfiltration
 * **Why Static Rules Miss It**: Fixed threshold alerts (e.g. `bytes > 5GB`) are easily bypassed by chunked daily transfers (e.g. 400MB/day), and blanket rules cannot distinguish routine developer egress from unauthorized dumps.

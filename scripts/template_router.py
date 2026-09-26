@@ -268,7 +268,7 @@ class MultiStageTemplateRouter:
         raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
       raw = pipeline_file.read_text().strip()
       if service_account:
-        sa_regex_pattern = r"\(\s*\$sa\s*=\s*/@.*?nocase\s*\)"
+        sa_regex_pattern = r"(?:\(\s*)?\$sa\s*=\s*/@.*?nocase(?:\s*\))?"
         sa_binding = f'    $sa = "{service_account}"'
         raw = re.sub(sa_regex_pattern, sa_binding, raw, flags=re.DOTALL)
       if hypothesis_goal:
