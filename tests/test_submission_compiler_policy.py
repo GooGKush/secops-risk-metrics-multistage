@@ -101,6 +101,34 @@ class TestSubmissionCompilerPolicy(unittest.TestCase):
     errors = SubmissionTestSuite.validate_static_invariants(bad_query, "TEST-BAD-VAR")
     self.assertTrue(any("variance()" in e for e in errors))
 
+  def test_invariant_detects_count_if_antipattern(self):
+    """Ensures validator catches unsupported 'count(if(...))' aggregate."""
+    bad_query = """
+    stage s1 {
+      metadata.event_type = "NETWORK_HTTP"
+      principal.user.userid = $user
+    match: $user by 1d
+    outcome: $fail_obs = count(if(network.http.response_code >= 400, 1, 0))
+    }
+    order: $fail_obs desc
+    """
+    errors = SubmissionTestSuite.validate_static_invariants(bad_query, "TEST-BAD-COUNT-IF")
+    self.assertTrue(any("count(if(...))" in e for e in errors))
+
+  def test_invariant_detects_regex_pipe_alternation(self):
+    """Ensures validator catches unsupported regex pipe alternation outside literal delimiters."""
+    bad_query = """
+    stage s1 {
+      metadata.event_type = "USER_LOGIN"
+      principal.user.userid = /admin/ | /root/
+    match: $user by 1d
+    outcome: $c = count(metadata.id)
+    }
+    order: $c desc
+    """
+    errors = SubmissionTestSuite.validate_static_invariants(bad_query, "TEST-BAD-REGEX-PIPE")
+    self.assertTrue(any("regex alternation '|' outside" in e for e in errors))
+
   def test_invariant_detects_bare_math_round(self):
     """Ensures validator catches bare 'round()' without math. prefix."""
     bad_query = """

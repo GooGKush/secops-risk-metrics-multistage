@@ -440,9 +440,13 @@ order:
     if re.search(r'(?<!math\.)\bround\(', query):
       errors.append("Illegal bare 'round()' (must use 'math.round()')")
 
-    # 3. Zero unsupported aggregation functions (e.g. variance)
+    # 3. Zero unsupported aggregation functions (e.g. variance, count(if))
     if re.search(r'\bvariance\(', query):
       errors.append("Illegal aggregation function 'variance()' (must use stddev() squared)")
+    if re.search(r'\bcount\s*\(\s*if\s*\(', query, re.IGNORECASE):
+      errors.append("Illegal aggregation function 'count(if(...))' (must use 'sum(if(condition, 1, 0))' for conditional counting)")
+    if re.search(r'=\s*\/[^\/\n]+\/\s*\|\s*\/', query):
+      errors.append("Illegal regex alternation '|' outside regex literal delimiters (combine into single regex '/(p1|p2)/ nocase')")
 
     # 4. Zero dummy placeholder variables in match
     if "$day_bucket" in query or "$hour_bucket" in query:

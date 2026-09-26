@@ -945,6 +945,10 @@ class MalachiteASTValidator:
         then_clause = re.sub(r"^\s*[-+]\s*", "", args[1])
         if re.search(r"[\+\-\*\/]", then_clause):
           errors.append(f"INVALID_IF_CONDITIONAL: 'if(...)' contains compound arithmetic in then-clause. Chronicle compiler only allows placeholders, fields, and constants in then clause: {m.group(0)}")
+    if re.search(r"\bcount\s*\(\s*if\s*\(", query_text, re.IGNORECASE):
+      errors.append("INVALID_AGGREGATE_FUNCTION: 'count(if(...))' is unsupported in YARA-L 2.0. Use 'sum(if(condition, 1, 0))' for conditional counting.")
+    if re.search(r"=\s*\/[^\/\n]+\/\s*\|\s*\/", query_text):
+      errors.append("INVALID_REGEX_ALTERNATION: Alternation with '|' outside regex delimiters is invalid. Combine into a single regex literal (e.g. '/(pattern1|pattern2)/ nocase').")
     if re.search(r"\bsqrt\s*\(", query_text):
       errors.append("INVALID_SQRT_FUNCTION: 'sqrt(...)' is invalid in YARA-L outcome expressions. Compute squared norm and order by '$norm_sq desc'.")
     if re.search(r"\b[a-zA-Z0-9_]+\.\$[a-zA-Z0-9_]+", query_text):
