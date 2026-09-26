@@ -33,18 +33,21 @@ stage stage1_process_baseline {
         principal.asset.hostname: $host,
         principal.process.file.sha256: $sha256
     ))
+    $historical_avg = $hist_mean
     $hist_stddev = max(metrics.file_executions_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
         metadata.event_type: $event_type,
         principal.asset.hostname: $host,
         principal.process.file.sha256: $sha256
     ))
+    $historical_stddev = $hist_stddev
     $hist_active_days = max(metrics.file_executions_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
         metadata.event_type: $event_type,
         principal.asset.hostname: $host,
         principal.process.file.sha256: $sha256
     ))
+    $historical_active_days = $hist_active_days
 }
 
 // Stage 2: Chronicle Derived Context Graph Lookup (Binary Prevalence & First Seen)

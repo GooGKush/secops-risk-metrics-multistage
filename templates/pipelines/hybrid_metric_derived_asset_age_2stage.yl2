@@ -26,7 +26,7 @@ stage stage1_asset_baseline {
     $hist_active_days = max({{target_metric_func_active_days}})
 }
 
-// Stage 2: Chronicle Derived Context Graph Lookup (Asset First Seen & Last Seen)
+// Stage 2: Chronicle Derived Context Graph Lookup (Asset First Seen)
 stage stage2_asset_derived_context {
     $asset.graph.metadata.source_type = "DERIVED_CONTEXT"
     $asset.graph.metadata.entity_type = "ASSET"
@@ -38,7 +38,6 @@ stage stage2_asset_derived_context {
 
   outcome:
     $first_seen_ts = min($asset.graph.entity.asset.first_seen_time.seconds)
-    $last_seen_ts = max($asset.graph.entity.asset.last_seen_time.seconds)
 }
 
 // Stage 3 (Root Stage): Fuses Host Anomaly Z-Score with Infant Asset Age Coloring

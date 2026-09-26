@@ -25,8 +25,11 @@ stage stage1_egress_baseline {
     $distinct_ports = count_distinct(target.port)
 
     $hist_mean = max({{target_metric_func_avg}})
+    $historical_avg = $hist_mean
     $hist_stddev = max({{target_metric_func_stddev}})
+    $historical_stddev = $hist_stddev
     $hist_active_days = max({{target_metric_func_active_days}})
+    $historical_active_days = $hist_active_days
 }
 
 // Stage 2: Chronicle Global Context WHOIS Lookup (Creation & Expiration Timestamps)

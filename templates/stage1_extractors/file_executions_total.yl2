@@ -22,18 +22,21 @@ stage stage1_extract {
         principal.asset.hostname: $host,
         principal.process.file.sha256: $sha256
     ))
+    $hist_mean = $historical_avg
     $historical_stddev = max(metrics.file_executions_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
         metadata.event_type: $event_type,
         principal.asset.hostname: $host,
         principal.process.file.sha256: $sha256
     ))
+    $hist_stddev = $historical_stddev
     $historical_active_days = max(metrics.file_executions_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
         metadata.event_type: $event_type,
         principal.asset.hostname: $host,
         principal.process.file.sha256: $sha256
     ))
+    $hist_active_days = $historical_active_days
     $historical_max = max(metrics.file_executions_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: max,
         metadata.event_type: $event_type,

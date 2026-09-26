@@ -17,14 +17,17 @@ stage stage1_extract {
         period: 1d, window: 30d, metric: event_count_sum, agg: avg,
         target.user.userid: $user
     ))
+    $hist_mean = $historical_avg
     $historical_stddev = max(metrics.auth_attempts_fail(
         period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
         target.user.userid: $user
     ))
+    $hist_stddev = $historical_stddev
     $historical_active_days = max(metrics.auth_attempts_fail(
         period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
         target.user.userid: $user
     ))
+    $hist_active_days = $historical_active_days
     $historical_max = max(metrics.auth_attempts_fail(
         period: 1d, window: 30d, metric: event_count_sum, agg: max,
         target.user.userid: $user
