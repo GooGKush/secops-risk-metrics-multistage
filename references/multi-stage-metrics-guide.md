@@ -160,7 +160,9 @@ Threat hunting requires adaptable sensitivity depending on operational objective
 #### Syntax & Operator Support in Root Stage `condition:`
 The Malachite compiler accepts compound boolean expressions in the root stage `condition:` block:
 * **Relational Operators**: `>`, `>=`, `<`, `<=`, `==`, `!=`
-* **Logical Operators**: `and`, `or`, `not`
+* **Logical Operators**: `and`, `not` (bare boolean `or` is rejected in root `condition:`)
+* **Match Count Operators**: `1 of [ ... ]`, `ANY of [ ... ]` (supported for expressions evaluating variables within the same stage)
+* **Cross-Stage Disjunctions**: When evaluating disjunctions across distinct stages (e.g. Stage 1 read surge OR Stage 2 delete surge), compute the composite flag in `outcome:` via `if()` (e.g. `$is_outlier = if($read_z >= 3.0 or $del_z >= 3.0, 1, 0)`) and gate in `condition:` with `$is_outlier = 1`.
 * **Grouping**: Parentheses `(...)` for nested logic
 * **Universal Grammar Placement**: Must be placed **strictly after `outcome:`** and **strictly before `order:`**.
 
