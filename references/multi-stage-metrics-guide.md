@@ -681,7 +681,7 @@ This architecture is codified in `templates/pipelines/cloud_repository_scope_dua
 ### 4. Multi-Database Account Binding Contract
 When hunting compromised accounts (e.g. Scattered Spider, OAuth token theft) across multiple databases or cloud object stores:
 1. **Mandatory Dimension Binding**: Bind `target.resource.name: $resource` in both the Stage 1 match key (`$sa, $vendor, $product, $resource, $ip by 1d`) and the Root stage match key (`$sa, $product, $resource, $ip, $ws by 1d`).
-2. **Routing Rule**: For `resource_read_total` or `resource_written_total` on an account entity, use `templates/pipelines/cloud_repository_scope_dual_branch.yl2`.
+2. **Routing Rule**: For cloud storage access on an account entity, use `templates/pipelines/cloud_repository_scope_dual_branch.yl2` to concurrently baseline destination reads (`resource_read_total`) and writes (`resource_written_total`) against target resources.
 3. **Linter Enforcement**: `StatisticalAntipatternAuditor` flags `STAT_ANTIPATTERN_DYNAMIC_RANGE_MASKING` on any query using cloud resource store metrics under an account entity if `target.resource.name` is omitted from the match key, preventing account-level aggregation.
 
 ### 5. Multi-Tier Cloud Telemetry Spectrum & UDM Enum Taxonomy (`GCP_CLOUDAUDIT`)

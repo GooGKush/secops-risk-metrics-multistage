@@ -47,6 +47,7 @@ stage stage1_extract {
         metadata.product_name: $product,
         target.resource.name: $resource
     ))
+    // 1b. Destination Resource Write Baseline (Mandatory Companion Isolation)
     $dest_write_avg = max(metrics.resource_written_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: avg,
         principal.user.userid: $sa,

@@ -57,7 +57,7 @@ For multi-sector profiling (*"multi-sector fusion"*, *"360 health check"*), see 
 * **Native Reporting**: Webview/MCP/agentapi: inline `<svg>` in Pillar 1; Jetski: `<agent-embed>`.
 
 ### ☁️ Cloud Telemetry Scope & Anti-Narrowing Invariant
-* In service account cloud repository access (`resource_read_*`, `resource_written_*`), NEVER narrow to 1 product; use `templates/pipelines/cloud_repository_scope_dual_branch.yl2` with `($sa, $vendor, $product, $resource, $ip by 1d)`.
+* In service account cloud repository access (`resource_read_*`, `resource_written_*`), hunts MUST concurrently baseline destination reads (`metrics.resource_read_total`), writes (`metrics.resource_written_total`), and caller origin IP (`principal.ip`) using `templates/pipelines/cloud_repository_scope_dual_branch.yl2` with `($sa, $vendor, $product, $resource, $ip by 1d)`. Never narrow to 1 product.
 
 ### 🎯 CTI & Threat Report Mapping
 **Map to UEBA Metric Tables**: Map to tables (`metrics.*`). **Transition Directly to Phase 1B**: Emit Pre-Flight Card & Literal Query Preview. **YIELD THE TURN (0 tools called)**.
