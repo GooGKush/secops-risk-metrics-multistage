@@ -23,7 +23,7 @@ stage stage1_personal_surge {
 
   outcome:
     $observed_val = {{macro_observed_agg}}
-    // NOTE: metrics.file_executions_* requires metadata.event_type: $event_type in Chronicle SIEM
+    // NOTE: metrics.file_executions_* requires metadata.event_type: $event_type for Chronicle SIEM
     $hist_mean = max({{target_metric_func_avg}})
     $hist_stddev = max({{target_metric_func_stddev}})
     $hist_active_days = max({{target_metric_func_active_days}})

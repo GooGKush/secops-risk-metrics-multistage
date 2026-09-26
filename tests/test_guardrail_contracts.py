@@ -1641,6 +1641,32 @@ class TestGuardrailContracts(unittest.TestCase):
     self.assertIn("Identity Disambiguation & 14-Day UDM Spot-Check", guide_content)
     self.assertIn("The Single-Token Trap", guide_content)
 
+  def test_identity_disambiguation_user_display_name_contract(self):
+    """SKILL.md, guide, and catalog must explicitly query user_display_name in 14-day UDM spot checks."""
+    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    skill_path = os.path.join(skill_dir, 'SKILL.md')
+    guide_path = os.path.join(skill_dir, 'references', 'multi-stage-metrics-guide.md')
+    catalog_path = os.path.join(skill_dir, 'references', 'metrics-catalog.md')
+
+    with open(skill_path, 'r', encoding='utf-8') as f:
+      skill_content = f.read()
+    with open(guide_path, 'r', encoding='utf-8') as f:
+      guide_content = f.read()
+    with open(catalog_path, 'r', encoding='utf-8') as f:
+      catalog_content = f.read()
+
+    # SKILL.md spot-check contract assertions
+    self.assertIn("user_display_name", skill_content, "SKILL.md must define user_display_name in identity spot check")
+    self.assertIn("target.user.user_display_name", skill_content, "SKILL.md must query target.user.user_display_name in spot-check")
+    self.assertIn("principal.user.user_display_name", skill_content, "SKILL.md must query principal.user.user_display_name in spot-check")
+    self.assertIn("Match Found", skill_content, "SKILL.md must prescribe match extraction for verified user.userid")
+    self.assertIn("Extract verified technical `user.userid`", skill_content)
+
+    # Reference guide & catalog assertions
+    self.assertIn("target.user.user_display_name", guide_content)
+    self.assertIn("principal.user.user_display_name", guide_content)
+    self.assertIn("user_display_name", catalog_content)
+
   def test_pillar2_query_integrity_contract(self):
     """SKILL.md and guide must require executed multi-stage queries and forbid raw event filters in Pillar 2."""
     skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

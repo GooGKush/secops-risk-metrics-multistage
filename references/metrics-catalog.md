@@ -40,14 +40,10 @@ This catalog details all 38 active pre-computed behavioral risk metrics availabl
 >    - **Confirmation Gate**: The resolved `userid` must be presented in the Pre-Flight Card (e.g. `• Target Entity / Scope: James Holden (Resolved User ID: jholden)`) and explicitly confirmed with the analyst before compiling hunting queries. If the display name is not found in the current tenant's logs/enrichments, the agent must prompt the analyst for the technical `userid`.
 
 > [!IMPORTANT]
-> **Metric Aggregation & Aggregator Invariants (`metric:` and `agg:`)**:
+> **Metric Aggregation Type Invariant (`metric: value_sum` vs. `metric: event_count_sum`)**:
 > In Google SecOps YARA-L 2.0, metric baseline functions strictly accept two aggregation types:
 > 1. `metric: value_sum`: Strictly required for byte/volume telemetry metrics (`metrics.network_bytes_*`, `metrics.dns_bytes_*`, `metrics.workspace_network_bytes_*`). Passing `metric_value_sum` causes fatal compiler failure (`unsupported metric type metric_value_sum`).
 > 2. `metric: event_count_sum`: Required for all count-based telemetry metrics (`metrics.auth_attempts_*`, `metrics.resource_*`, `metrics.http_queries_*`, `metrics.file_executions_*`, `metrics.network_flows_*`, `metrics.dns_queries_*`, `metrics.workspace_total_*`, `metrics.alert_event_name_count`).
->
-> **Statistical Aggregators (`agg:`)**:
-> Metric functions strictly accept: `agg: avg`, `agg: stddev`, `agg: sum`, `agg: min`, `agg: max`, or `agg: num_metric_periods`.
-> * To count active baseline periods over the window, use `agg: num_metric_periods` (e.g. `metrics.auth_attempts_total(..., metric: event_count_sum, agg: num_metric_periods)`). Passing hallucinated aggregators such as `num_days_active` causes compilation rejection (`Request contains an invalid argument`).
 
 ---
 
