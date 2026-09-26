@@ -1,10 +1,46 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.7.2)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.7.3)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v1.7.2 (Point Release) — September 2026  
+**Latest Version**: v1.7.3 (Point Release) — September 2026  
+
+---
+
+## 📢 What's New in v1.7.3 (Point Release) — Chronicle Entity Context Graph (DERIVED_CONTEXT & GLOBAL_CONTEXT) Integration, Hunter Engagement Guidance & Dual-Plane Hybrid Pipelines
+
+### 1. Chronicle Entity Context Graph Architecture (`DERIVED_CONTEXT` & `GLOBAL_CONTEXT`)
+* **Dual-Plane Graph Telemetry**:
+  - Implemented full support for Chronicle SIEM Entity Context Graph, enabling threat hunters to fuse macro 30-day pre-computed behavioral metrics (`metrics.*`) with enriched asset, binary, and domain context.
+  - **`DERIVED_CONTEXT`**: Integrated enterprise-wide first-seen timestamps, active prevalence days, and device cardinality across `DOMAIN_NAME`, `FILE`, `ASSET`, and `USER` entities.
+  - **`GLOBAL_CONTEXT`**: Integrated curated external WHOIS intelligence and threat intelligence (creation date, expiration date, registrar information) to catch Newly Registered Domains ($NRD \le 30\text{d}$) and expired domain/TLS certificates.
+  - Comprehensive reference guide published in [`references/entity-context-graph-guide.md`](references/entity-context-graph-guide.md).
+
+### 2. Dual-Plane Hybrid Production Pipeline Templates
+* **Three New Specialized 2-Stage Pipelines (`templates/pipelines/`)**:
+  - `hybrid_metric_derived_file_prevalence_2stage.yl2`: Fuses 30-day execution baselines (`metrics.file_executions_total`) with Chronicle Derived Context binary prevalence day counts and first-seen timestamps to isolate rare, infant malware executions.
+  - `hybrid_metric_whois_domain_lifecycle_2stage.yl2`: Fuses outbound egress query baselines (`metrics.http_queries_total`, `metrics.dns_queries_total`) with Chronicle Global Context WHOIS creation/expiration timestamps to detect traffic surges toward Newly Registered Domains or expired registrations.
+  - `hybrid_metric_derived_asset_age_2stage.yl2`: Fuses host authentication failure baselines (`metrics.auth_attempts_fail`) with Chronicle Derived Context asset `first_seen_time.seconds` to isolate infant infrastructure ($\le 7\text{d}$ old) undergoing automated brute-force attacks.
+
+### 3. Hunter Engagement Guidance & Consultative Discovery (`SKILL.md`)
+* **Proactive Context Framing**:
+  - Updated State 1 Consultative Discovery to instruct agents on how to proactively engage threat hunters with Entity Context Graph options (e.g., scoping by asset age, binary enterprise prevalence, or WHOIS domain maturity).
+  - Codified the Hunter Engagement Protocol for narrowing search noise and elevating true positive threat scores using contextual risk multipliers ($2.5\times$ to $3.0\times$).
+
+### 4. Compiler & Schema Invariant Alignment
+* **ASSET / USER Schema Conformance**:
+  - Aligned entity graph queries to Chronicle's schema invariants: verified that `graph.entity.asset` and `graph.entity.user` support `first_seen_time.seconds` (while `last_seen_time.seconds` is restricted to `FILE` and `DOMAIN_NAME`).
+* **Variable Alias Harmonization**:
+  - Added mutual variable aliases (`$hist_mean = $historical_avg`, `$hist_stddev = $historical_stddev`, `$hist_active_days = $historical_active_days`) across Stage 1 extractors and pipeline templates, ensuring zero uninitialized variable rejections across diverse template conventions.
+
+### 5. Full Test Suite & Dual-Engine Regression Verification
+* **259 / 259 Unit Tests Passing (100% Green)** across 20 test modules.
+* **34 / 34 Regression Tests Passing (100% Green)** in `secops-regress` with 100% dual-engine invariant parity (`agentapi` and `direct-mcp`), including the 3 new regression suites:
+  - `REG-P1-26-DERIVED-CONTEXT-FILE-PREVALENCE`
+  - `REG-P1-27-WHOIS-DOMAIN-LIFECYCLE-ENHANCE`
+  - `REG-P1-28-DERIVED-CONTEXT-ASSET-AGE`
+* **SKILL.md Budget Compliance**: 20,474 bytes strictly adhering to the 20,480-byte ceiling.
 
 ---
 

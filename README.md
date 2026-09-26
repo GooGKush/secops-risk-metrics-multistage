@@ -1,6 +1,6 @@
 # Google SecOps Multi-Stage Risk Metrics Threat Hunter (`secops-risk-metrics-multistage`)
 
-[![Version](https://img.shields.io/badge/version-v1.7.2-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-253%2F253%20passing%20(100%25)-brightgreen.svg)](tests/) [![Submission Tests](https://img.shields.io/badge/submission%20tests-27%2F27%20passing%20(100%25)-brightgreen.svg)](scripts/submission_tests.py) [![Dual Platform Regression](https://img.shields.io/badge/dual--platform%20regression-31%2F31%20passing%20(100%25)-brightgreen.svg)](reports/)
+[![Version](https://img.shields.io/badge/version-v1.7.3-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-259%2F259%20passing%20(100%25)-brightgreen.svg)](tests/) [![Submission Tests](https://img.shields.io/badge/submission%20tests-27%2F27%20passing%20(100%25)-brightgreen.svg)](scripts/submission_tests.py) [![Dual Platform Regression](https://img.shields.io/badge/dual--platform%20regression-34%2F34%20passing%20(100%25)-brightgreen.svg)](reports/)
 
 A specialized, production-grade AI agent skill package for **Google Security Operations (SecOps / Chronicle SIEM & SOAR)** that constructs, validates, and executes **Multi-Stage YARA-L 2.0 Directed Acyclic Graph (DAG) statistical threat hunting pipelines**, **360° Entity Behavioral Risk Radars**, and **Progressively Disclosed Consultative Threat Hunting**.
 
@@ -36,6 +36,7 @@ secops-risk-metrics-multistage/
 │   │   ├── endpoint-and-covert.md        # Rare binary execution, living-off-the-land, & beaconing
 │   │   ├── identity-and-access.md        # Credential compromise, circadian shifts, & dormancy breaks
 │   │   └── insider-risk-360.md           # Holistic multi-silo insider profiling & 360° radar
+│   ├── entity-context-graph-guide.md     # Chronicle Entity Context Graph (DERIVED_CONTEXT & GLOBAL_CONTEXT) guide
 │   ├── metrics-catalog.md                # Full catalog of 38 pre-computed behavioral risk metrics
 │   ├── model-concordance-guide.md        # AST concordance contracts, outcome variables & prohibited fallbacks across all 14 models
 │   ├── multi-stage-metrics-guide.md      # Multi-stage YARA-L DAG contracts, condition gating, & Entity Graph rules
@@ -49,13 +50,19 @@ secops-risk-metrics-multistage/
 │   │   ├── dual_baseline_delta_z_3stage.yl2
 │   │   ├── dual_sector_fusion_3stage.yl2
 │   │   ├── hierarchical_empirical_bayes_3stage.yl2
+│   │   ├── http_target_surge_2stage.yl2
+│   │   ├── hybrid_metric_derived_asset_age_2stage.yl2
+│   │   ├── hybrid_metric_derived_file_prevalence_2stage.yl2
 │   │   ├── hybrid_metric_entropy_concentration_2stage.yl2
 │   │   ├── hybrid_metric_fleet_prevalence_2stage.yl2
 │   │   ├── hybrid_metric_orthogonal_space_2stage.yl2
 │   │   ├── hybrid_metric_raw_enrichment_2stage.yl2
+│   │   ├── hybrid_metric_whois_domain_lifecycle_2stage.yl2
 │   │   ├── longitudinal_cusum_2stage.yl2
 │   │   ├── mad_modified_z_2stage.yl2
 │   │   ├── multi_sector_fusion_4stage.yl2
+│   │   ├── part_of_the_whole_multilevel.yl2
+│   │   ├── part_of_the_whole_triad_multilevel.yl2
 │   │   ├── poisson_rarity_2stage.yl2
 │   │   ├── radar_360_decoupled_sector.yl2
 │   │   └── standard_z_score_2stage.yl2
@@ -93,16 +100,18 @@ secops-risk-metrics-multistage/
 │   ├── submission_tests.py               # Canonical 27-case compiler verification test harness
 │   ├── template_router.py                # Maps natural language intent to .yl2 templates with condition filtering
 │   └── triage_formatter.py               # Generates 6-section triage reports & CRI scores
-└── tests/                                # Automated unit test suite (201 tests across 17 test modules)
+└── tests/                                # Automated unit test suite (259 tests across 20 test modules)
     ├── test_chart_specifications.py
-    ├── test_clean_handoff.py
+    ├── test_chronicle_ingest.py
     ├── test_complex_multistage_syntax.py
     ├── test_cri_and_math.py
+    ├── test_doc_query_corpus.py
     ├── test_exhaustive_matrix_syntax.py
     ├── test_federated_handoff.py
     ├── test_global_context_syntax.py
     ├── test_guardrail_contracts.py
     ├── test_hybrid_pipelines.py
+    ├── test_model_concordance.py
     ├── test_radar_collector.py
     ├── test_skill_efficiency_and_clarity.py
     ├── test_statistical_antipattern_auditor.py
