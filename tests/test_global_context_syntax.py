@@ -404,6 +404,43 @@ class GlobalContextMultiStageSyntaxTest(unittest.TestCase):
     errors = MalachiteASTValidator.validate_query(decoupled_query)
     self.assertEqual(len(errors), 0, f"Expected 0 errors for decoupled query, got: {errors}")
 
+  def test_whois_domain_lifecycle_pipeline_ast_clean(self):
+    """Verifies that the compiled WHOIS domain lifecycle pipeline passes MalachiteASTValidator with zero errors."""
+    from scripts.preflight_validator import MalachiteASTValidator, PipelineArchitecture
+    from scripts.template_router import MultiStageTemplateRouter
+
+    router = MultiStageTemplateRouter()
+    query = router.build_pipeline_query(
+        PipelineArchitecture.HYBRID_METRIC_WHOIS_DOMAIN_LIFECYCLE_2STAGE,
+        target_metric="http_queries_total",
+        anomaly_threshold=3.0,
+        hypothesis_goal="WHOIS Domain Lifecycle NRD and Expiration Egress Hunt",
+    )
+    errors = MalachiteASTValidator.validate_query(query)
+    self.assertEqual(errors, [], f"Expected 0 errors for WHOIS pipeline, got: {errors}")
+    self.assertIn('$whois.graph.metadata.source_type = "GLOBAL_CONTEXT"', query)
+    self.assertIn("$domain_age_days = ($now - $created) / 86400.0", query)
+    self.assertIn("$is_nrd = if($domain_age_days <= 30.0 and $domain_age_days >= 0.0, 1.0, 0.0)", query)
+    self.assertIn("$is_expired = if($expires <= $now and $expires > 0, 1.0, 0.0)", query)
+
+  def test_derived_context_file_prevalence_pipeline_ast_clean(self):
+    """Verifies that the compiled Derived Context File Prevalence pipeline passes MalachiteASTValidator with zero errors."""
+    from scripts.preflight_validator import MalachiteASTValidator, PipelineArchitecture
+    from scripts.template_router import MultiStageTemplateRouter
+
+    router = MultiStageTemplateRouter()
+    query = router.build_pipeline_query(
+        PipelineArchitecture.HYBRID_METRIC_DERIVED_FILE_PREVALENCE_2STAGE,
+        target_metric="file_executions_total",
+        anomaly_threshold=3.0,
+        hypothesis_goal="Derived Context File Prevalence Outlier Hunt",
+    )
+    errors = MalachiteASTValidator.validate_query(query)
+    self.assertEqual(errors, [], f"Expected 0 errors for Derived Context File pipeline, got: {errors}")
+    self.assertIn('$file.graph.metadata.source_type = "DERIVED_CONTEXT"', query)
+    self.assertIn("$file.graph.entity.file.prevalence.day_count = 10", query)
+    self.assertIn("$file.graph.entity.file.prevalence.rolling_max <= 3", query)
+
 
 if __name__ == '__main__':
   unittest.main()

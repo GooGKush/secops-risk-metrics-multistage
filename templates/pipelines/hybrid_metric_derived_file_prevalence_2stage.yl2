@@ -1,0 +1,105 @@
+// ============================================================================
+// ARCHITECTURE: 2-STAGE DUAL-PLANE DERIVED CONTEXT FILE PREVALENCE PIPELINE
+// Skill: secops-risk-metrics-multistage
+// Purpose: Fuses 30-day host/binary process execution volumetric baseline
+//          (metrics.file_executions_total) with Chronicle Entity Context Graph
+//          (DERIVED_CONTEXT) file prevalence to isolate rare/unseen binaries
+//          and prune enterprise-wide software rollouts (Patch Tuesday Shield).
+// Join Budget: 1 metric lookup (Stage 1) + 1 stage join (Root) = 2 joins total (<= 4).
+// Invariant: Stage 1 evaluates universal volume; Stage 2 isolates graph lookup (ECG_LIMIT = 1).
+// ============================================================================
+
+// Stage 1: Macro 30-Day Process Execution Baseline (metrics.file_executions_total)
+stage stage1_process_baseline {
+    metadata.event_type = "PROCESS_LAUNCH"
+    $event_type = metadata.event_type
+    principal.asset.hostname = $host
+    principal.process.file.sha256 = $sha256
+    $host != ""
+    $sha256 != ""
+
+  match:
+    $host, $sha256 by 1d
+
+  outcome:
+    $observed_val = count(metadata.id)
+    $sample_command = array_distinct(principal.process.command_line)
+    $sample_path = array_distinct(principal.process.file.full_path)
+    $distinct_users = count_distinct(principal.user.userid)
+
+    $hist_mean = max(metrics.file_executions_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+        metadata.event_type: $event_type,
+        principal.asset.hostname: $host,
+        principal.process.file.sha256: $sha256
+    ))
+    $hist_stddev = max(metrics.file_executions_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+        metadata.event_type: $event_type,
+        principal.asset.hostname: $host,
+        principal.process.file.sha256: $sha256
+    ))
+    $hist_active_days = max(metrics.file_executions_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+        metadata.event_type: $event_type,
+        principal.asset.hostname: $host,
+        principal.process.file.sha256: $sha256
+    ))
+}
+
+// Stage 2: Chronicle Derived Context Graph Lookup (Binary Prevalence & First Seen)
+stage stage2_file_derived_context {
+    $file.graph.metadata.source_type = "DERIVED_CONTEXT"
+    $file.graph.metadata.entity_type = "FILE"
+    $file.graph.entity.file.sha256 = $sha256
+    $file.graph.entity.file.prevalence.day_count = 10
+    $file.graph.entity.file.prevalence.rolling_max <= 3
+    $file.graph.entity.file.prevalence.rolling_max > 0
+    $sha256 != ""
+
+  match:
+    $sha256
+
+  outcome:
+    $enterprise_day_count = min($file.graph.entity.file.prevalence.day_count)
+    $enterprise_rolling_max = max($file.graph.entity.file.prevalence.rolling_max)
+    $first_seen_ts = min($file.graph.entity.file.first_seen_time.seconds)
+    $last_seen_ts = max($file.graph.entity.file.last_seen_time.seconds)
+}
+
+// Stage 3 (Root Stage): Fuses Personal Outlier Z-Score with Enterprise Prevalence Multiplier
+$host = $stage1_process_baseline.host
+$sha256 = $stage1_process_baseline.sha256
+$sha256 = $stage2_file_derived_context.sha256
+
+match:
+  $host, $sha256 by 1d
+
+outcome:
+  $observed_execs = max($stage1_process_baseline.observed_val)
+  $mean_execs = max($stage1_process_baseline.hist_mean)
+  $stddev_execs = max($stage1_process_baseline.hist_stddev)
+  $safe_sigma = if($stddev_execs > 0, $stddev_execs, 1.0)
+  $z_score = ($observed_execs - $mean_execs) / ($safe_sigma + 1.0)
+  $active_baseline_days = max($stage1_process_baseline.hist_active_days)
+
+  $fleet_prevalence = max($stage2_file_derived_context.enterprise_rolling_max)
+  $prevalence_days = min($stage2_file_derived_context.enterprise_day_count)
+  $first_seen = min($stage2_file_derived_context.first_seen_ts)
+  $binary_age_days = (timestamp.current_seconds() - $first_seen) / 86400.0
+
+  // Rare Binary Multiplier: 2.5x threat score boost for binaries first seen <= 7 days ago, 1.5x for isolated binaries
+  $is_novel_binary = if($binary_age_days <= 7.0 and $binary_age_days >= 0.0, 1.0, 0.0)
+  $rarity_multiplier = if($is_novel_binary = 1.0, 2.5, 1.5)
+  $threat_score = $z_score * $rarity_multiplier
+
+  $sample_commands = array_distinct($stage1_process_baseline.sample_command)
+  $sample_paths = array_distinct($stage1_process_baseline.sample_path)
+
+condition:
+  $z_score >= {{anomaly_threshold}}
+  and $active_baseline_days >= {{min_baseline_days}}
+  and $fleet_prevalence <= {{max_fleet_prevalence}}
+
+order:
+  $threat_score desc

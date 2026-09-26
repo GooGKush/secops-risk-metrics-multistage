@@ -678,6 +678,126 @@ class MultiStageTemplateRouter:
 
       return rendered + "\n"
 
+    elif pipeline_type == PipelineArchitecture.HYBRID_METRIC_DERIVED_FILE_PREVALENCE_2STAGE:
+      if not target_metric:
+        target_metric = "file_executions_total"
+      audit = PreFlightValidator.audit(
+          target_metric=target_metric,
+          entity_type=entity_type,
+          min_baseline_days=min_baseline_days,
+      )
+      pipeline_file = self.template_dir / "pipelines" / "hybrid_metric_derived_file_prevalence_2stage.yl2"
+      if not pipeline_file.exists():
+        raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
+      raw = pipeline_file.read_text().strip()
+      rendered = raw.replace("{{anomaly_threshold}}", str(anomaly_threshold))
+      rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
+      rendered = rendered.replace("{{max_fleet_prevalence}}", "3")
+      if hypothesis_goal:
+        rendered = f"// Goal: {hypothesis_goal}\n" + rendered
+      return rendered + "\n"
+
+    elif pipeline_type == PipelineArchitecture.HYBRID_METRIC_DERIVED_DOMAIN_PREVALENCE_2STAGE:
+      if not target_metric:
+        target_metric = "http_queries_total"
+      audit = PreFlightValidator.audit(
+          target_metric=target_metric,
+          entity_type=entity_type,
+          min_baseline_days=min_baseline_days,
+      )
+      pipeline_file = self.template_dir / "pipelines" / "hybrid_metric_derived_domain_prevalence_2stage.yl2"
+      if not pipeline_file.exists():
+        raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
+      raw = pipeline_file.read_text().strip()
+      event_type = "NETWORK_HTTP" if "http" in target_metric else "NETWORK_DNS"
+      metric_type_arg = "metric: event_count_sum"
+      rendered = raw.replace("{{event_type}}", event_type)
+      rendered = rendered.replace(
+          "{{target_metric_func_avg}}",
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: avg, principal.asset.hostname: $host, target.hostname: $domain)"
+      )
+      rendered = rendered.replace(
+          "{{target_metric_func_stddev}}",
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: stddev, principal.asset.hostname: $host, target.hostname: $domain)"
+      )
+      rendered = rendered.replace(
+          "{{target_metric_func_active_days}}",
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: num_metric_periods, principal.asset.hostname: $host, target.hostname: $domain)"
+      )
+      rendered = rendered.replace("{{anomaly_threshold}}", str(anomaly_threshold))
+      rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
+      rendered = rendered.replace("{{max_fleet_prevalence}}", "3")
+      if hypothesis_goal:
+        rendered = f"// Goal: {hypothesis_goal}\n" + rendered
+      return rendered + "\n"
+
+    elif pipeline_type == PipelineArchitecture.HYBRID_METRIC_WHOIS_DOMAIN_LIFECYCLE_2STAGE:
+      if not target_metric:
+        target_metric = "http_queries_total"
+      audit = PreFlightValidator.audit(
+          target_metric=target_metric,
+          entity_type=entity_type,
+          min_baseline_days=min_baseline_days,
+      )
+      pipeline_file = self.template_dir / "pipelines" / "hybrid_metric_whois_domain_lifecycle_2stage.yl2"
+      if not pipeline_file.exists():
+        raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
+      raw = pipeline_file.read_text().strip()
+      event_type = "NETWORK_HTTP" if "http" in target_metric else ("NETWORK_DNS" if "dns" in target_metric else "NETWORK_CONNECTION")
+      metric_type_arg = "metric: event_count_sum"
+      rendered = raw.replace("{{event_type}}", event_type)
+      rendered = rendered.replace(
+          "{{target_metric_func_avg}}",
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: avg, principal.asset.hostname: $host, target.hostname: $domain)"
+      )
+      rendered = rendered.replace(
+          "{{target_metric_func_stddev}}",
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: stddev, principal.asset.hostname: $host, target.hostname: $domain)"
+      )
+      rendered = rendered.replace(
+          "{{target_metric_func_active_days}}",
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: num_metric_periods, principal.asset.hostname: $host, target.hostname: $domain)"
+      )
+      rendered = rendered.replace("{{anomaly_threshold}}", str(anomaly_threshold))
+      rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
+      if hypothesis_goal:
+        rendered = f"// Goal: {hypothesis_goal}\n" + rendered
+      return rendered + "\n"
+
+    elif pipeline_type == PipelineArchitecture.HYBRID_METRIC_DERIVED_ASSET_AGE_2STAGE:
+      if not target_metric:
+        target_metric = "auth_attempts_total"
+      audit = PreFlightValidator.audit(
+          target_metric=target_metric,
+          entity_type=entity_type,
+          min_baseline_days=min_baseline_days,
+      )
+      pipeline_file = self.template_dir / "pipelines" / "hybrid_metric_derived_asset_age_2stage.yl2"
+      if not pipeline_file.exists():
+        raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
+      raw = pipeline_file.read_text().strip()
+      metric_type_arg = "metric: value_sum" if "bytes" in target_metric else "metric: event_count_sum"
+      observed_agg = "sum(network.sent_bytes)" if "outbound" in target_metric else "count(metadata.id)"
+      rendered = raw.replace("{{event_type}}", audit["required_event_type"])
+      rendered = rendered.replace("{{observed_agg}}", observed_agg)
+      rendered = rendered.replace(
+          "{{target_metric_func_avg}}",
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: avg, principal.asset.hostname: $host)"
+      )
+      rendered = rendered.replace(
+          "{{target_metric_func_stddev}}",
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: stddev, principal.asset.hostname: $host)"
+      )
+      rendered = rendered.replace(
+          "{{target_metric_func_active_days}}",
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: num_metric_periods, principal.asset.hostname: $host)"
+      )
+      rendered = rendered.replace("{{anomaly_threshold}}", str(anomaly_threshold))
+      rendered = rendered.replace("{{max_asset_age_days}}", "7.0")
+      if hypothesis_goal:
+        rendered = f"// Goal: {hypothesis_goal}\n" + rendered
+      return rendered + "\n"
+
     else:
       raise ValueError(f"Unsupported pipeline type: {pipeline_type}")
 
@@ -761,6 +881,70 @@ class MultiStageTemplateRouter:
     """Builds a verified Dual-Plane Hybrid Fleet Prevalence Normalization pipeline (Patch Tuesday Shield)."""
     return self.build_pipeline_query(
         PipelineArchitecture.HYBRID_METRIC_FLEET_PREVALENCE_2STAGE,
+        target_metric=target_metric,
+        entity_type=entity_type,
+        anomaly_threshold=anomaly_threshold,
+        hypothesis_goal=hypothesis_goal,
+    )
+
+  def build_hybrid_derived_file_prevalence_query(
+      self,
+      target_metric: str = "file_executions_total",
+      entity_type: EntityType = EntityType.ASSET,
+      anomaly_threshold: float = 3.0,
+      hypothesis_goal: Optional[str] = None,
+  ) -> str:
+    """Builds a verified 2-Stage Derived Context File Prevalence pipeline."""
+    return self.build_pipeline_query(
+        PipelineArchitecture.HYBRID_METRIC_DERIVED_FILE_PREVALENCE_2STAGE,
+        target_metric=target_metric,
+        entity_type=entity_type,
+        anomaly_threshold=anomaly_threshold,
+        hypothesis_goal=hypothesis_goal,
+    )
+
+  def build_hybrid_derived_domain_prevalence_query(
+      self,
+      target_metric: str = "http_queries_total",
+      entity_type: EntityType = EntityType.ASSET,
+      anomaly_threshold: float = 3.0,
+      hypothesis_goal: Optional[str] = None,
+  ) -> str:
+    """Builds a verified 2-Stage Derived Context Domain Prevalence pipeline."""
+    return self.build_pipeline_query(
+        PipelineArchitecture.HYBRID_METRIC_DERIVED_DOMAIN_PREVALENCE_2STAGE,
+        target_metric=target_metric,
+        entity_type=entity_type,
+        anomaly_threshold=anomaly_threshold,
+        hypothesis_goal=hypothesis_goal,
+    )
+
+  def build_hybrid_whois_domain_lifecycle_query(
+      self,
+      target_metric: str = "http_queries_total",
+      entity_type: EntityType = EntityType.ASSET,
+      anomaly_threshold: float = 3.0,
+      hypothesis_goal: Optional[str] = None,
+  ) -> str:
+    """Builds a verified 2-Stage WHOIS Domain Lifecycle pipeline (NRD age & expiration)."""
+    return self.build_pipeline_query(
+        PipelineArchitecture.HYBRID_METRIC_WHOIS_DOMAIN_LIFECYCLE_2STAGE,
+        target_metric=target_metric,
+        entity_type=entity_type,
+        anomaly_threshold=anomaly_threshold,
+        hypothesis_goal=hypothesis_goal,
+    )
+
+  def build_hybrid_derived_asset_age_query(
+      self,
+      target_metric: str = "auth_attempts_total",
+      entity_type: EntityType = EntityType.ASSET,
+      anomaly_threshold: float = 3.0,
+      hypothesis_goal: Optional[str] = None,
+  ) -> str:
+    """Builds a verified 2-Stage Derived Context Infant Asset Age pipeline."""
+    return self.build_pipeline_query(
+        PipelineArchitecture.HYBRID_METRIC_DERIVED_ASSET_AGE_2STAGE,
         target_metric=target_metric,
         entity_type=entity_type,
         anomaly_threshold=anomaly_threshold,

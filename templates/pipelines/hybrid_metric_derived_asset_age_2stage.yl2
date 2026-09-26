@@ -1,0 +1,72 @@
+// ============================================================================
+// ARCHITECTURE: 2-STAGE DUAL-PLANE DERIVED CONTEXT ASSET AGE PIPELINE
+// Skill: secops-risk-metrics-multistage
+// Purpose: Fuses 30-day host activity volumetric baseline (metrics.auth_attempts_total,
+//          metrics.auth_attempts_fail, or metrics.network_bytes_outbound) with
+//          Chronicle Entity Context Graph (DERIVED_CONTEXT) asset first-seen age
+//          to isolate infant assets (<= 7 days old) exhibiting immediate anomalous behavior.
+// Join Budget: 1 metric lookup (Stage 1) + 1 stage join (Root) = 2 joins total (<= 4).
+// Invariant: Stage 1 evaluates universal volume; Stage 2 isolates graph lookup (ECG_LIMIT = 1).
+// ============================================================================
+
+// Stage 1: Macro 30-Day Host Baseline (metrics.*)
+stage stage1_asset_baseline {
+    metadata.event_type = "{{event_type}}"
+    principal.asset.hostname = $host
+    $host != ""
+
+  match:
+    $host by 1d
+
+  outcome:
+    $observed_val = {{observed_agg}}
+
+    $hist_mean = max({{target_metric_func_avg}})
+    $hist_stddev = max({{target_metric_func_stddev}})
+    $hist_active_days = max({{target_metric_func_active_days}})
+}
+
+// Stage 2: Chronicle Derived Context Graph Lookup (Asset First Seen & Last Seen)
+stage stage2_asset_derived_context {
+    $asset.graph.metadata.source_type = "DERIVED_CONTEXT"
+    $asset.graph.metadata.entity_type = "ASSET"
+    $asset.graph.entity.asset.hostname = $host
+    $host != ""
+
+  match:
+    $host
+
+  outcome:
+    $first_seen_ts = min($asset.graph.entity.asset.first_seen_time.seconds)
+    $last_seen_ts = max($asset.graph.entity.asset.last_seen_time.seconds)
+}
+
+// Stage 3 (Root Stage): Fuses Host Anomaly Z-Score with Infant Asset Age Coloring
+$host = $stage1_asset_baseline.host
+$host = $stage2_asset_derived_context.host
+
+match:
+  $host by 1d
+
+outcome:
+  $observed = max($stage1_asset_baseline.observed_val)
+  $mean = max($stage1_asset_baseline.hist_mean)
+  $stddev = max($stage1_asset_baseline.hist_stddev)
+  $safe_sigma = if($stddev > 0, $stddev, 1.0)
+  $z_score = ($observed - $mean) / ($safe_sigma + 1.0)
+  $active_baseline_days = max($stage1_asset_baseline.hist_active_days)
+
+  $first_seen = min($stage2_asset_derived_context.first_seen_ts)
+  $asset_age_days = (timestamp.current_seconds() - $first_seen) / 86400.0
+
+  // Infant Asset Multiplier: 2.5x threat score boost for machines first seen <= 7 days ago
+  $is_infant_asset = if($asset_age_days <= 7.0 and $asset_age_days >= 0.0, 1.0, 0.0)
+  $threat_multiplier = if($is_infant_asset = 1.0, 2.5, 1.0)
+  $threat_score = $z_score * $threat_multiplier
+
+condition:
+  $z_score >= {{anomaly_threshold}}
+  and $asset_age_days <= {{max_asset_age_days}}
+
+order:
+  $threat_score desc

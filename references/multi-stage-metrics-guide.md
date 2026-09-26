@@ -448,12 +448,12 @@ When evaluating statistical baselines (`metrics.*`), never filter the stage on e
 
 ## 15. Refinement Dimensions in Threat Triage ("What You Can Do Next")
 
-When presenting initial baseline findings to analysts, suggest refining the hunt by layering these 4 orthogonal dimensions:
+When presenting initial baseline findings to analysts, suggest refining the hunt by layering these 4 orthogonal dimensions (see `references/entity-context-graph-guide.md` for complete hunter playbooks on Narrowing vs. Enhancing):
 
-1. **🌐 Fleet Rarity**: Layer Entity Graph Domain/Hash Prevalence (`rolling_max <= 3`, `day_count = 10`).
-2. **⏳ Infrastructure Novelty**: Layer Entity Graph First-Seen age (`first_seen_time < 30/60/90 days`).
+1. **🌐 Fleet Rarity**: Layer Entity Graph Domain/Hash Prevalence (`rolling_max <= 3`, `day_count = 10`) via `hybrid_metric_derived_file_prevalence_2stage.yl2` or `hybrid_metric_derived_domain_prevalence_2stage.yl2`.
+2. **⏳ Infrastructure Novelty**: Layer Entity Graph First-Seen age (`first_seen_time < 7/30/60/90 days`) or infant asset age via `hybrid_metric_derived_asset_age_2stage.yl2`.
 3. **🎯 Threat Intel Matches**: Layer GCTI feeds (`Tor Exit Nodes`, `Remote Access Tools`, `Google Safe Browsing`).
-4. **📅 WHOIS Domain Lifecycle**: Layer WHOIS domain registration age (`< 30 days`) or expiration status.
+4. **📅 WHOIS Domain Lifecycle**: Layer WHOIS domain registration age (`< 30 days` NRD) or expiration status via `hybrid_metric_whois_domain_lifecycle_2stage.yl2`.
 
 ---
 
@@ -521,6 +521,10 @@ To prevent runtime syntactic improvisation and avoid streaming rule syntax confu
 | **`part_of_the_whole_multilevel.yl2`** | 4 Stages / 3 Wholes | Multilevel Hierarchical Z ($Z_{\text{personal}}, Z_{\text{vs\_team}}, Z_{\text{vs\_enterprise}}$) | Part-of-the-whole baselining against personal, peer cohort, and enterprise whole. |
 | **`part_of_the_whole_triad_multilevel.yl2`** | 4 Stages / 3 Wholes | Multilevel Triad Breakdown (3 Sibling Metrics + Composite $D$) | Sibling metric ratio analysis (e.g. Total + Fail + Success) against team and enterprise. |
 | **`multi_sector_fusion_4stage.yl2`** | 4 Stages | Multi-Sector Fusion (rectified $D$, $K = 4$) | Full-killchain cross-vector correlation (IAM + Cloud + Proc + Net). |
+| **`hybrid_metric_derived_file_prevalence_2stage.yl2`** | 2 Stages | Derived Context File Prevalence ($Z \times M_{\text{rare}}$) | Living-off-the-land surges, rare binary isolation, Patch Tuesday rollout pruning. |
+| **`hybrid_metric_derived_domain_prevalence_2stage.yl2`** | 2 Stages | Derived Context Domain Prevalence ($Z \times M_{\text{rare}}$) | External destination queries, novel SaaS/C2 hostnames, corporate CDN pruning. |
+| **`hybrid_metric_whois_domain_lifecycle_2stage.yl2`** | 2 Stages | WHOIS Domain Lifecycle (NRD & Expiration Fusion) | Acute web/DNS/network egress to Newly Registered Domains (<= 30d) or expired domains. |
+| **`hybrid_metric_derived_asset_age_2stage.yl2`** | 2 Stages | Derived Context Infant Asset Age ($Z \times M_{\text{infant}}$) | Rogue machine onboarding, infant endpoints (<= 7d) undergoing auth storms or egress. |
 
 ---
 

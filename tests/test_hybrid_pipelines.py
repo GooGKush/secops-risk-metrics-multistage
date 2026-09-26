@@ -235,6 +235,98 @@ class TestHybridPipelines(unittest.TestCase):
       self.assertEqual(ack.get("action"), "STEP_OUT_CONFIRMED")
       self.assertTrue(len(ack.get("compiled_query", "")) > 0)
 
+  def test_hybrid_derived_file_prevalence_rendering_and_ast(self):
+    """Verifies Derived Context File Prevalence pipeline AST and invariants."""
+    query = self.router.build_hybrid_derived_file_prevalence_query(
+        target_metric="file_executions_total",
+        entity_type=EntityType.ASSET,
+        anomaly_threshold=3.0,
+        hypothesis_goal="Isolate rare binary execution bursts and filter software rollouts",
+    )
+    self.assertIn("stage stage1_process_baseline {", query)
+    self.assertIn("metrics.file_executions_total(", query)
+    self.assertIn("stage stage2_file_derived_context {", query)
+    self.assertIn('$file.graph.metadata.source_type = "DERIVED_CONTEXT"', query)
+    self.assertIn('$file.graph.metadata.entity_type = "FILE"', query)
+    self.assertIn("$file.graph.entity.file.prevalence.day_count = 10", query)
+    self.assertIn("$file.graph.entity.file.prevalence.rolling_max <= 3", query)
+    self.assertIn("$file.graph.entity.file.prevalence.rolling_max > 0", query)
+    self.assertIn("$sha256 = $stage2_file_derived_context.sha256", query)
+    self.assertIn("$binary_age_days = (timestamp.current_seconds() - $first_seen) / 86400.0", query)
+    self.assertIn("$is_novel_binary = if($binary_age_days <= 7.0 and $binary_age_days >= 0.0, 1.0, 0.0)", query)
+    self.assertIn("order:\n  $threat_score desc", query)
+
+    # Compiler AST verification
+    ast_errors = MalachiteASTValidator.validate_query(query)
+    self.assertEqual(ast_errors, [])
+
+  def test_hybrid_derived_domain_prevalence_rendering_and_ast(self):
+    """Verifies Derived Context Domain Prevalence pipeline AST and invariants."""
+    query = self.router.build_hybrid_derived_domain_prevalence_query(
+        target_metric="http_queries_total",
+        entity_type=EntityType.ASSET,
+        anomaly_threshold=3.0,
+        hypothesis_goal="Detect web query surges to rare enterprise destinations",
+    )
+    self.assertIn("stage stage1_query_baseline {", query)
+    self.assertIn("metrics.http_queries_total(", query)
+    self.assertIn("stage stage2_domain_derived_context {", query)
+    self.assertIn('$dom.graph.metadata.source_type = "DERIVED_CONTEXT"', query)
+    self.assertIn('$dom.graph.metadata.entity_type = "DOMAIN_NAME"', query)
+    self.assertIn("$dom.graph.entity.domain.prevalence.day_count = 10", query)
+    self.assertIn("$domain = $stage2_domain_derived_context.domain", query)
+    self.assertIn("$domain_age_days = (timestamp.current_seconds() - $first_seen) / 86400.0", query)
+    self.assertIn("order:\n  $threat_score desc", query)
+
+    ast_errors = MalachiteASTValidator.validate_query(query)
+    self.assertEqual(ast_errors, [])
+
+  def test_hybrid_whois_domain_lifecycle_rendering_and_ast(self):
+    """Verifies WHOIS Domain Lifecycle pipeline (NRD age & expiration) AST and invariants."""
+    query = self.router.build_hybrid_whois_domain_lifecycle_query(
+        target_metric="http_queries_total",
+        entity_type=EntityType.ASSET,
+        anomaly_threshold=3.0,
+        hypothesis_goal="Detect egress departures targeting newly registered or expired domains",
+    )
+    self.assertIn("stage stage1_egress_baseline {", query)
+    self.assertIn("stage stage2_whois_lifecycle {", query)
+    self.assertIn('$whois.graph.metadata.source_type = "GLOBAL_CONTEXT"', query)
+    self.assertIn('$whois.graph.metadata.vendor_name = "WHOIS"', query)
+    self.assertIn('$whois.graph.metadata.entity_type = "DOMAIN_NAME"', query)
+    self.assertIn("$creation_ts = max($whois.graph.entity.domain.creation_time.seconds)", query)
+    self.assertIn("$expiration_ts = min($whois.graph.entity.domain.expiration_time.seconds)", query)
+    self.assertIn("$now = timestamp.current_seconds()", query)
+    self.assertIn("$domain_age_days = ($now - $created) / 86400.0", query)
+    self.assertIn("$is_nrd = if($domain_age_days <= 30.0 and $domain_age_days >= 0.0, 1.0, 0.0)", query)
+    self.assertIn("$is_expired = if($expires <= $now and $expires > 0, 1.0, 0.0)", query)
+    self.assertIn("$days_to_expiration = ($expires - $now) / 86400.0", query)
+    self.assertIn("order:\n  $fused_threat_score desc", query)
+
+    ast_errors = MalachiteASTValidator.validate_query(query)
+    self.assertEqual(ast_errors, [])
+
+  def test_hybrid_derived_asset_age_rendering_and_ast(self):
+    """Verifies Derived Context Infant Asset Age pipeline AST and invariants."""
+    query = self.router.build_hybrid_derived_asset_age_query(
+        target_metric="auth_attempts_total",
+        entity_type=EntityType.ASSET,
+        anomaly_threshold=3.0,
+        hypothesis_goal="Detect abnormal activity on infant assets first seen within 7 days",
+    )
+    self.assertIn("stage stage1_asset_baseline {", query)
+    self.assertIn("metrics.auth_attempts_total(", query)
+    self.assertIn("stage stage2_asset_derived_context {", query)
+    self.assertIn('$asset.graph.metadata.source_type = "DERIVED_CONTEXT"', query)
+    self.assertIn('$asset.graph.metadata.entity_type = "ASSET"', query)
+    self.assertIn("$host = $stage2_asset_derived_context.host", query)
+    self.assertIn("$asset_age_days = (timestamp.current_seconds() - $first_seen) / 86400.0", query)
+    self.assertIn("$is_infant_asset = if($asset_age_days <= 7.0 and $asset_age_days >= 0.0, 1.0, 0.0)", query)
+    self.assertIn("order:\n  $threat_score desc", query)
+
+    ast_errors = MalachiteASTValidator.validate_query(query)
+    self.assertEqual(ast_errors, [])
+
 
 if __name__ == "__main__":
   unittest.main()

@@ -119,6 +119,7 @@ Every Phase 1A consultative response must be formatted with the following explic
   3. *Covert Protocol Egress*: Detect data staging and tunneling via DNS queries (**Poisson-Gamma Bayesian** on `dns_bytes_outbound`).
   4. *Multilevel Network Triad Breakout*: Compare Outbound, Inbound, and Total Byte volume simultaneously against team cohort and enterprise wholes to catch asymmetric data siphoning (**Part-of-the-Whole Triad** via `part_of_the_whole_triad_multilevel.yl2`).
   5. *High-Frequency Session Surge & C2 Beaconing*: Detect micro-payload, high-frequency outbound connection bursts that bypass volumetric thresholds (**Flow Frequency Anomaly** on `network_flows_outbound` via `c2_beacon_flow_frequency_2stage.yl2`).
+  6. *Context-Enhanced WHOIS Egress*: Cross-reference outbound transfer departures against WHOIS registration dates and expiration status to apply 2.5x–3.0x risk multipliers on Newly Registered Domains or expired infrastructure (**WHOIS Domain Lifecycle** via `templates/pipelines/hybrid_metric_whois_domain_lifecycle_2stage.yl2`).
 * *Deep Dive Guide*: `references/consultative/data-exfiltration.md`
 
 ### Domain 2: Identity, Credential Abuse & Privilege Drift
@@ -148,6 +149,7 @@ Every Phase 1A consultative response must be formatted with the following explic
   2. *Living-off-the-Land Surge*: Surface statistically rare binary executions for a specific host and hash (**Poisson Rarity** on `file_executions_success`).
   3. *EDR Alert Accumulation*: Detect subtle increases in vendor alerts on critical assets before an incident is declared (**Longitudinal CUSUM Drift** on `alert_event_name_count`).
   4. *Enterprise Software Rollout / Patch Tuesday Normalization*: Separate targeted endpoint malware execution from corporate package updates (**Archetype 3: Dual-Plane Fleet Prevalence Normalization** via `templates/pipelines/hybrid_metric_fleet_prevalence_2stage.yl2` using token-centric match topology `$token by 1d` on binary hash `target.process.file.sha256 = $token` and hyperbolic prevalence dampener `1.0 / (k_fleet + 1.0)`).
+  5. *Derived Context File Prevalence Sieve*: Isolate execution bursts strictly to binaries observed on <= 3 endpoints across enterprise history, filtering out all high-prevalence corporate rollouts (**Derived File Prevalence** via `templates/pipelines/hybrid_metric_derived_file_prevalence_2stage.yl2`).
 * *Deep Dive Guide*: `references/consultative/endpoint-and-covert.md`
 
 ### Domain 5: Comprehensive Insider Risk & Multi-Vector Health Check
@@ -166,6 +168,8 @@ Every Phase 1A consultative response must be formatted with the following explic
   2. *Web Application / Proxy Error Ratio Surge*: Detect web fuzzing, API enumeration, or broken exfiltration loops by evaluating $4xx/5xx$ failure baseline departures alongside in-stage failure ratio (**Two-Stage Error Ratio Surge** via `http_error_ratio_surge_2stage.yl2` on `metrics.http_queries_fail`).
   3. *Web Server & Cloud API Hammering*: Isolate acute volumetric departures against a specific web host or API gateway to detect DoS or automated scraping (**Target-Centric Surge** via `http_target_surge_2stage.yl2` on `metrics.http_queries_total` with `target.hostname`).
   4. *Multilevel Web Request Triad*: Simultaneously compare an entity's Total, Successful, and Failed HTTP queries against their peer cohort and enterprise baseline (**Part-of-the-Whole Triad** via `part_of_the_whole_triad_multilevel.yl2`).
+  5. *Derived Context Domain Rarity Sieve*: Filter web request departures strictly to external hostnames observed on <= 3 endpoints enterprise-wide, pruning standard CDN and SaaS noise (**Derived Domain Prevalence** via `templates/pipelines/hybrid_metric_derived_domain_prevalence_2stage.yl2`).
+  6. *WHOIS Lifecycle & Expired Domain Check*: Detect web departures to Newly Registered Domains (NRD <= 30d) or expired domain infrastructure vulnerable to hijacking (**WHOIS Domain Lifecycle** via `templates/pipelines/hybrid_metric_whois_domain_lifecycle_2stage.yl2`).
 * *Deep Dive Guide*: `references/consultative/web-and-proxy.md`
 
 ---
@@ -179,6 +183,7 @@ PRE-FLIGHT HUNTING SPECIFICATION:
 • Target Entity / Scope:  [Target User/Host ID, Team Cohort, or Fleet]
 • Threat Hypothesis:      [Specific abnormal behavior under investigation, e.g. Low-and-Slow Exfiltration]
 • Rule-Out Condition:     [Innocent explanation criteria, e.g. fleet concurrence > 5 or approved maintenance]
+• Context Strategy:       [Narrow: Derived Prevalence (rolling_max <= 3) | Enhance: WHOIS NRD (< 30d) / Expired | Narrow: Infant Asset (< 7d) | None: Broad Sweep]
 • Baseline Integrity:    [Distortion-Proof (Median/MAD) | Standard Average (Z-score) | Hurdle (Tripwire)]
 • Activity Profile:       [Active Daily Baseline vs. Dormant Account Tripwire]
 • Crowd Shield:           [Active (dampens fleet-wide spikes) | N/A (isolated target)]

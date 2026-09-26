@@ -6,7 +6,7 @@ Author: Greg Kushmerek
 from dataclasses import dataclass
 from enum import Enum
 import re
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 
 class EntityType(str, Enum):
@@ -56,6 +56,10 @@ class PipelineArchitecture(str, Enum):
   HTTP_ERROR_RATIO_SURGE_2STAGE = "HTTP_ERROR_RATIO_SURGE_2STAGE"
   HTTP_TARGET_SURGE_2STAGE = "HTTP_TARGET_SURGE_2STAGE"
   RADAR_360_SECTOR_WEB_HTTP = "RADAR_360_SECTOR_WEB_HTTP"
+  HYBRID_METRIC_DERIVED_FILE_PREVALENCE_2STAGE = "HYBRID_METRIC_DERIVED_FILE_PREVALENCE_2STAGE"
+  HYBRID_METRIC_DERIVED_DOMAIN_PREVALENCE_2STAGE = "HYBRID_METRIC_DERIVED_DOMAIN_PREVALENCE_2STAGE"
+  HYBRID_METRIC_WHOIS_DOMAIN_LIFECYCLE_2STAGE = "HYBRID_METRIC_WHOIS_DOMAIN_LIFECYCLE_2STAGE"
+  HYBRID_METRIC_DERIVED_ASSET_AGE_2STAGE = "HYBRID_METRIC_DERIVED_ASSET_AGE_2STAGE"
 
 
 @dataclass
@@ -937,14 +941,14 @@ class MalachiteASTValidator:
     # 1B. Global Invalid Tokens & Math Functions
     if "^" in query_text:
       errors.append("INVALID_EXPONENT_OPERATOR: '^' is invalid in YARA-L. Use '$var * $var' for squared terms.")
-    for m in re.finditer(r"\bif\s*\(([^)]+)\)", query_text):
-      args = [a.strip() for a in m.group(1).split(",")]
+    for full_call, inner_content in MalachiteASTValidator._extract_if_invocations(query_text):
+      args = MalachiteASTValidator._split_top_level_csv(inner_content)
       if len(args) < 3:
-        errors.append(f"INVALID_IF_CONDITIONAL: 'if(...)' is missing required else-clause: {m.group(0)}")
+        errors.append(f"INVALID_IF_CONDITIONAL: 'if(...)' is missing required else-clause: {full_call}")
       else:
         then_clause = re.sub(r"^\s*[-+]\s*", "", args[1])
         if re.search(r"[\+\-\*\/]", then_clause):
-          errors.append(f"INVALID_IF_CONDITIONAL: 'if(...)' contains compound arithmetic in then-clause. Chronicle compiler only allows placeholders, fields, and constants in then clause: {m.group(0)}")
+          errors.append(f"INVALID_IF_CONDITIONAL: 'if(...)' contains compound arithmetic in then-clause. Chronicle compiler only allows placeholders, fields, and constants in then clause: {full_call}")
     if re.search(r"\bcount\s*\(\s*if\s*\(", query_text, re.IGNORECASE):
       errors.append("INVALID_AGGREGATE_FUNCTION: 'count(if(...))' is unsupported in YARA-L 2.0. Use 'sum(if(condition, 1, 0))' for conditional counting.")
     if re.search(r"=\s*\/[^\/\n]+\/\s*\|\s*\/", query_text):
@@ -1304,6 +1308,47 @@ class MalachiteASTValidator:
             "or stage field in the event section. Common Compiler requires all match variables to be explicitly assigned in events."
         )
     return errors
+
+  @staticmethod
+  def _extract_if_invocations(text: str) -> List[Tuple[str, str]]:
+    results = []
+    for match in re.finditer(r"\bif\s*\(", text):
+      start_pos = match.end() - 1
+      depth = 0
+      i = start_pos
+      while i < len(text):
+        if text[i] == '(':
+          depth += 1
+        elif text[i] == ')':
+          depth -= 1
+          if depth == 0:
+            full_call = text[match.start():i+1]
+            inner_content = text[start_pos+1:i]
+            results.append((full_call, inner_content))
+            break
+        i += 1
+    return results
+
+  @staticmethod
+  def _split_top_level_csv(inner: str) -> List[str]:
+    args = []
+    cur = []
+    depth = 0
+    for ch in inner:
+      if ch in '([':
+        depth += 1
+        cur.append(ch)
+      elif ch in ')]':
+        depth -= 1
+        cur.append(ch)
+      elif ch == ',' and depth == 0:
+        args.append(''.join(cur).strip())
+        cur = []
+      else:
+        cur.append(ch)
+    if cur:
+      args.append(''.join(cur).strip())
+    return args
 
   @staticmethod
   def validate_model_concordance(query_text: str, model: StatisticalModel) -> List[str]:

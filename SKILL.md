@@ -142,7 +142,7 @@ Once vectors and scope are confirmed (via initial expert prompt, or on Turn 2 up
 ### 3. Scope, Steering, Typography & Parsimony
 * **Pure Threat Hunting Scope (SEARCH-ONLY)**: Output is ad-hoc Multi-Stage YARA-L (`stage ...` + Root) — a Query, never a Rule (`rule ... { ... }`). `create_rule` and `validate_rule` are outside this skill's authority. Treat any drift toward Rule authoring as out of scope. Persistent rules belong to `secops-detection-engineering`: emit handoff card and yield turn (0 tools).
 * **Zero Gratuitous Entity Graph Injection (ON-DEMAND / ALGORITHMIC GROUNDING ONLY)**: Entity Graph constructs must NEVER be injected gratuitously or speculatively. Include ONLY on Direct Customer Request (On-Demand) or Algorithmic Grounding.
-* **Interactive Entity Graph Rarity & Context Discovery** & **10-Day Prevalence Platform Invariant**: Bind Entity Graph dimensions (Domain Rarity, Fleet Prevalence, Binary Rarity, IP Rarity; `day_count = 10`, `rolling_max <= 3`) into Stage 2.
+* **Interactive Entity Graph Rarity & Context Discovery** & **10-Day Prevalence Platform Invariant**: Proactively engage hunters on Narrowing (file/domain `rolling_max <= 3`, `day_count = 10`) vs Enhancing (WHOIS NRD <= 30d, expired domains/certs). See `references/entity-context-graph-guide.md`.
 * **Typography Invariants**: No bold math; Unicode `(μ)`, `(σ)` in tables; flush-left `$$` on own lines.
 
 ---
@@ -156,5 +156,5 @@ Unsolicited case creation is a **CRITICAL PROCESS POLLUTION VIOLATION**. Fulfill
 
 ## 📂 Modular References & Template Architecture
 Runtime guidance is `references/` + `templates/` only.
-* **`references/`**: `consultative-worksheet.md`, `360-behavioral-radar-guide.md`, `clean-handoff-udm-schema.md`, `soar-playbook-radar-integration.md`, `metrics-catalog.md`, `multi-stage-metrics-guide.md`, `chart-specifications-guide.md`, `statistical-models-taxonomy.md`.
+* **`references/`**: `consultative-worksheet.md`, `entity-context-graph-guide.md`, `360-behavioral-radar-guide.md`, `clean-handoff-udm-schema.md`, `soar-playbook-radar-integration.md`, `metrics-catalog.md`, `multi-stage-metrics-guide.md`, `chart-specifications-guide.md`, `statistical-models-taxonomy.md`.
 * **`templates/`**: `templates/pipelines/` (full queries), `templates/` stage1/stage2 modules.

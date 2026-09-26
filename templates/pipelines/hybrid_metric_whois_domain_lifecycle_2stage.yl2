@@ -1,0 +1,86 @@
+// ============================================================================
+// ARCHITECTURE: 2-STAGE DUAL-PLANE WHOIS DOMAIN LIFECYCLE PIPELINE
+// Skill: secops-risk-metrics-multistage
+// Purpose: Fuses 30-day destination query volumetric baseline (metrics.http_queries_total
+//          or metrics.dns_queries_total) with Chronicle Entity Context Graph
+//          (GLOBAL_CONTEXT via WHOIS) to detect volumetric departures targeting
+//          Newly Registered Domains (NRD <= 30d) or expired domains/certificates.
+// Join Budget: 1 metric lookup (Stage 1) + 1 stage join (Root) = 2 joins total (<= 4).
+// Invariant: Stage 1 evaluates universal volume; Stage 2 isolates graph lookup (ECG_LIMIT = 1).
+// ============================================================================
+
+// Stage 1: Macro 30-Day Query Baseline (metrics.*)
+stage stage1_egress_baseline {
+    metadata.event_type = "{{event_type}}"
+    principal.asset.hostname = $host
+    target.hostname = $domain
+    $host != ""
+    $domain != ""
+
+  match:
+    $host, $domain by 1d
+
+  outcome:
+    $observed_val = count(metadata.id)
+    $distinct_ports = count_distinct(target.port)
+
+    $hist_mean = max({{target_metric_func_avg}})
+    $hist_stddev = max({{target_metric_func_stddev}})
+    $hist_active_days = max({{target_metric_func_active_days}})
+}
+
+// Stage 2: Chronicle Global Context WHOIS Lookup (Creation & Expiration Timestamps)
+stage stage2_whois_lifecycle {
+    $whois.graph.metadata.source_type = "GLOBAL_CONTEXT"
+    $whois.graph.metadata.vendor_name = "WHOIS"
+    $whois.graph.metadata.entity_type = "DOMAIN_NAME"
+    $whois.graph.entity.domain.name = $domain
+    $domain != ""
+
+  match:
+    $domain
+
+  outcome:
+    $creation_ts = max($whois.graph.entity.domain.creation_time.seconds)
+    $expiration_ts = min($whois.graph.entity.domain.expiration_time.seconds)
+}
+
+// Stage 3 (Root Stage): Fuses Query Outlier Z-Score with WHOIS NRD and Expiration Scoring
+$host = $stage1_egress_baseline.host
+$domain = $stage1_egress_baseline.domain
+$domain = $stage2_whois_lifecycle.domain
+
+match:
+  $host, $domain by 1d
+
+outcome:
+  $observed = max($stage1_egress_baseline.observed_val)
+  $mean = max($stage1_egress_baseline.hist_mean)
+  $stddev = max($stage1_egress_baseline.hist_stddev)
+  $safe_sigma = if($stddev > 0, $stddev, 1.0)
+  $z_score = ($observed - $mean) / ($safe_sigma + 1.0)
+  $active_baseline_days = max($stage1_egress_baseline.hist_active_days)
+
+  $created = max($stage2_whois_lifecycle.creation_ts)
+  $expires = max($stage2_whois_lifecycle.expiration_ts)
+  $now = timestamp.current_seconds()
+
+  // Domain Age (in days)
+  $domain_age_days = ($now - $created) / 86400.0
+  $is_nrd = if($domain_age_days <= 30.0 and $domain_age_days >= 0.0, 1.0, 0.0)
+
+  // Expiration Status (expired registration / lapsed certificate)
+  $is_expired = if($expires <= $now and $expires > 0, 1.0, 0.0)
+  $days_to_expiration = ($expires - $now) / 86400.0
+
+  // Risk Multiplier: 3.0x for expired domains, 2.5x for NRD (<= 30d)
+  $whois_multiplier = if($is_expired = 1.0, 3.0, if($is_nrd = 1.0, 2.5, 1.0))
+  $fused_threat_score = $z_score * $whois_multiplier
+
+condition:
+  $z_score >= {{anomaly_threshold}}
+  and $active_baseline_days >= {{min_baseline_days}}
+  and ($is_nrd = 1.0 or $is_expired = 1.0)
+
+order:
+  $fused_threat_score desc

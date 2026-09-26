@@ -1,0 +1,84 @@
+// ============================================================================
+// ARCHITECTURE: 2-STAGE DUAL-PLANE DERIVED CONTEXT DOMAIN PREVALENCE PIPELINE
+// Skill: secops-risk-metrics-multistage
+// Purpose: Fuses 30-day host/domain query volumetric baseline (metrics.http_queries_total
+//          or metrics.dns_queries_total) with Chronicle Entity Context Graph
+//          (DERIVED_CONTEXT) domain prevalence to isolate rare/unseen external
+//          destinations and prune routine corporate SaaS/CDN traffic.
+// Join Budget: 1 metric lookup (Stage 1) + 1 stage join (Root) = 2 joins total (<= 4).
+// Invariant: Stage 1 evaluates universal volume; Stage 2 isolates graph lookup (ECG_LIMIT = 1).
+// ============================================================================
+
+// Stage 1: Macro 30-Day Destination Query Baseline (metrics.*)
+stage stage1_query_baseline {
+    metadata.event_type = "{{event_type}}"
+    principal.asset.hostname = $host
+    target.hostname = $domain
+    $host != ""
+    $domain != ""
+
+  match:
+    $host, $domain by 1d
+
+  outcome:
+    $observed_val = count(metadata.id)
+    $distinct_ports = count_distinct(target.port)
+
+    $hist_mean = max({{target_metric_func_avg}})
+    $hist_stddev = max({{target_metric_func_stddev}})
+    $hist_active_days = max({{target_metric_func_active_days}})
+}
+
+// Stage 2: Chronicle Derived Context Graph Lookup (Domain Prevalence & First Seen)
+stage stage2_domain_derived_context {
+    $dom.graph.metadata.source_type = "DERIVED_CONTEXT"
+    $dom.graph.metadata.entity_type = "DOMAIN_NAME"
+    $dom.graph.entity.domain.name = $domain
+    $dom.graph.entity.domain.prevalence.day_count = 10
+    $dom.graph.entity.domain.prevalence.rolling_max <= 3
+    $dom.graph.entity.domain.prevalence.rolling_max > 0
+    $domain != ""
+
+  match:
+    $domain
+
+  outcome:
+    $enterprise_day_count = min($dom.graph.entity.domain.prevalence.day_count)
+    $enterprise_rolling_max = max($dom.graph.entity.domain.prevalence.rolling_max)
+    $first_seen_ts = min($dom.graph.entity.domain.first_seen_time.seconds)
+    $last_seen_ts = max($dom.graph.entity.domain.last_seen_time.seconds)
+}
+
+// Stage 3 (Root Stage): Fuses Personal Query Z-Score with Enterprise Domain Prevalence Multiplier
+$host = $stage1_query_baseline.host
+$domain = $stage1_query_baseline.domain
+$domain = $stage2_domain_derived_context.domain
+
+match:
+  $host, $domain by 1d
+
+outcome:
+  $observed_queries = max($stage1_query_baseline.observed_val)
+  $mean_queries = max($stage1_query_baseline.hist_mean)
+  $stddev_queries = max($stage1_query_baseline.hist_stddev)
+  $safe_sigma = if($stddev_queries > 0, $stddev_queries, 1.0)
+  $z_score = ($observed_queries - $mean_queries) / ($safe_sigma + 1.0)
+  $active_baseline_days = max($stage1_query_baseline.hist_active_days)
+
+  $fleet_prevalence = max($stage2_domain_derived_context.enterprise_rolling_max)
+  $prevalence_days = min($stage2_domain_derived_context.enterprise_day_count)
+  $first_seen = min($stage2_domain_derived_context.first_seen_ts)
+  $domain_age_days = (timestamp.current_seconds() - $first_seen) / 86400.0
+
+  // Rare Domain Multiplier: 2.5x threat score boost for novel destinations seen enterprise-wide on <= 3 hosts or first seen <= 7 days ago
+  $is_novel_domain = if($domain_age_days <= 7.0 and $domain_age_days >= 0.0, 1.0, 0.0)
+  $rarity_multiplier = if($is_novel_domain = 1.0, 2.5, 1.5)
+  $threat_score = $z_score * $rarity_multiplier
+
+condition:
+  $z_score >= {{anomaly_threshold}}
+  and $active_baseline_days >= {{min_baseline_days}}
+  and $fleet_prevalence <= {{max_fleet_prevalence}}
+
+order:
+  $threat_score desc

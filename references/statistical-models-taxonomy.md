@@ -323,6 +323,15 @@ Beyond 2-stage models, the engine provides pre-composed multi-stage DAG pipeline
 * **Formulation**: Blends individual host history with peer-group distribution parameters ($\alpha_{\text{fleet}}, \beta_{\text{fleet}}$).
 * **Outcome**: Eliminates high-variance false positives on newly onboarded or part-time employees by anchoring them to departmental norms.
 
+### 4. Entity Context Graph (ECG) Hybrid Archetypes (`DERIVED_CONTEXT` & `GLOBAL_CONTEXT`)
+* **Pipeline Architectures**: 2–3 Stages (Macro Baseline $\to$ Entity Context Graph Lookup $\to$ Root Risk Fusion)
+* **Formulation**: Fuses universal macro $Z$-score with persistent enterprise prevalence and threat intelligence:
+  - **Derived File Prevalence** (`hybrid_metric_derived_file_prevalence_2stage.yl2`): Sifts rare binaries (`rolling_max <= 3`, `day_count = 10`) and prunes Patch Tuesday software rollouts ($Z \times M_{\text{rare}}$).
+  - **Derived Domain Prevalence** (`hybrid_metric_derived_domain_prevalence_2stage.yl2`): Sifts novel destination queries and prunes enterprise SaaS/CDN noise ($Z \times M_{\text{rare}}$).
+  - **WHOIS Domain Lifecycle** (`hybrid_metric_whois_domain_lifecycle_2stage.yl2`): Detects high-volume egress to Newly Registered Domains ($Z \times 2.5$ for NRD $\le 30$d) and expired domain infrastructure ($Z \times 3.0$ for lapsed certs/registrations).
+  - **Derived Asset Age** (`hybrid_metric_derived_asset_age_2stage.yl2`): Sifts infant endpoints ($< 7$ days old) experiencing immediate volumetric departures ($Z \times 2.5$).
+* **Hunter Tradecraft**: Enables hunters to **Narrow** (pruning common software/domains) or **Enhance** (scaling threat scores on NRDs and expired infrastructure) without falling into the Part-of-the-Whole trap (see `references/entity-context-graph-guide.md`).
+
 ---
 
 ## 16. Operational & Statistical Assumptions Guide
