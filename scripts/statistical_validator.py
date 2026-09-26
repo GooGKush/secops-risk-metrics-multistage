@@ -22,7 +22,7 @@ against the pre-computed risk metrics library:
 2. STAT_ANTIPATTERN_DYNAMIC_RANGE_MASKING: "Elephant and Mouse" aggregation across disparate
    destinations without local-baseline resource isolation.
 3. STAT_ANTIPATTERN_ZERO_DISPERSION_HAZARD: Division by standard deviation or MAD without
-   an additive dispersion floor (+ 1.0).
+   a non-zero dispersion floor or guard (e.g. if(sigma > 0, sigma, 1.0)).
 4. STAT_ANTIPATTERN_DISTRIBUTION_MISMATCH: Evaluating discrete rare events with continuous
    Gaussian models without active baseline days gating (N >= 3) or Poisson rarity.
 5. STAT_ANTIPATTERN_COLLINEAR_VECTOR_FUSION: Fusing collinear vectors from the same telemetry
@@ -292,6 +292,7 @@ class StatisticalAntipatternAuditor:
       # If dividing by standard deviation in Z-score or normalized anomaly metric
       if is_z_or_score and is_dispersion_denom and not lhs_var.lower().startswith("$beta"):
         has_dispersion_floor = bool(
+            re.search(r"if\s*\(", denom) or
             re.search(r"\+\s*(?:1(?:\.0*)?|0\.[0-9]+)", denom) or
             re.search(r"max\s*\([^,]+,\s*(?:1(?:\.0*)?|0\.[0-9]+)\)", denom) or
             "safe" in denom.lower() or
@@ -304,10 +305,10 @@ class StatisticalAntipatternAuditor:
                   stage_name=stage_name,
                   description=(
                       f"Stage '{stage_name}' outcome variable '{lhs_var}' divides by dispersion denominator '{denom}' "
-                      "without an additive constant floor (+ 1.0). On quiet accounts with zero historical variance (sigma = 0), "
+                      "without a non-zero dispersion floor or guard. On quiet accounts with zero historical variance (sigma = 0), "
                       "this triggers division by zero, yielding NaN, Infinity, or backend query abortion."
                   ),
-                  remediation=f"Add universal dispersion floor to denominator: '({denom} + 1.0)'.",
+                  remediation=f"Apply zero-variance protection: 'if({denom} > 0, {denom}, 1.0)' or an intermediate safe floor variable.",
               )
           )
 

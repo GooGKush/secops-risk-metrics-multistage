@@ -315,14 +315,20 @@ class MultiStageTemplateRouter:
       entity_name = entity_var.lstrip("$")
 
       if cohort_entities:
-        cohort_filter = " or\n      ".join(f'$u = "{c}"' for c in cohort_entities)
+        if len(cohort_entities) > 1:
+          cohort_filter = "(\n      " + " or\n      ".join(f'$u = "{c}"' for c in cohort_entities) + "\n    )"
+        else:
+          cohort_filter = f'$u = "{cohort_entities[0]}"'
       else:
         cohort_filter = '$u != ""'
 
       if target_entity:
         target_filter = f'{entity_var} = "{target_entity}"'
       elif cohort_entities:
-        target_filter = " or\n  ".join(f'{entity_var} = "{c}"' for c in cohort_entities)
+        if len(cohort_entities) > 1:
+          target_filter = "(\n  " + " or\n  ".join(f'{entity_var} = "{c}"' for c in cohort_entities) + "\n)"
+        else:
+          target_filter = f'{entity_var} = "{cohort_entities[0]}"'
       else:
         target_filter = f'{entity_var} != ""'
 
@@ -364,14 +370,20 @@ class MultiStageTemplateRouter:
       entity_name = entity_var.lstrip("$")
 
       if cohort_entities:
-        cohort_filter = " or\n      ".join(f'$u = "{c}"' for c in cohort_entities)
+        if len(cohort_entities) > 1:
+          cohort_filter = "(\n      " + " or\n      ".join(f'$u = "{c}"' for c in cohort_entities) + "\n    )"
+        else:
+          cohort_filter = f'$u = "{cohort_entities[0]}"'
       else:
         cohort_filter = '$u != ""'
 
       if target_entity:
         target_filter = f'{entity_var} = "{target_entity}"'
       elif cohort_entities:
-        target_filter = " or\n  ".join(f'{entity_var} = "{c}"' for c in cohort_entities)
+        if len(cohort_entities) > 1:
+          target_filter = "(\n  " + " or\n  ".join(f'{entity_var} = "{c}"' for c in cohort_entities) + "\n)"
+        else:
+          target_filter = f'{entity_var} = "{cohort_entities[0]}"'
       else:
         target_filter = f'{entity_var} != ""'
 

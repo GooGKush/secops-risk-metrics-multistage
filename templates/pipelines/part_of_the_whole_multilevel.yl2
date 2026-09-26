@@ -29,9 +29,7 @@ stage all_entities {
 stage team_cohort_stats {
     $u = $all_entities.{{entity_name}}
     $ws = $all_entities.window_start
-    (
-      {{cohort_filter}}
-    )
+    {{cohort_filter}}
 
   match:
     $ws by 1d
@@ -61,9 +59,7 @@ $ws = $all_entities.window_start
 $ws = $team_cohort_stats.ws
 $ws = $enterprise_stats.ws
 
-(
-  {{target_entity_filter}}
-)
+{{target_entity_filter}}
 
 match:
   {{entity_var}}, $ws by 1d

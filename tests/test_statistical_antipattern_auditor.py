@@ -174,6 +174,30 @@ class TestStatisticalAntipatternAuditor(unittest.TestCase):
         f"Expected ZERO_DISPERSION_HAZARD, got {violations}",
     )
 
+  def test_accepts_inline_conditional_dispersion_floor(self):
+    """Verifies inline conditional guard if(sigma > 0, sigma, 1.0) is accepted without ZERO_DISPERSION_HAZARD."""
+    safe_query = """
+    stage s1 {
+      metadata.event_type = "USER_LOGIN"
+      $user = target.user.userid
+      match: $user by 1d
+      outcome:
+        $obs = count(metadata.id)
+        $mu = max(metrics.auth_attempts_success(period: 1d, window: 30d, metric: event_count_sum, agg: avg, target.user.userid: $user))
+        $sigma = max(metrics.auth_attempts_success(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, target.user.userid: $user))
+        $z_score = ($obs - $mu) / if($sigma > 0, $sigma, 1.0)
+    }
+    $user = $s1.user
+    match: $user by 1d
+    outcome:
+      $z = max($s1.z_score)
+    """
+    violations = StatisticalAntipatternAuditor.audit_query(safe_query)
+    self.assertFalse(
+        any(v.antipattern == StatisticalAntipatternType.ZERO_DISPERSION_HAZARD for v in violations),
+        f"Unexpected ZERO_DISPERSION_HAZARD for inline conditional floor: {violations}",
+    )
+
   def test_catches_distribution_mismatch_on_discrete_counts(self):
     """Detects applying continuous Gaussian models to discrete rare events without sample size gating."""
     bad_query = """

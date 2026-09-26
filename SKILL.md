@@ -93,7 +93,7 @@ Once vectors and scope are confirmed (via initial expert prompt, or on Turn 2 up
 ### 📊 State 2: Deterministic Multi-Stage Execution & 6-Pillar Report (After Clearance) (MANDATORY STEP 2: PRESENT FULL 6-SECTION REPORT)
 
 1. **State 2 Entry Condition**: If the preceding turn displayed a PRE-FLIGHT HUNTING SPECIFICATION card and the candidate multi-stage YARA-L query with its baseline filter probed clean (200 OK), Mode A/B clearance means execute now. Otherwise *"Mode A"*, *"Mode B"*, *"proceed"* are Phase 1A scope answers: emit card and preview, yield the turn.
-2. **Execution Telemetry Retrieval Mandate**: Upon receiving Mode A or Mode B clearance, immediately dispatch the approved candidate multi-stage `metrics.*` query using `secops-gus:udm_search` (for 360 Radar, dispatch the sector queries returning `"stats"`), retrieve live telemetry results from Chronicle SIEM, and synthesize findings into the deterministic 6-pillar report.
+2. **Execution Telemetry Retrieval Mandate**: On Mode A/B clearance, dispatch the approved multi-stage `metrics.*` query via `secops-gus:udm_search` (for 360 Radar, dispatch sector queries returning `"stats"`). Raw event filter substitutions are invalid on execution turns. Synthesize findings into the 6-pillar report.
 3. **Deterministic 6-Pillar Report Structure**: Synthesize findings into the complete 6-pillar report:
 #### 1. Statistical Outlier Report: `[Target Metric]` ([Statistical Model]) (`window: 30d`). Single visual surface: <agent-embed> in Jetski (`run_command` present); <svg> in MCP/webview; Client Tool (if present); ASCII on request. Zero data-uri or raw SVG in chat Markdown. Unicode magnitude bars (`▰▰▰▰▱▱▱▱`). Surface routing and sanctioned-script policy: `references/chart-specifications-guide.md`.
 #### 2. Executed Multi-Stage YARA-L Query: Verbatim mirror approved Turn 1 candidate query block. For 360 Radar, display executed sector micro-queries (representative `stage auth_risk` with `order: $z desc`). A bare raw-event filter with no `stage`/`match`/`outcome` is PROHIBITED in Pillar 2.
@@ -101,7 +101,7 @@ Once vectors and scope are confirmed (via initial expert prompt, or on Turn 2 up
 #### 4. Forensic Vector Breakdown: Threat translation, scenarios, SOC playbook.
 #### 5. Chronicle UI Manual Pivot (Triage Reference Only): Passive UDM filter the analyst runs in the Chronicle UI.
 #### 6. Collapsible Technical Appendix (Statistical & Mathematical Appendix): ($N=30d$), CRI, $D = \sqrt{\sum \max(0, Z_i)^2}$ (`references/calibrated-risk-index-guide.md`).
-4. **Zero-Telemetry Clean Hunt Exemption (True Negative Audit Summary)**: When post-clearance `udm_search` returns 0 events (`{}`/`[]`) or an empty `stats` result set, emit a 2-Section Clean Hunt Audit:
+4. **Zero-Telemetry Clean Hunt Exemption (True Negative Audit Summary)**: When the executed multi-stage query returns an empty `stats` payload (`{}` or `{"stats": []}`), emit a 2-Section Clean Hunt Audit:
    - `#### 1. Statistical Outlier Report: [Target Metric] (Nominal Baseline)`: 0 observed events ($Z = 0.00\sigma, \text{CRI} = 0$, 🟢 **Nominal Fleet Baseline**).
    - `#### 2. Executed Multi-Stage YARA-L Query`: Literal query and scope.
     - **Pillars 3, 4, 5, and 6 are waived** (360° radar profiles evaluate all 6 sectors with visual radar).

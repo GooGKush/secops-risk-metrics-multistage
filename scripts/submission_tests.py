@@ -466,7 +466,8 @@ order:
         errors.append(f"Outcome block {idx} exceeds SecOps limit of 20 variables ({len(vars_in_outcome)})")
 
     # 7. Join limits: total joins <= 4; raw extraction stages <= 2
-    raw_event_stages = re.findall(r'metadata\.event_type\s*=\s*"[^"]+"', query)
+    stage_blocks = re.findall(r'stage\s+[^\s\{]+\s*\{([^}]+)\}', query)
+    raw_event_stages = [sb for sb in stage_blocks if "metadata.event_type" in sb]
     if len(raw_event_stages) > 2:
       errors.append(f"Exceeds Chronicle UDM search limit of at most 2 raw event extraction stages ({len(raw_event_stages)})")
 

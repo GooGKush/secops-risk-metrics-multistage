@@ -12,7 +12,11 @@
 
 // --- STAGE 1: Dynamic Cloud Repository Extraction & Pre-Computed Baseline Lookups ---
 stage stage1_extract {
-    metadata.event_type = "RESOURCE_READ"
+    (
+        metadata.event_type = "RESOURCE_READ" or
+        metadata.event_type = "RESOURCE_DELETION" or
+        metadata.event_type = "RESOURCE_WRITTEN"
+    )
     $sa = principal.user.userid
     $vendor = metadata.vendor_name
     $product = metadata.product_name
@@ -27,7 +31,9 @@ stage stage1_extract {
     $sa, $vendor, $product, $resource, $ip by 1d
 
   outcome:
-    $observed_reads = count(metadata.id)
+    $observed_reads = sum(if(metadata.event_type = "RESOURCE_READ", 1, 0))
+    $observed_writes = sum(if(metadata.event_type = "RESOURCE_WRITTEN", 1, 0))
+    $observed_deletes = sum(if(metadata.event_type = "RESOURCE_DELETION", 1, 0))
 
     // 1. Destination Resource Baseline (Local-Baseline Isolation)
     $dest_avg = max(metrics.resource_read_total(
@@ -73,14 +79,6 @@ stage stage1_extract {
         metadata.product_name: $product,
         target.resource.name: $resource
     ))
-    $dest_active_days = max(metrics.resource_read_total(
-        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
-        principal.user.userid: $sa,
-        metadata.vendor_name: $vendor,
-        metadata.product_name: $product,
-        target.resource.name: $resource
-    ))
-
     // 2. Caller Origin IP Baseline
     $origin_avg = max(metrics.resource_read_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: avg,
@@ -96,24 +94,21 @@ stage stage1_extract {
         metadata.vendor_name: $vendor,
         metadata.product_name: $product
     ))
-    $origin_active_days = max(metrics.resource_read_total(
-        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
-        principal.user.userid: $sa,
-        principal.ip: $ip,
-        metadata.vendor_name: $vendor,
-        metadata.product_name: $product
-    ))
 
     // In-Stage Local-Baseline Isolation (Outcomes-in-Outcomes)
     // 1. Destination Resource Outlier Scores (Read, Write, Deletion)
+    $dest_active_days = max(metrics.resource_read_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+        principal.user.userid: $sa,
+        metadata.vendor_name: $vendor,
+        metadata.product_name: $product,
+        target.resource.name: $resource
+    ))
     $safe_dest_std = if($dest_stddev > 0, $dest_stddev, 1.0)
     $dest_z = ($observed_reads - $dest_avg) / $safe_dest_std
 
-    $safe_write_std = if($dest_write_stddev > 0, $dest_write_stddev, 1.0)
-    $write_z = ($observed_reads - $dest_write_avg) / $safe_write_std
-
-    $safe_del_std = if($dest_del_stddev > 0, $dest_del_stddev, 1.0)
-    $del_z = ($observed_reads - $dest_del_avg) / $safe_del_std
+    $write_z = ($observed_writes - $dest_write_avg) / if($dest_write_stddev > 0, $dest_write_stddev, 1.0)
+    $del_z = ($observed_deletes - $dest_del_avg) / if($dest_del_stddev > 0, $dest_del_stddev, 1.0)
 
     // 2. Caller Origin IP Outlier Score
     $safe_origin_std = if($origin_stddev > 0, $origin_stddev, 1.0)
@@ -136,7 +131,6 @@ match:
 outcome:
   $obs = max($stage1_extract.observed_reads)
   $dest_days = max($stage1_extract.dest_active_days)
-  $origin_days = max($stage1_extract.origin_active_days)
 
   // Fused Outlier Scores from Stage 1
   $dest_z = max($stage1_extract.dest_z)

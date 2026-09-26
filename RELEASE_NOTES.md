@@ -1,10 +1,44 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.7.1)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.7.2)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v1.7.1 (Point Release) — September 2026  
+**Latest Version**: v1.7.2 (Point Release) — September 2026  
+
+---
+
+## 📢 What's New in v1.7.2 (Point Release) — HTTP Risk Metrics Integration, Non-Zero Floor Dispersion Guards & Execution Grounding Invariants
+
+### 1. HTTP Metrics Support & Target Hostname Surge Detection
+* **Chronicle HTTP Metrics Integration**:
+  - Fully integrated `metrics.http_queries_total` across templates, routing, and taxonomy guides for target hostname surge and beaconing detection (`templates/pipelines/http_target_surge_2stage.yl2`).
+  - Implemented destination-centric join topology (`$target_host` by 1d) joining individual host surge to enterprise-wide fleet breadth dampening.
+  - Enhanced `scripts/template_router.py` to route HTTP surge queries and prevent emitting empty disjunctive parentheses `(\n // ... \n)` when cohort or target filters have fewer than two clauses.
+
+### 2. Common Compiler Syntax & Multi-Branch Harmonization
+* **Parentheses Syntax Fix (`REG-P2-14`)**:
+  - Removed bare outer parentheses around `{{cohort_filter}}` and `{{target_entity_filter}}` in `templates/pipelines/part_of_the_whole_multilevel.yl2` and `part_of_the_whole_triad_multilevel.yl2` that caused Chronicle compiler rejections (`Request contains an invalid argument`).
+* **Cloud CRUD Multi-Branch Pipeline (`REG-P1-20`)**:
+  - Updated `templates/pipelines/cloud_repository_scope_dual_branch.yl2` to capture `RESOURCE_READ`, `RESOURCE_DELETION`, and `RESOURCE_WRITTEN` via conditional sums (`sum(if(...))`).
+
+### 3. Statistical Validator & Anti-Pattern Auditor Alignment
+* **Safe Dispersion Guard Invariant**:
+  - Updated `scripts/statistical_validator.py` and `tests/test_statistical_antipattern_auditor.py` to accept non-zero floor guards `if($sigma > 0, $sigma, 1.0)` without artificially inflating denominators with `+ 1.0`.
+* **AST Stage Counting**:
+  - Updated `scripts/submission_tests.py` to count actual `stage ... { ... }` blocks rather than substring occurrences of `metadata.event_type`.
+
+### 4. Skill Execution Contract & Grounding Invariants (`SKILL.md`)
+* **Execution Invariant**:
+  - Explicitly codified in State 2, Step 2 that on Mode A/B clearance, the approved multi-stage `metrics.*` query must be dispatched via `udm_search`, establishing that raw event filter substitutions are invalid on execution turns.
+* **Clean Hunt Exemption**:
+  - Clarified State 2, Step 4 so that the *Zero-Telemetry Clean Hunt Exemption* is strictly conditioned on the executed multi-stage query returning an empty `stats` payload (`{}` or `{"stats": []}`).
+* **Strict Budget Compliance**:
+  - Kept `SKILL.md` at 20,387 bytes (under the 20,480-byte hard ceiling).
+
+### 5. Full Test Suite & Dual-Engine Regression Verification
+* **253 / 253 Unit Tests Passing (100% Green)**.
+* **31 / 31 Regression Tests Passing (100% Green)** across P0, P1, and P2 in `secops-regress` with 100% dual-engine invariant parity.
 
 ---
 
