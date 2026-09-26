@@ -38,26 +38,24 @@ Executes multi-sector outlier hunting using 30-day Risk Analytics (`metrics.*`).
 
 ### 🚦 State 1: Pre-Flight Clearance & Specification (Zero Execution on Turn 1) (MANDATORY STEP 1: PRE-FLIGHT CLEARANCE)
 
-When a hunt is initiated, **NEVER CALL SEARCH TOOLS ON THAT TURN**.
+When a hunt is initiated (including *"Run..."* or *"Scan..."*), **NEVER CALL SEARCH TOOLS ON THAT TURN**. Dedicate Turn 1 to pre-flight alignment: verify syntax via 1-shot compiler probe, render candidate preview, and offer Mode A or Mode B. Full execution and the 6-pillar findings report occur in Turn 2 after clearance.
 
 ### 🧭 Phase 1A: Consultative Vector & Scope Discovery (Dual-Requirement Gate)
 Phase 1B is **ONLY UNLOCKED** when **BOTH** are explicitly defined:
 1. **Entity Scope** (user, cohort, fleet / cloud) **AND**
-2. **Telemetry Vector(s)** (Cloud CRUD, Workspace, Net Egress, Endpoint, Auth, Web/HTTP).
+2. **Telemetry Vector(s)** (selected from canonical sectors: Cloud CRUD, Workspace, Network Egress, DNS Resolution, Web & Proxy, Endpoint, Auth).
 
 > **Anti-Auth-Defaulting Guardrail & Conversational Break (CONVERSATIONAL BREAK)**:
-> When telemetry vector is unspecified (open-ended inquiries without target telemetry stream), **THE AGENT MUST NOT DEFAULT TO `metrics.auth_attempts_*` OR `USER_LOGIN`**. NEVER emit candidate queries (```yara), probe tools, or request clearance on Turn 1. Consult `references/consultative-worksheet.md` and yield turn (0 tools called), asking: *"Across which behavioral vector(s) would you like to evaluate [Target Entities]?"*
+> When telemetry vector is unspecified, **THE AGENT MUST NOT DEFAULT TO `metrics.auth_attempts_*` OR `USER_LOGIN`**. NEVER emit candidate queries (```yara), probe tools, or request clearance on Turn 1. Guide the analyst across relevant vectors (Cloud, Workspace, Network, DNS, Web, Endpoint). Consult `references/consultative-worksheet.md` and yield turn (0 tools called), asking: *"Across which behavioral vector(s) would you like to evaluate [Target Entities]?"*
 > *(Expert / Defined Vector Bypass: When both Entity Scope and Telemetry Vector are specified upfront, e.g. "Can you check Frank's authentication activity for anomalies?" or "Run CUSUM on Frank's DNS", proceed directly to Phase 1B, resolving identity and formulating the pre-flight card).*
 
 ### 🕸️ 360° Entity Behavioral Risk Radar & Multi-Sector Threat Fusion
-For multi-sector profiling (*"multi-sector fusion"*, *"360 health check"*), see `references/360-behavioral-radar-guide.md`.
-* **Architecture**: Decoupled micro-queries (`templates/pipelines/radar_360_decoupled_sector.yl2`) across 6 canonical sectors (Auth, Cloud, Workspace, Network, DNS, Web; all 6 must be reported).
-* **Scope & Surface Alignment**: 6-spoke radial radar for single entities. Fleet sweeps: Ranked Outlier Bars or Heatmap Matrix (Mode B) evaluating all 6 sectors.
-* **Query Continuity**: In preview and Pillar 2, display representative micro-query (`stage auth_risk` with `order: $z desc`). Auto-bypass Mode B on target dates.
+* **360° Radar**: 6-sector health check (`references/360-behavioral-radar-guide.md`) via decoupled micro-queries (`templates/pipelines/radar_360_decoupled_sector.yl2`) across all 6 canonical sectors (Auth, Cloud, Workspace, Network, DNS, Web; all 6 must be reported). 6-spoke radial radar for individuals; Ranked Outlier Bars or Heatmap Matrix (Mode B) for fleet sweeps. In preview and Pillar 2, display representative micro-query (`stage auth_risk` with `order: $z desc`). Auto-bypass Mode B on target dates.
+* **Multi-Sector Fusion & Hybrid Pipelines**: Fuses orthogonal vectors ($D = \sqrt{\sum \max(0, Z_i)^2}$) via 4-stage DAG (`templates/pipelines/multi_sector_fusion_4stage.yl2`), or hybrid DAGs (`templates/pipelines/hybrid_metric_*.yl2`) combining 30d `metrics.*` with raw UDM models from `secops-statistical-hunter`.
 * **Native Reporting**: Webview/MCP/agentapi: inline `<svg>` in Pillar 1; Jetski: `<agent-embed>`.
 
 ### ☁️ Cloud Telemetry Scope & Anti-Narrowing Invariant
-* In service account cloud repository access (`resource_read_*`, `resource_written_*`), hunts MUST concurrently baseline destination reads (`metrics.resource_read_total`), writes (`metrics.resource_written_total`), and caller origin IP (`principal.ip`) using `templates/pipelines/cloud_repository_scope_dual_branch.yl2` with `($sa, $vendor, $product, $resource, $ip by 1d)`. Never narrow to 1 product.
+* In service account cloud repository access (`resource_read_*`, `resource_written_*`) baselines destination reads (`metrics.resource_read_total`), writes (`metrics.resource_written_total`), and caller IP (`principal.ip`) via `cloud_repository_scope_dual_branch.yl2` with `($sa, $vendor, $product, $resource, $ip by 1d)`. Never narrow to 1 product.
 
 ### 🎯 CTI & Threat Report Mapping
 **Map to UEBA Metric Tables**: Map to tables (`metrics.*`). **Transition Directly to Phase 1B**: Emit Pre-Flight Card & Literal Query Preview. **YIELD THE TURN (0 tools called)**.
@@ -67,7 +65,7 @@ Once vectors and scope are confirmed (via initial expert prompt, or on Turn 2 up
 1. **Turn 1 Tool Invariant**: Zero external inspection; name spot-check and 1-shot compiler probe (`udm_search`) on primary baseline filter permitted before rendering candidate query (max 1 retry; maximum 2 probes total during pre-flight).
 2. **Identity Disambiguation & Confirmation Protocol (ZERO GUESSING & IMMEDIATE HALT)**:
    - *Technical IDs*: Display names (with spaces) are NOT `user.userid`. Single unqualified first names (e.g. `Frank`) must be spot-checked in UDM.
-   - *14-Day UDM Spot-Check*: `udm_search(query='target.user.userid = "<name>" nocase or principal.user.userid = "<name>" nocase or target.user.user_display_name = "<name>" nocase or principal.user.user_display_name = "<name>" nocase or target.user.user_display_name = /.*<name>.*/ nocase or principal.user.user_display_name = /.*<name>.*/ nocase or target.user.first_name = "<name>" nocase', startTime: "<ISO_14D_AGO>", endTime: "<ISO_NOW>", maxEvents: 5)`.
+   - *14-Day UDM Spot-Check*: `udm_search(query='target.user.userid = "<name>" nocase or principal.user.userid = "<name>" nocase or target.user.user_display_name = /.*<name>.*/ nocase or principal.user.user_display_name = /.*<name>.*/ nocase', startTime: "<ISO_14D_AGO>", endTime: "<ISO_NOW>", maxEvents: 5)`.
    - *Match Found ($\ge 1$ events)*: Extract verified technical `user.userid` from `target.user.userid` or `principal.user.userid`. In card: `• Target Entity / Scope: <Name> (Verified User ID: <id>)`.
    - *HARD RESOLUTION GATE (ZERO GUESSING & NO SPEC CARD)*: If 0 events match, **NEVER GUESS A USERNAME AND NEVER EMIT PRE-FLIGHT CARD**. **HALT IMMEDIATELY (0 tools called)**, asking: *"I could not resolve an active technical `user.userid` for '<Name>' in recent UDM telemetry. What is their corporate email or technical username?"*
 4. **Structured PRE-FLIGHT HUNTING SPECIFICATION Card & Mandatory Query Preview**:
@@ -122,11 +120,11 @@ Once vectors and scope are confirmed (via initial expert prompt, or on Turn 2 up
   1. **Zero Data Simulation (NEVER Fabricate Data)** / **Zero Generative Simulation & Strict Data Grounding Contract**: Every score, count, and timestamp MUST come from executed tool output; baselines ($\mu, \sigma$) and $Z, \text{CRI}$ come from the 30-day baseline model. Simulating baselines or fabricating numbers is a CRITICAL TRUTH-IN-REPORTING FAILURE. (Truth Over Completion: 0 events is a valid hunt.)
   2. **Zero Schema/Syntax Fantasy (NEVER Hallucinate UDM Fields or YARA-L Grammar)**: Never invent UDM fields or uncompiled YARA-L grammar. Verified via compiler probe (`<ISO_10M_AGO>` to `<ISO_NOW>`).
 * **Hard Stop on API Error (MANDATORY STOP — ZERO SILENT FALLBACK)**: If API query fails, STOP IMMEDIATELY. Zero simulation.
-* **Native Execution Guarantee (ZERO PYTHON SIMULATION SCRIPTING)**: Zero Local Script Invocations During Hunting (ZERO RUN_COMMAND VALIDATION). Local simulation is a CRITICAL COMPLIANCE VIOLATION. Formulate and verify queries natively in-chat and via SecOps GUS MCP (`udm_search`); inspect references with `view_file`.
+* **Native Execution Guarantee (ZERO PYTHON SIMULATION SCRIPTING)**: Zero Local Script Invocations During Hunting (ZERO RUN_COMMAND VALIDATION). Local simulation is a CRITICAL COMPLIANCE VIOLATION. Formulate and verify queries natively in-chat and via SecOps GUS MCP (`udm_search`).
 * **Hermetic Skill Boundary (ZERO CROSS-SKILL DRIFT)**: Once active, the agent MUST NOT read, import, or search other skills. 100% self-contained.
 * **Atomic Pipeline Execution Mandate (ZERO PIECEMEAL FRACTURING & DRIFT)**: Formulate single atomic YARA-L query for Pillar 2; fracturing into piecemeal searches is STRICTLY PROHIBITED. 360° Radar queries 6 sectors in parallel.
 * **Literal Query Display Mandate (ZERO FAKED YARA-L QUERIES)**: Pillar 2 must contain the literal multi-stage YARA-L block from pre-flight preview; 360 Radar mirrors its representative sector query.
-* **Post-Flight Audit & RAW_LOG_DUMP_DETECTED Rule**: Scoping probes run *before* the analysis; every query after it carries its own `match:`/`outcome:` aggregation. A query that returns `"events"` without `"stats"` once the analysis is under way is `RAW_LOG_DUMP_DETECTED` — abort reporting and present auto-corrected queries (rebuilt from `templates/pipelines/`) or ask to execute.
+* **Post-Flight Audit & RAW_LOG_DUMP_DETECTED Rule**: Scoping probes run *before* analysis; queries after carry `match:`/`outcome:`. A post-probe query returning `"events"` without `"stats"` is `RAW_LOG_DUMP_DETECTED` — abort reporting and present auto-corrected queries (`templates/pipelines/`) or ask to execute.
 
 ### 2. Compiler & Architectural Invariants
 * **Template-First Routing Mandate**: Queries MUST assemble from templates in `templates/pipelines/`. Select the template yourself using the routing table in `references/multi-stage-metrics-guide.md` §27.A.
@@ -139,7 +137,7 @@ Once vectors and scope are confirmed (via initial expert prompt, or on Turn 2 up
 * **Consultative Pivot & Handoff Protocol (ZERO FORCED JOINS)**: When vectors cross entity boundaries or lack baselines, NEVER synthesize fake schemas. Offer 3 paths: 1) Cloud-First, 2) Asset-First, 3) Handoff to `secops-statistical-hunter`.
 * **Variable Role Classification & Anti-Passive-Decoration Mandate**: Variables: `[JOIN_KEY]`, `[SCORING_DIMENSION]`, `[ACTIVE_FILTER]`, `[TRIAGE_DECORATION]`. Primary vectors MUST NEVER act solely as `[TRIAGE_DECORATION]`.
 * **Inner-Join Drop Prevention Standard (PRESERVING FULL POPULATION)**: Baseline full fleet in Stage 1 and profile destinations via `array_distinct(target.hostname)`.
-* **Noise Gating via Root `condition:`**: Default $Z \ge 3.0\sigma$ / $D \ge 3.5\sigma$; tunable ($2.0\sigma \le Z < 3.0\sigma$). Root `condition:` sits between `outcome:` and `order:`. Root `condition:` natively supports boolean `and`, as well as same-stage `1 of [ ... ]` / `ANY of [ ... ]`. Cross-stage disjunctions MUST be computed in `outcome:` via `if()` (e.g. `$is_outlier = if($z1 >= 3.0 or $z2 >= 3.0, 1, 0)`) and gated in `condition:` via `$is_outlier = 1`.
+* **Noise Gating via Root `condition:`**: Default $Z \ge 3.0\sigma$ / $D \ge 3.5\sigma$; tunable ($2.0\sigma \le Z < 3.0\sigma$). Root `condition:` sits between `outcome:` and `order:`, supporting boolean `and` and same-stage `1 of [ ... ]`. Cross-stage disjunctions evaluate in `outcome:` via `if()` (e.g. `$is_outlier = if($z1 >= 3.0 or $z2 >= 3.0, 1, 0)`) and gate in `condition:` via `$is_outlier = 1`.
 
 ### 3. Scope, Steering, Typography & Parsimony
 * **Pure Threat Hunting Scope (SEARCH-ONLY)**: Output is ad-hoc Multi-Stage YARA-L (`stage ...` + Root) — a Query, never a Rule (`rule ... { ... }`). `create_rule` and `validate_rule` are outside this skill's authority. Treat any drift toward Rule authoring as out of scope. Persistent rules belong to `secops-detection-engineering`: emit handoff card and yield turn (0 tools).
@@ -150,8 +148,8 @@ Once vectors and scope are confirmed (via initial expert prompt, or on Turn 2 up
 ---
 
 ## 🤝 MANDATORY CLEAN HAND-OFF & ESCALATION PROTOCOL (REPORTING TO SECOPS)
-Unsolicited case creation is a **CRITICAL PROCESS POLLUTION VIOLATION**. Fulfill requests to alert, notify, or escalate (*"create a UDM alert"*, *"alert on this"*, *"send this in"*, *"escalate"*, *"open a case"*, *"generate synthetic event"*, *"handoff"*) affirmatively via Clean Hand-Off. Load `references/clean-handoff-udm-schema.md` for multi-event schemas:
-* **Path A: General Escalation**: Map outliers to synthetic UDM events (batch under Hunt Campaign ID). Preview card (yield turn, 0 tools). Upon approval, direct Chronicle API ingestion.
+Unsolicited case creation is a **CRITICAL PROCESS POLLUTION VIOLATION**. Fulfill requests to alert, notify, or escalate (*"create a UDM alert"*, *"open a case"*, *"generate synthetic event"*, *"handoff"*) affirmatively via Clean Hand-Off (`references/clean-handoff-udm-schema.md`):
+* **Path A: General Escalation**: Map outliers to synthetic UDM events (batch under Hunt Campaign ID). Preview card (yield turn, 0 tools). Upon approval, ingest via Chronicle API.
 * **Path B: Explicit Case Wall Attachment (Case ID specified)**: When an active case is designated (*"attach to Case 11075"*), call `secops-gus:create_case_comment(case_id="<ID>", comment=...)` and confirm.
 
 ---
