@@ -157,57 +157,257 @@ $$Z_i = \frac{\text{Observed}_i - \mu_i}{\sigma_i + 1.0}$$
 Zero conditional event filtering (`security_result.action`) and zero conditional aggregations (`count(if(...))`) are evaluated. Each sector operates as an independent micro-query, and the six sector Z-scores are joined client-side in the report presentation layer to compute the Euclidean distance:
 $$D = \sqrt{\sum_{i=1}^6 \max(0, Z_i)^2}$$
 
-### 4.1 USER Entity Sector Specifications
+### 4.1 USER Entity Sector Cookbook
 
-#### Sector 1: IAM & Authentication
-* **Telemetry Filter**: `metadata.event_type = "USER_LOGIN" and (target.user.userid = "%(entity_id)s" or principal.user.userid = "%(entity_id)s")`
-* **Metrics Function**: `metrics.auth_attempts_total`
-* **Dimension Scope**: `target.user.userid`
-* **Spoke Unit**: `logins`
+To evaluate a user's 360° behavioral profile, dispatch the six canonical multi-stage YARA-L micro-queries below via `udm_search`. Each query evaluates the target against its 30-day pre-computed historical baseline and outputs `$observed`, `$baseline`, `$dispersion`, and `$z`.
 
-#### Sector 2: Cloud Infrastructure & IAM CRUD
-* **Telemetry Filter**: `(metadata.event_type = "RESOURCE_CREATION" or metadata.event_type = "RESOURCE_DELETION" or metadata.event_type = "RESOURCE_WRITTEN" or metadata.event_type = "RESOURCE_PERMISSIONS_CHANGE") and (principal.user.userid = "%(entity_id)s" or target.user.userid = "%(entity_id)s")`
-* **Metrics Function**: `metrics.resource_creation_total`
-* **Dimension Scope**: `principal.user.userid`, `metadata.vendor_name`, `metadata.product_name`
-* **Spoke Unit**: `actions`
+#### Sector 1: IAM & Authentication (`metrics.auth_attempts_total`)
+* **Spoke Unit**: `logins` | **Dimension Scope**: `target.user.userid`
+```yara
+stage auth_risk {
+    metadata.event_type = "USER_LOGIN"
+    target.user.userid = "%(entity_id)s"
+    $user = target.user.userid
+  match:
+    $user by 1d
+  outcome:
+    $obs = count(metadata.id)
+    $avg = max(metrics.auth_attempts_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+        target.user.userid: "%(entity_id)s"
+    ))
+    $std = max(metrics.auth_attempts_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+        target.user.userid: "%(entity_id)s"
+    ))
+    $diff = $obs - $avg
+    $z = $diff / ($std + 1.0)
+}
 
-#### Sector 3: Workspace Data Hoarding & Exfiltration
-* **Telemetry Filter**: `metadata.event_type = "USER_RESOURCE_ACCESS" and (principal.user.userid = "%(entity_id)s" or target.user.userid = "%(entity_id)s")`
-* **Metrics Function**: `metrics.workspace_total_download_actions`
-* **Dimension Scope**: `principal.user.userid`
-* **Spoke Unit**: `downloads`
+$user = $auth_risk.user
 
-#### Sector 4: Network Egress Volume
-* **Telemetry Filter**: `metadata.event_type = "NETWORK_CONNECTION" and (principal.user.userid = "%(entity_id)s" or target.user.userid = "%(entity_id)s")`
-* **Metrics Function**: `metrics.network_bytes_outbound`
-* **Dimension Scope**: `principal.user.userid`
-* **Spoke Unit**: `bytes` (or `MB`)
+match:
+  $user by 1d
 
-#### Sector 5: DNS Resolution
-* **Telemetry Filter**: `metadata.event_type = "NETWORK_DNS" and (principal.user.userid = "%(entity_id)s" or target.user.userid = "%(entity_id)s")`
-* **Metrics Function**: `metrics.dns_queries_total`
-* **Dimension Scope**: `principal.user.userid`
-* **Spoke Unit**: `queries`
+outcome:
+  $z = max($auth_risk.z)
+  $observed = max($auth_risk.obs)
+  $baseline = max($auth_risk.avg)
+  $dispersion = max($auth_risk.std)
 
-#### Sector 6: Web & Proxy Activity
-* **Telemetry Filter**: `metadata.event_type = "NETWORK_HTTP" and (principal.user.userid = "%(entity_id)s" or target.user.userid = "%(entity_id)s")`
-* **Metrics Function**: `metrics.http_queries_total`
-* **Dimension Scope**: `principal.user.userid`
-* **Spoke Unit**: `requests`
+order:
+  $z desc
+```
+
+#### Sector 2: Cloud Infrastructure & IAM CRUD (`metrics.resource_creation_total`)
+* **Spoke Unit**: `actions` | **Dimension Scope**: `principal.user.userid`, `metadata.vendor_name`, `metadata.product_name`
+```yara
+stage cloud_risk {
+    (metadata.event_type = "RESOURCE_CREATION" or metadata.event_type = "RESOURCE_DELETION" or metadata.event_type = "RESOURCE_WRITTEN" or metadata.event_type = "RESOURCE_PERMISSIONS_CHANGE")
+    principal.user.userid = "%(entity_id)s"
+    $user = principal.user.userid
+    $vendor = metadata.vendor_name
+    $product = metadata.product_name
+  match:
+    $user, $vendor, $product by 1d
+  outcome:
+    $obs = count(metadata.id)
+    $avg = max(metrics.resource_creation_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+        principal.user.userid: "%(entity_id)s",
+        metadata.vendor_name: $vendor,
+        metadata.product_name: $product
+    ))
+    $std = max(metrics.resource_creation_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+        principal.user.userid: "%(entity_id)s",
+        metadata.vendor_name: $vendor,
+        metadata.product_name: $product
+    ))
+    $diff = $obs - $avg
+    $z = $diff / ($std + 1.0)
+}
+
+$user = $cloud_risk.user
+
+match:
+  $user by 1d
+
+outcome:
+  $z = max($cloud_risk.z)
+  $observed = max($cloud_risk.obs)
+  $baseline = max($cloud_risk.avg)
+  $dispersion = max($cloud_risk.std)
+
+order:
+  $z desc
+```
+
+#### Sector 3: Workspace Data Hoarding & Exfiltration (`metrics.workspace_total_download_actions`)
+* **Spoke Unit**: `downloads` | **Dimension Scope**: `principal.user.userid`
+```yara
+stage workspace_risk {
+    metadata.event_type = "USER_RESOURCE_ACCESS"
+    principal.user.userid = "%(entity_id)s"
+    $user = principal.user.userid
+  match:
+    $user by 1d
+  outcome:
+    $obs = count(metadata.id)
+    $avg = max(metrics.workspace_total_download_actions(
+        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+        principal.user.userid: "%(entity_id)s"
+    ))
+    $std = max(metrics.workspace_total_download_actions(
+        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+        principal.user.userid: "%(entity_id)s"
+    ))
+    $diff = $obs - $avg
+    $z = $diff / ($std + 1.0)
+}
+
+$user = $workspace_risk.user
+
+match:
+  $user by 1d
+
+outcome:
+  $z = max($workspace_risk.z)
+  $observed = max($workspace_risk.obs)
+  $baseline = max($workspace_risk.avg)
+  $dispersion = max($workspace_risk.std)
+
+order:
+  $z desc
+```
+
+#### Sector 4: Network Egress Volume (`metrics.network_bytes_outbound`)
+* **Spoke Unit**: `bytes` | **Dimension Scope**: `principal.user.userid`
+```yara
+stage egress_risk {
+    metadata.event_type = "NETWORK_CONNECTION"
+    principal.user.userid = "%(entity_id)s"
+    $user = principal.user.userid
+  match:
+    $user by 1d
+  outcome:
+    $obs = sum(network.sent_bytes)
+    $avg = max(metrics.network_bytes_outbound(
+        period: 1d, window: 30d, metric: value_sum, agg: avg,
+        principal.user.userid: "%(entity_id)s"
+    ))
+    $std = max(metrics.network_bytes_outbound(
+        period: 1d, window: 30d, metric: value_sum, agg: stddev,
+        principal.user.userid: "%(entity_id)s"
+    ))
+    $diff = $obs - $avg
+    $z = $diff / ($std + 1.0)
+}
+
+$user = $egress_risk.user
+
+match:
+  $user by 1d
+
+outcome:
+  $z = max($egress_risk.z)
+  $observed = max($egress_risk.obs)
+  $baseline = max($egress_risk.avg)
+  $dispersion = max($egress_risk.std)
+
+order:
+  $z desc
+```
+
+#### Sector 5: DNS Resolution (`metrics.dns_queries_total`)
+* **Spoke Unit**: `queries` | **Dimension Scope**: `principal.user.userid`
+```yara
+stage dns_risk {
+    metadata.event_type = "NETWORK_DNS"
+    principal.user.userid = "%(entity_id)s"
+    $user = principal.user.userid
+  match:
+    $user by 1d
+  outcome:
+    $obs = count(metadata.id)
+    $avg = max(metrics.dns_queries_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+        principal.user.userid: "%(entity_id)s"
+    ))
+    $std = max(metrics.dns_queries_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+        principal.user.userid: "%(entity_id)s"
+    ))
+    $diff = $obs - $avg
+    $z = $diff / ($std + 1.0)
+}
+
+$user = $dns_risk.user
+
+match:
+  $user by 1d
+
+outcome:
+  $z = max($dns_risk.z)
+  $observed = max($dns_risk.obs)
+  $baseline = max($dns_risk.avg)
+  $dispersion = max($dns_risk.std)
+
+order:
+  $z desc
+```
+
+#### Sector 6: Web & Proxy Activity (`metrics.http_queries_total`)
+* **Spoke Unit**: `requests` | **Dimension Scope**: `principal.user.userid`
+```yara
+stage web_risk {
+    metadata.event_type = "NETWORK_HTTP"
+    principal.user.userid = "%(entity_id)s"
+    $user = principal.user.userid
+  match:
+    $user by 1d
+  outcome:
+    $obs = count(metadata.id)
+    $avg = max(metrics.http_queries_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+        principal.user.userid: "%(entity_id)s"
+    ))
+    $std = max(metrics.http_queries_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+        principal.user.userid: "%(entity_id)s"
+    ))
+    $diff = $obs - $avg
+    $z = $diff / ($std + 1.0)
+}
+
+$user = $web_risk.user
+
+match:
+  $user by 1d
+
+outcome:
+  $z = max($web_risk.z)
+  $observed = max($web_risk.obs)
+  $baseline = max($web_risk.avg)
+  $dispersion = max($web_risk.std)
+
+order:
+  $z desc
+```
 
 ---
 
 ### 4.2 ASSET Entity Sector Specifications
 When the entity is a Host (`ASSET`), telemetry scope maps across the 6 canonical sectors:
 
-| Sector | Telemetry Filter | Metrics Table | Primary Dimension & Companion Invariants |
-| :--- | :--- | :--- | :--- |
-| **Authentication** | `metadata.event_type = "USER_LOGIN"` | `metrics.auth_attempts_total` | `principal.asset.hostname` |
-| **Network Egress** | `metadata.event_type = "NETWORK_CONNECTION"` | `metrics.network_bytes_outbound` | `principal.asset.hostname` |
-| **DNS Resolution** | `metadata.event_type = "NETWORK_DNS"` | `metrics.dns_queries_total` | `principal.asset.hostname` |
-| **Web & Proxy Activity** | `metadata.event_type = "NETWORK_HTTP"` | `metrics.http_queries_total` | `principal.asset.hostname` |
-| **Cloud Infrastructure** | `metadata.event_type = "RESOURCE_CREATION"` | `metrics.resource_creation_total` | `principal.asset.hostname` (requires `metadata.vendor_name`, `metadata.product_name`) |
-| **Endpoint Activity** | `metadata.event_type = "PROCESS_LAUNCH"` | `metrics.file_executions_total` | `principal.asset.hostname` (requires `principal.process.file.sha256: $sha`, `metadata.event_type: "PROCESS_LAUNCH"`) |
+| Sector | Metrics Table | Primary Dimension & Companion Invariants |
+| :--- | :--- | :--- |
+| **Authentication** | `metrics.auth_attempts_total` | `principal.asset.hostname` |
+| **Network Egress** | `metrics.network_bytes_outbound` | `principal.asset.hostname` |
+| **DNS Resolution** | `metrics.dns_queries_total` | `principal.asset.hostname` |
+| **Web & Proxy Activity** | `metrics.http_queries_total` | `principal.asset.hostname` |
+| **Cloud Infrastructure** | `metrics.resource_creation_total` | `principal.asset.hostname` (requires `metadata.vendor_name`, `metadata.product_name`) |
+| **Endpoint Activity** | `metrics.file_executions_total` | `principal.asset.hostname` (requires `principal.process.file.sha256: $sha`, `metadata.event_type: "PROCESS_LAUNCH"`) |
 
 *(Note: In dedicated endpoint anomaly pipelines, Process Launches map to `metrics.file_executions_total` with file hash; in fleet sweeps without individual binary hashes or when host endpoint telemetry is nominal, evaluate observed counts or security rule alerts `metrics.alert_event_name_count`). All 6 sectors synthesize client-side into composite Euclidean Threat Distance $D = \sqrt{\sum_{i=1}^6 \max(0, Z_i)^2}$.*
 
@@ -225,13 +425,10 @@ When a sector query returns **0 observed events** within the evaluation window:
 * **Mathematical Rationale**: In a normalized Gaussian Euclidean space, an unbreached vector contributes $(0.00)^2 = 0$ to total distance $D$.
 
 ### 5.2 Active Sector Data Handling
-When a sector query returns **$> 0$ events**:
-* **Observed Count**: Extracted directly from the query event count or aggregated volume.
+When a sector micro-query returns **$\ge 1$ matching rows**:
+* **Metric Extraction**: Extract `$observed`, `$baseline`, `$dispersion`, and `$z` directly from the query outcome columns.
 * **Standardized Formula**:
   $$Z_i = \frac{\text{Observed}_i - \mu_i}{\sigma_i + 1.0}$$
-* **Baseline Retrieval**:
-  * In YARA-L detection runs: $\mu$ and $\sigma$ are output directly by `metrics.*` outcome variables.
-  * In empirical UDM search: $\mu$ and $\sigma$ reflect the entity's 30-day daily historical distribution. If historical baseline telemetry is absent, record $\mu = \text{Uncomputed}, \sigma = \text{Uncomputed}, Z = \text{Evaluated Count}$.
 
 ---
 
