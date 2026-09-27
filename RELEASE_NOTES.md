@@ -1,10 +1,41 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.7.3)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.7.4)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v1.7.3 (Point Release) — September 2026  
+**Latest Version**: v1.7.4 (Point Release) — September 2026  
+
+---
+
+## 📢 What's New in v1.7.4 (Point Release) — Malachite Function Factory Modernization, Affirmative Guidance Architecture & Data-Anchored Time Spines
+
+### 1. Chronicle Malachite Function Factory Mathematical Modernization
+* **Built-In Mathematical Functions Reference**:
+  - Published comprehensive Function Factory reference matrix in [`references/malachite-function-factory-matrix.md`](references/malachite-function-factory-matrix.md), documenting Chronicle SIEM's native built-in mathematical functions (`math.abs`, `math.sqrt`, `math.log`, `math.exp`, `math.pow`, `math.floor`, `math.ceil`, `math.round`, `math.min`, `math.max`).
+  - Standardized AST contracts and pre-flight validators (`scripts/preflight_validator.py`, `scripts/statistical_validator.py`) to permit valid Malachite Function Factory built-in functions while strictly prohibiting bare un-namespaced mathematical operators or invalid outcome variable bindings.
+* **Stage 2 Mathematical Models Refactoring**:
+  - Refactored `templates/stage2_math_models/` (`variance_fano.yl2`, `poisson_gamma_bayesian.yl2`, `beta_binomial_bayesian.yl2`) to localize algebraic outcome derivations and leverage clean in-stage expression inlining.
+
+### 2. Affirmative Operational Guidance Refactoring
+* **Affirmative Metric Dimension Binding**:
+  - Replaced negative prohibitions (e.g., "Do NOT use alert_event_name_count without...") with affirmative, prescriptive operational recipes in [`references/360-behavioral-radar-guide.md`](references/360-behavioral-radar-guide.md) and [`references/metrics-catalog.md`](references/metrics-catalog.md).
+  - Prescribed orthogonal single-dimension host vectors (`metrics.auth_attempts_total`, `metrics.auth_attempts_fail`, `metrics.network_bytes_outbound`, `metrics.dns_queries_total`) for broad fleet-wide outlier sweeps.
+  - Formulated affirmative binding recipes for compound multi-dimension metrics, defining `metrics.alert_event_name_count` affirmatively under `SCAN_UNCATEGORIZED` with mandatory `security_result.rule_name: $rule_name` binding.
+
+### 3. Data-Anchored Time Spines & Template Invariant Alignment
+* **Time Spine Alignment**:
+  - Standardized time spine contracts across hybrid pipelines (`hybrid_metric_derived_asset_age_2stage.yl2`, `hybrid_metric_derived_domain_prevalence_2stage.yl2`, `hybrid_metric_derived_file_prevalence_2stage.yl2`, `hybrid_metric_whois_domain_lifecycle_2stage.yl2`), ensuring strict temporal coherence between macro 30-day baseline windows and micro observation periods.
+* **Non-Zero Floor Safe Dispersion Guards**:
+  - Standardized safe dispersion floor calculations (`if($sigma > 0, $sigma, 1.0)`) across all pipeline templates and submission test validators.
+
+### 4. Unit Test Suite Expansion
+* **268 / 268 Unit Tests Passing (100% Green)** across 20 test modules.
+* **Added 172 Lines of Unit Tests**:
+  - `tests/test_submission_compiler_policy.py`: Expanded Malachite compiler syntax validation.
+  - `tests/test_cri_and_math.py`: Validated Function Factory built-in contracts.
+  - `tests/test_guardrail_contracts.py` & `tests/test_statistical_antipattern_auditor.py`: Enforced affirmative guidance validation and AST safety invariants.
+* **27 / 27 Compiler Submission Tests Passing** in `scripts/submission_tests.py` with 100% clean compilation on live Chronicle SIEM `gus-sdl` backend.
 
 ---
 
