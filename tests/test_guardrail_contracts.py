@@ -1010,6 +1010,29 @@ class TestGuardrailContracts(unittest.TestCase):
     valid_cloud_errors = MalachiteASTValidator.validate_query(valid_cloud_query)
     self.assertFalse(any("MISSING_MANDATORY_FILTER" in e for e in valid_cloud_errors))
 
+    # 2b. alert_event_name_count missing security_result.rule_name
+    invalid_alert_query = """
+    // Goal: Test invalid alert query missing rule name
+    stage stage1_extract {
+      metadata.event_type = "SCAN_UNCATEGORIZED"
+      principal.asset.hostname = "srv-01"
+      $h = principal.asset.hostname
+      match: $h by 1d
+      outcome:
+        $mu = max(metrics.alert_event_name_count(
+          period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+          principal.asset.hostname: "srv-01"
+        ))
+    }
+    $h = $stage1_extract.h
+    match: $h by 1d
+    outcome:
+      $z = 1.0
+    """
+    alert_errors = MalachiteASTValidator.validate_query(invalid_alert_query)
+    self.assertTrue(any("MISSING_MANDATORY_FILTER" in e for e in alert_errors))
+    self.assertTrue(any("security_result.rule_name" in e for e in alert_errors))
+
     # 3. Multi-vector metric conflation in single stage
     conflated_query = """
     // Goal: Test multi-vector metric conflation in a single stage

@@ -373,7 +373,7 @@ METRIC_CATALOG: Dict[str, MetricDefinition] = {
         backing_log_types=["CB_EDR", "CS_EDR", "MICROSOFT_GRAPH_ALERT", "SENTINELONE_ALERTS"],
         is_vendor_scoped=False,
         default_floor_days=7,
-        description="Security rule and EDR alerts fired per entity.",
+        description="Security rule and EDR alerts fired per entity (requires security_result.rule_name).",
     ),
     "resource_creation_total": MetricDefinition(
         metric_id=27,
@@ -923,6 +923,8 @@ MALACHITE_MANDATORY_FILTERS = {
     "file_executions_fail": {"metadata.event_type", "principal.process.file.sha256"},
     "file_executions_success": {"metadata.event_type", "principal.process.file.sha256"},
     "file_executions_total": {"metadata.event_type", "principal.process.file.sha256"},
+    # EDR and security rule alert metrics strictly require security_result.rule_name
+    "alert_event_name_count": {"security_result.rule_name"},
 }
 
 
@@ -1114,6 +1116,8 @@ class MalachiteASTValidator:
               hint = " In Chronicle Malachite, all Cloud CRUD metrics require both 'metadata.vendor_name' and 'metadata.product_name' when filtering by user/asset."
             elif "principal.process.file.sha256" in missing_dims:
               hint = " In Chronicle Malachite, process execution metrics require both 'metadata.event_type' and 'principal.process.file.sha256'."
+            elif "security_result.rule_name" in missing_dims:
+              hint = " In Chronicle Malachite, 'metrics.alert_event_name_count' requires companion dimension 'security_result.rule_name'."
             errors.append(
                 f"MISSING_MANDATORY_FILTER in stage '{stage_name}': Metric 'metrics.{m_name}' is missing required companion dimension(s): {sorted(list(missing_dims))}.{hint}"
             )
@@ -1214,6 +1218,8 @@ class MalachiteASTValidator:
             hint = " In Chronicle Malachite, all Cloud CRUD metrics require both 'metadata.vendor_name' and 'metadata.product_name' when filtering by user/asset."
           elif "principal.process.file.sha256" in missing_dims:
             hint = " In Chronicle Malachite, process execution metrics require both 'metadata.event_type' and 'principal.process.file.sha256'."
+          elif "security_result.rule_name" in missing_dims:
+            hint = " In Chronicle Malachite, 'metrics.alert_event_name_count' requires companion dimension 'security_result.rule_name'."
           errors.append(
               f"MISSING_MANDATORY_FILTER in root stage: Metric 'metrics.{m_name}' is missing required companion dimension(s): {sorted(list(missing_dims))}.{hint}"
           )
