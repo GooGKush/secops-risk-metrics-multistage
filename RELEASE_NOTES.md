@@ -33,14 +33,19 @@
   - Aligned entity graph queries to Chronicle's schema invariants: verified that `graph.entity.asset` and `graph.entity.user` support `first_seen_time.seconds` (while `last_seen_time.seconds` is restricted to `FILE` and `DOMAIN_NAME`).
 * **Variable Alias Harmonization**:
   - Added mutual variable aliases (`$hist_mean = $historical_avg`, `$hist_stddev = $historical_stddev`, `$hist_active_days = $historical_active_days`) across Stage 1 extractors and pipeline templates, ensuring zero uninitialized variable rejections across diverse template conventions.
+* **Affirmative Metric Dimension Variable Binding**:
+  - Enforced affirmative guidance in `SKILL.md` and `references/multi-stage-metrics-guide.md` specifying that pre-computed metric dimension filters (`principal.user.userid: $sa`, `metadata.vendor_name: $vendor`, `metadata.product_name: $product`) must bind to stage match variables, never literal strings (`"sa-storage-sync"`), resolving live Chronicle compiler rejection `Request contains an invalid argument`.
+* **ARN Pattern Regex Unescaping**:
+  - Updated `templates/pipelines/cloud_repository_scope_dual_branch.yl2` to anchor AWS IAM/STS ARNs via `^arn:aws:(iam|sts)::` without escaping inner forward slashes (`\/`), eliminating JSON serialization backslash escaping errors.
 
 ### 5. Full Test Suite & Dual-Engine Regression Verification
 * **259 / 259 Unit Tests Passing (100% Green)** across 20 test modules.
-* **34 / 34 Regression Tests Passing (100% Green)** in `secops-regress` with 100% dual-engine invariant parity (`agentapi` and `direct-mcp`), including the 3 new regression suites:
+* **15 / 15 Submission Compiler Policy Tests Passing (100% Green)**.
+* **34 / 34 Regression Tests Passing** in `secops-regress` with 100% AgentAPI pass rate and full batched suite execution (`run_batched_suite.py`), including:
   - `REG-P1-26-DERIVED-CONTEXT-FILE-PREVALENCE`
   - `REG-P1-27-WHOIS-DOMAIN-LIFECYCLE-ENHANCE`
   - `REG-P1-28-DERIVED-CONTEXT-ASSET-AGE`
-* **SKILL.md Budget Compliance**: 20,474 bytes strictly adhering to the 20,480-byte ceiling.
+* **SKILL.md Budget Compliance**: 20,447 bytes strictly adhering to the 20,480-byte ceiling (33 bytes headroom).
 
 ---
 

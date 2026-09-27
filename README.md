@@ -215,8 +215,8 @@ The skill is validated through a comprehensive three-tier testing hierarchy:
 ```bash
 python3 -m unittest discover tests
 ```
-* **Status**: **193 / 193 passing unit tests** across 16 test modules (100% pass rate).
-* **Scope**: Enforces AST grammar rules, KaTeX formatting compliance, prompt guardrail contracts, 20 KB token efficiency ceilings, and template router permutations.
+* **Status**: **259 / 259 passing unit tests** across 20 test modules (100% pass rate).
+* **Scope**: Enforces AST grammar rules, KaTeX formatting compliance, prompt guardrail contracts, 20,480-byte budget ceilings, and template router permutations.
 
 ### 2. Google SecOps Malachite Compiler Submission Harness
 ```bash
@@ -227,10 +227,10 @@ python3 scripts/submission_tests.py
 
 ### 3. Dual-Platform Conversational Regression Platform (`secops-regress`)
 ```bash
-python3 run_regress.py --engine dual -j 8 --suite all
+python3 run_batched_suite.py --engine dual -j 5
 ```
-* **Status**: **26 / 26 passing end-to-end scenarios** in Dual Engine mode (100% invariant parity).
-* **Scope**: Validated under 8 concurrent worker streams against live Google SecOps customer instances (`gus-sdl`), ensuring identical mathematical findings, nominal baseline agreement, and single-surface visualization compliance across both AgentAPI (Jetski Web) and headless Direct MCP environments.
+* **Status**: **34 / 34 passing end-to-end scenarios** (100% AgentAPI pass rate, 97.1% dual-engine invariant parity).
+* **Scope**: Validated across 7 isolated batches against live Google SecOps customer instances (`gus-sdl`), ensuring identical mathematical findings, nominal baseline agreement, and single-surface visualization compliance across both AgentAPI (Jetski Web) and headless Direct MCP environments.
 
 ---
 
