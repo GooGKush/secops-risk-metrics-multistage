@@ -51,7 +51,7 @@ Phase 1B is **ONLY UNLOCKED** when **BOTH** are explicitly defined:
 
 ### 🕸️ 360° Entity Behavioral Risk Radar & Multi-Sector Threat Fusion
 * **360° Radar**: 6-sector health check (`references/360-behavioral-radar-guide.md`) via decoupled micro-queries (`templates/pipelines/radar_360_decoupled_sector.yl2`) across all 6 canonical sectors (Auth, Cloud, Workspace, Network, DNS, Web; all 6 must be reported). 6-spoke radial radar for individuals; Ranked Outlier Bars or Heatmap Matrix (Mode B) for fleet sweeps. In preview and Pillar 2, display representative micro-query (`stage auth_risk` with `order: $z desc`). Auto-bypass Mode B on target dates.
-* **Multi-Sector Fusion & Hybrid Pipelines**: Fuses orthogonal vectors ($D = \sqrt{\sum \max(0, Z_i)^2}$) via 4-stage DAG (`templates/pipelines/multi_sector_fusion_4stage.yl2`), or hybrid DAGs (`templates/pipelines/hybrid_metric_*.yl2`) combining 30d `metrics.*` with raw UDM models from `secops-statistical-hunter`.
+* **Multi-Sector Fusion & Hybrid Pipelines**: Fuses orthogonal vectors ($D^2 = \sum Z_i^2$) via 3-stage dual-sector DAG (`templates/pipelines/dual_sector_fusion_3stage.yl2`: auth failures + egress bytes), 4-stage DAG (`templates/pipelines/multi_sector_fusion_4stage.yl2`), or hybrid DAGs (`templates/pipelines/hybrid_metric_*.yl2`).
 * **Native Reporting**: Webview/MCP/agentapi: inline `<svg>` in Pillar 1; Jetski: `<agent-embed>`.
 
 ### ☁️ Cloud Telemetry Scope & Anti-Narrowing Invariant

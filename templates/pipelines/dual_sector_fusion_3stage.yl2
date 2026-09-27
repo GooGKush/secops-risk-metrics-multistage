@@ -1,15 +1,17 @@
 // ============================================================================
-// ARCHITECTURE: 3-STAGE DUAL-SECTOR THREAT FUSION (AUTH + NETWORK EGRESS)
+// ARCHITECTURE: 3-STAGE DUAL-SECTOR THREAT FUSION (AUTH FAILURES + NETWORK EGRESS)
 // Skill: secops-risk-metrics-multistage
 // Purpose: Fuses orthogonal anomaly signals across IAM and Network into a composite threat norm
 // Join Accounting: 1 Auth UEBA Join + 1 Net UEBA Join + 1 Root Join = 3 Joins (Limit: <= 4)
 // Math: Composite Threat Norm D^2 = Z_auth^2 + Z_net^2
+// Identity Note: To evaluate across hosts, substitute principal.asset.hostname = $host in both stages and match $host by 1d.
 // ============================================================================
 
-// --- STAGE 1: Sector 1 - Authentication / Credential Access ---
+// --- STAGE 1: Sector 1 - Authentication Failures (or Credential Access) ---
 stage auth_sector {
     metadata.event_type = "USER_LOGIN"
-    principal.user.userid = $user
+    security_result.action != "ALLOW"
+    target.user.userid = $user
     $user != ""
 
   match:
@@ -17,13 +19,17 @@ stage auth_sector {
 
   outcome:
     $auth_obs = count(metadata.id)
-    $auth_avg = max(metrics.auth_attempts_total(
+    $auth_avg = max(metrics.auth_attempts_fail(
         period: 1d, window: 30d, metric: event_count_sum, agg: avg,
-        principal.user.userid: $user
+        target.user.userid: $user
     ))
-    $auth_std = max(metrics.auth_attempts_total(
+    $auth_std = max(metrics.auth_attempts_fail(
         period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
-        principal.user.userid: $user
+        target.user.userid: $user
+    ))
+    $auth_active_days = max(metrics.auth_attempts_fail(
+        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+        target.user.userid: $user
     ))
     $a_diff = $auth_obs - $auth_avg
     $z_auth = $a_diff / ($auth_std + 1.0)
