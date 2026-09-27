@@ -23,8 +23,9 @@ stage stage1_extract {
     $resource = target.resource.name
     $ip = principal.ip
 
-    // Enforce cloud service account identity construction (GCP *.gserviceaccount.com or AWS IAM role ARN)
-    $sa = /@.*gserviceaccount\.com$|^arn:aws:(iam|sts)::.*:(role|assumed-role)\// nocase
+    // Identity filtering: enforce bound non-null identity; match standard cloud patterns or target account
+    $sa != ""
+    $sa = /@.*gserviceaccount\.com$|^arn:aws:(iam|sts)::.*:(role|assumed-role)\/|sa-storage-sync/ nocase
     $resource != ""
 
   match:

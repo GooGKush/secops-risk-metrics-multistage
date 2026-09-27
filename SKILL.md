@@ -13,7 +13,7 @@ Executes multi-sector outlier hunting using 30-day Risk Analytics (`metrics.*`).
 
 ## 🔀 Bi-Directional Skill Steering & Handoff Protocol
 * **UEBA / 30-Day Baselines** (`metrics.*`) / **Behavioral Risk** / **Multi-Sector Fusion**: Execute `secops-risk-metrics-multistage`.
-* **Sub-Second Jitter & Lateral Movement**: Bipartite history or sub-second jitter require raw logs; emit Skill Handoff Card to `secops-statistical-hunter` and yield turn (0 tools called).
+* **Jitter & Raw UDM**: Sub-second jitter requires raw logs; emit Skill Handoff Card to `secops-statistical-hunter` and yield turn (0 tools called).
 * **Scheduled Exfiltration**: Offer Mode B Longitudinal CUSUM Drift (`longitudinal_cusum.yl2`) or emit Skill Handoff Card to `secops-statistical-hunter` for sub-day cron cadence.
 * **Corporate Rollouts & Rare Binaries**: Deploy Fleet Prevalence Normalization with Entity Graph (`rolling_max <= 3`).
 * **Non-Metrics Telemetry Steering Mandate** (Git, raw UDM): Emit **Skill Handoff Card** and steer to `secops-statistical-hunter`.
@@ -115,7 +115,7 @@ Once vectors and scope are confirmed (via initial expert prompt, or on Turn 2 up
 ## 🛡️ Non-Negotiable Execution & Integrity Contracts
 
 ### 1. Native Execution & Truth in Reporting
-* **Hunt Tool Contract**: An active hunt runs on `secops-gus:udm_search` alone — once to probe, once to execute; Clean Hand-Off adds `create_case_comment`/`import_events` on request. Behavioral truth lives in `metrics.*` 30-day baselines. Case, alert, rule, and playbook state describes detections that already fired — a different skill.
+* **Hunt Tool Contract**: Active hunts run on `secops-gus:udm_search` alone — once to probe, once to execute; Clean Hand-Off adds `create_case_comment`/`import_events` on request. Case, alert, rule, and playbook state belong to other skills.
 * **THE DUAL GROUNDING INVARIANTS (THE NON-NEGOTIABLE INTEGRITY CORE)**:
   1. **Zero Data Simulation (NEVER Fabricate Data)** / **Zero Generative Simulation & Strict Data Grounding Contract**: Every score, count, and timestamp MUST come from executed tool output; baselines ($\mu, \sigma$) and $Z, \text{CRI}$ come from the 30-day baseline model. Simulating baselines or fabricating numbers is a CRITICAL TRUTH-IN-REPORTING FAILURE. (Truth Over Completion: 0 events is a valid hunt.)
   2. **Zero Schema/Syntax Fantasy (NEVER Hallucinate UDM Fields or YARA-L Grammar)**: Never invent UDM fields or uncompiled YARA-L grammar. Verified via compiler probe (`<ISO_10M_AGO>` to `<ISO_NOW>`).
@@ -124,15 +124,15 @@ Once vectors and scope are confirmed (via initial expert prompt, or on Turn 2 up
 * **Hermetic Skill Boundary (ZERO CROSS-SKILL DRIFT)**: Once active, the agent MUST NOT read, import, or search other skills. 100% self-contained.
 * **Atomic Pipeline Execution Mandate (ZERO PIECEMEAL FRACTURING & DRIFT)**: Formulate single atomic YARA-L query for Pillar 2; fracturing into piecemeal searches is STRICTLY PROHIBITED. 360° Radar queries 6 sectors in parallel.
 * **Literal Query Display Mandate (ZERO FAKED YARA-L QUERIES)**: Pillar 2 must contain the literal multi-stage YARA-L block from pre-flight preview; 360 Radar mirrors its representative sector query.
-* **Post-Flight Audit & RAW_LOG_DUMP_DETECTED Rule**: Scoping probes run *before* analysis; queries after carry `match:`/`outcome:`. A post-probe query returning `"events"` without `"stats"` is `RAW_LOG_DUMP_DETECTED` — abort reporting and present auto-corrected queries (`templates/pipelines/`) or ask to execute.
+* **Post-Flight Audit & RAW_LOG_DUMP_DETECTED Rule**: Scoping probes run *before* analysis; queries after carry `match:`/`outcome:`. Post-probe queries returning `"events"` without `"stats"` trigger `RAW_LOG_DUMP_DETECTED` — abort reporting and present auto-corrected queries (`templates/pipelines/`).
 
 ### 2. Compiler & Architectural Invariants
 * **Template-First Routing Mandate**: Queries MUST assemble from templates in `templates/pipelines/`. Select the template yourself using the routing table in `references/multi-stage-metrics-guide.md` §27.A.
 * **Zero-Hallucination Compiler Grammar Contract**:
   - *Entity Role & Match Binding Invariant*: Match blocks accept ONLY simple bound identifiers ($host by 1d, $user by 1d), NEVER member access ($s1.user or $e.host in match: is invalid). Variables in match: MUST bind first in predicates ($host = principal.asset.hostname; $user = target.user.userid).
-  - *Multi-Stage DAG Root Stage Architecture*: Multi-stage YARA-L queries assemble with named extraction stages (`stage stage1_extract { ... }`) followed by an unnamed root stage outside stage braces. Terminal `match:`, `outcome:`, `order:` sit at root level, binding stage outputs (`$user = $stage1_extract.user`), grouping by window, and computing final statistics (`templates/pipelines/standard_z_score_2stage.yl2`).
+  - *Multi-Stage DAG Root Stage Architecture*: Multi-stage queries assemble with named extraction stages (`stage stage1_extract { ... }`) followed by an unnamed root stage outside braces. Terminal `match:`, `outcome:`, `order:` sit at root level, binding stage outputs and computing final statistics (`templates/pipelines/standard_z_score_2stage.yl2`).
   - *Compiler Structural Boundary*: Arithmetic (`$a - $b`) strictly prohibited above `match:`; reside in `outcome:`.
-  - *Syntax Invariants*: `%list` or `or` for set membership; regex alternation uses `$var = /p1|p2/ nocase`; bare bound identifiers in `match:`; `by 1d` grouping; repeated multiplication for powers; conditional counting uses `sum(if(cond, 1, 0))` (never `count(if)`); `metrics.*` `agg:` parameter accepts `avg`, `stddev`, `sum`, `min`, `max`, or `num_metric_periods`; `max()`/`min()` numeric only (`Int`/`Float`; string grouping uses `array_distinct($t)`).
+  - *Syntax Invariants*: `%list` or `or` for set membership; regex alternation uses `$var = /p1|p2/ nocase`; bare bound identifiers in `match:`; `by 1d` grouping; repeated multiplication for powers; conditional counting uses `sum(if(cond, 1, 0))` (never `count(if)`); safe variance floor uses `$safe_stddev = if($std > 0, $std, 1.0)` and `$z = ($obs - $avg) / $safe_stddev` (never add blunt `+ 1.0` to standard deviation); `metrics.*` `agg:` parameter accepts `avg`, `stddev`, `sum`, `min`, `max`, or `num_metric_periods`; `max()`/`min()` numeric only (`Int`/`Float`; string grouping uses `array_distinct($t)`).
   - *Mandatory Companion Dimensions & Entity Affinity*: Cloud CRUD (`metrics.resource_*`) requires `metadata.vendor_name`, `metadata.product_name`. File metrics (`metrics.file_executions_*`) are Host/Binary scoped (`$host, $sha256`) requiring `metadata.event_type`. NEVER bind `principal.user.userid` to file metrics or force cross-entity joins.
 * **Consultative Pivot & Handoff Protocol (ZERO FORCED JOINS)**: When vectors cross entity boundaries or lack baselines, NEVER synthesize fake schemas. Offer 3 paths: 1) Cloud-First, 2) Asset-First, 3) Handoff to `secops-statistical-hunter`.
 * **Variable Role Classification & Anti-Passive-Decoration Mandate**: Variables: `[JOIN_KEY]`, `[SCORING_DIMENSION]`, `[ACTIVE_FILTER]`, `[TRIAGE_DECORATION]`. Primary vectors MUST NEVER act solely as `[TRIAGE_DECORATION]`.
