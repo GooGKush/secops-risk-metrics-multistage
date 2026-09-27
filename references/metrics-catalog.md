@@ -142,12 +142,23 @@ A common detection blindspot is evaluating all network anomalies through byte vo
 | :--- | :--- | :--- |
 | `metrics.alert_event_name_count` | Security rule and EDR alerts fired per entity | `principal.asset.hostname`, `principal.user.userid` (requires `security_result.rule_name`, `metadata.event_type = "SCAN_UNCATEGORIZED"`) |
 
-> [!IMPORTANT]
-> **Mandatory Rule Name Binding for `metrics.alert_event_name_count`**:
-> In Chronicle SIEM (Malachite), `metrics.alert_event_name_count` is pre-computed on a per-rule basis under `SCAN_UNCATEGORIZED`.
-> Every invocation of `metrics.alert_event_name_count` **STRICTLY REQUIRES** binding `security_result.rule_name: $rule_name` in both the match section and metric call.
-> Omitting `security_result.rule_name` will fail Chronicle compiler validation (`Request contains an invalid argument`).
-> For open fleet sweeps across hosts without per-rule scoping, use orthogonal host telemetry metrics (`metrics.auth_attempts_total`, `metrics.network_bytes_outbound`, `metrics.dns_queries_total`, `metrics.http_queries_total`).
+> [!NOTE]
+> **Compound Dimension Scope for `metrics.alert_event_name_count`**:
+> In Chronicle SIEM (Malachite), `metrics.alert_event_name_count` is partitioned as a compound metric measuring alert volume for a specific security rule per entity.
+> Formulate queries by binding both the entity identifier and the rule name (`security_result.rule_name: $rule_name`) in the event filter, match section, and metric call:
+> ```yara
+> metadata.event_type = "SCAN_UNCATEGORIZED"
+> principal.asset.hostname = $host
+> security_result.rule_name = $rule_name
+> match: $host, $rule_name by 1d
+> outcome:
+>   $avg = max(metrics.alert_event_name_count(
+>       period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+>       principal.asset.hostname: $host,
+>       security_result.rule_name: $rule_name
+>   ))
+> ```
+> To evaluate aggregate host risk or fleet sweeps across hosts without per-rule scoping, deploy single-dimension host metrics (`metrics.auth_attempts_total`, `metrics.network_bytes_outbound`, `metrics.dns_queries_total`, `metrics.http_queries_total`).
 
 > [!NOTE]
 > **Lateral Movement & Asset Concurrency Baselining**:
