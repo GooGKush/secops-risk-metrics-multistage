@@ -46,8 +46,8 @@ stage stage1_process_baseline {
         metadata.event_type: $event_type,
         principal.asset.hostname: $host,
         principal.process.file.sha256: $sha256
-    ))
     $historical_active_days = $hist_active_days
+    $event_timestamp = max(metadata.event_timestamp.seconds)
 }
 
 // Stage 2: Chronicle Derived Context Graph Lookup (Binary Prevalence & First Seen)
@@ -89,7 +89,8 @@ outcome:
   $fleet_prevalence = max($stage2_file_derived_context.enterprise_rolling_max)
   $prevalence_days = min($stage2_file_derived_context.enterprise_day_count)
   $first_seen = min($stage2_file_derived_context.first_seen_ts)
-  $binary_age_days = (timestamp.current_seconds() - $first_seen) / 86400.0
+  $obs_ts = max($stage1_process_baseline.event_timestamp)
+  $binary_age_days = ($obs_ts - $first_seen) / 86400.0
 
   // Rare Binary Multiplier: 2.5x threat score boost for binaries first seen <= 7 days ago, 1.5x for isolated binaries
   $is_novel_binary = if($binary_age_days <= 7.0 and $binary_age_days >= 0.0, 1.0, 0.0)

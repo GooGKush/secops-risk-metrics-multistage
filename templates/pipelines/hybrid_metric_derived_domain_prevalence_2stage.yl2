@@ -27,6 +27,7 @@ stage stage1_query_baseline {
     $hist_mean = max({{target_metric_func_avg}})
     $hist_stddev = max({{target_metric_func_stddev}})
     $hist_active_days = max({{target_metric_func_active_days}})
+    $event_timestamp = max(metadata.event_timestamp.seconds)
 }
 
 // Stage 2: Chronicle Derived Context Graph Lookup (Domain Prevalence & First Seen)
@@ -68,7 +69,8 @@ outcome:
   $fleet_prevalence = max($stage2_domain_derived_context.enterprise_rolling_max)
   $prevalence_days = min($stage2_domain_derived_context.enterprise_day_count)
   $first_seen = min($stage2_domain_derived_context.first_seen_ts)
-  $domain_age_days = (timestamp.current_seconds() - $first_seen) / 86400.0
+  $obs_ts = max($stage1_query_baseline.event_timestamp)
+  $domain_age_days = ($obs_ts - $first_seen) / 86400.0
 
   // Rare Domain Multiplier: 2.5x threat score boost for novel destinations seen enterprise-wide on <= 3 hosts or first seen <= 7 days ago
   $is_novel_domain = if($domain_age_days <= 7.0 and $domain_age_days >= 0.0, 1.0, 0.0)

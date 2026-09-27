@@ -943,7 +943,7 @@ class MalachiteASTValidator:
     clean_code = re.sub(r"/\*.*?\*/", "", clean_code, flags=re.DOTALL)
 
     if "^" in clean_code:
-      errors.append("INVALID_EXPONENT_OPERATOR: '^' is invalid in YARA-L. Use '$var * $var' for squared terms.")
+      errors.append("INVALID_EXPONENT_OPERATOR: '^' is invalid in YARA-L. Use 'math.pow($var, 2)' or '$var * $var' for squared terms.")
     for full_call, inner_content in MalachiteASTValidator._extract_if_invocations(clean_code):
       args = MalachiteASTValidator._split_top_level_csv(inner_content)
       if len(args) < 3:
@@ -956,8 +956,23 @@ class MalachiteASTValidator:
       errors.append("INVALID_AGGREGATE_FUNCTION: 'count(if(...))' is unsupported in YARA-L 2.0. Use 'sum(if(condition, 1, 0))' for conditional counting.")
     if re.search(r"=\s*\/[^\/\n]+\/\s*\|\s*\/", clean_code):
       errors.append("INVALID_REGEX_ALTERNATION: Alternation with '|' outside regex delimiters is invalid. Combine into a single regex literal (e.g. '/(pattern1|pattern2)/ nocase').")
-    if re.search(r"(?<!math\.)\bsqrt\s*\(", clean_code, re.IGNORECASE):
-      errors.append("INVALID_SQRT_FUNCTION: Bare 'sqrt(...)' is invalid in YARA-L outcome expressions. Use namespaced 'math.sqrt(...)', or compute squared norm and order by '$norm_sq desc'.")
+    bare_math_match = re.search(r"(?<!math\.)\b(sqrt|pow|abs|log|floor|ceil|round)\s*\(", clean_code, re.IGNORECASE)
+    if bare_math_match:
+      fn_name = bare_math_match.group(1).lower()
+      if fn_name == "sqrt":
+        errors.append("INVALID_SQRT_FUNCTION: Bare 'sqrt(...)' is invalid in YARA-L outcome expressions. Use namespaced 'math.sqrt(...)', or compute squared norm and order by '$norm_sq desc'.")
+      else:
+        errors.append(f"INVALID_BARE_MATH_FUNCTION: Bare '{fn_name}(...)' is invalid in YARA-L. Use namespaced 'math.{fn_name}(...)'.")
+    for m in re.finditer(r"math\.round\s*\(([^)]+)\)", clean_code):
+      r_args = MalachiteASTValidator._split_top_level_csv(m.group(1))
+      if len(r_args) < 1 or len(r_args) > 2:
+        errors.append(f"INVALID_ROUND_ARITY: 'math.round(...)' expects 1 or 2 arguments, got {len(r_args)}: {m.group(0)}")
+    outcome_blocks = re.findall(r"outcome:\s*(.*?)(?=\n\s*(?:condition|match|\}|$))", query_text, re.DOTALL)
+    for ob in outcome_blocks:
+      clean_ob = re.sub(r"//[^\n]*", "", ob)
+      clean_ob = re.sub(r"/\*.*?\*/", "", clean_ob, flags=re.DOTALL)
+      if re.search(r"\[\s*[^\]]*\s*\]", clean_ob):
+        errors.append("INVALID_LITERAL_ARRAY_IN_OUTCOME: Literal array notation '[...]' is unsupported in outcome expressions under Malachite compiler.")
     if re.search(r"\b[a-zA-Z0-9_]+\.\$[a-zA-Z0-9_]+", clean_code):
       errors.append("INVALID_STAGE_VARIABLE_SYNTAX: Multi-stage variable references must use '$stage.var', not 'stage.$var' (placing '$' after the dot causes an ANTLR syntax crash).")
     if re.search(r"^\s*rule\s+[a-zA-Z0-9_]+\s*\{", clean_code, re.MULTILINE):

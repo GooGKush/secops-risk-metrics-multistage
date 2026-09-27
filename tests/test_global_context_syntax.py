@@ -419,9 +419,9 @@ class GlobalContextMultiStageSyntaxTest(unittest.TestCase):
     errors = MalachiteASTValidator.validate_query(query)
     self.assertEqual(errors, [], f"Expected 0 errors for WHOIS pipeline, got: {errors}")
     self.assertIn('$whois.graph.metadata.source_type = "GLOBAL_CONTEXT"', query)
-    self.assertIn("$domain_age_days = ($now - $created) / 86400.0", query)
+    self.assertIn("$domain_age_days = ($obs_ts - $created) / 86400.0", query)
     self.assertIn("$is_nrd = if($domain_age_days <= 30.0 and $domain_age_days >= 0.0, 1.0, 0.0)", query)
-    self.assertIn("$is_expired = if($expires <= $now and $expires > 0, 1.0, 0.0)", query)
+    self.assertIn("$is_expired = if($expires <= $obs_ts and $expires > 0, 1.0, 0.0)", query)
 
   def test_derived_context_file_prevalence_pipeline_ast_clean(self):
     """Verifies that the compiled Derived Context File Prevalence pipeline passes MalachiteASTValidator with zero errors."""

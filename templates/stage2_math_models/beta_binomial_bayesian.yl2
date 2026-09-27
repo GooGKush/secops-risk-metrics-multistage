@@ -12,7 +12,7 @@ outcome:
   $active_days = max($stage1_extract.historical_active_days)
 
   // 1. Beta Prior Parameterization via Method of Moments
-  $variance_raw = $stddev_p * $stddev_p
+  $variance_raw = math.pow($stddev_p, 2)
   $safe_variance = if($variance_raw > 0, $variance_raw, 0.001)
   $one_minus_p = 1.0 - $avg_fail_prob
   $numerator = $avg_fail_prob * $one_minus_p

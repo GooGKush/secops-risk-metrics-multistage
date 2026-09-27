@@ -356,5 +356,24 @@ class TestStatisticalAntipatternAuditor(unittest.TestCase):
     )
 
 
+  def test_catches_wall_clock_time_drift(self):
+    """Detects usage of timestamp.current_seconds() inside multi-stage baseline queries."""
+    bad_query = """
+    stage s1 {
+      metadata.event_type = "USER_LOGIN"
+      $user = target.user.userid
+      match: $user by 1d
+      outcome:
+        $first_seen = min(metadata.event_timestamp.seconds)
+        $age_days = (timestamp.current_seconds() - $first_seen) / 86400.0
+    }
+    """
+    violations = StatisticalAntipatternAuditor.audit_query(bad_query)
+    self.assertTrue(
+        any(v.antipattern == StatisticalAntipatternType.WALL_CLOCK_TIME_DRIFT for v in violations),
+        f"Expected WALL_CLOCK_TIME_DRIFT antipattern, got {violations}",
+    )
+
+
 if __name__ == "__main__":
   unittest.main()

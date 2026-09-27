@@ -24,6 +24,7 @@ stage stage1_asset_baseline {
     $hist_mean = max({{target_metric_func_avg}})
     $hist_stddev = max({{target_metric_func_stddev}})
     $hist_active_days = max({{target_metric_func_active_days}})
+    $event_timestamp = max(metadata.event_timestamp.seconds)
 }
 
 // Stage 2: Chronicle Derived Context Graph Lookup (Asset First Seen)
@@ -56,7 +57,8 @@ outcome:
   $active_baseline_days = max($stage1_asset_baseline.hist_active_days)
 
   $first_seen = min($stage2_asset_derived_context.first_seen_ts)
-  $asset_age_days = (timestamp.current_seconds() - $first_seen) / 86400.0
+  $obs_ts = max($stage1_asset_baseline.event_timestamp)
+  $asset_age_days = ($obs_ts - $first_seen) / 86400.0
 
   // Infant Asset Multiplier: 2.5x threat score boost for machines first seen <= 7 days ago
   $is_infant_asset = if($asset_age_days <= 7.0 and $asset_age_days >= 0.0, 1.0, 0.0)

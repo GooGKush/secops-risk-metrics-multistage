@@ -43,6 +43,7 @@ class StatisticalAntipatternType(str, Enum):
   COLLINEAR_VECTOR_FUSION = "STAT_ANTIPATTERN_COLLINEAR_VECTOR_FUSION"
   UNPROFILED_SERVICE_ACCOUNT = "STAT_ANTIPATTERN_UNPROFILED_SERVICE_ACCOUNT"
   MONOLITHIC_RADAR_JOIN = "STAT_ANTIPATTERN_MONOLITHIC_RADAR_JOIN"
+  WALL_CLOCK_TIME_DRIFT = "STAT_ANTIPATTERN_WALL_CLOCK_TIME_DRIFT"
 
 
 @dataclass
@@ -115,11 +116,15 @@ class StatisticalAntipatternAuditor:
       # 5. Unprofiled Service Account Identity Construction
       violations.extend(cls._check_unprofiled_service_account(stage_name, stage_body))
 
+      # 6. Wall-Clock Time Drift (non-deterministic timestamp.current_seconds())
+      violations.extend(cls._check_wall_clock_time_drift(stage_name, stage_body))
+
     # Check Root Stage
     if root_stage_body:
       violations.extend(cls._check_zero_dispersion_hazard("root", root_stage_body))
       violations.extend(cls._check_collinear_vector_fusion(root_stage_body, stages))
       violations.extend(cls._check_monolithic_radar_join(root_stage_body, stages))
+      violations.extend(cls._check_wall_clock_time_drift("root", root_stage_body))
     elif len(stages) > 4:
       violations.extend(cls._check_monolithic_radar_join("", stages))
 
@@ -514,4 +519,27 @@ class StatisticalAntipatternAuditor:
           )
       )
 
+    return violations
+
+  @classmethod
+  def _check_wall_clock_time_drift(cls, stage_name: str, stage_body: str) -> List[StatisticalViolation]:
+    """Detects usage of timestamp.current_seconds() which produces non-deterministic execution drift."""
+    violations: List[StatisticalViolation] = []
+    clean_body = re.sub(r"//[^\n]*", "", stage_body)
+    clean_body = re.sub(r"/\*.*?\*/", "", clean_body, flags=re.DOTALL)
+    if "timestamp.current_seconds()" in clean_body:
+      violations.append(
+          StatisticalViolation(
+              antipattern=StatisticalAntipatternType.WALL_CLOCK_TIME_DRIFT,
+              stage_name=stage_name,
+              description=(
+                  f"Stage '{stage_name}' invokes 'timestamp.current_seconds()' to calculate delta time or age against historical data. "
+                  "This introduces wall-clock execution time drift, producing non-deterministic outcomes across test replays or batch scans."
+              ),
+              remediation=(
+                  "Anchor time calculations to observed event telemetry: extract '$event_timestamp = max(metadata.event_timestamp.seconds)' "
+                  "in Stage 1 and compute recency via '($obs_ts - $reference_time) / 86400.0' in downstream stages."
+              ),
+          )
+      )
     return violations

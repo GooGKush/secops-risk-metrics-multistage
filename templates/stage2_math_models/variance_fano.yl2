@@ -11,8 +11,8 @@ outcome:
   $stddev = max($stage1_extract.historical_stddev)
   $active_days = max($stage1_extract.historical_active_days)
 
-  // Personal Historical Variance: sigma^2
-  $variance = $stddev * $stddev
+  // Personal Historical Variance: sigma^2 via native math.pow
+  $variance = math.pow($stddev, 2)
 
   // Fano Factor (Index of Dispersion): sigma^2 / Safe Lambda
   $safe_lambda = if($lambda > 0, $lambda, 1.0)

@@ -125,9 +125,9 @@ Graph timestamp calculations must **never** perform binary arithmetic (`-`, `+`,
   // In Stage 2 outcome:
   $creation_ts = max($whois.graph.entity.domain.creation_time.seconds)
 
-  // In Root outcome:
-  $now = timestamp.current_seconds()
-  $domain_age_days = ($now - $creation_ts) / 86400.0
+  // In Root outcome (Data-anchored to event telemetry):
+  $obs_ts = max($stage1_extract.event_timestamp)
+  $domain_age_days = ($obs_ts - $creation_ts) / 86400.0
   ```
 
 ### Rule 3: The 10-Day Prevalence Platform Invariant (`day_count = 10`)

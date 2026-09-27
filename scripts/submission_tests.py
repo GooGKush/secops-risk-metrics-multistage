@@ -437,12 +437,14 @@ order:
     # 2. Zero un-namespaced math functions or math.exp
     if "math.exp" in query:
       errors.append("Illegal function 'math.exp()' (unsupported in YARA-L 2.0)")
-    if re.search(r'(?<!math\.)\bround\(', query):
-      errors.append("Illegal bare 'round()' (must use 'math.round()')")
+    bare_math = re.search(r'(?<!math\.)\b(round|sqrt|pow|abs|log|floor|ceil)\(', query)
+    if bare_math:
+      fn = bare_math.group(1)
+      errors.append(f"Illegal bare '{fn}()' (must use 'math.{fn}()')")
 
-    # 3. Zero unsupported aggregation functions (e.g. variance, count(if))
-    if re.search(r'\bvariance\(', query):
-      errors.append("Illegal aggregation function 'variance()' (must use stddev() squared)")
+    # 3. Zero unsupported aggregation functions (e.g. bare variance, count(if))
+    if re.search(r'(?<!window\.)\bvariance\(', query):
+      errors.append("Illegal aggregation function 'variance()' (must use 'window.variance()' or stddev() squared)")
     if re.search(r'\bcount\s*\(\s*if\s*\(', query, re.IGNORECASE):
       errors.append("Illegal aggregation function 'count(if(...))' (must use 'sum(if(condition, 1, 0))' for conditional counting)")
     if re.search(r'=\s*\/[^\/\n]+\/\s*\|\s*\/', query):
@@ -458,9 +460,13 @@ order:
       if sname.startswith("$"):
         errors.append(f"Illegal stage declaration '{sname}' starting with '$'")
 
-    # 6. Outcome variable count ceiling (<= 20 outcome variables per stage)
+    # 6. Outcome variable count ceiling (<= 20 outcome variables per stage) and literal array rejection
     outcome_blocks = re.findall(r'outcome:\s*\n((?:[ \t]*\$[^\n]+\n|[ \t]*//[^\n]*\n|\s*\n)*)', query)
     for idx, oblock in enumerate(outcome_blocks):
+      clean_oblock = re.sub(r"//[^\n]*", "", oblock)
+      clean_oblock = re.sub(r"/\*.*?\*/", "", clean_oblock, flags=re.DOTALL)
+      if re.search(r"\[\s*[^\]]*\s*\]", clean_oblock):
+        errors.append(f"Outcome block {idx} contains illegal literal array notation '[...]' (unsupported in outcome expressions)")
       vars_in_outcome = re.findall(r'^\s*(\$[a-zA-Z0-9_]+)\s*=', oblock, re.MULTILINE)
       if len(vars_in_outcome) > 20:
         errors.append(f"Outcome block {idx} exceeds SecOps limit of 20 variables ({len(vars_in_outcome)})")

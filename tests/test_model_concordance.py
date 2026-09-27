@@ -30,7 +30,7 @@ MODEL_AST_CONTRACTS = {
         "template": "variance_fano.yl2",
         "mandatory_vars": ["$variance", "$safe_lambda", "$fano_factor"],
         "order_var": "$fano_factor",
-        "required_ops": ["$variance = $stddev * $stddev", "$fano_factor = $variance / $safe_lambda"],
+        "required_ops": ["$variance = math.pow($stddev, 2)", "$fano_factor = $variance / $safe_lambda"],
         "prohibited_substitutions": ["$personal_z"],
     },
     StatisticalModel.POISSON: {

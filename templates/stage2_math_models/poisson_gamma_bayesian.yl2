@@ -13,7 +13,7 @@ outcome:
   $max_30d = max($stage1_extract.historical_max)
 
   // 1. Method of Moments: Gamma Prior Hyperparameters (alpha_0, beta_0)
-  $variance_raw = $stddev_30d * $stddev_30d
+  $variance_raw = math.pow($stddev_30d, 2)
   $safe_variance = if($variance_raw > 0, $variance_raw, 1.0)
   $beta_prior = $avg_30d / $safe_variance
   $alpha_prior = $avg_30d * $beta_prior

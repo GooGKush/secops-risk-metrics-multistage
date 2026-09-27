@@ -90,7 +90,7 @@ outcome:
   $stddev = max($stage1_extract.historical_stddev)
   $active_days = max($stage1_extract.historical_active_days)
 
-  $variance = $stddev * $stddev
+  $variance = math.pow($stddev, 2)
   $safe_lambda = if($lambda > 0, $lambda, 1.0)
   $fano_factor = $variance / $safe_lambda
 
@@ -172,7 +172,7 @@ outcome:
   $active_days = max($stage1_extract.historical_active_days)
   $max_30d = max($stage1_extract.historical_max)
 
-  $variance_raw = $stddev_30d * $stddev_30d
+  $variance_raw = math.pow($stddev_30d, 2)
   $safe_variance = if($variance_raw > 0, $variance_raw, 1.0)
   $beta_prior = $avg_30d / $safe_variance
   $alpha_prior = $avg_30d * $beta_prior
@@ -205,7 +205,7 @@ outcome:
   $stddev_p = max($stage1_extract.historical_stddev)
   $active_days = max($stage1_extract.historical_active_days)
 
-  $variance_raw = $stddev_p * $stddev_p
+  $variance_raw = math.pow($stddev_p, 2)
   $safe_variance = if($variance_raw > 0, $variance_raw, 0.001)
   $one_minus_p = 1.0 - $avg_fail_prob
   $numerator = $avg_fail_prob * $one_minus_p

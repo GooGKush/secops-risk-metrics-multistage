@@ -255,6 +255,105 @@ class TestSubmissionCompilerPolicy(unittest.TestCase):
           f"Test ID {tc.test_id} not documented in docs/compiler-submission-policy.md",
       )
 
+  def test_permitted_outcome_function_factory_whitelist(self):
+    """Ensures MalachiteASTValidator and SubmissionTestSuite accept all Function Factory built-ins."""
+    from scripts.preflight_validator import MalachiteASTValidator
+    valid_query = """// Goal: Test Function Factory built-ins
+    stage s1 {
+      metadata.event_type = "USER_LOGIN"
+      principal.user.userid = $user
+    match:
+      $user by 1d
+    outcome:
+      $cnt = count(metadata.id)
+      $pw = math.pow($cnt, 2)
+      $ab = math.abs(10.0 - $cnt)
+      $lg = math.log($cnt + 1.0)
+      $fl = math.floor($cnt / 2.0)
+      $cl = math.ceil($cnt / 2.0)
+      $rnd = math.round($cnt / 3.0, 2)
+      $var = window.variance(metadata.event_timestamp.seconds)
+    }
+    $user = $s1.user
+    match:
+      $user by 1d
+    outcome:
+      $res = max($s1.rnd)
+    order:
+      $res desc
+    """
+    ast_errors = MalachiteASTValidator.validate_query(valid_query)
+    self.assertEqual(ast_errors, [], f"MalachiteASTValidator rejected valid math functions: {ast_errors}")
+    static_errors = SubmissionTestSuite.validate_static_invariants(valid_query, "TEST-FUNCTION-FACTORY")
+    self.assertEqual(static_errors, [], f"SubmissionTestSuite rejected valid math functions: {static_errors}")
+
+  def test_rejected_literal_arrays_in_outcome(self):
+    """Ensures validator detects and rejects literal array syntax in outcome blocks."""
+    from scripts.preflight_validator import MalachiteASTValidator
+    bad_query = """// Goal: Test literal array rejection
+    stage s1 {
+      metadata.event_type = "USER_LOGIN"
+      principal.user.userid = $user
+    match:
+      $user by 1d
+    outcome:
+      $cnt = count(metadata.id)
+      $clamped = arrays.max([0.0, $cnt])
+    }
+    order:
+      $clamped desc
+    """
+    ast_errors = MalachiteASTValidator.validate_query(bad_query)
+    self.assertTrue(any("INVALID_LITERAL_ARRAY_IN_OUTCOME" in e for e in ast_errors))
+    static_errors = SubmissionTestSuite.validate_static_invariants(bad_query, "TEST-LITERAL-ARRAY")
+    self.assertTrue(any("literal array notation" in e for e in static_errors))
+
+  def test_round_function_arity_check(self):
+    """Ensures math.round arity validation catches invalid argument counts."""
+    from scripts.preflight_validator import MalachiteASTValidator
+    bad_round_query = """// Goal: Test math.round arity
+    stage s1 {
+      metadata.event_type = "USER_LOGIN"
+      principal.user.userid = $user
+    match:
+      $user by 1d
+    outcome:
+      $cnt = count(metadata.id)
+      $rnd = math.round($cnt, 2, 5)
+    }
+    order:
+      $rnd desc
+    """
+    ast_errors = MalachiteASTValidator.validate_query(bad_round_query)
+    self.assertTrue(any("INVALID_ROUND_ARITY" in e for e in ast_errors))
+
+  def test_rejected_bare_math_functions(self):
+    """Ensures bare math calls (pow, abs, log, floor, ceil) are rejected in favor of math.*."""
+    from scripts.preflight_validator import MalachiteASTValidator
+    for bare_fn in ["pow($x, 2)", "abs($x)", "log($x)", "floor($x)", "ceil($x)"]:
+      bad_query = f"""// Goal: Test bare math rejection
+      stage s1 {{
+        metadata.event_type = "USER_LOGIN"
+        principal.user.userid = $user
+      match:
+        $user by 1d
+      outcome:
+        $val = {bare_fn}
+      }}
+      order:
+        $val desc
+      """
+      ast_errors = MalachiteASTValidator.validate_query(bad_query)
+      self.assertTrue(
+          any("INVALID_BARE_MATH_FUNCTION" in e for e in ast_errors),
+          f"Expected INVALID_BARE_MATH_FUNCTION for {bare_fn}, got: {ast_errors}",
+      )
+      static_errors = SubmissionTestSuite.validate_static_invariants(bad_query, f"TEST-BARE-{bare_fn}")
+      self.assertTrue(
+          any("Illegal bare" in e for e in static_errors),
+          f"Expected Illegal bare error for {bare_fn}, got: {static_errors}",
+      )
+
 
 if __name__ == "__main__":
   unittest.main()

@@ -30,6 +30,7 @@ stage stage1_egress_baseline {
     $historical_stddev = $hist_stddev
     $hist_active_days = max({{target_metric_func_active_days}})
     $historical_active_days = $hist_active_days
+    $event_timestamp = max(metadata.event_timestamp.seconds)
 }
 
 // Stage 2: Chronicle Global Context WHOIS Lookup (Creation & Expiration Timestamps)
@@ -64,17 +65,17 @@ outcome:
   $z_score = ($observed - $mean) / ($safe_sigma + 1.0)
   $active_baseline_days = max($stage1_egress_baseline.hist_active_days)
 
+  $obs_ts = max($stage1_egress_baseline.event_timestamp)
   $created = max($stage2_whois_lifecycle.creation_ts)
   $expires = max($stage2_whois_lifecycle.expiration_ts)
-  $now = timestamp.current_seconds()
 
-  // Domain Age (in days)
-  $domain_age_days = ($now - $created) / 86400.0
+  // Domain Age (in days) data-anchored to event telemetry
+  $domain_age_days = ($obs_ts - $created) / 86400.0
   $is_nrd = if($domain_age_days <= 30.0 and $domain_age_days >= 0.0, 1.0, 0.0)
 
   // Expiration Status (expired registration / lapsed certificate)
-  $is_expired = if($expires <= $now and $expires > 0, 1.0, 0.0)
-  $days_to_expiration = ($expires - $now) / 86400.0
+  $is_expired = if($expires <= $obs_ts and $expires > 0, 1.0, 0.0)
+  $days_to_expiration = ($expires - $obs_ts) / 86400.0
 
   // Risk Multiplier: 3.0x for expired domains, 2.5x for NRD (<= 30d)
   $whois_multiplier = if($is_expired = 1.0, 3.0, if($is_nrd = 1.0, 2.5, 1.0))
