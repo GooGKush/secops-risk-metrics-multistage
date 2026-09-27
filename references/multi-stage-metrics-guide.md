@@ -598,7 +598,7 @@ When hunting within a single telemetry vector, single-metric evaluations can obs
      - `metric: value_sum`: Strictly required for byte/bandwidth volume baselines (`metrics.network_bytes_*`, `metrics.dns_bytes_*`, `metrics.workspace_network_bytes_*`). Retrieves `metric.sum_measure.value`. Passing `total_bytes` or `metric_value_sum` causes fatal compiler failure (`unsupported metric type`).
      - `metric: event_count_sum`: Required for all event count baselines (`metrics.auth_attempts_*`, `metrics.resource_*`, `metrics.http_queries_*`, `metrics.file_executions_*`, `metrics.network_flows_*`, `metrics.dns_queries_*`, `metrics.workspace_total_*`, `metrics.alert_event_name_count`). Retrieves `metric.total_events`.
 3. **Daily Match Window Syntax**: Daily match windows MUST use `by 1d` (e.g. `match: $entity by 1d`). Using `by 24h` is **INVALID SYNTAX**.
-4. **Linear Outcome Arithmetic**: YARA-L outcome expressions do not support nested `max(0, ...)` or inline `sqrt(...)` inside arithmetic. Compute squared terms `$z_sq = $z * $z`, sum them `$d_sq = $z1_sq + $z2_sq`, and order by `$d_sq desc`.
+4. **Linear Outcome Arithmetic & Square Root Invariants**: YARA-L outcome expressions do not support nested `max(0, ...)` or bare `sqrt(...)` inside arithmetic. To derive square roots in outcome expressions, use the namespaced factory function `math.sqrt(...)` on a single variable or expression (e.g. `$sqrt_lambda = math.sqrt($safe_lambda)`). For Euclidean vector norms, compute squared terms `$z_sq = $z * $z`, sum them `$d_sq = $z1_sq + $z2_sq`, and order by `$d_sq desc` (or take `$d = math.sqrt($d_sq)`). Bare `sqrt(...)` without the `math.` namespace is invalid syntax.
 5. **The Chronicle 4-Join Limit & UEBA Join Accounting Formula**:
    In Chronicle Common Compiler (`compiler.go`), queries are strictly limited to `maxJoinCount = 4`.
    $$\text{Total Joins} = \sum_{\text{stages}} \text{UEBA Joins} + (\text{Named Stages} - 1) \le 4$$
@@ -1112,7 +1112,7 @@ To operationalize advanced statistical models without tripping Chronicle's join 
   Accounts for zero-inflated distributions by checking the discrete hurdle (was entity dormant?) before measuring contemporary burst volume.
 * **Model 5: 2D Euclidean Threat Distance Norm**:
   $$D^2 = Z_{\text{intensity}}^2 + Z_{\text{breadth}}^2 \ge 16.0 \quad (\implies D \ge 4.0\sigma)$$
-  Evaluates geometric distance from nominal behavior in coordinate space while strictly complying with the Common Compiler's rejection of square root functions (`sqrt()`).
+  Evaluates geometric distance from nominal behavior in coordinate space. Ranking directly by squared threat norm ($D^2$) avoids unnecessary square root computations; when deriving Euclidean distance $D$, use namespaced `math.sqrt($norm_sq)` (bare `sqrt()` is invalid).
 * **Canonical YARA-L 2.0 Multi-Stage Search DAG**:
   ```yara
   // Stage 1: Macro Baseline (Axis 1: Historical Intensity)

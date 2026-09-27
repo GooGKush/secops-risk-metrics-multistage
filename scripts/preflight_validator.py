@@ -938,10 +938,13 @@ class MalachiteASTValidator:
     if not re.search(r"//\s*(?:Goal:|ARCHITECTURE:)", query_text, re.IGNORECASE):
       errors.append("MISSING_GOAL_HEADER: Query must start with a '// Goal:' or '// ARCHITECTURE:' methodology comment.")
 
-    # 1B. Global Invalid Tokens & Math Functions
-    if "^" in query_text:
+    # 1B. Global Invalid Tokens & Math Functions (checked on stripped code)
+    clean_code = re.sub(r"//[^\n]*", "", query_text)
+    clean_code = re.sub(r"/\*.*?\*/", "", clean_code, flags=re.DOTALL)
+
+    if "^" in clean_code:
       errors.append("INVALID_EXPONENT_OPERATOR: '^' is invalid in YARA-L. Use '$var * $var' for squared terms.")
-    for full_call, inner_content in MalachiteASTValidator._extract_if_invocations(query_text):
+    for full_call, inner_content in MalachiteASTValidator._extract_if_invocations(clean_code):
       args = MalachiteASTValidator._split_top_level_csv(inner_content)
       if len(args) < 3:
         errors.append(f"INVALID_IF_CONDITIONAL: 'if(...)' is missing required else-clause: {full_call}")
@@ -949,15 +952,15 @@ class MalachiteASTValidator:
         then_clause = re.sub(r"^\s*[-+]\s*", "", args[1])
         if re.search(r"[\+\-\*\/]", then_clause):
           errors.append(f"INVALID_IF_CONDITIONAL: 'if(...)' contains compound arithmetic in then-clause. Chronicle compiler only allows placeholders, fields, and constants in then clause: {full_call}")
-    if re.search(r"\bcount\s*\(\s*if\s*\(", query_text, re.IGNORECASE):
+    if re.search(r"\bcount\s*\(\s*if\s*\(", clean_code, re.IGNORECASE):
       errors.append("INVALID_AGGREGATE_FUNCTION: 'count(if(...))' is unsupported in YARA-L 2.0. Use 'sum(if(condition, 1, 0))' for conditional counting.")
-    if re.search(r"=\s*\/[^\/\n]+\/\s*\|\s*\/", query_text):
+    if re.search(r"=\s*\/[^\/\n]+\/\s*\|\s*\/", clean_code):
       errors.append("INVALID_REGEX_ALTERNATION: Alternation with '|' outside regex delimiters is invalid. Combine into a single regex literal (e.g. '/(pattern1|pattern2)/ nocase').")
-    if re.search(r"\bsqrt\s*\(", query_text):
-      errors.append("INVALID_SQRT_FUNCTION: 'sqrt(...)' is invalid in YARA-L outcome expressions. Compute squared norm and order by '$norm_sq desc'.")
-    if re.search(r"\b[a-zA-Z0-9_]+\.\$[a-zA-Z0-9_]+", query_text):
+    if re.search(r"(?<!math\.)\bsqrt\s*\(", clean_code, re.IGNORECASE):
+      errors.append("INVALID_SQRT_FUNCTION: Bare 'sqrt(...)' is invalid in YARA-L outcome expressions. Use namespaced 'math.sqrt(...)', or compute squared norm and order by '$norm_sq desc'.")
+    if re.search(r"\b[a-zA-Z0-9_]+\.\$[a-zA-Z0-9_]+", clean_code):
       errors.append("INVALID_STAGE_VARIABLE_SYNTAX: Multi-stage variable references must use '$stage.var', not 'stage.$var' (placing '$' after the dot causes an ANTLR syntax crash).")
-    if re.search(r"^\s*rule\s+[a-zA-Z0-9_]+\s*\{", query_text, re.MULTILINE):
+    if re.search(r"^\s*rule\s+[a-zA-Z0-9_]+\s*\{", clean_code, re.MULTILINE):
       errors.append(
           "INVALID_DETECTION_RULE_SYNTAX: Multi-stage threat hunting queries must be ad-hoc search queries ('stage name { ... }' + root stage), not continuous detection rules ('rule ... { ... }')."
       )

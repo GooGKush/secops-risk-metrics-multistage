@@ -101,7 +101,6 @@ order:
 ### 4. `POISSON` (`poisson_rarity.yl2`)
 * **Hypothesis**: Discrete integer event arrival rarity where variance equals mean ($\sigma = \sqrt{\lambda}$).
 * **Mandatory AST Contract**:
-<!-- yara-fragment: root-stage AST contract excerpt -->
 ```yara
 outcome:
   $k = max($stage1_extract.observed_val)

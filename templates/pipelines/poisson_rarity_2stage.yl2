@@ -2,7 +2,7 @@
 // ARCHITECTURE: 2-STAGE DISCRETE POISSON RARITY OUTLIER PIPELINE
 // Skill: secops-risk-metrics-multistage
 // Purpose: Detects sudden execution of historically near-zero rare events
-// Formula: Z_P = (k - lambda) / sqrt(lambda + 1.0)
+// Formula: Z_P = (k - lambda) / math.sqrt(lambda + 1.0)
 // ============================================================================
 
 // Stage 1: Rare Telemetry Extraction & 30d Historical Lambda Lookup

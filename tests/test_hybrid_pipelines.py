@@ -60,7 +60,7 @@ class TestHybridPipelines(unittest.TestCase):
     self.assertNotIn("events:", query)
     self.assertNotIn("rule ", query)
     self.assertNotIn("math.max", query)
-    self.assertNotIn("sqrt(", query)
+    self.assertFalse(re.search(r"(?<!math\.)\bsqrt\s*\(", query))
     self.assertNotIn("^", query)
 
     # Compiler AST & Statistical Antipattern verification
@@ -92,7 +92,7 @@ class TestHybridPipelines(unittest.TestCase):
     # Common Compiler Invariants
     self.assertNotIn("events:", query)
     self.assertNotIn("rule ", query)
-    self.assertNotIn("sqrt(", query)
+    self.assertFalse(re.search(r"(?<!math\.)\bsqrt\s*\(", query))
     self.assertNotIn("^", query)
 
     ast_errors = MalachiteASTValidator.validate_query(query)
@@ -121,7 +121,7 @@ class TestHybridPipelines(unittest.TestCase):
     # Common Compiler Invariants
     self.assertNotIn("events:", query)
     self.assertNotIn("rule ", query)
-    self.assertNotIn("sqrt(", query)
+    self.assertFalse(re.search(r"(?<!math\.)\bsqrt\s*\(", query))
     self.assertNotIn("^", query)
 
     ast_errors = MalachiteASTValidator.validate_query(query)
@@ -150,7 +150,7 @@ class TestHybridPipelines(unittest.TestCase):
     # Common Compiler Invariants
     self.assertNotIn("events:", query)
     self.assertNotIn("rule ", query)
-    self.assertNotIn("sqrt(", query)
+    self.assertFalse(re.search(r"(?<!math\.)\bsqrt\s*\(", query))
     self.assertNotIn("^", query)
 
     ast_errors = MalachiteASTValidator.validate_query(query)
