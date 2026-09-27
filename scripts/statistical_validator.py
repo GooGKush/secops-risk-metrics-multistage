@@ -447,7 +447,7 @@ class StatisticalAntipatternAuditor:
               ),
               remediation=(
                   f"Enforce cloud service account identity construction: '({sa_var} = /@.*gserviceaccount\\.com$/ nocase "
-                  f"or {sa_var} = /^arn:aws:(iam|sts)::.*:(role|assumed-role)\\// nocase)'. "
+                  f"or {sa_var} = /^arn:aws:(iam|sts)::/ nocase)'. "
                   "Profile what follows after the '@' symbol to anchor cloud domain and project boundaries."
               ),
           )
