@@ -62,7 +62,7 @@ Phase 1B is **ONLY UNLOCKED** when **BOTH** are explicitly defined:
 
 ### 🔍 Phase 1B: Pre-Flight Spec & Query Preview (Once Scope & Vectors are Established)
 Once vectors and scope are confirmed (via initial expert prompt, or on Turn 2 upon analyst vector selection from Phase 1A, or via CTI mapping; always emit formal Pre-Flight card before candidate query preview):
-1. **Turn 1 Tool Invariant**: Limit Turn 1 tools strictly to identity spot-checks and 1-shot compiler probe (`udm_search`) on primary baseline filter (`maxEvents: 1`). Multi-stage queries (`stage`, `match:`) execute only on Turn 2 after clearance.
+1. **Turn 1 Tool Invariant**: Limit Turn 1 tools strictly to identity spot-checks and one 1-shot compiler probe (`udm_search`, `maxEvents: 1`). After the probe succeeds, call 0 more tools on Turn 1; emit card, query preview, and clearance question in text, then yield. Multi-stage execution occurs strictly in Turn 2 after clearance.
 2. **Identity Disambiguation & Confirmation Protocol (ZERO GUESSING & IMMEDIATE HALT)**:
    - *Technical IDs*: Display names (with spaces) are NOT `user.userid`. Single unqualified first names (e.g. `Frank`) must be spot-checked in UDM.
    - *14-Day UDM Spot-Check*: `udm_search(query='target.user.userid = "<name>" nocase or principal.user.userid = "<name>" nocase or target.user.user_display_name = /.*<name>.*/ nocase or principal.user.user_display_name = /.*<name>.*/ nocase', startTime: "<ISO_14D_AGO>", endTime: "<ISO_NOW>", maxEvents: 5)`.
@@ -84,8 +84,8 @@ Once vectors and scope are confirmed (via initial expert prompt, or on Turn 2 up
    * *Mandatory Upfront Query Preview Protocol (Mandatory Query Preview)* & *Tool-Precondition Code Block Embargo*: Probe once with ISO 8601 UTC timestamps: `secops-gus:udm_search(query="<single_event_udm_filter>", startTime="<ISO_10M_AGO>", endTime="<ISO_NOW>", maxEvents=1)`. Relative 'now-10m' is invalid. Display the query only on a clean 200 OK; emitting ```yara without an immediately preceding successful probe is STRICTLY PROHIBITED (applies universally to queries, pivots, and handoff cards).
    * *Peer Cohort & Roster*: List cohort entities; if $N < 7$, flag `⚠️ Sparse Baseline Caution (N < 7)`. Peer Cohort Roster Requirement applies.
    * *Interactive Entity Graph Dimension Mandate*: Express joins under `• Entity Graph Dimension: [Exact Filter]` (Domain Rarity, Fleet Prevalence, Binary Rarity, IP Rarity `rolling_max <= 3`, `day_count = 10` platform invariant).
-   * *Model Concordance*: Match outcome/order clauses to template math in `templates/stage2_math_models/` (`references/model-concordance-guide.md`).
-   * *Canonical Preview & Two-Phase Chained Hunt Specification*: Cross-entity hunts emit Two-Phase Chained Hunt Specification: Phase 1 (UEBA Outlier), Bridge Contract ($host, $timestamp, $user, $caller_ip), and Phase 2 (Targeted Cloud UDM Query).
+   * *Model Concordance*: Match outcome/order clauses to templates (`references/model-concordance-guide.md`).
+   * *Two-Phase Chained Hunt Specification*: Cross-entity hunts emit Two-Phase Chained Hunt Specification: Phase 1 (UEBA Outlier), Bridge Contract ($host, $timestamp, $user, $caller_ip), Phase 2 (Targeted Cloud UDM Query).
 5. **Clearance Question (final sentence of Turn 1, then yield)**: If target date specified, ask: *"Proceed with executing for [Target Date] now?"*. Otherwise ask: *"Would you like me to proceed with **Mode A (Today vs 30-Day Baseline)** or **Mode B (2–14 Day Timeline)**? (Adjust noise level/significance threshold before execution if desired.)"*.
 
 ---
