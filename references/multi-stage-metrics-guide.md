@@ -1206,6 +1206,11 @@ To operationalize advanced statistical models without tripping Chronicle's join 
 * **Model 6: Cross-Sectional Odds Ratio (Patch Tuesday / Corporate Rollout Shield)**:
   $$\text{Dampener} = \frac{1.0}{k_{\text{fleet}} + 1.0}, \quad \text{Normalized Score} = Z_{\text{personal}} \cdot \text{Dampener}$$
   If 500 endpoints execute an updated binary today, the prevalence dampener collapses the score to $\sim 0.002$, neutralizing false positive fleet-wide alerts. If only 1–2 endpoints execute the binary, full anomaly weight ($\ge 0.33$) is preserved.
+* **Affirmative Template Selection**:
+  When hunting for abnormal file execution surges across workstations normalized against fleet-wide rollouts (Patch Tuesday Shield), directly deploy `templates/pipelines/hybrid_metric_fleet_prevalence_2stage.yl2`:
+  * Stage 1 (`stage1_personal_surge`): `metadata.event_type = "PROCESS_LAUNCH"`, `metrics.file_executions_total(...)` with `principal.asset.hostname = $entity` and `principal.process.file.sha256 = $token`, computing `$personal_z = ($observed_val - $hist_mean) / ($hist_stddev + 1.0)`.
+  * Stage 2 (`stage2_fleet_prevalence`): `metadata.event_type = "PROCESS_LAUNCH"`, `principal.process.file.sha256 = $token`, matching `$token by 1d`, computing `$fleet_adopters = count_distinct(principal.asset.hostname)`.
+  * Root Stage: Matching `$token by 1d`, computing `$prevalence_dampener = 1.0 / ($fleet_adopters + 1.0)` and `$normalized_odds_score = $personal_z * $prevalence_dampener`, ordered by `$normalized_odds_score desc`.
 * **Implementation Paths in Stage 2**:
   For rare binary or rare domain hunting, pair primary UDM telemetry with Entity Graph Derived Context:
   ```yara

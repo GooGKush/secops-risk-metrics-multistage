@@ -38,7 +38,7 @@ Executes multi-sector outlier hunting using 30-day Risk Analytics (`metrics.*`).
 
 ### 🚦 State 1: Pre-Flight Clearance & Specification (Zero Execution on Turn 1) (MANDATORY STEP 1: PRE-FLIGHT CLEARANCE)
 
-When a hunt is initiated (including *"Run..."* or *"Scan..."*), **NEVER CALL SEARCH TOOLS ON THAT TURN**. Dedicate Turn 1 to pre-flight alignment: verify syntax via 1-shot compiler probe, render candidate preview, and offer Mode A or Mode B. Full execution and the 6-pillar findings report occur in Turn 2 after clearance.
+When a hunt is initiated (including *"Run..."* or *"Scan..."*), dedicate Turn 1 to pre-flight alignment: verify syntax via 1-shot compiler probe, render candidate preview, and offer Mode A or Mode B. Multi-stage execution and 6-pillar findings occur strictly in Turn 2 after clearance.
 
 ### 🧭 Phase 1A: Consultative Vector & Scope Discovery (Dual-Requirement Gate)
 Phase 1B is **ONLY UNLOCKED** when **BOTH** are explicitly defined:
@@ -51,7 +51,7 @@ Phase 1B is **ONLY UNLOCKED** when **BOTH** are explicitly defined:
 
 ### 🕸️ 360° Entity Behavioral Risk Radar & Multi-Sector Threat Fusion
 * **360° Radar**: 6-sector health check (`references/360-behavioral-radar-guide.md`) via decoupled micro-queries (`templates/pipelines/radar_360_decoupled_sector.yl2`) across all 6 canonical sectors (Auth, Cloud, Workspace, Network, DNS, Web; all 6 must be reported). 6-spoke radial radar for individuals; Ranked Outlier Bars or Heatmap Matrix (Mode B) for fleet sweeps. In preview and Pillar 2, display representative micro-query (`stage auth_risk` with `order: $z desc`). Auto-bypass Mode B on target dates.
-* **Multi-Sector Fusion & Hybrid Pipelines**: Fuses orthogonal vectors ($D^2 = \sum Z_i^2$) via 3-stage dual-sector DAG (`templates/pipelines/dual_sector_fusion_3stage.yl2`: auth failures + egress bytes), 4-stage DAG (`templates/pipelines/multi_sector_fusion_4stage.yl2`), or hybrid DAGs (`templates/pipelines/hybrid_metric_*.yl2`).
+* **Multi-Sector Fusion & Hybrid Pipelines**: Fuses orthogonal vectors ($D^2 = \sum Z_i^2$) via dual-sector DAG (`dual_sector_fusion_3stage.yl2`: auth failures + egress bytes), 4-stage DAG (`multi_sector_fusion_4stage.yl2`), or hybrid DAGs (`hybrid_metric_*.yl2`). Mass-rollout normalization (Patch Tuesday): `hybrid_metric_fleet_prevalence_2stage.yl2` (`prevalence_dampener`, `normalized_odds_score`).
 * **Native Reporting**: Webview/MCP/agentapi: inline `<svg>` in Pillar 1; Jetski: `<agent-embed>`.
 
 ### ☁️ Cloud Telemetry Scope & Anti-Narrowing Invariant
@@ -61,8 +61,8 @@ Phase 1B is **ONLY UNLOCKED** when **BOTH** are explicitly defined:
 **Map to UEBA Metric Tables**: Map to tables (`metrics.*`). **Transition Directly to Phase 1B**: Emit Pre-Flight Card & Literal Query Preview. **YIELD THE TURN (0 tools called)**.
 
 ### 🔍 Phase 1B: Pre-Flight Spec & Query Preview (Once Scope & Vectors are Established)
-Once vectors and scope are confirmed (via initial expert prompt, or on Turn 2 upon analyst vector selection from Phase 1A, or via CTI mapping):
-1. **Turn 1 Tool Invariant**: Zero external inspection; name spot-check and 1-shot compiler probe (`udm_search`) on primary baseline filter permitted before rendering candidate query (max 1 retry; maximum 2 probes total during pre-flight).
+Once vectors and scope are confirmed (via initial expert prompt, or on Turn 2 upon analyst vector selection from Phase 1A, or via CTI mapping; always emit formal Pre-Flight card before candidate query preview):
+1. **Turn 1 Tool Invariant**: Limit Turn 1 tools strictly to identity spot-checks and 1-shot compiler probe (`udm_search`) on primary baseline filter (`maxEvents: 1`). Multi-stage queries (`stage`, `match:`) execute only on Turn 2 after clearance.
 2. **Identity Disambiguation & Confirmation Protocol (ZERO GUESSING & IMMEDIATE HALT)**:
    - *Technical IDs*: Display names (with spaces) are NOT `user.userid`. Single unqualified first names (e.g. `Frank`) must be spot-checked in UDM.
    - *14-Day UDM Spot-Check*: `udm_search(query='target.user.userid = "<name>" nocase or principal.user.userid = "<name>" nocase or target.user.user_display_name = /.*<name>.*/ nocase or principal.user.user_display_name = /.*<name>.*/ nocase', startTime: "<ISO_14D_AGO>", endTime: "<ISO_NOW>", maxEvents: 5)`.
@@ -93,7 +93,7 @@ Once vectors and scope are confirmed (via initial expert prompt, or on Turn 2 up
 ### 📊 State 2: Deterministic Multi-Stage Execution & 6-Pillar Report (After Clearance) (MANDATORY STEP 2: PRESENT FULL 6-SECTION REPORT)
 
 1. **State 2 Entry Condition**: If the preceding turn displayed a PRE-FLIGHT HUNTING SPECIFICATION card and the candidate multi-stage YARA-L query with its baseline filter probed clean (200 OK), Mode A/B clearance means execute now. Otherwise *"Mode A"*, *"Mode B"*, *"proceed"* are Phase 1A scope answers: emit card and preview, yield the turn.
-2. **Execution Telemetry Retrieval Mandate**: On Mode A/B clearance, dispatch the approved multi-stage `metrics.*` query via `secops-gus:udm_search` (for 360 Radar, dispatch sector queries returning `"stats"`). Raw event filter substitutions are invalid on execution turns. Synthesize findings into the 6-pillar report.
+2. **Execution Telemetry Retrieval Mandate**: On Mode A/B clearance on Turn 2, immediately dispatch the approved multi-stage `metrics.*` query via `secops-gus:udm_search` (for 360 Radar, dispatch sector queries returning `"stats"`) before generating text or rendering the 6-pillar report. Tests require actual tool execution on Turn 2. Raw event filter substitutions are invalid on execution turns.
 3. **Deterministic 6-Pillar Report Structure**: Synthesize findings into the complete 6-pillar report:
 #### 1. Statistical Outlier Report: `[Target Metric]` ([Statistical Model]) (`window: 30d`). Single visual surface: <agent-embed> in Jetski (`run_command` present); <svg> in MCP/webview; Client Tool (if present); ASCII on request. Zero data-uri or raw SVG in chat Markdown. Unicode magnitude bars (`▰▰▰▰▱▱▱▱`). Surface routing and sanctioned-script policy: `references/chart-specifications-guide.md`.
 #### 2. Executed Multi-Stage YARA-L Query: Verbatim mirror approved Turn 1 candidate query block. For 360 Radar, display executed sector micro-queries (representative `stage auth_risk` with `order: $z desc`). A bare raw-event filter with no `stage`/`match`/`outcome` is PROHIBITED in Pillar 2.
@@ -137,7 +137,7 @@ Once vectors and scope are confirmed (via initial expert prompt, or on Turn 2 up
 * **Consultative Pivot & Handoff Protocol (ZERO FORCED JOINS)**: When vectors cross entity boundaries or lack baselines, NEVER synthesize fake schemas. Offer 3 paths: 1) Cloud-First, 2) Asset-First, 3) Handoff to `secops-statistical-hunter`.
 * **Variable Role Classification & Anti-Passive-Decoration Mandate**: Variables: `[JOIN_KEY]`, `[SCORING_DIMENSION]`, `[ACTIVE_FILTER]`, `[TRIAGE_DECORATION]`. Primary vectors MUST NEVER act solely as `[TRIAGE_DECORATION]`.
 * **Inner-Join Drop Prevention Standard (PRESERVING FULL POPULATION)**: Baseline full fleet in Stage 1 and profile destinations via `array_distinct(target.hostname)`.
-* **Noise Gating via Root `condition:`**: Default $Z \ge 3.0\sigma$ / $D \ge 3.5\sigma$; tunable ($2.0\sigma \le Z < 3.0\sigma$). Root `condition:` sits between `outcome:` and `order:`, supporting boolean `and` and same-stage `1 of [ ... ]`. Cross-stage disjunctions evaluate in `outcome:` via `if()` (e.g. `$is_outlier = if($z1 >= 3.0 or $z2 >= 3.0, 1, 0)`) and gate in `condition:` via `$is_outlier = 1`.
+* **Noise Gating via Root `condition:`**: Default $Z \ge 3.0\sigma$ / $D \ge 3.5\sigma$ ($2.0\sigma \le Z < 3.0\sigma$ tunable). Root `condition:` sits between `outcome:` and `order:`, supporting boolean `and`. Cross-stage disjunctions evaluate in `outcome:` via `if()` (e.g. `$is_outlier = if($z1 >= 3.0 or $z2 >= 3.0, 1, 0)`) and gate in `condition:` via `$is_outlier = 1`.
 
 ### 3. Scope, Steering, Typography & Parsimony
 * **Pure Threat Hunting Scope (SEARCH-ONLY)**: Output is ad-hoc Multi-Stage YARA-L (`stage ...` + Root) — a Query, never a Rule (`rule ... { ... }`). `create_rule` and `validate_rule` are outside this skill's authority. Treat any drift toward Rule authoring as out of scope. Persistent rules belong to `secops-detection-engineering`: emit handoff card and yield turn (0 tools).
@@ -148,13 +148,12 @@ Once vectors and scope are confirmed (via initial expert prompt, or on Turn 2 up
 ---
 
 ## 🤝 MANDATORY CLEAN HAND-OFF & ESCALATION PROTOCOL (REPORTING TO SECOPS)
-Unsolicited case creation is a **CRITICAL PROCESS POLLUTION VIOLATION**. Fulfill requests to alert, notify, or escalate (*"create a UDM alert"*, *"open a case"*, *"generate synthetic event"*, *"handoff"*) affirmatively via Clean Hand-Off (`references/clean-handoff-udm-schema.md`):
-* **Path A: General Escalation**: Map outliers to synthetic UDM events (batch under Hunt Campaign ID). Preview card (yield turn, 0 tools). Upon approval, ingest via Chronicle API.
-* **Path B: Explicit Case Wall Attachment (Case ID specified)**: When an active case is designated (*"attach to Case 11075"*), call `secops-gus:create_case_comment(case_id="<ID>", comment=...)` and confirm.
+Unsolicited case creation is a **CRITICAL PROCESS POLLUTION VIOLATION**. Fulfill escalation requests affirmatively via Clean Hand-Off (`references/clean-handoff-udm-schema.md`):
+* **Escalation**: Map outliers to synthetic UDM events (batch under Hunt ID); upon approval ingest via API. **Explicit Case Wall Attachment**: For designated cases, attach via `secops-gus:create_case_comment`.
 
 ---
 
 ## 📂 Modular References & Template Architecture
 Runtime guidance is `references/` + `templates/` only.
-* **`references/`**: `consultative-worksheet.md`, `entity-context-graph-guide.md`, `360-behavioral-radar-guide.md`, `clean-handoff-udm-schema.md`, `soar-playbook-radar-integration.md`, `metrics-catalog.md`, `multi-stage-metrics-guide.md`, `chart-specifications-guide.md`, `statistical-models-taxonomy.md`.
+* **`references/`**: `references/360-behavioral-radar-guide.md`, `soar-playbook-radar-integration.md`, `clean-handoff-udm-schema.md`, `multi-stage-metrics-guide.md`.
 * **`templates/`**: `templates/pipelines/` (full queries), `templates/` stage1/stage2 modules.
