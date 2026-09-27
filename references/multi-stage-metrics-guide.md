@@ -107,6 +107,7 @@ Multi-stage DAG queries support two distinct temporal evaluation modes:
 | `graph.entity.metrics.*` in predicates | Use `metrics.*()` in `outcome:` | `metrics` is a built-in function, not an Entity Graph protobuf field. |
 | Direct literal filter without match variable (`target.user.userid = "name"` with `match: $user`) | `target.user.userid = "name"`<br>`$user = target.user.userid` | Any placeholder variable in `match:` must be explicitly assigned to a UDM field in that stage's event predicates (`$user = target.user.userid`). |
 | Assigning literal string to match variable (`$sa = "ola.burch"`) | Direct UDM field filter with field-to-variable binding:<br>`principal.user.userid = "ola.burch"`<br>`$sa = principal.user.userid` | In YARA-L, match variables (`$var`) represent event fields or upstream stage outcomes; they cannot be assigned string literals directly (`$var = "literal"`). Entity filters must always be declared directly on canonical UDM attributes in the event predicates, then bound to variables. |
+| Direct string literal in metric dimension argument (`principal.user.userid: "sa-storage-sync"`) | Bind to a stage match variable:<br>`principal.user.userid = "sa-storage-sync"`<br>`$sa = principal.user.userid`<br>`metrics.resource_read_total(..., principal.user.userid: $sa)` | Dimension arguments in `metrics.*` accept only bound match variables (`$sa`, `$host`, `$vendor`), never string literals. Literal strings cause live Chronicle compiler rejection (`Request contains an invalid argument`). |
 
 ---
 
