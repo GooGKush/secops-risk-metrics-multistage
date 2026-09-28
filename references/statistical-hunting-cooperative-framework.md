@@ -237,7 +237,7 @@ When the exfiltration protocol is known in advance (e.g. hunting specifically fo
       $observed_val = sum(network.sent_bytes)
       $hist_mean = max(metrics.network_bytes_outbound(...))
       $hist_stddev = max(metrics.network_bytes_outbound(...))
-      $z_score = ($observed_val - $hist_mean) / ($hist_stddev + 1.0)
+      $z_score = ($observed_val - $hist_mean) / if($hist_stddev > 0, $hist_stddev, 1.0)
   }
   ```
 * **Stage 2 (Micro Signature)**:

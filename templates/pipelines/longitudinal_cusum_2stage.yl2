@@ -2,7 +2,7 @@
 // ARCHITECTURE: 2-STAGE LONGITUDINAL CUSUM BEHAVIORAL DRIFT PIPELINE
 // Skill: secops-risk-metrics-multistage
 // Purpose: Detects quiet, low-and-slow behavioral drift across 14-30 sliding days
-// Formula: S_t^+ = max(0, S_{t-1}^+ + ((x_t - mu)/(sigma + 1.0) - k_ref))
+// Formula: S_t^+ = max(0, S_{t-1}^+ + ((x_t - mu) / if(sigma > 0, sigma, 1.0) - k_ref))
 // Telemetry Metric Mappings:
 //   - DNS Query Volume (Counts): metrics.dns_queries_total (metric: event_count_sum, obs: count(metadata.id))
 //   - DNS Byte Volume (Bandwidth): metrics.dns_bytes_outbound (metric: value_sum, obs: sum(network.sent_bytes))
@@ -58,8 +58,8 @@ outcome:
   $baseline_stddev = max($stage1_extract.historical_stddev)
   $active_days = max($stage1_extract.historical_active_days)
 
-  // 1. Daily Standardized Shift: Z_daily = (Observed - Baseline_Mean) / (Baseline_StdDev + 1.0)
-  $daily_z = ($observed_val - $baseline_mean) / ($baseline_stddev + 1.0)
+  // 1. Daily Standardized Shift: Z_daily = (Observed - Baseline_Mean) / if(Baseline_StdDev > 0, Baseline_StdDev, 1.0)
+  $daily_z = ($observed_val - $baseline_mean) / if($baseline_stddev > 0, $baseline_stddev, 1.0)
 
   // 2. Reference Allowance Slack (k = 0.5 sigma) to absorb routine baseline fluctuations
   $deviation = $daily_z - 0.5

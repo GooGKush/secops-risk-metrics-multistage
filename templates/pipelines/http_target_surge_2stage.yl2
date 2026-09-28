@@ -39,9 +39,7 @@ stage stage1_target_surge {
         target.hostname: $target_host
     ))
 
-    $diff = $observed_val - $hist_mean
-    $denom = $hist_stddev + 1.0
-    $target_z = $diff / $denom
+    $target_z = ($observed_val - $hist_mean) / if($hist_stddev > 0, $hist_stddev, 1.0)
     $origin_host = array_distinct($host)
 }
 

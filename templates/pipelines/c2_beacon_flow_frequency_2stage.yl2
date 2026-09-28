@@ -39,9 +39,7 @@ stage stage1_outbound_flow_frequency {
         principal.asset.hostname: $host
     ))
 
-    $diff = $observed_flows - $hist_flow_avg
-    $denom = $hist_flow_stddev + 1.0
-    $flow_z = $diff / $denom
+    $flow_z = ($observed_flows - $hist_flow_avg) / if($hist_flow_stddev > 0, $hist_flow_stddev, 1.0)
     $bytes_per_flow = $observed_bytes / ($observed_flows + 0.001)
 }
 

@@ -42,12 +42,12 @@ Extensive live compilation testing against Google SecOps customer instances has 
   * Bare functions like `round(...)` are illegal. Must strictly use `math.round(...)`.
   * Transcendental functions like `math.exp(...)` are unsupported in the native query compiler. Non-linear conversions (such as sigmoid Calibrated Risk Index $\text{CRI}$) must be computed in client post-processing (`scripts/triage_formatter.py`).
 
-### 2.3 Universal Dispersion Floor ($\sigma_{\text{floor}} = 1.0$)
-* In all $Z$-score, Delta-$Z$, and ratio denominators, a constant floor of `+ 1.0` MUST be added:
+### 2.3 Universal Dispersion Floor & Outcome Nested Logic Model
+* In all $Z$-score, Delta-$Z$, and ratio denominators, safe division MUST be enforced without distorting non-zero variance. The **Outcome Nested Logic Model** is mandatory:
   ```yara
-  $z_score = $diff / ($stddev + 1.0)
+  $z_score = ($observed_val - $hist_mean) / if($hist_stddev > 0, $hist_stddev, 1.0)
   ```
-* **Rationale**: On quiet accounts with zero variance ($\sigma = 0$), omitted dispersion floors trigger divide-by-zero exceptions or NaN evaluations in Chronicle.
+* **Rationale**: Adding a blunt scalar floor (`$stddev + 1.0`) artificially inflates variance on active accounts (e.g., doubling a true $\sigma=1.0$ to $2.0$, dampening outlier sensitivity by 50%). Using one-stop outcome nested logic `if($stddev > 0, $stddev, 1.0)` provides robust zero-division immunity on quiet accounts while preserving exact mathematical scaling when $\sigma > 0$.
 
 ### 2.4 Metric Schema Dimensions & Types
 * Pre-computed behavioral metrics (`metrics.*`) require exact field dimensions:
@@ -78,7 +78,7 @@ Extensive live compilation testing against Google SecOps customer instances has 
 In addition to compiler syntax, all queries submitted to Chronicle must satisfy the 6 Statistical Invariants:
 1. **Scope Symmetry (Zero Part-of-the-Whole Bias)**: Stages filtering observed events to specific products or attributes must bind the identical dimensions in `metrics.*` or decouple into 2-stage context fusion.
 2. **Dynamic Range Isolation ("Elephant and Mouse" Prevention)**: Multi-resource data access must slice dynamically by `($user, $resource by 1d)` to evaluate local-baseline isolation and prevent high-volume routine traffic from masking acute targeted exfiltration.
-3. **Universal Dispersion Safeguards**: All outcome divisions by standard deviation ($\sigma$) or MAD must incorporate safe division via conditional safeguards (`$safe_std = if($std > 0, $std, 0.001)`) or an additive scalar floor (`+ 1.0`) to prevent division by zero or NaN on quiet accounts.
+3. **Universal Dispersion Safeguards**: All outcome divisions by standard deviation ($\sigma$) or MAD must incorporate safe division via one-stop outcome nested logic (`$z = ($obs - $mu) / if($std > 0, $std, 1.0)`) to eliminate division-by-zero on quiet accounts while preserving exact scaling on active telemetry.
 4. **Distribution Domain Integrity**: Discrete count metrics (e.g. `auth_attempts_fail`) evaluated with continuous Gaussian Z-scores require active baseline days gating ($N \ge 3$) or Poisson rarity modeling.
 5. **Orthogonal Sector Fusion**: Multi-sector Euclidean threat norms ($D = \sqrt{\sum \max(0, Z_i)^2}$) must fuse strictly independent behavioral vector families (Auth, Cloud CRUD, Workspace, Network, Endpoint), never collinear intra-family metrics.
 6. **Cloud Service Account Identity Profiling**: When querying service account scope (binding `$sa` or `$service_account`), queries must enforce cloud identity construction (`/@.*gserviceaccount\.com$/` or `arn:aws:iam`) rather than relying on null checks (`$sa != ""`), preventing Windows Active Directory computer accounts (`HOST$`) and local OS services (`LOCAL SERVICE`) from polluting cloud repository analytics.

@@ -33,8 +33,7 @@ stage all_entities {
     $personal_std = max({{target_metric_func_stddev}})
 
     // In-Stage Personal Historical Z-Score (Outcomes-in-Outcomes)
-    $personal_diff = $obs - $personal_avg
-    $z_personal = $personal_diff / ($personal_std + 1.0)
+    $z_personal = ($obs - $personal_avg) / if($personal_std > 0, $personal_std, 1.0)
 }
 
 // Stage 2: Team Cohort Whole (Macro baseline across designated peers)
@@ -87,10 +86,10 @@ outcome:
   $e_std = max($enterprise_stats.fleet_std)
 
   // 1. Team Cross-Sectional Z-Score ("Part of the Team")
-  $z_vs_team = ($observed - $t_avg) / ($t_std + 1.0)
+  $z_vs_team = ($observed - $t_avg) / if($t_std > 0, $t_std, 1.0)
 
   // 2. Enterprise Cross-Sectional Z-Score ("Part of the Enterprise")
-  $z_vs_enterprise = ($observed - $e_avg) / ($e_std + 1.0)
+  $z_vs_enterprise = ($observed - $e_avg) / if($e_std > 0, $e_std, 1.0)
 
 order:
   $z_vs_team desc

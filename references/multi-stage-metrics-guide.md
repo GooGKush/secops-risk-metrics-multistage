@@ -182,7 +182,7 @@ outcome:
   $obs = max($stage1_extract.observed_val)
   $mu = max($stage1_extract.historical_avg)
   $sigma = max($stage1_extract.historical_stddev)
-  $personal_z = ($obs - $mu) / ($sigma + 1.0)
+  $personal_z = ($obs - $mu) / if($sigma > 0, $sigma, 1.0)
 
 condition:
   $personal_z >= 3.0
@@ -204,7 +204,7 @@ outcome:
   $obs = max($stage1_extract.observed_val)
   $mu = max($stage1_extract.historical_avg)
   $sigma = max($stage1_extract.historical_stddev)
-  $personal_z = ($obs - $mu) / ($sigma + 1.0)
+  $personal_z = ($obs - $mu) / if($sigma > 0, $sigma, 1.0)
 
 condition:
   $personal_z >= 2.0 and $personal_z < 3.0
@@ -545,9 +545,9 @@ When comparing an individual to a team cohort, single-tier comparisons create bl
 1. **Enterprise-only comparisons** flag high-volume roles (DevOps/SRE) as false positives and conceal compromises in low-volume roles (HR/Legal).
 2. **Team-only comparisons** suffer from small-$N$ instability ($N < 7$) and miss team-wide operational rollouts.
 3. **The 3-Part Solution**: Evaluates an entity simultaneously across three tiers via `templates/pipelines/part_of_the_whole_multilevel.yl2`:
-   - **Personal Historical $Z$**: $Z_{\text{personal}} = (\text{obs} - \mu_{\text{personal}}) / (\sigma_{\text{personal}} + 1.0)$
-   - **Team Cross-Sectional $Z$**: $Z_{\text{vs\_team}} = (\text{obs} - \mu_{\text{team}}) / (\sigma_{\text{team}} + 1.0)$
-   - **Enterprise Cross-Sectional $Z$**: $Z_{\text{vs\_enterprise}} = (\text{obs} - \mu_{\text{enterprise}}) / (\sigma_{\text{enterprise}} + 1.0)$
+   - **Personal Historical $Z$**: $Z_{\text{personal}} = (\text{obs} - \mu_{\text{personal}}) / \max(\sigma_{\text{personal}}, 1.0)$
+   - **Team Cross-Sectional $Z$**: $Z_{\text{vs\_team}} = (\text{obs} - \mu_{\text{team}}) / \max(\sigma_{\text{team}}, 1.0)$
+   - **Enterprise Cross-Sectional $Z$**: $Z_{\text{vs\_enterprise}} = (\text{obs} - \mu_{\text{enterprise}}) / \max(\sigma_{\text{enterprise}}, 1.0)$
 This produces 4 diagnostic states: **Individual Rogue** (high $Z_{\text{team}}$ & high $Z_{\text{enterprise}}$), **Role Benign** (low $Z_{\text{team}}$ & high $Z_{\text{enterprise}}$), **Stealth Compromise** (high $Z_{\text{team}}$ & low $Z_{\text{enterprise}}$), and **Team Campaign/Rollout** (low $Z_{\text{team}}$ & elevated team mean).
 
 ### 4. Intra-Event Metric Triad Breakouts (`part_of_the_whole_triad_multilevel.yl2`)
@@ -989,7 +989,7 @@ To provide maximum analytical value without compromising mathematical integrity,
      $historical_stddev = max($host_egress.hist_stddev)
      $baseline_active_days = max($host_egress.hist_active_days)
      $destination_prevalence_10d = max($destination_prevalence.fleet_prevalence)
-     $z_score = ($actual_bytes - $historical_mean) / ($historical_stddev + 1.0)
+     $z_score = ($actual_bytes - $historical_mean) / if($historical_stddev > 0, $historical_stddev, 1.0)
 
    order:
      $z_score desc
@@ -1145,9 +1145,7 @@ To operationalize advanced statistical models without tripping Chronicle's join 
           principal.asset.hostname: $host
       ))
 
-      $diff_intensity = $observed_intensity - $hist_mean
-      $denom_intensity = $hist_stddev + 1.0
-      $z_intensity = $diff_intensity / $denom_intensity
+      $z_intensity = ($observed_intensity - $hist_mean) / if($hist_stddev > 0, $hist_stddev, 1.0)
   }
 
   // Stage 2: Micro Telemetry (Axis 2: Contemporary Forensic Breadth)
@@ -1209,7 +1207,7 @@ To operationalize advanced statistical models without tripping Chronicle's join 
   If 500 endpoints execute an updated binary today, the prevalence dampener collapses the score to $\sim 0.002$, neutralizing false positive fleet-wide alerts. If only 1–2 endpoints execute the binary, full anomaly weight ($\ge 0.33$) is preserved.
 * **Affirmative Template Selection**:
   When hunting for abnormal file execution surges across workstations normalized against fleet-wide rollouts (Patch Tuesday Shield), directly deploy `templates/pipelines/hybrid_metric_fleet_prevalence_2stage.yl2`:
-  * Stage 1 (`stage1_personal_surge`): `metadata.event_type = "PROCESS_LAUNCH"`, `metrics.file_executions_total(...)` with `principal.asset.hostname = $entity` and `principal.process.file.sha256 = $token`, computing `$personal_z = ($observed_val - $hist_mean) / ($hist_stddev + 1.0)`.
+  * Stage 1 (`stage1_personal_surge`): `metadata.event_type = "PROCESS_LAUNCH"`, `metrics.file_executions_total(...)` with `principal.asset.hostname = $entity` and `principal.process.file.sha256 = $token`, computing `$personal_z = ($observed_val - $hist_mean) / if($hist_stddev > 0, $hist_stddev, 1.0)`.
   * Stage 2 (`stage2_fleet_prevalence`): `metadata.event_type = "PROCESS_LAUNCH"`, `principal.process.file.sha256 = $token`, matching `$token by 1d`, computing `$fleet_adopters = count_distinct(principal.asset.hostname)`.
   * Root Stage: Matching `$token by 1d`, computing `$prevalence_dampener = 1.0 / ($fleet_adopters + 1.0)` and `$normalized_odds_score = $personal_z * $prevalence_dampener`, ordered by `$normalized_odds_score desc`.
 * **Implementation Paths in Stage 2**:

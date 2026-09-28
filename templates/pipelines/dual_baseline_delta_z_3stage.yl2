@@ -33,8 +33,7 @@ stage host_extract {
     $hist_active_days = max({{target_metric_func_active_days}})
 
     // In-Stage Personal Historical Z-Score (Outcomes-in-Outcomes)
-    $personal_diff = $observed_24h - $hist_avg
-    $personal_z = $personal_diff / ($hist_stddev + 1.0)
+    $personal_z = ($observed_24h - $hist_avg) / if($hist_stddev > 0, $hist_stddev, 1.0)
 }
 
 // Stage 2: Concurrent Fleet-Wide Macro Baseline across all active endpoints today
@@ -69,8 +68,7 @@ outcome:
   $fleet_size = max($fleet_stats.active_fleet_hosts)
 
   // 1. Fleet Today Cross-Sectional Z-Score
-  $fleet_diff = $obs - $fleet_avg
-  $fleet_z = $fleet_diff / ($fleet_stddev + 1.0)
+  $fleet_z = ($obs - $fleet_avg) / if($fleet_stddev > 0, $fleet_stddev, 1.0)
 
   // 3. Delta-Z Anomaly Isolation (Targeted anomaly score)
   $delta_z = $personal_z - $fleet_z

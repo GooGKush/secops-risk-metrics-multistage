@@ -21,7 +21,7 @@ flowchart TD
     subgraph HookAction ["Deterministic Execution Hook"]
         direction TB
         B --> C["1. Fan-Out 4–5 Pre-Computed UEBA Queries (O(1) lookups)"]
-        C --> D["2. Calculate Spoke Z-Scores: (Obs - Mean) / (StdDev + 1.0)"]
+        C --> D["2. Calculate Spoke Z-Scores: (Obs - Mean) / max(StdDev, 1.0)"]
         D --> E["3. Calculate Composite Norm: D = sqrt(sum max(0,Zi)^2) & CRI [0-100]"]
         E --> F["4. Generate Self-Contained SVG Widget & Markdown Table"]
     end

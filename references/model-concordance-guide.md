@@ -381,8 +381,7 @@ Before emitting any query preview under a Pre-Flight Card in Phase 1B, verify:
 2. **Outcome Variable Audit**: Does the emitted query's `outcome:` block contain all mandatory variables specified in the matrix above?
 3. **Primary Ranking Target**: Does the `order:` clause sort by the primary model output variable (e.g. `$cusum_drift_score desc`, `$hurdle_threat_score desc`, `$bayes_shift_ratio desc`)?
 4. **No Univariate Fallback**: If an advanced model (e.g. Bayesian, CUSUM, Hurdle, Piecewise CRI) was declared, ensure it is NOT replaced by a bare standard $Z$-score.
-5. **Outcome `if(...)` Compiler Invariant**: Chronicle SIEM compiler strictly forbids compound arithmetic inside the `then` or `else` clauses of `if(cond, then, else)`. Always assign compound arithmetic to an intermediate placeholder first:
+5. **Outcome `if(...)` Compiler Invariant**: Chronicle SIEM compiler strictly forbids compound arithmetic (function calls or operations) inside the `then` or `else` clauses of `if(cond, then, else)`. Only placeholders, event fields, and constants are permitted. When computing standardized anomaly scores, construct the one-stop outcome nested logic model directly:
    ```yara
-   $raw_regularized_stddev = $baseline_stddev + 1.0
-   $safe_stddev = if($baseline_stddev > 0, $raw_regularized_stddev, 1.0)
+   $personal_z = ($observed_val - $baseline_mean) / if($baseline_stddev > 0, $baseline_stddev, 1.0)
    ```

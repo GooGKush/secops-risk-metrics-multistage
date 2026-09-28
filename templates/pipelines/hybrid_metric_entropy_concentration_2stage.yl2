@@ -39,9 +39,7 @@ stage stage1_macro_baseline {
     $hist_stddev = max({{target_metric_func_stddev}})
     $hist_active_days = max({{target_metric_func_active_days}})
 
-    $diff = $observed_val - $hist_mean
-    $denom = $hist_stddev + 1.0
-    $z_score = $diff / $denom
+    $z_score = ($observed_val - $hist_mean) / if($hist_stddev > 0, $hist_stddev, 1.0)
 }
 
 // Stage 2: Parallel Micro-Forensics Telemetry on Raw Event Cardinality & Peak

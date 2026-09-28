@@ -310,7 +310,7 @@ outcome:
   $historical_stddev = max($host_egress.hist_stddev)
   $baseline_active_days = max($host_egress.hist_active_days)
   $destination_prevalence_10d = max($destination_prevalence.fleet_prevalence)
-  $z_score = ($actual_bytes - $historical_mean) / ($historical_stddev + 1.0)
+  $z_score = ($actual_bytes - $historical_mean) / if($historical_stddev > 0, $historical_stddev, 1.0)
 
 order:
   $z_score desc

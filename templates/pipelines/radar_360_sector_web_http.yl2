@@ -25,8 +25,7 @@ stage web_http_risk {
         period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
         principal.user.userid: $user
     ))
-    $diff = $obs - $avg
-    $z = $diff / ($std + 1.0)
+    $z = ($obs - $avg) / if($std > 0, $std, 1.0)
 }
 
 // --- ROOT STAGE: Single-Sector Z-Score Projection (1 Join Total) ---

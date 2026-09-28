@@ -70,8 +70,10 @@ $user = $s1.user
 $user = $s2.user
 match: $user by 1d
 outcome:
-  $z_fail = (max($s1.fail_obs) - max($s1.fail_avg)) / (max($s1.fail_std) + 1.0)
-  $z_succ = (max($s2.succ_obs) - max($s2.succ_avg)) / (max($s2.succ_std) + 1.0)
+  $fail_std = max($s1.fail_std)
+  $succ_std = max($s2.succ_std)
+  $z_fail = (max($s1.fail_obs) - max($s1.fail_avg)) / if($fail_std > 0, $fail_std, 1.0)
+  $z_succ = (max($s2.succ_obs) - max($s2.succ_avg)) / if($succ_std > 0, $succ_std, 1.0)
 """,
       "Cloud Infrastructure": """
 // Sector: Cloud Infrastructure CRUD
@@ -105,8 +107,10 @@ $user = $s1.user
 $user = $s2.user
 match: $user by 1d
 outcome:
-  $z_create = (max($s1.create_obs) - max($s1.create_avg)) / (max($s1.create_std) + 1.0)
-  $z_delete = (max($s2.delete_obs) - max($s2.delete_avg)) / (max($s2.delete_std) + 1.0)
+  $create_std = max($s1.create_std)
+  $delete_std = max($s2.delete_std)
+  $z_create = (max($s1.create_obs) - max($s1.create_avg)) / if($create_std > 0, $create_std, 1.0)
+  $z_delete = (max($s2.delete_obs) - max($s2.delete_avg)) / if($delete_std > 0, $delete_std, 1.0)
 """,
       "Workspace Data Hoarding": """
 // Sector: Workspace & Drive Data
@@ -126,8 +130,10 @@ stage s1 {
 $user = $s1.user
 match: $user by 1d
 outcome:
-  $z_download = (max($s1.dl_obs) - max($s1.dl_avg)) / (max($s1.dl_std) + 1.0)
-  $z_change = (max($s1.dl_obs) - max($s1.ch_avg)) / (max($s1.ch_std) + 1.0)
+  $dl_std = max($s1.dl_std)
+  $ch_std = max($s1.ch_std)
+  $z_download = (max($s1.dl_obs) - max($s1.dl_avg)) / if($dl_std > 0, $dl_std, 1.0)
+  $z_change = (max($s1.dl_obs) - max($ch_avg)) / if($ch_std > 0, $ch_std, 1.0)
 """,
       "Network Egress & Web": """
 // Sector: Network Egress Volume
@@ -145,7 +151,8 @@ stage s1 {
 $user = $s1.user
 match: $user by 1d
 outcome:
-  $z_egress = (max($s1.bytes_obs) - max($s1.bytes_avg)) / (max($s1.bytes_std) + 1.0)
+  $bytes_std = max($s1.bytes_std)
+  $z_egress = (max($s1.bytes_obs) - max($s1.bytes_avg)) / if($bytes_std > 0, $bytes_std, 1.0)
 """,
       "DNS Resolution": """
 // Sector: DNS Failures
@@ -164,7 +171,8 @@ stage s1 {
 $user = $s1.user
 match: $user by 1d
 outcome:
-  $z_dns_fail = (max($s1.dns_obs) - max($s1.dns_avg)) / (max($s1.dns_std) + 1.0)
+  $dns_std = max($s1.dns_std)
+  $z_dns_fail = (max($s1.dns_obs) - max($s1.dns_avg)) / if($dns_std > 0, $dns_std, 1.0)
 """,
       "Web & Proxy Activity": """
 // Sector: Web & Proxy Activity
@@ -182,7 +190,8 @@ stage s1 {
 $user = $s1.user
 match: $user by 1d
 outcome:
-  $z_http = (max($s1.http_obs) - max($s1.http_avg)) / (max($s1.http_std) + 1.0)
+  $http_std = max($s1.http_std)
+  $z_http = (max($s1.http_obs) - max($s1.http_avg)) / if($http_std > 0, $http_std, 1.0)
 """,
   }
 
@@ -204,7 +213,8 @@ stage s1 {
 $asset = $s1.asset
 match: $asset by 1d
 outcome:
-  $z_fail = (max($s1.fail_obs) - max($s1.fail_avg)) / (max($s1.fail_std) + 1.0)
+  $fail_std = max($s1.fail_std)
+  $z_fail = (max($s1.fail_obs) - max($s1.fail_avg)) / if($fail_std > 0, $fail_std, 1.0)
 """,
       "Network Traffic Volume": """
 // Sector: Network Inbound & Outbound
@@ -225,8 +235,10 @@ stage s1 {
 $asset = $s1.asset
 match: $asset by 1d
 outcome:
-  $z_outbound = (max($s1.out_obs) - max($s1.out_avg)) / (max($s1.out_std) + 1.0)
-  $z_inbound = (max($s1.in_obs) - max($s1.in_avg)) / (max($s1.in_std) + 1.0)
+  $out_std = max($s1.out_std)
+  $in_std = max($s1.in_std)
+  $z_outbound = (max($s1.out_obs) - max($s1.out_avg)) / if($out_std > 0, $out_std, 1.0)
+  $z_inbound = (max($s1.in_obs) - max($s1.in_avg)) / if($in_std > 0, $in_std, 1.0)
 """,
       "DNS Resolution": """
 // Sector: DNS Failures
@@ -245,7 +257,8 @@ stage s1 {
 $asset = $s1.asset
 match: $asset by 1d
 outcome:
-  $z_dns_fail = (max($s1.dns_obs) - max($s1.dns_avg)) / (max($s1.dns_std) + 1.0)
+  $dns_std = max($s1.dns_std)
+  $z_dns_fail = (max($s1.dns_obs) - max($s1.dns_avg)) / if($dns_std > 0, $dns_std, 1.0)
 """,
       "Web & Proxy Activity": """
 // Sector: Web & Proxy Activity
@@ -263,7 +276,8 @@ stage s1 {
 $asset = $s1.asset
 match: $asset by 1d
 outcome:
-  $z_http = (max($s1.http_obs) - max($s1.http_avg)) / (max($s1.http_std) + 1.0)
+  $http_std = max($s1.http_std)
+  $z_http = (max($s1.http_obs) - max($s1.http_avg)) / if($http_std > 0, $http_std, 1.0)
 """,
   }
 
@@ -651,7 +665,7 @@ outcome:
     lines.append("")
     lines.append("### 📐 Statistical & Mathematical Appendix (Step-by-Step Derivation)")
     lines.append("1. **Individual Spoke Z-Scores (Observed vs. 30-Day Historical Mean $\\pm$ StdDev)**:")
-    lines.append("   $$Z_i = \\frac{\\text{Obs}_i - \\mu_{i, 30\\text{d}}}{\\sigma_{i, 30\\text{d}} + 1.0}$$")
+    lines.append("   $$Z_i = \\frac{\\text{Obs}_i - \\mu_{i, 30\\text{d}}}{\\max(\\sigma_{i, 30\\text{d}}, 1.0)}$$")
     lines.append("   *Universal dispersion floor ($+1.0$) prevents division-by-zero on quiet accounts while bounding variance.*")
     lines.append("")
     lines.append("2. **Euclidean Composite Threat Distance ($D$) Across All Orthogonal Spokes**:")

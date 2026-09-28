@@ -285,7 +285,7 @@ def generate_metrics_catalog() -> str:
       "    period: 1d, window: 30d, metric: event_count_sum, agg: stddev,",
       "    principal.asset.hostname: $host",
       "))",
-      "$fail_z = ($fail_obs - $hist_fail_avg) / ($hist_fail_std + 1.0)",
+      "$fail_z = ($fail_obs - $hist_fail_avg) / if($hist_fail_std > 0, $hist_fail_std, 1.0)",
       "```",
       "",
       "### 6.4 Raw UDM Events Alignment & Consultative Pivot to Statistical Hunter",

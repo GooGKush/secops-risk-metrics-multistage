@@ -198,7 +198,7 @@ class TestRadarCollector(unittest.TestCase):
     self.assertIn("+3.80σ", md)
     self.assertIn("🚨 **Anomaly**", md)
     self.assertIn("Statistical & Mathematical Appendix", md)
-    self.assertIn(r"$$Z_i = \frac{\text{Obs}_i - \mu_{i, 30\text{d}}}{\sigma_{i, 30\text{d}} + 1.0}$$", md)
+    self.assertIn(r"$$Z_i = \frac{\text{Obs}_i - \mu_{i, 30\text{d}}}{\max(\sigma_{i, 30\text{d}}, 1.0)}$$", md)
     self.assertIn(r"$$D = \sqrt{\sum_{i=1}^{K} \max(0, Z_i)^2}", md)
 
   def test_generate_chartjs_spec(self):

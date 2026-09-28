@@ -53,9 +53,7 @@ stage stage1_personal_surge {
     $hist_stddev = max({{target_metric_func_stddev}})
     $hist_active_days = max({{target_metric_func_active_days}})
 
-    $diff = $observed_val - $hist_mean
-    $denom = $hist_stddev + 1.0
-    $personal_z = $diff / $denom
+    $personal_z = ($observed_val - $hist_mean) / if($hist_stddev > 0, $hist_stddev, 1.0)
     $surging_entity = array_distinct($entity)
 }
 

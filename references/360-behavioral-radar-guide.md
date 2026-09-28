@@ -138,7 +138,7 @@ outcome:
   $observed = max($auth_risk.obs)
   $baseline = max($auth_risk.avg)
   $dispersion = max($auth_risk.std)
-  $z = ($observed - $baseline) / ($dispersion + 1.0)
+  $z = ($observed - $baseline) / if($dispersion > 0, $dispersion, 1.0)
 
 order:
   $z desc
@@ -151,8 +151,8 @@ order:
 
 ## 🔍 4. Phase 2: The 6 Invariate Canonical Sector Queries & Z-Score Standard
 
-For 360° behavioral radar profiling, each sector evaluates a single **universal total activity baseline** ($X_{\text{total}}$ vs. $\mu_{\text{total}}$). The only calculation needed per sector is the standard parametric Z-score:
-$$Z_i = \frac{\text{Observed}_i - \mu_i}{\sigma_i + 1.0}$$
+For 360° behavioral radar profiling, each sector evaluates a single **universal total activity baseline** ($X_{\text{total}}$ vs. $\mu_{\text{total}}$). The only calculation needed per sector is the standard parametric Z-score with conditional zero-dispersion safeguard:
+$$Z_i = \frac{\text{Observed}_i - \mu_i}{\max(\sigma_i, 1.0)}$$
 
 Zero conditional event filtering (`security_result.action`) and zero conditional aggregations (`count(if(...))`) are evaluated. Each sector operates as an independent micro-query, and the six sector Z-scores are joined client-side in the report presentation layer to compute the Euclidean distance:
 $$D = \sqrt{\sum_{i=1}^6 \max(0, Z_i)^2}$$
@@ -180,8 +180,7 @@ stage auth_risk {
         period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
         target.user.userid: "%(entity_id)s"
     ))
-    $diff = $obs - $avg
-    $z = $diff / ($std + 1.0)
+    $z = ($obs - $avg) / if($std > 0, $std, 1.0)
 }
 
 $user = $auth_risk.user
@@ -224,8 +223,7 @@ stage cloud_risk {
         metadata.vendor_name: $vendor,
         metadata.product_name: $product
     ))
-    $diff = $obs - $avg
-    $z = $diff / ($std + 1.0)
+    $z = ($obs - $avg) / if($std > 0, $std, 1.0)
 }
 
 $user = $cloud_risk.user
@@ -262,8 +260,7 @@ stage workspace_risk {
         period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
         principal.user.userid: "%(entity_id)s"
     ))
-    $diff = $obs - $avg
-    $z = $diff / ($std + 1.0)
+    $z = ($obs - $avg) / if($std > 0, $std, 1.0)
 }
 
 $user = $workspace_risk.user
@@ -300,8 +297,7 @@ stage egress_risk {
         period: 1d, window: 30d, metric: value_sum, agg: stddev,
         principal.user.userid: "%(entity_id)s"
     ))
-    $diff = $obs - $avg
-    $z = $diff / ($std + 1.0)
+    $z = ($obs - $avg) / if($std > 0, $std, 1.0)
 }
 
 $user = $egress_risk.user
@@ -338,8 +334,7 @@ stage dns_risk {
         period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
         principal.user.userid: "%(entity_id)s"
     ))
-    $diff = $obs - $avg
-    $z = $diff / ($std + 1.0)
+    $z = ($obs - $avg) / if($std > 0, $std, 1.0)
 }
 
 $user = $dns_risk.user
@@ -376,8 +371,7 @@ stage web_risk {
         period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
         principal.user.userid: "%(entity_id)s"
     ))
-    $diff = $obs - $avg
-    $z = $diff / ($std + 1.0)
+    $z = ($obs - $avg) / if($std > 0, $std, 1.0)
 }
 
 $user = $web_risk.user
@@ -428,7 +422,7 @@ When a sector query returns **0 observed events** within the evaluation window, 
 When a sector micro-query returns **$\ge 1$ matching rows**:
 * **Metric Extraction**: Extract `$observed`, `$baseline`, `$dispersion`, and `$z` directly from the query outcome columns.
 * **Standardized Formula**:
-  $$Z_i = \frac{\text{Observed}_i - \mu_i}{\sigma_i + 1.0}$$
+  $$Z_i = \frac{\text{Observed}_i - \mu_i}{\max(\sigma_i, 1.0)} \quad (\text{via } \text{if}(\sigma_i > 0, \sigma_i, 1.0))$$
 
 ### 5.3 Analytical Pipeline Flow & Progressive Telemetry Discipline
 * **Sequential Sector Execution**: Execute the 6 canonical decoupled multi-stage micro-queries in direct succession. When any sector query returns 0 events (`{}` or empty `stats`), record the standardized nominal baseline assignment ($Z = 0.00\sigma, \text{Observed} = 0, \mu = 0.0, \sigma = 0.0$) and proceed immediately to execute the subsequent sector micro-query.
@@ -473,7 +467,7 @@ For web and Electron MCP clients, embed this self-contained script. The client b
 
   // 1. Compute exact Z-scores per spoke
   spokesData.forEach(s => {
-    s.z = s.obs === 0 ? 0.0 : (s.obs - s.mu) / (s.sigma + 1.0);
+    s.z = s.obs === 0 ? 0.0 : (s.obs - s.mu) / (s.sigma > 0 ? s.sigma : 1.0);
   });
 
   // 2. Compute exact Euclidean distance D
@@ -607,7 +601,7 @@ outcome:
   $observed = max($auth_risk.obs)
   $baseline = max($auth_risk.avg)
   $dispersion = max($auth_risk.std)
-  $z = ($observed - $baseline) / ($dispersion + 1.0)
+  $z = ($observed - $baseline) / if($dispersion > 0, $dispersion, 1.0)
 
 order:
   $z desc
@@ -682,7 +676,7 @@ $$\text{CRI} = \text{round}\left(\frac{100}{1 + e^{-0.6(0.68 - 3.0)}}\right) = \
 * Baseline Window: $N = 30\text{ days}$
 * Aggregation Unit: $1\text{ day}$ rolling buckets (`period: 1d`)
 * Dispersion Floor: $\sigma_{\text{floor}} = 1.0$ applied to prevent division-by-zero on low-entropy dimensions:
-$$Z_i = \frac{\text{Obs}_i - \mu_i}{\sigma_i + 1.0}$$
+$$Z_i = \frac{\text{Obs}_i - \mu_i}{\max(\sigma_i, 1.0)}$$
 
 </details>
 ````

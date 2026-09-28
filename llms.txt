@@ -18,9 +18,9 @@ Key instructions for agents:
 4. EXACT TIME WINDOW ARITHMETIC:
    - Always calculate $\text{startTime} = \text{endTime} - N \times 86400\text{s}$ with exact mathematical precision to match the requested horizon and prevent breaches of Chronicle's 14-day multi-stage limit.
 
-5. UNIVERSAL DISPERSION FLOOR (+ 1.0):
-   - Always apply a dispersion floor (+ 1.0) to all Z-score denominators: $Z = (X - \mu) / (\sigma + 1.0)$.
-   - Prevents division-by-zero on quiet service accounts and suppresses infinite false positives.
+5. OUTCOME NESTED LOGIC DISPERSION FLOOR:
+   - Always apply safe division via outcome nested logic to all Z-score denominators: $Z = (X - \mu) / if(\sigma > 0, \sigma, 1.0)$.
+   - Eliminates division-by-zero on quiet accounts while preserving exact mathematical scaling on active telemetry.
 
 6. INTERACTIVE ENTITY GRAPH DISCOVERY & 10-DAY INVARIANT:
    - Never ignore qualitative modifiers ("rare domains", "uncommon binaries", "first seen").

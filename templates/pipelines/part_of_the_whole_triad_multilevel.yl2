@@ -37,9 +37,9 @@ stage all_entities {
     $m3_p_std = max({{m3_metric_func_stddev}})
 
     // In-Stage Personal Historical Z-Scores across the Triad (Outcomes-in-Outcomes)
-    $z1_personal = ($m1_obs - $m1_p_avg) / ($m1_p_std + 1.0)
-    $z2_personal = ($m2_obs - $m2_p_avg) / ($m2_p_std + 1.0)
-    $z3_personal = ($m3_obs - $m3_p_avg) / ($m3_p_std + 1.0)
+    $z1_personal = ($m1_obs - $m1_p_avg) / if($m1_p_std > 0, $m1_p_std, 1.0)
+    $z2_personal = ($m2_obs - $m2_p_avg) / if($m2_p_std > 0, $m2_p_std, 1.0)
+    $z3_personal = ($m3_obs - $m3_p_avg) / if($m3_p_std > 0, $m3_p_std, 1.0)
 }
 
 // Stage 2: Team Cohort Whole (Macro baseline across designated peers)
@@ -106,14 +106,22 @@ outcome:
   $z3_personal = max($all_entities.z3_personal)
 
   // 2. Team Cross-Sectional Z-Scores ("Part of the Team")
-  $z1_vs_team = ($m1_observed - max($team_cohort_stats.m1_team_avg)) / (max($team_cohort_stats.m1_team_std) + 1.0)
-  $z2_vs_team = ($m2_observed - max($team_cohort_stats.m2_team_avg)) / (max($team_cohort_stats.m2_team_std) + 1.0)
-  $z3_vs_team = ($m3_observed - max($team_cohort_stats.m3_team_avg)) / (max($team_cohort_stats.m3_team_std) + 1.0)
+  $t1_std = max($team_cohort_stats.m1_team_std)
+  $t2_std = max($team_cohort_stats.m2_team_std)
+  $t3_std = max($team_cohort_stats.m3_team_std)
+
+  $z1_vs_team = ($m1_observed - max($team_cohort_stats.m1_team_avg)) / if($t1_std > 0, $t1_std, 1.0)
+  $z2_vs_team = ($m2_observed - max($team_cohort_stats.m2_team_avg)) / if($t2_std > 0, $t2_std, 1.0)
+  $z3_vs_team = ($m3_observed - max($team_cohort_stats.m3_team_avg)) / if($t3_std > 0, $t3_std, 1.0)
 
   // 3. Enterprise Cross-Sectional Z-Scores ("Part of the Enterprise")
-  $z1_vs_enterprise = ($m1_observed - max($enterprise_stats.m1_fleet_avg)) / (max($enterprise_stats.m1_fleet_std) + 1.0)
-  $z2_vs_enterprise = ($m2_observed - max($enterprise_stats.m2_fleet_avg)) / (max($enterprise_stats.m2_fleet_std) + 1.0)
-  $z3_vs_enterprise = ($m3_observed - max($enterprise_stats.m3_fleet_avg)) / (max($enterprise_stats.m3_fleet_std) + 1.0)
+  $e1_std = max($enterprise_stats.m1_fleet_std)
+  $e2_std = max($enterprise_stats.m2_fleet_std)
+  $e3_std = max($enterprise_stats.m3_fleet_std)
+
+  $z1_vs_enterprise = ($m1_observed - max($enterprise_stats.m1_fleet_avg)) / if($e1_std > 0, $e1_std, 1.0)
+  $z2_vs_enterprise = ($m2_observed - max($enterprise_stats.m2_fleet_avg)) / if($e2_std > 0, $e2_std, 1.0)
+  $z3_vs_enterprise = ($m3_observed - max($enterprise_stats.m3_fleet_avg)) / if($e3_std > 0, $e3_std, 1.0)
 
   // 4. Composite Threat Norm Across the Triad vs Team Cohort
   $d_vs_team_sq = ($z1_vs_team * $z1_vs_team) + ($z2_vs_team * $z2_vs_team) + ($z3_vs_team * $z3_vs_team)

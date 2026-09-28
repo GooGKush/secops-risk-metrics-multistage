@@ -66,8 +66,7 @@ outcome:
   $observed = max($stage1_asset_baseline.observed_val)
   $mean = max($stage1_asset_baseline.hist_mean)
   $stddev = max($stage1_asset_baseline.hist_stddev)
-  $safe_sigma = if($stddev > 0, $stddev, 1.0)
-  $z_score = ($observed - $mean) / ($safe_sigma + 1.0)
+  $z_score = ($observed - $mean) / if($stddev > 0, $stddev, 1.0)
   $active_baseline_days = max($stage1_asset_baseline.hist_active_days)
 
   $first_seen = min($stage2_asset_derived_context.first_seen_ts)

@@ -24,8 +24,7 @@ stage auth_sector {
         period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
         principal.user.userid: $user
     ))
-    $a_diff = $auth_obs - $auth_avg
-    $z_auth = $a_diff / ($auth_std + 1.0)
+    $z_auth = ($auth_obs - $auth_avg) / if($auth_std > 0, $auth_std, 1.0)
 }
 
 // --- STAGE 2: Sector 2 - Cloud Infrastructure CRUD ---
@@ -53,8 +52,7 @@ stage cloud_sector {
         metadata.vendor_name: $c_vendor,
         metadata.product_name: $c_product
     ))
-    $c_diff = $cloud_obs - $cloud_avg
-    $z_cloud = $c_diff / ($cloud_std + 1.0)
+    $z_cloud = ($cloud_obs - $cloud_avg) / if($cloud_std > 0, $cloud_std, 1.0)
 }
 
 // --- STAGE 3: Sector 3 - Endpoint Administrative Tools / LOLBins ---
@@ -82,8 +80,7 @@ stage proc_sector {
         principal.process.file.sha256: $p_hash,
         metadata.event_type: $p_event
     ))
-    $p_diff = $proc_obs - $proc_avg
-    $z_proc = $p_diff / ($proc_std + 1.0)
+    $z_proc = ($proc_obs - $proc_avg) / if($proc_std > 0, $proc_std, 1.0)
 }
 
 // --- STAGE 4: Sector 4 - Network Egress Data Volume ---
@@ -105,8 +102,7 @@ stage net_sector {
         period: 1d, window: 30d, metric: value_sum, agg: stddev,
         principal.user.userid: $user
     ))
-    $n_diff = $net_bytes_obs - $net_bytes_avg
-    $z_net = $n_diff / ($net_bytes_std + 1.0)
+    $z_net = ($net_bytes_obs - $net_bytes_avg) / if($net_bytes_std > 0, $net_bytes_std, 1.0)
 }
 
 // --- ROOT STAGE: Multi-Sector Threat Fusion & Distance Scoring ---

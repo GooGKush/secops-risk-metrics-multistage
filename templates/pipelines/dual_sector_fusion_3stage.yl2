@@ -31,8 +31,7 @@ stage auth_sector {
         period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
         target.user.userid: $user
     ))
-    $a_diff = $auth_obs - $auth_avg
-    $z_auth = $a_diff / ($auth_std + 1.0)
+    $z_auth = ($auth_obs - $auth_avg) / if($auth_std > 0, $auth_std, 1.0)
 }
 
 // --- STAGE 2: Sector 2 - Network Egress Data Volume ---
@@ -54,8 +53,7 @@ stage net_sector {
         period: 1d, window: 30d, metric: value_sum, agg: stddev,
         principal.user.userid: $user
     ))
-    $n_diff = $net_bytes_obs - $net_bytes_avg
-    $z_net = $n_diff / ($net_bytes_std + 1.0)
+    $z_net = ($net_bytes_obs - $net_bytes_avg) / if($net_bytes_std > 0, $net_bytes_std, 1.0)
 }
 
 // --- ROOT STAGE: Dual-Sector Threat Fusion & Distance Scoring (3 Joins Total) ---

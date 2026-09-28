@@ -66,9 +66,7 @@ outcome:
   $events_count = max($stage1_extract.observed_events)
 
   // 1. Non-Parametric Robust Dispersion & Modified Z-Score (MAD)
-  // Formula: Mz = 0.6745 * (Observed - Mean) / (StdDev + Floor)
-  $deviation = $observed_val - $baseline_mean
-  $mad_modified_z = 0.6745 * ($deviation / ($baseline_stddev + {{dispersion_floor}}))
+  $mad_modified_z = 0.6745 * ($observed_val - $baseline_mean) / if($baseline_stddev > 0, $baseline_stddev, {{dispersion_floor}})
 
 order:
   $mad_modified_z desc

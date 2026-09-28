@@ -1400,8 +1400,8 @@ class MalachiteASTValidator:
       if "sqrt" not in query_text.lower() and "poisson" not in query_text.lower():
         errors.append("MODEL_FORMULA_MISMATCH: Discrete Poisson model must calculate standard Poisson residual using sqrt(lambda).")
     elif model == StatisticalModel.STANDARD_Z_SCORE:
-      if "+ 1.0" not in query_text and "stddev" not in query_text.lower():
-        errors.append("MODEL_FORMULA_MISMATCH: Standard Z-Score must apply dispersion floor (+ 1.0) to denominator.")
+      if "+ 1.0" not in query_text and "if(" not in query_text and "stddev" not in query_text.lower():
+        errors.append("MODEL_FORMULA_MISMATCH: Standard Z-Score must apply dispersion floor (+ 1.0) or nested logic if($std > 0, $std, 1.0) to denominator.")
 
     return errors
 

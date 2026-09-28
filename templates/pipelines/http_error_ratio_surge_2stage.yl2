@@ -38,9 +38,7 @@ stage stage1_http_failure_surge {
         principal.asset.hostname: $host
     ))
 
-    $diff = $failed_obs - $hist_fail_avg
-    $denom = $hist_fail_stddev + 1.0
-    $fail_z = $diff / $denom
+    $fail_z = ($failed_obs - $hist_fail_avg) / if($hist_fail_stddev > 0, $hist_fail_stddev, 1.0)
 }
 
 // Stage 2: Host Overall Web Traffic Baseline (Total Volume)

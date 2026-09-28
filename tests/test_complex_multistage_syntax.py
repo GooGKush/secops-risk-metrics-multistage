@@ -311,10 +311,10 @@ order:
     ms_path = os.path.join(self.templates_dir, "multi_sector_fusion_4stage.yl2")
     with open(ms_path, "r", encoding="utf-8") as f:
       ms_content = f.read()
-    self.assertIn("$z_auth = $a_diff / ($auth_std + 1.0)", ms_content)
-    self.assertIn("$z_cloud = $c_diff / ($cloud_std + 1.0)", ms_content)
-    self.assertIn("$z_proc = $p_diff / ($proc_std + 1.0)", ms_content)
-    self.assertIn("$z_net = $n_diff / ($net_bytes_std + 1.0)", ms_content)
+    self.assertIn("$z_auth = ($auth_obs - $auth_avg) / if($auth_std > 0, $auth_std, 1.0)", ms_content)
+    self.assertIn("$z_cloud = ($cloud_obs - $cloud_avg) / if($cloud_std > 0, $cloud_std, 1.0)", ms_content)
+    self.assertIn("$z_proc = ($proc_obs - $proc_avg) / if($proc_std > 0, $proc_std, 1.0)", ms_content)
+    self.assertIn("$z_net = ($net_bytes_obs - $net_bytes_avg) / if($net_bytes_std > 0, $net_bytes_std, 1.0)", ms_content)
     self.assertIn("$z_auth = max($auth_sector.z_auth)", ms_content)
     self.assertIn("$z_cloud = max($cloud_sector.z_cloud)", ms_content)
     self.assertIn("$z_proc = max($proc_sector.z_proc)", ms_content)
@@ -324,8 +324,8 @@ order:
     ds_path = os.path.join(self.templates_dir, "dual_sector_fusion_3stage.yl2")
     with open(ds_path, "r", encoding="utf-8") as f:
       ds_content = f.read()
-    self.assertIn("$z_auth = $a_diff / ($auth_std + 1.0)", ds_content)
-    self.assertIn("$z_net = $n_diff / ($net_bytes_std + 1.0)", ds_content)
+    self.assertIn("$z_auth = ($auth_obs - $auth_avg) / if($auth_std > 0, $auth_std, 1.0)", ds_content)
+    self.assertIn("$z_net = ($net_bytes_obs - $net_bytes_avg) / if($net_bytes_std > 0, $net_bytes_std, 1.0)", ds_content)
     self.assertIn("$z_auth = max($auth_sector.z_auth)", ds_content)
     self.assertIn("$z_net = max($net_sector.z_net)", ds_content)
 
@@ -344,21 +344,21 @@ order:
     dz_path = os.path.join(self.templates_dir, "dual_baseline_delta_z_3stage.yl2")
     with open(dz_path, "r", encoding="utf-8") as f:
       dz_content = f.read()
-    self.assertIn("$personal_z = $personal_diff / ($hist_stddev + 1.0)", dz_content)
+    self.assertIn("$personal_z = ($observed_24h - $hist_avg) / if($hist_stddev > 0, $hist_stddev, 1.0)", dz_content)
     self.assertIn("$personal_z = max($host_extract.personal_z)", dz_content)
 
     # 5. part_of_the_whole_multilevel.yl2
     pw_path = os.path.join(self.templates_dir, "part_of_the_whole_multilevel.yl2")
     with open(pw_path, "r", encoding="utf-8") as f:
       pw_content = f.read()
-    self.assertIn("$z_personal = $personal_diff / ($personal_std + 1.0)", pw_content)
+    self.assertIn("$z_personal = ($obs - $personal_avg) / if($personal_std > 0, $personal_std, 1.0)", pw_content)
     self.assertIn("$z_personal = max($all_entities.z_personal)", pw_content)
 
     # 6. radar_360_decoupled_sector.yl2
     rd_path = os.path.join(self.templates_dir, "radar_360_decoupled_sector.yl2")
     with open(rd_path, "r", encoding="utf-8") as f:
       rd_content = f.read()
-    self.assertIn("$z = $diff / ($std + 1.0)", rd_content)
+    self.assertIn("$z = ($obs - $avg) / if($std > 0, $std, 1.0)", rd_content)
     self.assertIn("$z = max($auth_risk.z)", rd_content)
 
 
