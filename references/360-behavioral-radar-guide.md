@@ -430,6 +430,11 @@ When a sector micro-query returns **$\ge 1$ matching rows**:
 * **Standardized Formula**:
   $$Z_i = \frac{\text{Observed}_i - \mu_i}{\sigma_i + 1.0}$$
 
+### 5.3 Analytical Pipeline Flow & Progressive Telemetry Discipline
+* **Sequential Sector Execution**: Execute the 6 canonical decoupled multi-stage micro-queries in direct succession. When any sector query returns 0 events (`{}` or empty `stats`), record the standardized nominal baseline assignment ($Z = 0.00\sigma, \text{Observed} = 0, \mu = 0.0, \sigma = 0.0$) and proceed immediately to execute the subsequent sector micro-query.
+* **Hermetic Multi-Stage Telemetry Scope**: The 360° behavioral radar derives all behavioral insights strictly from the structured statistical outcomes of the 6 canonical micro-queries. Every query dispatched during Phase 2 execution adheres strictly to the multi-stage YARA-L architecture (`stage ... match: ... outcome: ...`).
+* **Placement of Qualitative Drill-Downs**: Ad-hoc raw event searches and unstructured entity lookups belong exclusively to the post-report investigative pivot in Pillar 5 (Chronicle UI Manual Pivot) after the complete 6-pillar forensic report and radar visualization are rendered for the analyst.
+
 ---
 
 ## 📐 6. Phase 4: Mathematical Join Engine & Local JS Implementation
