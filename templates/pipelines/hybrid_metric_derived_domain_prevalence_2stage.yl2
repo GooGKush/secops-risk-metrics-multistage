@@ -7,6 +7,18 @@
 //          destinations and prune routine corporate SaaS/CDN traffic.
 // Join Budget: 1 metric lookup (Stage 1) + 1 stage join (Root) = 2 joins total (<= 4).
 // Invariant: Stage 1 evaluates universal volume; Stage 2 isolates graph lookup (ECG_LIMIT = 1).
+//
+// CONCRETE FIELD BINDING & INSTANTIATION GUIDE:
+// 1. Web / HTTP Destination Domain:
+//    - {{event_type}}: "NETWORK_HTTP"
+//    - {{target_metric_func_avg}}: metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.asset.hostname: $host, target.hostname: $domain)
+//    - {{target_metric_func_stddev}}: metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.asset.hostname: $host, target.hostname: $domain)
+//    - {{target_metric_func_active_days}}: metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.asset.hostname: $host, target.hostname: $domain)
+// 2. DNS Query Destination Domain:
+//    - {{event_type}}: "NETWORK_DNS"
+//    - {{target_metric_func_avg}}: metrics.dns_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.asset.hostname: $host, network.dns.questions.name: $domain)
+//    - {{target_metric_func_stddev}}: metrics.dns_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.asset.hostname: $host, network.dns.questions.name: $domain)
+//    - {{target_metric_func_active_days}}: metrics.dns_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.asset.hostname: $host, network.dns.questions.name: $domain)
 // ============================================================================
 
 // Stage 1: Macro 30-Day Destination Query Baseline (metrics.*)

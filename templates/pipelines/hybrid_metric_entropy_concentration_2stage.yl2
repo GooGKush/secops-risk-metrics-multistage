@@ -7,6 +7,20 @@
 //   2. Concentration Index & "Elephant Flow" Isolation (HHI / Gini Proxy)
 // Join Budget: 1 metric lookup (Stage 1) + 1 stage join (Root) = 2 joins total (<= 4).
 // Match Topology: Symmetrical entity match ($entity by 1d).
+//
+// CONCRETE FIELD BINDING & INSTANTIATION GUIDE:
+// 1. Network Egress + Destination IP Diversity Collapse / Elephant Flow:
+//   - {{macro_event_type}}: "NETWORK_CONNECTION"
+//   - {{macro_entity_field}}: principal.asset.hostname (or principal.user.userid)
+//   - {{macro_event_filter}}: network.sent_bytes != 0
+//   - {{macro_observed_agg}}: sum(network.sent_bytes)
+//   - {{target_metric_func_avg}}: metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: avg, principal.asset.hostname: $entity)
+//   - {{target_metric_func_stddev}}: metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: stddev, principal.asset.hostname: $entity)
+//   - {{target_metric_func_active_days}}: metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: num_metric_periods, principal.asset.hostname: $entity)
+//   - {{raw_event_type}}: "NETWORK_CONNECTION"
+//   - {{raw_entity_field}}: principal.asset.hostname
+//   - {{raw_cardinality_field}}: target.ip
+//   - {{raw_concentration_val}}: network.sent_bytes
 // ============================================================================
 
 // Stage 1: Macro-Volumetric 30-Day Baseline Outlier Sieve (metrics.*)

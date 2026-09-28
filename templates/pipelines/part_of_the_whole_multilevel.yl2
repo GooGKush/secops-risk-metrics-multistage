@@ -4,6 +4,18 @@
 // Purpose: Evaluates an individual against their personal 30-day baseline,
 //          their immediate peer team cohort, and the entire enterprise population.
 // Math: Multilevel Z-Scores: Z_Personal, Z_vs_Team, Z_vs_Enterprise
+//
+// CONCRETE FIELD BINDING & INSTANTIATION GUIDE:
+// 1. User Authentication Attempts:
+//    - {{event_type}}: "USER_LOGIN", {{entity_field}}: target.user.userid, {{entity_var}}: $user
+//    - {{observation_agg}}: count(metadata.id)
+//    - {{target_metric_func_avg}}: metrics.auth_attempts_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, target.user.userid: $user)
+//    - {{target_metric_func_stddev}}: metrics.auth_attempts_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, target.user.userid: $user)
+// 2. Host Network Egress Outbound Bytes:
+//    - {{event_type}}: "NETWORK_CONNECTION", {{entity_field}}: principal.asset.hostname, {{entity_var}}: $host
+//    - {{observation_agg}}: sum(network.sent_bytes)
+//    - {{target_metric_func_avg}}: metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: avg, principal.asset.hostname: $host)
+//    - {{target_metric_func_stddev}}: metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: stddev, principal.asset.hostname: $host)
 // ============================================================================
 
 // Stage 1: Enterprise Population Telemetry + 30-Day Historical Baselines

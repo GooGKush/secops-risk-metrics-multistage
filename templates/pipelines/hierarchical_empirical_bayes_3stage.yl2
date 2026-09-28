@@ -3,6 +3,18 @@
 // Skill: secops-risk-metrics-multistage
 // Purpose: Pools organizational peer-group variance to regularize sparse/new hosts
 // Math: Hyper-Prior Pooling (Fleet Alpha/Beta) + Host Bayesian Updating
+//
+// CONCRETE FIELD BINDING & INSTANTIATION GUIDE:
+// 1. Host Authentication Activity:
+//    - {{event_type}}: "USER_LOGIN"
+//    - {{target_metric_func_avg}}: metrics.auth_attempts_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.asset.hostname: $host)
+//    - {{target_metric_func_stddev}}: metrics.auth_attempts_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.asset.hostname: $host)
+//    - {{target_metric_func_active_days}}: metrics.auth_attempts_total(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.asset.hostname: $host)
+// 2. Host Network Egress Activity:
+//    - {{event_type}}: "NETWORK_CONNECTION"
+//    - {{target_metric_func_avg}}: metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: avg, principal.asset.hostname: $host)
+//    - {{target_metric_func_stddev}}: metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: stddev, principal.asset.hostname: $host)
+//    - {{target_metric_func_active_days}}: metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: num_metric_periods, principal.asset.hostname: $host)
 // ============================================================================
 
 // Stage 1: Individual Host Daily Telemetry + 30d Historical Metric Baselines

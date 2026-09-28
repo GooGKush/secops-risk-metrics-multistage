@@ -6,6 +6,31 @@
 //   6. Cross-Sectional Odds Ratio (Corporate Rollout Shield / Patch Tuesday Filter)
 // Join Budget: 1 metric lookup (Stage 1) + 1 stage join (Root) = 2 joins total (<= 4).
 // Match Topology: Token-centric match key ($token by 1d) joining personal anomaly to fleet breadth.
+//
+// CONCRETE FIELD BINDING & INSTANTIATION GUIDE:
+// 1. Process / Binary Execution Surge (Patch Tuesday Shield for Unfamiliar Binaries):
+//    - {{macro_event_type}}: "PROCESS_LAUNCH"
+//    - {{macro_entity_field}}: principal.asset.hostname (or principal.user.userid)
+//    - {{macro_token_field}}: principal.process.file.sha256 (CRITICAL: NEVER target.process.file.sha256)
+//    - {{macro_observed_agg}}: count(metadata.id)
+//    - {{target_metric_func_avg}}: metrics.file_executions_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, metadata.event_type: $event_type, principal.asset.hostname: $entity, principal.process.file.sha256: $token)
+//    - {{target_metric_func_stddev}}: metrics.file_executions_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, metadata.event_type: $event_type, principal.asset.hostname: $entity, principal.process.file.sha256: $token)
+//    - {{target_metric_func_active_days}}: metrics.file_executions_total(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, metadata.event_type: $event_type, principal.asset.hostname: $entity, principal.process.file.sha256: $token)
+//    - {{raw_event_type}}: "PROCESS_LAUNCH"
+//    - {{raw_token_field}}: principal.process.file.sha256
+//    - {{fleet_entity_field}}: principal.asset.hostname
+//
+// 2. HTTP User-Agent Adoption Surge:
+//    - {{macro_event_type}}: "NETWORK_HTTP"
+//    - {{macro_entity_field}}: principal.asset.hostname (or principal.user.userid)
+//    - {{macro_token_field}}: network.http.user_agent
+//    - {{macro_observed_agg}}: count(metadata.id)
+//    - {{target_metric_func_avg}}: metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.asset.hostname: $entity, network.http.user_agent: $token)
+//    - {{target_metric_func_stddev}}: metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.asset.hostname: $entity, network.http.user_agent: $token)
+//    - {{target_metric_func_active_days}}: metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.asset.hostname: $entity, network.http.user_agent: $token)
+//    - {{raw_event_type}}: "NETWORK_HTTP"
+//    - {{raw_token_field}}: network.http.user_agent
+//    - {{fleet_entity_field}}: principal.asset.hostname
 // ============================================================================
 
 // Stage 1: Individual Entity Baseline Surge & Micro-Token Extraction (metrics.*)

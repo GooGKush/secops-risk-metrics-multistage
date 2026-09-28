@@ -3,6 +3,16 @@
 // Skill: secops-risk-metrics-multistage
 // Purpose: Detects sudden execution of historically near-zero rare events
 // Formula: Z_P = (k - lambda) / math.sqrt(lambda + 1.0)
+//
+// CONCRETE FIELD BINDING & INSTANTIATION GUIDE:
+// 1. Rare User Authentication Failures:
+//    - {{event_type}}: "USER_LOGIN", {{entity_field}}: target.user.userid, {{value_filter}}: security_result.action = "BLOCK"
+//    - {{observed_aggregation}}: count(metadata.id), {{target_metric_name}}: auth_attempts_fail
+//    - {{dimension_key}}: target.user.userid
+// 2. Rare Failed File Executions:
+//    - {{event_type}}: "PROCESS_LAUNCH", {{entity_field}}: principal.asset.hostname
+//    - Companion Dimension: principal.process.file.sha256 = $sha (CRITICAL: NEVER target.process.file.sha256)
+//    - {{target_metric_name}}: file_executions_fail (requires metadata.event_type: $event_type, principal.asset.hostname: $entity, principal.process.file.sha256: $sha)
 // ============================================================================
 
 // Stage 1: Rare Telemetry Extraction & 30d Historical Lambda Lookup

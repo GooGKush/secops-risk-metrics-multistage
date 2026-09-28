@@ -46,6 +46,7 @@ stage stage1_process_baseline {
         metadata.event_type: $event_type,
         principal.asset.hostname: $host,
         principal.process.file.sha256: $sha256
+    ))
     $historical_active_days = $hist_active_days
     $event_timestamp = max(metadata.event_timestamp.seconds)
 }

@@ -156,6 +156,27 @@ Process execution events model the binary image as a `File` sub-message within `
 ❌ **INVALID**: `principal.process.sha256 = "..."`  
 ✅ **VALID**: `principal.process.file.sha256 = "..."`
 
+❌ **INVALID**: `metrics.file_executions_total(target.process.file.sha256: $token)`  
+✅ **VALID**: `metrics.file_executions_total(principal.process.file.sha256: $token)` *(Chronicle metric index strictly uses principal.process.file.sha256)*
+
+### 3.1 Malachite Metric Alignment Matrix (`events:` Block vs. `metrics.file_executions_*`)
+To guarantee metrics integrity, align the raw event query in `events:` with the underlying Malachite pre-computed tables:
+
+| Telemetry Concept | Raw `events:` Section Path | Metric Table Handling (`metrics.file_executions_*`) | Canonical Multi-Stage Placement & Pattern |
+| :--- | :--- | :--- | :--- |
+| **Binary SHA256 Hash** | `principal.process.file.sha256 = $sha` | Mandatory Dimension: `principal.process.file.sha256` | **Stage 1 Filter**: Pass directly to `metrics.file_executions_*(..., principal.process.file.sha256: $sha)`. **CRITICAL**: Never pass `target.process.file.sha256` (unindexed, compiler rejection). |
+| **Executing Machine Host** | `principal.asset.hostname = $host` | Dimension: `principal.asset.hostname` | **Stage 1 Filter**: Pass directly to `metrics.file_executions_*(principal.asset.hostname: $host)`. |
+| **Executing User** | `principal.user.userid = $user` | Dimension: `principal.user.userid` | **Stage 1 Filter**: Pass directly to `metrics.file_executions_*(principal.user.userid: $user)`. |
+| **Event Type Ingest Gate** | `metadata.event_type = "PROCESS_LAUNCH"` | Mandatory Companion Dimension | **Stage 1 Ingest Gate**: Pass `metadata.event_type: $event_type` where `$event_type = metadata.event_type`. Required by Chronicle SIEM compiler. |
+| **Execution Status Shards** | N/A | Pre-Partitioned Metric Shards | **Metric Selection**: Query `metrics.file_executions_total` (all launches), `metrics.file_executions_fail` (blocked/failed), or `metrics.file_executions_success`. |
+| **Process Command Line** | `principal.process.command_line = $cmd` | Forensic Companion Field | **Stage 1/2 Outcome**: Project as forensic proof (`outcome: array_distinct(principal.process.command_line)`). Unindexed in metrics. |
+| **Executable Full Path** | `principal.process.file.full_path = $path` | Forensic Companion Field | **Stage 1/2 Outcome**: Project as forensic proof (`outcome: array_distinct(principal.process.file.full_path)`). Unindexed in metrics. |
+
+### 3.2 Affirmative AST Compiler & Placement Rules:
+* **Rule 9 (Process Binary Path Invariant)**: In `metrics.file_executions_*`, binary hash MUST ALWAYS be mapped via `principal.process.file.sha256`. Passing `target.process.file.sha256` or `principal.process.sha256` causes an immediate Chronicle compiler error (`Request contains an invalid argument`).
+* **Rule 10 (Mandatory Event Type Companion)**: In `metrics.file_executions_*`, `$event_type` MUST be bound to `metadata.event_type` and passed as `metadata.event_type: $event_type` (or literal `"PROCESS_LAUNCH"`).
+* **Rule 11 (Token-Centric Fleet Normalization)**: For fleet prevalence normalization (Patch Tuesday Shield), match by `$token by 1d` where `$token` is bound to `principal.process.file.sha256` in both Stage 1 and Stage 2.
+
 ---
 
 ## 4. User Authentication Telemetry (`USER_LOGIN`, `USER_LOGOUT`)
@@ -172,6 +193,20 @@ Authentication logs must cleanly differentiate the client/source from the identi
 - **Logon Type / Mechanism**: `extensions.auth.type` (e.g. `INTERACTIVE`, `REMOTE_INTERACTIVE`, `SERVICE`)
 - **Authentication Result**: `security_result.action` (`ALLOW`, `BLOCK`)
 
+### 4.1 Malachite Metric Alignment Matrix (`events:` Block vs. `metrics.auth_attempts_*`)
+To guarantee metrics integrity, align the raw event query in `events:` with the underlying Malachite pre-computed tables:
+
+| Telemetry Concept | Raw `events:` Section Path | Metric Table Handling (`metrics.auth_attempts_*`) | Canonical Multi-Stage Placement & Pattern |
+| :--- | :--- | :--- | :--- |
+| **Target User Account** | `target.user.userid = $user` | Dimension: `target.user.userid` | **Stage 1 Filter**: Pass directly to `metrics.auth_attempts_*(target.user.userid: $user)`. |
+| **Source Client Host** | `principal.asset.hostname = $host` | Dimension: `principal.asset.hostname` | **Stage 1 Filter**: Pass directly to `metrics.auth_attempts_*(principal.asset.hostname: $host)`. |
+| **Source Client IP** | `principal.asset.ip = $ip` | Dimension: `principal.asset.ip` | **Stage 1 Filter**: Pass directly to `metrics.auth_attempts_*(principal.asset.ip: $ip)`. |
+| **Auth Result Shards** | `security_result.action` | Pre-Partitioned Metric Shards | **Metric Selection**: Query `metrics.auth_attempts_fail` (for failed/brute-force) or `metrics.auth_attempts_total`. |
+
+### 4.2 Affirmative AST Compiler & Placement Rules:
+* **Rule 12 (Target User Affinity)**: For user authentication baselines, pass `target.user.userid: $user` (the authenticated account).
+* **Rule 13 (Asset Origin Affinity)**: For host authentication baselines, pass `principal.asset.hostname: $host` (the originating client).
+
 ---
 
 ## 5. Cloud Resource Operations (`USER_RESOURCE_CREATION`, `USER_RESOURCE_UPDATE_CONTENT`, etc.)
@@ -185,3 +220,26 @@ Cloud control plane operations (GCP Cloud Audit Logs, AWS CloudTrail, Azure Acti
 - **Acting Principal**: `principal.user.userid` or `principal.user.email_addresses`
 - **Service Name**: `target.application` (e.g. `"storage.googleapis.com"`, `"bigquery.googleapis.com"`)
 - **Vendor / Product**: `metadata.vendor_name`, `metadata.product_name`
+
+### 5.1 Malachite Metric Alignment Matrix (`events:` Block vs. `metrics.resource_*`)
+To guarantee metrics integrity, align the raw event query in `events:` with the underlying Malachite pre-computed tables:
+
+| Telemetry Concept | Raw `events:` Section Path | Metric Table Handling (`metrics.resource_*`) | Canonical Multi-Stage Placement & Pattern |
+| :--- | :--- | :--- | :--- |
+| **Acting Identity** | `principal.user.userid = $sa` | Dimension: `principal.user.userid` | **Stage 1 Match Key**: Service account or user ID (`$sa by 1d`). |
+| **Vendor Name** | `metadata.vendor_name = $vendor` | Mandatory Dimension | **Stage 1 Companion**: Bind `$vendor` and pass `metadata.vendor_name: $vendor`. |
+| **Product Name** | `metadata.product_name = $product` | Mandatory Dimension | **Stage 1 Companion**: Bind `$product` and pass `metadata.product_name: $product`. |
+| **Resource Identifier** | `target.resource.name = $res` | Dimension | **Stage 1 Companion**: Bind `$res` and pass `target.resource.name: $res`. |
+
+---
+
+## 6. Security & EDR Rule Alerts Telemetry (`metadata.event_type = "SCAN_UNCATEGORIZED"`)
+
+Rule alerts and EDR detections operate as a compound baseline requiring rule name binding:
+
+### 6.1 Malachite Metric Alignment Matrix (`events:` Block vs. `metrics.alert_event_name_count`)
+| Telemetry Concept | Raw `events:` Section Path | Metric Table Handling (`metrics.alert_event_name_count`) | Canonical Multi-Stage Placement & Pattern |
+| :--- | :--- | :--- | :--- |
+| **Rule / Alert Name** | `security_result.rule_name = $rule_name` | Mandatory Companion Dimension | **Stage 1 Filter**: Pass `security_result.rule_name: $rule_name`. Mandatory companion dimension. |
+| **Event Type** | `metadata.event_type = "SCAN_UNCATEGORIZED"` | Mandatory Ingest Gate | **Stage 1 Filter**: Pass `metadata.event_type: "SCAN_UNCATEGORIZED"`. |
+| **Target Entity** | `principal.asset.hostname = $host` or `principal.user.userid = $user` | Dimension: `principal.asset.hostname` or `principal.user.userid` | **Stage 1 Match Key**: Bind entity match key (`$host` or `$user`). |

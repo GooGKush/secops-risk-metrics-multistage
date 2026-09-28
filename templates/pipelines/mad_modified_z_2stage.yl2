@@ -3,6 +3,16 @@
 // Skill: secops-risk-metrics-multistage
 // Purpose: Heavy-tail & burst resistant outlier detection across a sliding timeline
 // Formula: Mz = 0.6745 * (Observed - Baseline_Mean) / (Baseline_StdDev + Floor)
+//
+// CONCRETE FIELD BINDING & INSTANTIATION GUIDE:
+// 1. Network Outbound Bytes (Host):
+//    - {{event_type}}: "NETWORK_CONNECTION", {{entity_field}}: principal.asset.hostname, {{value_filter}}: network.sent_bytes != 0
+//    - {{observed_aggregation}}: sum(network.sent_bytes), {{target_metric_name}}: network_bytes_outbound
+//    - {{metric_type_val}}: value_sum, {{dimension_key}}: principal.asset.hostname
+// 2. Authentication Attempts (User):
+//    - {{event_type}}: "USER_LOGIN", {{entity_field}}: target.user.userid, {{value_filter}}: target.user.userid != ""
+//    - {{observed_aggregation}}: count(metadata.id), {{target_metric_name}}: auth_attempts_total
+//    - {{metric_type_val}}: event_count_sum, {{dimension_key}}: target.user.userid
 // ============================================================================
 
 // Stage 1: Telemetry Extraction & Pre-Computed 30-Day Behavioral Baseline Lookup
