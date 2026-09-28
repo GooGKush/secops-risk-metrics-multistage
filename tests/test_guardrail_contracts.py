@@ -15,7 +15,7 @@ REPO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if REPO_DIR not in sys.path:
   sys.path.insert(0, REPO_DIR)
 
-from scripts.preflight_validator import MalachiteASTValidator
+from scripts.preflight_validator import MalachiteASTValidator, METRIC_CATALOG
 
 
 class TestGuardrailContracts(unittest.TestCase):
@@ -440,18 +440,36 @@ class TestGuardrailContracts(unittest.TestCase):
       g_content = f.read()
 
   def test_precomposed_pipeline_templates_exist(self):
-    """All essential analytical models must have pre-composed pipeline templates in templates/pipelines/."""
+    """All 25 analytical pipeline templates in templates/pipelines/ must exist and be non-empty."""
     skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     pipelines_dir = os.path.join(skill_dir, 'templates', 'pipelines')
     
     expected_pipelines = [
-        'mad_modified_z_2stage.yl2',
-        'standard_z_score_2stage.yl2',
-        'poisson_rarity_2stage.yl2',
-        'longitudinal_cusum_2stage.yl2',
+        'c2_beacon_flow_frequency_2stage.yl2',
+        'cloud_repository_scope_dual_branch.yl2',
         'dual_baseline_delta_z_3stage.yl2',
+        'dual_sector_fusion_3stage.yl2',
         'hierarchical_empirical_bayes_3stage.yl2',
-        'multi_sector_fusion_4stage.yl2'
+        'http_error_ratio_surge_2stage.yl2',
+        'http_target_surge_2stage.yl2',
+        'hybrid_metric_derived_asset_age_2stage.yl2',
+        'hybrid_metric_derived_domain_prevalence_2stage.yl2',
+        'hybrid_metric_derived_file_prevalence_2stage.yl2',
+        'hybrid_metric_entropy_concentration_2stage.yl2',
+        'hybrid_metric_fleet_prevalence_2stage.yl2',
+        'hybrid_metric_http_ua_prevalence_2stage.yl2',
+        'hybrid_metric_orthogonal_space_2stage.yl2',
+        'hybrid_metric_raw_enrichment_2stage.yl2',
+        'hybrid_metric_whois_domain_lifecycle_2stage.yl2',
+        'longitudinal_cusum_2stage.yl2',
+        'mad_modified_z_2stage.yl2',
+        'multi_sector_fusion_4stage.yl2',
+        'part_of_the_whole_multilevel.yl2',
+        'part_of_the_whole_triad_multilevel.yl2',
+        'poisson_rarity_2stage.yl2',
+        'radar_360_decoupled_sector.yl2',
+        'radar_360_sector_web_http.yl2',
+        'standard_z_score_2stage.yl2'
     ]
     for pipeline_file in expected_pipelines:
       full_path = os.path.join(pipelines_dir, pipeline_file)
@@ -459,6 +477,89 @@ class TestGuardrailContracts(unittest.TestCase):
           os.path.exists(full_path),
           f"Pre-composed pipeline template '{pipeline_file}' must exist in templates/pipelines/."
       )
+      self.assertGreater(
+          os.path.getsize(full_path),
+          100,
+          f"Pipeline template '{pipeline_file}' is unexpectedly empty (<100 bytes)."
+      )
+
+  def test_all_templates_balanced_delimiters(self):
+    """Every .yl2 template in the repository must have strictly balanced parentheses, brackets, and braces."""
+    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    templates_dir = os.path.join(skill_dir, 'templates')
+    all_yl2 = glob.glob(os.path.join(templates_dir, '**', '*.yl2'), recursive=True)
+    self.assertGreaterEqual(len(all_yl2), 70, f"Expected at least 70 templates, found {len(all_yl2)}")
+
+    def strip_comments_and_strings(content):
+      content = re.sub(r"//.*", "", content)
+      content = re.sub(r"/\*.*?\*/", "", content, flags=re.DOTALL)
+      content = re.sub(r'"(?:\\.|[^"\\])*"', '""', content)
+      return content
+
+    pairs = {')': '(', '}': '{', ']': '['}
+    for fpath in all_yl2:
+      fname = os.path.relpath(fpath, skill_dir)
+      with open(fpath, 'r', encoding='utf-8') as f:
+        raw = f.read()
+      clean = strip_comments_and_strings(raw)
+      stack = []
+      for line_no, line in enumerate(clean.splitlines(), start=1):
+        for char in line:
+          if char in '({[':
+            stack.append((char, line_no))
+          elif char in ')}]':
+            self.assertTrue(
+                stack,
+                f"Unmatched closing '{char}' at {fname}:{line_no}"
+            )
+            top, top_line = stack.pop()
+            self.assertEqual(
+                top,
+                pairs[char],
+                f"Mismatched delimiter in {fname}: opening '{top}' at line {top_line} closed by '{char}' at line {line_no}"
+            )
+      unclosed_msg = f"Unclosed delimiter in {fname}: '{stack[-1][0]}' opened at line {stack[-1][1]} never closed" if stack else ""
+      self.assertFalse(stack, unclosed_msg)
+
+  def test_all_templates_metrics_function_calls_validity(self):
+    """Every metrics.* invocation across all .yl2 templates must be a valid metric and adhere to schema invariants."""
+    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    templates_dir = os.path.join(skill_dir, 'templates')
+    all_yl2 = glob.glob(os.path.join(templates_dir, '**', '*.yl2'), recursive=True)
+
+    for fpath in all_yl2:
+      fname = os.path.relpath(fpath, skill_dir)
+      with open(fpath, 'r', encoding='utf-8') as f:
+        raw = f.read()
+
+      for m in re.finditer(r"metrics\.([a-zA-Z0-9_]+)\s*\(", raw):
+        m_name = m.group(1)
+        self.assertIn(
+            m_name,
+            METRIC_CATALOG,
+            f"Unknown or invalid metric function 'metrics.{m_name}' in {fname}"
+        )
+
+        # Enforce that file_executions_* NEVER uses target.process.file.sha256
+        if 'file_executions' in m_name:
+          start = m.start()
+          # Find end of this call by finding closing parenthesis
+          depth = 0
+          end_pos = start
+          for i, c in enumerate(raw[start:], start=start):
+            if c == '(':
+              depth += 1
+            elif c == ')':
+              depth -= 1
+              if depth == 0:
+                end_pos = i
+                break
+          call_text = raw[start:end_pos + 1]
+          self.assertNotIn(
+              'target.process.file.sha256',
+              call_text,
+              f"Forbidden 'target.process.file.sha256' in metric call in {fname}: {call_text}"
+          )
 
 
   def test_consultative_vector_and_scope_discovery_protocol_contract(self):
