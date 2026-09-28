@@ -836,7 +836,7 @@ Chronicle Malachite maintains 30-day historical baselines for `metrics.http_quer
 
 ### E. The Pre-Preview Compilation Probe Gate (Compiler Verification)
 Before outputting any candidate multi-stage YARA-L query in the Phase 1B Pre-Flight Specification Card:
-* The agent executes a 1-shot compilation probe via `secops-gus:udm_search(query="<query>", startTime="<ISO_10M_AGO>", endTime="<ISO_NOW>", maxEvents=1)`. Timestamps MUST be absolute ISO 8601 UTC; relative offsets (`"now-10m"`, `"now"`) are rejected by the API — see section 30C.
+* The agent executes a 1-shot compilation probe via `udm_search(query="<query>", startTime="<ISO_10M_AGO>", endTime="<ISO_NOW>", maxEvents=1)`. Timestamps MUST be absolute ISO 8601 UTC; relative offsets (`"now-10m"`, `"now"`) are rejected by the API — see section 30C.
 * **Zero Broken Previews**: If the probe fails with a compilation error, the agent is strictly prohibited from rendering the broken query in markdown. It must auto-correct syntax or trigger the Consultative Pivot Protocol immediately.
 
 ---
@@ -1062,11 +1062,11 @@ Under the **Hard Pre-Flight Clearance Gate**, this sequence is strictly prohibit
    Chronicle's `udm_search` API endpoint strictly requires absolute ISO 8601 UTC timestamps (e.g., `2026-09-04T17:00:00Z`). Passing relative strings such as `"now-10m"` or `"now"` causes the underlying API to fail with an unrecoverable `Internal error encountered`.
 2. **Probe Protocol**:
    All 1-shot compiler validation probes must compute the current UTC timestamp and a 10-minute historical boundary formatted as explicit ISO 8601 strings:
-   `secops-gus:udm_search(query="<query>", startTime="<ISO_10M_AGO>", endTime="<ISO_NOW>", maxEvents=1)`
+   `udm_search(query="<query>", startTime="<ISO_10M_AGO>", endTime="<ISO_NOW>", maxEvents=1)`
 
 ### D. Pillar 2 Executed Multi-Stage Query Integrity
 1. **Executed Multi-Stage YARA-L Query Requirement**:
-   In Step 2 of the triage report, Pillar 2 MUST display the literal executed multi-stage YARA-L query passed to `secops-gus:udm_search(query=...)`.
+   In Step 2 of the triage report, Pillar 2 MUST display the literal executed multi-stage YARA-L query passed to `udm_search(query=...)`.
 2. **Prohibition of Raw Event Filters in Pillar 2**:
    Raw UDM event filters (such as `principal.user.userid = "greg" or target.user.userid = "greg"`) do NOT compute statistical baselines and are strictly prohibited in Pillar 2. For 360 Entity Behavioral Risk Radar hunts, Pillar 2 must present the executed multi-stage sector micro-queries.
 
@@ -1094,7 +1094,7 @@ When the exfiltration channel is known in advance to be HTTP, both planes can be
 
 ## 32. Family of 3 Canonical 2-Stage Hybrid Pipeline Archetypes (Mathematical Models 1–6)
 
-To operationalize advanced statistical models without tripping Chronicle's join limit ($\le 4$) or Common Compiler outcome restrictions, Google SecOps utilizes a family of **three canonical 2-stage hybrid pipeline archetypes**. Each archetype executes as a single, native multi-stage YARA-L 2.0 query inside Chronicle SIEM (`secops-gus:udm_search`), consuming exactly **2 joins** (1 `metrics.*` pre-computed baseline lookup + 1 Root inter-stage join).
+To operationalize advanced statistical models without tripping Chronicle's join limit ($\le 4$) or Common Compiler outcome restrictions, Google SecOps utilizes a family of **three canonical 2-stage hybrid pipeline archetypes**. Each archetype executes as a single, native multi-stage YARA-L 2.0 query inside Chronicle SIEM (`udm_search`), consuming exactly **2 joins** (1 `metrics.*` pre-computed baseline lookup + 1 Root inter-stage join).
 
 ### Archetype 1: Entropy & Concentration (`hybrid_metric_entropy_concentration_2stage.yl2`)
 * **Match Topology**: Symmetrical entity match (`$entity by 1d`).

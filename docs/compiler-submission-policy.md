@@ -15,7 +15,7 @@ This policy defines the mandatory verification gates and syntax invariants requi
 > **The Zero-Compiler-Error Invariant**:  
 > No query template, pipeline DAG, dynamic router permutation, or decoupled radar spoke may be submitted or merged without achieving a **100% pass rate** across both:
 > 1. The offline AST & static invariant verification test suite (`scripts/submission_tests.py`).
-> 2. Live compilation verification against the Google SecOps Chronicle SIEM API (`secops-gus:udm_search` or `validate_rule`).
+> 2. Live compilation verification against the Google SecOps Chronicle SIEM API (`udm_search` or `validate_rule`).
 
 ---
 
