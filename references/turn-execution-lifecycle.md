@@ -54,6 +54,13 @@ When an inquiry specifies an entity or cohort but leaves the behavioral vector o
 ### Path B: Phase 1B — Pre-Flight Specification & Query Preview
 Entered when the analyst selects a vector from Phase 1A, or when the initial prompt specifies both entity scope and telemetry vector.
 
+* **Transition Invariant (Phase 1A → Phase 1B)**: When the analyst selects a vector from a Phase 1A consultative response, enter Phase 1B immediately in that same turn:
+  1. Probe the selected vector via `udm_search` (`maxEvents: 1`).
+  2. Emit the full `PRE-FLIGHT HUNTING SPECIFICATION` card.
+  3. Emit the complete Candidate Multi-Stage YARA-L Query code block.
+  4. Conclude with the Mode A vs Mode B clearance question, then yield.
+  *Never ask for clearance without presenting both the specification card and candidate query preview in the same turn.*
+
 #### The "Expert Exemption" Clarification
 An analyst with deep domain knowledge may specify both a mathematical model and a metric table upfront (e.g. *"Run longitudinal CUSUM on Frank's DNS outbound bytes"* or *"Evaluate Poisson rarity on WRK-SHASEK login failures"*).
 * **What the Expert Exemption Is**: Permission to skip Phase 1A consultative questioning and immediately proceed to Phase 1B pre-flight alignment.
@@ -65,9 +72,9 @@ An analyst with deep domain knowledge may specify both a mathematical model and 
    - Run a 14-day lookback check: `udm_search(query='target.user.userid = "<name>" nocase or principal.user.userid = "<name>" nocase', maxEvents=5)`.
    - If resolved, bind the technical `user.userid`. If unresolved, halt (0 tools called) and ask for the technical username.
 2. **Single-Event Baseline Probe (Turn 1 Tool Invariant)**:
-   - Run at most one 1-shot baseline/schema probe using a single-event UDM filter with strict ISO 8601 UTC timestamps:
+   - The compiler probe on Turn 1 evaluates exclusively simple single-event filters with `maxEvents: 1` using strict ISO 8601 UTC timestamps:
      `udm_search(query="<single_event_filter>", startTime="<ISO_10M_AGO>", endTime="<ISO_NOW>", maxEvents=1)`
-   - Passing multi-stage queries (`stage ...`) or executing broad historical searches on Turn 1 is strictly prohibited.
+   - This verifies connectivity and tenant schema support. Full multi-stage DAG execution belongs strictly to Turn 2 following analyst approval.
 3. **Structured PRE-FLIGHT HUNTING SPECIFICATION Card**:
    ```markdown
    PRE-FLIGHT HUNTING SPECIFICATION:
@@ -92,7 +99,7 @@ An analyst with deep domain knowledge may specify both a mathematical model and 
 Turn 2 executes **strictly after explicit analyst clearance** (*"Mode A"*, *"Mode B"*, *"proceed"*, *"execute"*).
 
 ### Step 1: Telemetry Dispatch
-Dispatch the approved multi-stage query via `udm_search` (returning `"stats"`). For 360° Radar investigations, dispatch the decoupled sector micro-queries in parallel.
+Analyst clearance constitutes an explicit directive to execute the search across Chronicle SIEM to verify the baseline. Always dispatch the approved multi-stage query via `udm_search` (returning `"stats"`), regardless of preliminary spot-check counts. For 360° Radar investigations, dispatch the decoupled sector micro-queries in parallel. When telemetry yields zero events or an empty stats payload (`{}` or `{"stats": []}`), format the response affirmatively as a nominal baseline using the two-pillar Zero-Telemetry Clean Hunt structure below.
 
 ### Step 2: Present Findings
 

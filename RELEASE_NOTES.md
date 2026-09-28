@@ -1,10 +1,40 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.7.4)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.7.5)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v1.7.4 (Point Release) — September 2026  
+**Latest Version**: v1.7.5 (Point Release) — September 2026  
+
+---
+
+## 📢 What's New in v1.7.5 (Point Release) — Affirmative Tool Guidance Architecture, Turn Execution Invariants & Quiet Entity Baselining
+
+### 1. Affirmative Tool Guidance & Instruction Consolidation
+* **Consolidated Directive Architecture**:
+  - Refactored tool management directives in `SKILL.md` from repetitive negative prohibitions into lean, affirmative operational recipes.
+  - Reinforced the strict hands-off policy for local execution: *"There is no blanket approval for `run_command`, only explicit exemptions."* Preserved authorized execution exemptions strictly for post-search helpers (`scripts/radar_collector.py`, `scripts/chart_generator.py`, `scripts/triage_formatter.py`, `scripts/chronicle_ingest.py`).
+  - Added deterministic template retrieval guidance: directed models to inspect `templates/pipelines/<template_name>.yl2` directly via `view_file` on the explicit path, eliminating repetitive exploratory shell searching (`ls`, `grep`) that caused turn timeouts in workspace agent environments.
+
+### 2. Turn Execution Lifecycle & Phase 1A-to-1B Transition Invariant
+* **Codified Turn Execution Lifecycle**:
+  - Published [`references/turn-execution-lifecycle.md`](references/turn-execution-lifecycle.md) establishing clear turn contracts and transition boundaries.
+  - Formulated the Phase 1A-to-1B Transition Invariant: upon analyst vector selection from consultative discovery, the agent immediately probes the selected vector via `udm_search` (`maxEvents: 1`), emits the formal `PRE-FLIGHT HUNTING SPECIFICATION` card, presents the candidate multi-stage YARA-L preview, and concludes with the Mode A vs Mode B clearance question in that same turn.
+  - Clarified the "Expert Exemption": deep technical requests specifying model and telemetry vectors skip Phase 1A consultative questioning, but strictly preserve the Turn 1 Pre-Flight Clearance Gate.
+
+### 3. Execution Invariants & Quiet Entity Protocol
+* **Identity Disambiguation Scope**:
+  - Affirmatively scoped technical ID disambiguation spot-checks strictly to human names and display names (e.g. `'Frank'`). Hostnames, technical entity identifiers, and fleet-wide scopes proceed directly with pre-flight vector formulation.
+* **Turn 2 Execution Mandate on Quiet Telemetry**:
+  - Mandated that analyst clearance unconditionally authorizes immediate query execution: always dispatch the approved multi-stage query via `udm_search`, regardless of preliminary spot-check counts.
+  - Quiet entities or zero observed events evaluate natively in Chronicle SIEM and are reported affirmatively as nominal baselines ($Z=0.00\sigma, \text{CRI}=0$) under the Zero-Telemetry Clean Hunt Exemption.
+* **Turn 1 Compiler Probe Boundary**:
+  - Formulated that the 1-shot compiler probe evaluates simple single-event filters (`maxEvents: 1`), reserving full multi-stage DAG execution strictly for Turn 2 following analyst approval.
+
+### 4. Regression & Efficiency Verification
+* **270 / 270 Unit Tests Passing (100% Green)** across 20 test modules.
+* **Strict Size Budget Ceiling Enforced**: `SKILL.md` maintained at **20,457 bytes** ($\le 20,480$ bytes / 20.0 KB ceiling) and **154 lines** ($\le 250$ line ceiling).
+* **Dual-Mode Regression Suite**: **34 / 34 tests passing (100%)** in AgentAPI and **34 / 34 tests passing (100%)** in Direct MCP across all 7 batches.
 
 ---
 
