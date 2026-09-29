@@ -92,11 +92,20 @@ class MultiStageTemplateRouter:
       stage2_raw = stage2_raw.replace("$entity = $stage1_extract.entity", f"{primary_var} = $stage1_extract.{entity_name}")
       stage2_raw = stage2_raw.replace("$entity", primary_var)
 
+    if statistical_model == StatisticalModel.CIRCADIAN_VON_MISES:
+      if "$event_hour" not in stage1_content:
+        stage1_content = re.sub(
+            r'(outcome:\s*\n)',
+            r'\1    $event_hour = max(timestamp.get_hour(metadata.event_timestamp.seconds))\n',
+            stage1_content,
+            count=1,
+        )
+      stage1_content = re.sub(r'(\bmatch:\s*\n\s*[$][a-zA-Z0-9_]+\s+by)\s+1d', r'\1 1h', stage1_content)
+
     if match_mode == MatchMode.FLEET_ROLLUP:
       stage2_raw = stage2_raw.replace(f"match:\n  {primary_var}, $ws by 1d", f"match:\n  {primary_var}")
       stage2_raw = stage2_raw.replace(f"match:\n  {primary_var}, $ws by 1h", f"match:\n  {primary_var}")
       stage2_raw = stage2_raw.replace("$ws = $stage1_extract.window_start\n", "")
-      stage2_raw = stage2_raw.replace("timestamp.get_hour($ws)", "14")
 
     stage2_rendered = stage2_raw.replace("{{anomaly_threshold}}", str(anomaly_threshold))
     stage2_rendered = stage2_rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))

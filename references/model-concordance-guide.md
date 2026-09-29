@@ -415,6 +415,7 @@ outcome:
   $observed_hour = max($stage1_extract.observed_val)
   $avg_hourly = max($stage1_extract.historical_avg)
   $stddev_hourly = max($stage1_extract.historical_stddev)
+  $event_hour = max($stage1_extract.event_hour)
   $active_days = max($stage1_extract.historical_active_days)
   $max_hourly = max($stage1_extract.historical_max)
 
@@ -425,7 +426,6 @@ outcome:
 
   // 2. Circadian von Mises Circular Distance (24-Hour Circular Clock)
   // Expected Peak Operating Hour: 14:00 UTC (Anchor)
-  $event_hour = timestamp.get_hour($ws)
   $raw_diff = math.abs($event_hour - 14)
   $inverted_dist = 24 - $raw_diff
   $circ_dist = if($raw_diff > 12, $inverted_dist, $raw_diff)

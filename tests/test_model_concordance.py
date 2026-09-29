@@ -121,7 +121,7 @@ MODEL_AST_CONTRACTS = {
         "template": "circadian_von_mises.yl2",
         "mandatory_vars": ["$hourly_diff", "$safe_stddev_hourly", "$hourly_z", "$event_hour", "$raw_diff", "$inverted_dist", "$circ_dist", "$von_mises_arc", "$temporal_penalty", "$temporal_multiplier", "$circadian_threat_score"],
         "order_var": "$circadian_threat_score",
-        "required_ops": ["by 1h", "timestamp.get_hour($ws)", "$circ_dist = if($raw_diff > 12", "math.pow($circ_dist, 2)", "$temporal_penalty = $von_mises_arc / 72.0"],
+        "required_ops": ["by 1h", "max($stage1_extract.event_hour)", "$circ_dist = if($raw_diff > 12", "math.pow($circ_dist, 2)", "$temporal_penalty = $von_mises_arc / 72.0"],
         "prohibited_substitutions": ["$personal_z"],
     },
 }
