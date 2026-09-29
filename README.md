@@ -1,6 +1,6 @@
 # Google SecOps Multi-Stage Risk Metrics Threat Hunter (`secops-risk-metrics-multistage`)
 
-[![Version](https://img.shields.io/badge/version-v1.7.5-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-270%2F270%20passing%20(100%25)-brightgreen.svg)](tests/) [![Submission Tests](https://img.shields.io/badge/submission%20tests-27%2F27%20passing%20(100%25)-brightgreen.svg)](scripts/submission_tests.py) [![Dual Platform Regression](https://img.shields.io/badge/dual--platform%20regression-34%2F34%20passing%20(100%25)-brightgreen.svg)](RELEASE_NOTES.md#4-regression--efficiency-verification)
+[![Version](https://img.shields.io/badge/version-v1.7.6-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-270%2F270%20passing%20(100%25)-brightgreen.svg)](tests/) [![Submission Tests](https://img.shields.io/badge/submission%20tests-27%2F27%20passing%20(100%25)-brightgreen.svg)](scripts/submission_tests.py) [![Dual Platform Regression](https://img.shields.io/badge/dual--platform%20regression-34%2F34%20passing%20(100%25)-brightgreen.svg)](RELEASE_NOTES.md#4-regression--efficiency-verification)
 
 A specialized, production-grade AI agent skill package for **Google Security Operations (SecOps / Chronicle SIEM & SOAR)** that constructs, validates, and executes **Multi-Stage YARA-L 2.0 Directed Acyclic Graph (DAG) statistical threat hunting pipelines**, **360° Entity Behavioral Risk Radars**, and **Progressively Disclosed Consultative Threat Hunting**.
 
@@ -305,6 +305,12 @@ End-to-end multi-turn conversational regression is validated by the maintainer t
 ---
 
 ## 📦 Recent Releases
+
+### v1.7.6 (September 2026) — MACD Dual-Spine Momentum Velocity & Circadian von Mises Temporal Distance Models
+* **MACD Dual-Spine Momentum Velocity**: Fast vs. slow velocity divergence ($Z_{\text{fast}} - Z_{\text{slow}}$) detecting runaway volumetric acceleration over historical 30-day peak ceilings.
+* **Circadian von Mises Temporal Distance**: 24-hour circular geometry on hourly telemetry ($\min(\text{raw\_diff}, 24 - \text{raw\_diff})$) penalizing off-hours activity via quadratic arc distance.
+* **Chronicle SIEM Compiler Alignment**: Extracts native event timestamp hour in Stage 1 (`max(timestamp.get_hour(...))`) conforming to malachite compiler constraints.
+* **Test Suite & Verification**: 270/270 unit tests passing; 100% dual-engine live Chronicle regression pass on `REG-P1-29` and `REG-P1-30`.
 
 ### v1.7.5 (September 2026) — Affirmative Tool Guidance Architecture, Turn Execution Invariants & Quiet Entity Baselining
 * **Affirmative Tool Guidance**: Refactored directives in `SKILL.md` from repetitive negative prohibitions into lean affirmative recipes. Explicitly codified the hands-off `run_command` restriction (*"There is no blanket approval for `run_command`, only explicit exemptions"*).

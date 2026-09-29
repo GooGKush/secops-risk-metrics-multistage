@@ -1,10 +1,35 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.7.5)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.7.6)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v1.7.5 (Point Release) — September 2026  
+**Latest Version**: v1.7.6 (Point Release) — September 2026  
+
+---
+
+## 📢 What's New in v1.7.6 (Point Release) — MACD Dual-Spine Momentum Velocity & Circadian von Mises Temporal Distance Models
+
+### 1. MACD Dual-Spine Momentum Velocity Model (`macd_momentum_velocity_2stage.yl2`)
+* **Fast vs. Slow Velocity Divergence**:
+  - Implements Moving Average Convergence Divergence (MACD) principles adapted to UEBA behavioral baselines.
+  - Compares short-term fast Z-score ($Z_{\text{fast}} = (x - \mu) / \sigma$) against long-term slow historical maximum departure ($Z_{\text{slow}} = (x_{\max} - \mu) / \sigma$).
+  - Half-rectifies velocity acceleration ($Z_{\text{diff}} = Z_{\text{fast}} - Z_{\text{slow}}$) to detect runaway momentum departures breaking established 30-day peak ceilings.
+
+### 2. Circadian von Mises Temporal Distance Model (`circadian_von_mises_2stage.yl2`)
+* **24-Hour Circular Geometry on Hourly Telemetry**:
+  - Evaluates hourly activity against a 24-hour circular clock ($\min(\text{raw\_diff}, 24 - \text{raw\_diff})$) using quadratic von Mises arc distance ($D^2 / 72.0$).
+  - Extracts native event timestamp hour in Stage 1 (`$event_hour = max(timestamp.get_hour(metadata.event_timestamp.seconds))`) within `match: by 1h`, consuming clean integer values in root stage to conform with Chronicle SIEM compiler specifications.
+  - Scales volumetric standardized deviations by temporal penalties, selectively highlighting off-hours anomalies without false alarms during peak operational windows.
+
+### 3. Template Architecture, Routing & Concordance
+* Added standalone pipeline templates in `templates/pipelines/` and modular Stage 2 templates in `templates/stage2_math_models/`.
+* Updated `MultiStageTemplateRouter` in `scripts/template_router.py` to support `StatisticalModel.MACD_MOMENTUM_VELOCITY` and `StatisticalModel.CIRCADIAN_VON_MISES`.
+* Expanded AST concordance contracts in `references/model-concordance-guide.md` and test assertions in `tests/test_model_concordance.py`.
+
+### 4. Regression & Live Chronicle Verification
+* **270 / 270 Automated Unit Tests Passing (100%)** in `pytest tests/`.
+* **Dual-Engine Live Chronicle SIEM Verification**: Both `REG-P1-29-MACD-MOMENTUM-VELOCITY` and `REG-P1-30-CIRCADIAN-VON-MISES-DISTANCE` passed 100% in Dual Engine mode (`AgentAPI` + `Direct MCP`) against tenant `gus-sdl`.
 
 ---
 
