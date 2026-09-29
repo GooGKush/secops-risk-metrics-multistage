@@ -21,7 +21,7 @@ stage stage1_extract {
         principal.user.userid: $user
     ))
     $historical_active_days = max(metrics.workspace_network_bytes_outbound(
-        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+        period: 1d, window: 30d, metric: value_sum, agg: num_metric_periods,
         principal.user.userid: $user
     ))
     $historical_max = max(metrics.workspace_network_bytes_outbound(

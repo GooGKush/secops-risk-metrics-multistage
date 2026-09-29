@@ -33,7 +33,7 @@ stage stage1_extract {
         {{dimension_key}}: $entity {{extra_dimensions}}
     ))
     $historical_active_days = max(metrics.{{target_metric_name}}(
-        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+        period: 1d, window: 30d, metric: {{metric_type_val}}, agg: num_metric_periods,
         {{dimension_key}}: $entity {{extra_dimensions}}
     ))
     $historical_max = max(metrics.{{target_metric_name}}(

@@ -22,7 +22,7 @@ stage stage1_extract {
         principal.asset.hostname: $entity
     ))
     $historical_active_days = max(metrics.dns_bytes_outbound(
-        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+        period: 1d, window: 30d, metric: value_sum, agg: num_metric_periods,
         principal.asset.hostname: $entity
     ))
     $historical_max = max(metrics.dns_bytes_outbound(

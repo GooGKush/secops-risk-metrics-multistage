@@ -948,7 +948,9 @@ class MalachiteASTValidator:
     clean_code = re.sub(r"//[^\n]*", "", query_text)
     clean_code = re.sub(r"/\*.*?\*/", "", clean_code, flags=re.DOTALL)
 
-    if "^" in clean_code:
+    code_no_literals = re.sub(r'"(?:\\.|[^"\\])*"', '""', clean_code)
+    code_no_literals = re.sub(r'/(?:\\.|[^/\\])+/', '//', code_no_literals)
+    if "^" in code_no_literals:
       errors.append("INVALID_EXPONENT_OPERATOR: '^' is invalid in YARA-L. Use 'math.pow($var, 2)' or '$var * $var' for squared terms.")
     for full_call, inner_content in MalachiteASTValidator._extract_if_invocations(clean_code):
       args = MalachiteASTValidator._split_top_level_csv(inner_content)
@@ -1060,9 +1062,10 @@ class MalachiteASTValidator:
           errors.extend(MalachiteASTValidator._check_arithmetic_in_event_section(stage_name, event_part))
 
       # Anti-Pattern 6: Single-stage multi-vector cramming
+      cloud_resource_events = {"RESOURCE_READ", "RESOURCE_WRITTEN", "RESOURCE_DELETION"}
       distinct_event_types = set(re.findall(r"metadata\.event_type\s*==?\s*[\"']([A-Z_]+)[\"']", stage_body))
       metrics_calls = re.findall(r"metrics\.([a-zA-Z0-9_]+)\s*\(", stage_body)
-      if len(distinct_event_types) > 1 and metrics_calls:
+      if len(distinct_event_types) > 1 and metrics_calls and not (distinct_event_types <= cloud_resource_events):
         errors.append(
             f"ANTI-PATTERN 6 (Single-Stage Multi-Vector Cramming in stage '{stage_name}'): Stage contains multiple OR'd "
             f"event types {distinct_event_types} while evaluating metrics. Use independent DAG stages fused in Root stage."
@@ -1070,7 +1073,7 @@ class MalachiteASTValidator:
 
       # Anti-Pattern 6B: Multi-vector metric conflation within single stage
       metric_event_types = {METRIC_CATALOG[m].event_type for m in metrics_calls if m in METRIC_CATALOG}
-      if len(metric_event_types) > 1:
+      if len(metric_event_types) > 1 and not (metric_event_types <= cloud_resource_events):
         errors.append(
             f"MULTI_VECTOR_STAGE_CONFLATION in stage '{stage_name}': Stage attempts to evaluate metrics across different event types ({sorted(list(metric_event_types))}). "
             "Each telemetry vector must be evaluated in its own decoupled stage or micro-query."

@@ -30,23 +30,23 @@ stage stage1_extract {
     $observed_events = count(metadata.id)
 
     $historical_avg = max(metrics.{{target_metric_name}}(
-        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+        period: 1d, window: 30d, metric: {{metric_type_val}}, agg: avg,
         {{dimension_key}}: $entity {{extra_dimensions}}
     ))
     $historical_stddev = max(metrics.{{target_metric_name}}(
-        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+        period: 1d, window: 30d, metric: {{metric_type_val}}, agg: stddev,
         {{dimension_key}}: $entity {{extra_dimensions}}
     ))
     $historical_active_days = max(metrics.{{target_metric_name}}(
-        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+        period: 1d, window: 30d, metric: {{metric_type_val}}, agg: num_metric_periods,
         {{dimension_key}}: $entity {{extra_dimensions}}
     ))
     $historical_max = max(metrics.{{target_metric_name}}(
-        period: 1d, window: 30d, metric: event_count_sum, agg: max,
+        period: 1d, window: 30d, metric: {{metric_type_val}}, agg: max,
         {{dimension_key}}: $entity {{extra_dimensions}}
     ))
     $historical_sum = max(metrics.{{target_metric_name}}(
-        period: 1d, window: 30d, metric: event_count_sum, agg: sum,
+        period: 1d, window: 30d, metric: {{metric_type_val}}, agg: sum,
         {{dimension_key}}: $entity {{extra_dimensions}}
     ))
 }
