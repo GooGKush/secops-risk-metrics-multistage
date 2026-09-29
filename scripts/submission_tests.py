@@ -38,6 +38,7 @@ sys.path.insert(0, str(SKILL_ROOT))
 from scripts.preflight_validator import (
     METRIC_CATALOG,
     EntityType,
+    MalachiteASTValidator,
     MatchMode,
     PipelineArchitecture,
     PreFlightValidator,
@@ -520,6 +521,12 @@ order:
     stat_violations = StatisticalAntipatternAuditor.audit_query(query)
     for sv in stat_violations:
       errors.append(f"[{sv.antipattern.value}] stage '{sv.stage_name}': {sv.description}")
+
+    # 10. Malachite AST Invariants & Compiler Grammar
+    ast_errors = MalachiteASTValidator.validate_query(query)
+    for ae in ast_errors:
+      if ae not in errors:
+        errors.append(f"[MalachiteASTValidator] {ae}")
 
     return errors
 

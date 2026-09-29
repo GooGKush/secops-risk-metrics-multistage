@@ -202,11 +202,17 @@ class TestYaraLTemplates(unittest.TestCase):
       self.assertNotIn("agg: num_days", content, f"[{metric_name}] Uses invalid agg: num_days in {fpath}")
       self.assertIn("agg: num_metric_periods", content, f"[{metric_name}] Missing required agg: num_metric_periods in {fpath}")
 
-      # 2. Metric type invariants
-      if metric_name in byte_metrics:
-        self.assertIn("metric: value_sum", content, f"[{metric_name}] Byte volume metric must use 'metric: value_sum'")
-      else:
-        self.assertIn("metric: event_count_sum", content, f"[{metric_name}] Count metric must use 'metric: event_count_sum'")
+      # 2. Strict per-call metric type invariants
+      metric_calls = re.findall(r"metrics\.([a-zA-Z0-9_]+)\s*\(([^)]+)\)", content, re.DOTALL)
+      self.assertGreater(len(metric_calls), 0, f"[{metric_name}] Must contain metric calls in {fpath}")
+      for m_name, m_args in metric_calls:
+        m_type_match = re.search(r"\bmetric\s*:\s*([a-zA-Z0-9_]+)", m_args)
+        self.assertIsNotNone(m_type_match, f"[{metric_name}] Call to metrics.{m_name} missing metric type argument in {fpath}")
+        call_type = m_type_match.group(1)
+        if metric_name in byte_metrics:
+          self.assertEqual(call_type, "value_sum", f"[{metric_name}] Byte volume metric call metrics.{m_name} must strictly use 'metric: value_sum', found '{call_type}' in {fpath}")
+        else:
+          self.assertEqual(call_type, "event_count_sum", f"[{metric_name}] Count metric call metrics.{m_name} must strictly use 'metric: event_count_sum', found '{call_type}' in {fpath}")
 
   def test_stage1_cloud_crud_local_baseline_isolation(self):
     """Enforces Local-Baseline Isolation on all 12 cloud resource CRUD metric extractors."""

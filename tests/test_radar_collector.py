@@ -348,8 +348,8 @@ stage stage_cloud {
     $user by 1d
   outcome:
     $obs_cloud = count_distinct($e.metadata.id)
-    $avg_cloud = max(metrics.resource_creation_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: $user))
-    $std_cloud = max(metrics.resource_creation_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: $user))
+    $avg_cloud = max(metrics.resource_creation_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: $user, metadata.vendor_name: "Google Cloud Platform", metadata.product_name: "Compute Engine"))
+    $std_cloud = max(metrics.resource_creation_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: $user, metadata.vendor_name: "Google Cloud Platform", metadata.product_name: "Compute Engine"))
     $z_cloud   = ($obs_cloud - $avg_cloud) / ($std_cloud + 1.0)
 }
 
@@ -375,8 +375,8 @@ stage stage_net {
     $user by 1d
   outcome:
     $obs_net = sum($e.network.sent_bytes)
-    $avg_net = max(metrics.network_bytes_outbound(period: 1d, window: 30d, metric: sum_bytes, agg: avg, principal.user.userid: $user))
-    $std_net = max(metrics.network_bytes_outbound(period: 1d, window: 30d, metric: sum_bytes, agg: stddev, principal.user.userid: $user))
+    $avg_net = max(metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: avg, principal.user.userid: $user))
+    $std_net = max(metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: stddev, principal.user.userid: $user))
     $z_net   = ($obs_net - $avg_net) / ($std_net + 1.0)
 }
 
@@ -388,8 +388,8 @@ stage stage_dns {
     $user by 1d
   outcome:
     $obs_dns = count_distinct($e.metadata.id)
-    $avg_dns = max(metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: $user))
-    $std_dns = max(metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: $user))
+    $avg_dns = max(metrics.dns_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: $user))
+    $std_dns = max(metrics.dns_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: $user))
     $z_dns   = ($obs_dns - $avg_dns) / ($std_dns + 1.0)
 }
 '''

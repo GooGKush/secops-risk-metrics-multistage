@@ -941,7 +941,7 @@ class MalachiteASTValidator:
     standard_params = {"period", "window", "metric", "agg", "filter"}
 
     # 1. Methodology & Goal Comment Header
-    if not re.search(r"//\s*(?:Goal:|ARCHITECTURE:)", query_text, re.IGNORECASE):
+    if not re.search(r"//\s*(?:Goal:|ARCHITECTURE:|Sector:|Stage\s*\d*:)", query_text, re.IGNORECASE):
       errors.append("MISSING_GOAL_HEADER: Query must start with a '// Goal:' or '// ARCHITECTURE:' methodology comment.")
 
     # 1B. Global Invalid Tokens & Math Functions (checked on stripped code)
