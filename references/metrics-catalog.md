@@ -110,10 +110,21 @@ A common detection blindspot is evaluating all network anomalies through byte vo
 
 | Metric Function | Description | Supported Dimensions (Entity Types) |
 | :--- | :--- | :--- |
-| `metrics.dns_bytes_outbound` | Sent outbound DNS byte volume / bandwidth (use `metric: value_sum`) | `principal.asset.hostname`, `principal.user.userid` |
-| `metrics.dns_queries_success` | Successful DNS resolution queries | `principal.asset.hostname`, `principal.user.userid` |
-| `metrics.dns_queries_fail` | Failed / NXDOMAIN DNS queries | `principal.asset.hostname`, `principal.user.userid` |
-| `metrics.dns_queries_total` | Total DNS query volume / query count (use `metric: event_count_sum`) | `principal.asset.hostname`, `principal.user.userid` |
+| `metrics.dns_bytes_outbound` | Sent outbound DNS byte volume / bandwidth (use `metric: value_sum`) | `principal.asset.hostname`, `principal.user.userid` (companion: `target.ip`) |
+| `metrics.dns_queries_success` | Successful DNS resolution queries | `principal.asset.hostname`, `principal.user.userid` (companion: `network.dns_domain`) |
+| `metrics.dns_queries_fail` | Failed / NXDOMAIN DNS queries | `principal.asset.hostname`, `principal.user.userid` (companion: `network.dns_domain`) |
+| `metrics.dns_queries_total` | Total DNS query volume / query count (use `metric: event_count_sum`) | `principal.asset.hostname`, `principal.user.userid` (companion: `network.dns_domain`) |
+
+> [!IMPORTANT]
+> **Companion Dimensions and Filter Rules for DNS Queries (`network.dns_domain`)**:
+> In Chronicle Malachite, DNS metric tables have specific indexing constraints:
+> - **Query Metrics (`metrics.dns_queries_total`, `metrics.dns_queries_success`, `metrics.dns_queries_fail`)**:
+>   - Primary entity match keys: `principal.asset.hostname`, `principal.user.userid`, `principal.asset.ip`, `principal.asset.asset_id`.
+>   - Supported companion dimension: `network.dns_domain: $domain` (and optionally `network.dns.questions.type`).
+>   - **Compiler Anti-Pattern Warning**: NEVER use `network.dns.questions.name` or `target.hostname` in `metrics.dns_queries_*`. Chronicle indexes the normalized apex/domain field (`network.dns_domain`) in baseline tables, NOT the raw question name. Passing `network.dns.questions.name: $domain` triggers `compilation error: unsupported filters for metric DNS_QUERIES_TOTAL`.
+> - **Byte Metrics (`metrics.dns_bytes_outbound`)**:
+>   - Supported companion dimension: `target.ip: $ip`. Does NOT support domain or question name filters.
+
 
 ---
 

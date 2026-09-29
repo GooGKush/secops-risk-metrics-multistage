@@ -723,19 +723,21 @@ class MultiStageTemplateRouter:
         raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
       raw = pipeline_file.read_text().strip()
       event_type = "NETWORK_HTTP" if "http" in target_metric else "NETWORK_DNS"
+      domain_field = "network.dns_domain" if "dns" in target_metric else "target.hostname"
       metric_type_arg = "metric: event_count_sum"
       rendered = raw.replace("{{event_type}}", event_type)
+      rendered = rendered.replace("{{domain_field}}", domain_field)
       rendered = rendered.replace(
           "{{target_metric_func_avg}}",
-          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: avg, principal.asset.hostname: $host, target.hostname: $domain)"
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: avg, principal.asset.hostname: $host, {domain_field}: $domain)"
       )
       rendered = rendered.replace(
           "{{target_metric_func_stddev}}",
-          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: stddev, principal.asset.hostname: $host, target.hostname: $domain)"
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: stddev, principal.asset.hostname: $host, {domain_field}: $domain)"
       )
       rendered = rendered.replace(
           "{{target_metric_func_active_days}}",
-          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: num_metric_periods, principal.asset.hostname: $host, target.hostname: $domain)"
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: num_metric_periods, principal.asset.hostname: $host, {domain_field}: $domain)"
       )
       rendered = rendered.replace("{{anomaly_threshold}}", str(anomaly_threshold))
       rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
@@ -757,19 +759,21 @@ class MultiStageTemplateRouter:
         raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
       raw = pipeline_file.read_text().strip()
       event_type = "NETWORK_HTTP" if "http" in target_metric else ("NETWORK_DNS" if "dns" in target_metric else "NETWORK_CONNECTION")
+      domain_field = "network.dns_domain" if "dns" in target_metric else "target.hostname"
       metric_type_arg = "metric: event_count_sum"
       rendered = raw.replace("{{event_type}}", event_type)
+      rendered = rendered.replace("{{domain_field}}", domain_field)
       rendered = rendered.replace(
           "{{target_metric_func_avg}}",
-          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: avg, principal.asset.hostname: $host, target.hostname: $domain)"
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: avg, principal.asset.hostname: $host, {domain_field}: $domain)"
       )
       rendered = rendered.replace(
           "{{target_metric_func_stddev}}",
-          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: stddev, principal.asset.hostname: $host, target.hostname: $domain)"
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: stddev, principal.asset.hostname: $host, {domain_field}: $domain)"
       )
       rendered = rendered.replace(
           "{{target_metric_func_active_days}}",
-          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: num_metric_periods, principal.asset.hostname: $host, target.hostname: $domain)"
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: num_metric_periods, principal.asset.hostname: $host, {domain_field}: $domain)"
       )
       rendered = rendered.replace("{{anomaly_threshold}}", str(anomaly_threshold))
       rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))

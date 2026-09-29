@@ -328,6 +328,51 @@ class TestHybridPipelines(unittest.TestCase):
     ast_errors = MalachiteASTValidator.validate_query(query)
     self.assertEqual(ast_errors, [])
 
+  def test_hybrid_derived_domain_prevalence_dns_queries_ast(self):
+    """Verifies DNS queries use network.dns_domain companion dimension, avoiding network.dns.questions.name."""
+    query = self.router.build_hybrid_derived_domain_prevalence_query(
+        target_metric="dns_queries_total",
+        entity_type=EntityType.ASSET,
+        anomaly_threshold=3.0,
+        hypothesis_goal="Detect anomalous volume of DNS resolutions targeting rare domains",
+    )
+    self.assertIn("stage stage1_query_baseline {", query)
+    self.assertIn("metrics.dns_queries_total(", query)
+    self.assertIn("network.dns_domain: $domain", query)
+    self.assertIn("network.dns_domain = $domain", query)
+    self.assertNotIn("network.dns.questions.name", query)
+    stage1_code = query[query.index("stage stage1_query_baseline"):]
+    self.assertNotIn("target.hostname", stage1_code)
+    self.assertIn("stage stage2_domain_derived_context {", query)
+    self.assertIn('$dom.graph.metadata.source_type = "DERIVED_CONTEXT"', query)
+    self.assertIn('$dom.graph.metadata.entity_type = "DOMAIN_NAME"', query)
+    self.assertIn("$domain = $stage2_domain_derived_context.domain", query)
+
+    ast_errors = MalachiteASTValidator.validate_query(query)
+    self.assertEqual(ast_errors, [])
+
+  def test_hybrid_whois_domain_lifecycle_dns_queries_ast(self):
+    """Verifies DNS queries in WHOIS lifecycle pipeline use network.dns_domain, avoiding network.dns.questions.name."""
+    query = self.router.build_hybrid_whois_domain_lifecycle_query(
+        target_metric="dns_queries_total",
+        entity_type=EntityType.ASSET,
+        anomaly_threshold=3.0,
+        hypothesis_goal="Detect anomalous DNS query departures to newly registered or expired domains",
+    )
+    self.assertIn("stage stage1_egress_baseline {", query)
+    self.assertIn("metrics.dns_queries_total(", query)
+    self.assertIn("network.dns_domain: $domain", query)
+    self.assertIn("network.dns_domain = $domain", query)
+    self.assertNotIn("network.dns.questions.name", query)
+    stage1_code = query[query.index("stage stage1_egress_baseline"):]
+    self.assertNotIn("target.hostname", stage1_code)
+    self.assertIn("stage stage2_whois_lifecycle {", query)
+    self.assertIn('$whois.graph.metadata.source_type = "GLOBAL_CONTEXT"', query)
+    self.assertIn('$whois.graph.metadata.vendor_name = "WHOIS"', query)
+
+    ast_errors = MalachiteASTValidator.validate_query(query)
+    self.assertEqual(ast_errors, [])
+
 
 if __name__ == "__main__":
   unittest.main()

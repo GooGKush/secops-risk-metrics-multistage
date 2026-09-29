@@ -808,8 +808,8 @@ In Google SecOps Malachite, pre-computed UEBA metric tables are indexed by immut
 | **Cloud Resource CRUD** | `metrics.resource_*` | `principal.user.userid`, `target.user.userid` | `metadata.vendor_name`, `metadata.product_name` | Hostname without vendor/product scoping |
 | **Authentication & IAM** | `metrics.auth_attempts_*` | `target.user.userid`, `principal.user.userid` | `target.user.userid` (Logins) | Generic unindexed IP keys |
 | **Workspace & SaaS** | `metrics.workspace_*` | `principal.user.userid` | `metadata.product_name = "Google Workspace"` | Machine hostname |
-| **Network Egress** | `metrics.network_bytes_outbound` | `principal.user.userid`, `principal.asset.hostname` | N/A | N/A |
-| **DNS Resolution** | `metrics.dns_queries_*`, `metrics.dns_bytes_outbound` | `principal.user.userid`, `principal.asset.hostname` | N/A | `target.ip` (only for bytes) |
+| **DNS Queries** | `metrics.dns_queries_*` | `principal.user.userid`, `principal.asset.hostname`, `principal.asset.ip`, `principal.asset.asset_id` | Optional: `network.dns_domain`, `network.dns.questions.type` | **`network.dns.questions.name`**, `target.hostname`, `target.ip` |
+| **DNS Bytes Outbound** | `metrics.dns_bytes_outbound` | `principal.user.userid`, `principal.asset.hostname`, `principal.asset.ip`, `principal.asset.asset_id` | Optional: `target.ip` | `network.dns_domain`, `network.dns.questions.name` |
 | **HTTP & Web Proxy** | `metrics.http_queries_*` | `principal.user.userid`, `principal.asset.hostname`, `target.hostname` | Optional: `network.http.user_agent`, `target.hostname` | `target.url`, `target.ip`, `network.http.response_code` |
 
 ### B. The Cross-Entity Boundary & The Anti-Forced-Join Invariant

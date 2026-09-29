@@ -1,6 +1,6 @@
 # Google SecOps Multi-Stage Risk Metrics Threat Hunter (`secops-risk-metrics-multistage`)
 
-[![Version](https://img.shields.io/badge/version-v1.7.6-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-270%2F270%20passing%20(100%25)-brightgreen.svg)](tests/) [![Submission Tests](https://img.shields.io/badge/submission%20tests-27%2F27%20passing%20(100%25)-brightgreen.svg)](scripts/submission_tests.py) [![Dual Platform Regression](https://img.shields.io/badge/dual--platform%20regression-34%2F34%20passing%20(100%25)-brightgreen.svg)](RELEASE_NOTES.md#4-regression--efficiency-verification)
+[![Version](https://img.shields.io/badge/version-v1.7.7-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-272%2F272%20passing%20(100%25)-brightgreen.svg)](tests/) [![Submission Tests](https://img.shields.io/badge/submission%20tests-31%2F31%20passing%20(100%25)-brightgreen.svg)](scripts/submission_tests.py) [![Dual Platform Regression](https://img.shields.io/badge/dual--platform%20regression-34%2F34%20passing%20(100%25)-brightgreen.svg)](RELEASE_NOTES.md#4-regression--efficiency-verification)
 
 A specialized, production-grade AI agent skill package for **Google Security Operations (SecOps / Chronicle SIEM & SOAR)** that constructs, validates, and executes **Multi-Stage YARA-L 2.0 Directed Acyclic Graph (DAG) statistical threat hunting pipelines**, **360° Entity Behavioral Risk Radars**, and **Progressively Disclosed Consultative Threat Hunting**.
 
@@ -305,6 +305,12 @@ End-to-end multi-turn conversational regression is validated by the maintainer t
 ---
 
 ## 📦 Recent Releases
+
+### v1.7.7 (September 2026) — DNS Metrics Companion Dimension Normalization & Domain Precomputation Alignment
+* **DNS Metric Companion Dimension Normalization**: Resolved compile-time failure (`unsupported filters for metric DNS_QUERIES_TOTAL`) by aligning `metrics.dns_queries_*` to strictly require normalized apex/domain companion dimension `network.dns_domain: $domain` (and `network.dns_domain = $domain` in Stage 1) instead of packet-level `network.dns.questions.name`.
+* **Dynamic Pipeline Routing**: Updated `scripts/template_router.py` and hybrid pipelines to dynamically bind `network.dns_domain` for DNS query baselines and `target.hostname` for HTTP query baselines.
+* **AST Preflight Validation**: Added validator warnings in `scripts/preflight_validator.py` blocking unsupported companion filters on DNS metrics.
+* **Test Suite & Verification**: 272/272 unit tests passing (100%); 31/31 submission tests passing; 100% pass on live Chronicle SIEM regression (`REG-P1-19`, `REG-P1-27`, `REG-P1-11`).
 
 ### v1.7.6 (September 2026) — MACD Dual-Spine Momentum Velocity & Circadian von Mises Temporal Distance Models
 * **MACD Dual-Spine Momentum Velocity**: Fast vs. slow velocity divergence ($Z_{\text{fast}} - Z_{\text{slow}}$) detecting runaway volumetric acceleration over historical 30-day peak ceilings.

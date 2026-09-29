@@ -1,10 +1,38 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.7.6)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.7.7)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v1.7.6 (Point Release) — September 2026  
+**Latest Version**: v1.7.7 (Point Release) — September 2026  
+
+---
+
+## 📢 What's New in v1.7.7 (Point Release) — DNS Metrics Companion Dimension Normalization & Domain Precomputation Alignment
+
+### 1. DNS Metric Companion Dimension Normalization (`network.dns_domain`)
+* **Chronicle Malachite Baseline Indexing Alignment**:
+  - Fixed a critical compile-time failure (`compilation error: validating ueba functions: unsupported filters for metric DNS_QUERIES_TOTAL`) triggered when passing packet-level question names (`network.dns.questions.name: $domain`) or hostnames (`target.hostname: $domain`) into `metrics.dns_queries_*` UEBA functions.
+  - Aligned all DNS query metrics (`metrics.dns_queries_total`, `metrics.dns_queries_success`, `metrics.dns_queries_fail`) to strictly require the normalized apex/domain dimension **`network.dns_domain: $domain`** in metric function argument lists and `network.dns_domain = $domain` in Stage 1 event filters.
+  - Documented that `metrics.dns_bytes_outbound` accepts companion filter `target.ip: $ip` and does not support domain filters.
+
+### 2. Pipeline Template & Router Modernization
+* **Dynamic Domain Field Binding in Hybrid Pipelines**:
+  - Updated `templates/pipelines/hybrid_metric_derived_domain_prevalence_2stage.yl2` and `templates/pipelines/hybrid_metric_whois_domain_lifecycle_2stage.yl2` to parameterize Stage 1 domain matching (`{{domain_field}} = $domain`) and companion metric filters (`{domain_field}: $domain`).
+  - Updated `MultiStageTemplateRouter` in `scripts/template_router.py` (`build_hybrid_derived_domain_prevalence_query` and `build_hybrid_whois_domain_lifecycle_query`) to dynamically resolve `domain_field`:
+    - DNS metrics (`metrics.dns_queries_*`) bind `network.dns_domain`.
+    - HTTP metrics (`metrics.http_queries_*`) bind `target.hostname`.
+* **AST Preflight Validation Rule Enforcement**:
+  - Enhanced `scripts/preflight_validator.py` under `INVALID_METRIC_FILTER` to detect and block illegal uses of `network.dns.questions.name` or `target.hostname` on `dns_queries_*` metrics prior to query compilation.
+
+### 3. Documentation & Single-Source-of-Truth Sync
+* Updated `scripts/generate_references.py` and regenerated [`references/metrics-catalog.md`](references/metrics-catalog.md) to explicitly document supported companion dimensions and anti-pattern warnings for Section 3 (DNS Queries).
+* Updated [`references/multi-stage-metrics-guide.md`](references/multi-stage-metrics-guide.md) Section 27.A with DNS query companion dimension indexing rules.
+
+### 4. Regression & Live Chronicle Verification
+* **272 / 272 Automated Unit Tests Passing (100%)** across 21 test suites in `python3 -m unittest discover tests`.
+* **Added AST Unit Tests**: Added `test_hybrid_derived_domain_prevalence_dns_queries_ast` and `test_hybrid_whois_domain_lifecycle_dns_queries_ast` in `tests/test_hybrid_pipelines.py`.
+* **Live `secops-regress` Verification**: Tested and passed 100% on live Chronicle tenant `gus-sdl` across `REG-P1-19-EXPERT-BYPASS-CUSUM-DRIFT` (resolved from `FAIL_PROTOCOL` to `PASS`), `REG-P1-27-WHOIS-DOMAIN-LIFECYCLE-ENHANCE`, and `REG-P1-11-HYBRID-DUAL-PLANE`.
 
 ---
 

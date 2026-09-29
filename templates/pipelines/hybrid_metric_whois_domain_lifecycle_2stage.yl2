@@ -11,21 +11,23 @@
 // CONCRETE FIELD BINDING & INSTANTIATION GUIDE:
 // 1. Web / HTTP Newly Registered Domain Query Surge:
 //    - {{event_type}}: "NETWORK_HTTP"
+//    - {{domain_field}}: target.hostname
 //    - {{target_metric_func_avg}}: metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.asset.hostname: $host, target.hostname: $domain)
 //    - {{target_metric_func_stddev}}: metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.asset.hostname: $host, target.hostname: $domain)
 //    - {{target_metric_func_active_days}}: metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.asset.hostname: $host, target.hostname: $domain)
 // 2. DNS Query Newly Registered Domain Surge:
 //    - {{event_type}}: "NETWORK_DNS"
-//    - {{target_metric_func_avg}}: metrics.dns_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.asset.hostname: $host, network.dns.questions.name: $domain)
-//    - {{target_metric_func_stddev}}: metrics.dns_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.asset.hostname: $host, network.dns.questions.name: $domain)
-//    - {{target_metric_func_active_days}}: metrics.dns_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.asset.hostname: $host, network.dns.questions.name: $domain)
+//    - {{domain_field}}: network.dns_domain
+//    - {{target_metric_func_avg}}: metrics.dns_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.asset.hostname: $host, network.dns_domain: $domain)
+//    - {{target_metric_func_stddev}}: metrics.dns_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.asset.hostname: $host, network.dns_domain: $domain)
+//    - {{target_metric_func_active_days}}: metrics.dns_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.asset.hostname: $host, network.dns_domain: $domain)
 // ============================================================================
 
 // Stage 1: Macro 30-Day Query Baseline (metrics.*)
 stage stage1_egress_baseline {
     metadata.event_type = "{{event_type}}"
     principal.asset.hostname = $host
-    target.hostname = $domain
+    {{domain_field}} = $domain
     $host != ""
     $domain != ""
 

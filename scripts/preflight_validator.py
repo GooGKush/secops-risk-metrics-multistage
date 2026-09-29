@@ -1105,6 +1105,11 @@ class MalachiteASTValidator:
                   hint = " (In Chronicle Malachite, HTTP metrics support 'target.hostname'. For IP destination baselines use 'metrics.dns_bytes_outbound' or secops-statistical-hunter.)"
                 elif param in ("network.http.response_code", "network.http.method"):
                   hint = " (In Chronicle Malachite, HTTP methods/response codes are partitioned at ingest into 'metrics.http_queries_fail' and 'metrics.http_queries_success', not dynamic filters.)"
+              elif m_lower.startswith("dns_queries"):
+                if param == "network.dns.questions.name":
+                  hint = " (In Chronicle Malachite, DNS query metrics baseline 'network.dns_domain' or 'network.dns.questions.type', not full question name 'network.dns.questions.name'.)"
+                elif param in ("target.hostname", "target.ip"):
+                  hint = " (In Chronicle Malachite, DNS query metrics baseline 'network.dns_domain', not target hostname or IP.)"
               errors.append(
                   f"INVALID_METRIC_FILTER in stage '{stage_name}': '{param}' is not a supported filter for 'metrics.{m_name}'.{hint}"
               )
