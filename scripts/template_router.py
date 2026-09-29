@@ -75,6 +75,8 @@ class MultiStageTemplateRouter:
         StatisticalModel.PIECEWISE_CRI: "piecewise_cri.yl2",
         StatisticalModel.FLEET_PREVALENCE_SHIELD: "fleet_prevalence_shield.yl2",
         StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD: "adaptive_context_threshold.yl2",
+        StatisticalModel.MACD_MOMENTUM_VELOCITY: "macd_momentum_velocity.yl2",
+        StatisticalModel.CIRCADIAN_VON_MISES: "circadian_von_mises.yl2",
     }
     stage2_path = self.template_dir / "stage2_math_models" / stage2_file_map[statistical_model]
     if not stage2_path.exists():
@@ -92,7 +94,9 @@ class MultiStageTemplateRouter:
 
     if match_mode == MatchMode.FLEET_ROLLUP:
       stage2_raw = stage2_raw.replace(f"match:\n  {primary_var}, $ws by 1d", f"match:\n  {primary_var}")
+      stage2_raw = stage2_raw.replace(f"match:\n  {primary_var}, $ws by 1h", f"match:\n  {primary_var}")
       stage2_raw = stage2_raw.replace("$ws = $stage1_extract.window_start\n", "")
+      stage2_raw = stage2_raw.replace("timestamp.get_hour($ws)", "14")
 
     stage2_rendered = stage2_raw.replace("{{anomaly_threshold}}", str(anomaly_threshold))
     stage2_rendered = stage2_rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
@@ -798,6 +802,60 @@ class MultiStageTemplateRouter:
         rendered = f"// Goal: {hypothesis_goal}\n" + rendered
       return rendered + "\n"
 
+    elif pipeline_type == PipelineArchitecture.MACD_MOMENTUM_VELOCITY_2STAGE:
+      if not target_metric:
+        target_metric = "network_bytes_outbound"
+      audit = PreFlightValidator.audit(
+          target_metric=target_metric,
+          entity_type=entity_type,
+          min_baseline_days=min_baseline_days,
+      )
+      pipeline_file = self.template_dir / "pipelines" / "macd_momentum_velocity_2stage.yl2"
+      if not pipeline_file.exists():
+        raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
+      raw = pipeline_file.read_text().strip()
+      metric_type_val = "value_sum" if "bytes" in target_metric else "event_count_sum"
+      observed_agg = "sum(network.sent_bytes)" if "bytes" in target_metric else "count(metadata.id)"
+      val_filter = "network.sent_bytes != 0" if "bytes" in target_metric else ""
+      rendered = raw.replace("{{event_type}}", audit["required_event_type"])
+      rendered = rendered.replace("{{entity_field}}", audit["target_field"])
+      rendered = rendered.replace("{{value_filter}}", val_filter)
+      rendered = rendered.replace("{{observed_aggregation}}", observed_agg)
+      rendered = rendered.replace("{{target_metric_name}}", target_metric)
+      rendered = rendered.replace("{{metric_type_val}}", metric_type_val)
+      rendered = rendered.replace("{{dimension_key}}", audit["target_field"])
+      rendered = rendered.replace("{{extra_dimensions}}", "")
+      if hypothesis_goal:
+        rendered = f"// Goal: {hypothesis_goal}\n" + rendered
+      return rendered + "\n"
+
+    elif pipeline_type == PipelineArchitecture.CIRCADIAN_VON_MISES_2STAGE:
+      if not target_metric:
+        target_metric = "auth_attempts_total"
+      audit = PreFlightValidator.audit(
+          target_metric=target_metric,
+          entity_type=entity_type,
+          min_baseline_days=min_baseline_days,
+      )
+      pipeline_file = self.template_dir / "pipelines" / "circadian_von_mises_2stage.yl2"
+      if not pipeline_file.exists():
+        raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
+      raw = pipeline_file.read_text().strip()
+      metric_type_val = "value_sum" if "bytes" in target_metric else "event_count_sum"
+      observed_agg = "sum(network.sent_bytes)" if "bytes" in target_metric else "count(metadata.id)"
+      val_filter = "network.sent_bytes != 0" if "bytes" in target_metric else ""
+      rendered = raw.replace("{{event_type}}", audit["required_event_type"])
+      rendered = rendered.replace("{{entity_field}}", audit["target_field"])
+      rendered = rendered.replace("{{value_filter}}", val_filter)
+      rendered = rendered.replace("{{observed_aggregation}}", observed_agg)
+      rendered = rendered.replace("{{target_metric_name}}", target_metric)
+      rendered = rendered.replace("{{metric_type_val}}", metric_type_val)
+      rendered = rendered.replace("{{dimension_key}}", audit["target_field"])
+      rendered = rendered.replace("{{extra_dimensions}}", "")
+      if hypothesis_goal:
+        rendered = f"// Goal: {hypothesis_goal}\n" + rendered
+      return rendered + "\n"
+
     else:
       raise ValueError(f"Unsupported pipeline type: {pipeline_type}")
 
@@ -945,6 +1003,38 @@ class MultiStageTemplateRouter:
     """Builds a verified 2-Stage Derived Context Infant Asset Age pipeline."""
     return self.build_pipeline_query(
         PipelineArchitecture.HYBRID_METRIC_DERIVED_ASSET_AGE_2STAGE,
+        target_metric=target_metric,
+        entity_type=entity_type,
+        anomaly_threshold=anomaly_threshold,
+        hypothesis_goal=hypothesis_goal,
+    )
+
+  def build_macd_momentum_velocity_query(
+      self,
+      target_metric: str = "network_bytes_outbound",
+      entity_type: EntityType = EntityType.ASSET,
+      anomaly_threshold: float = 3.0,
+      hypothesis_goal: Optional[str] = None,
+  ) -> str:
+    """Builds a verified 2-Stage MACD Dual-Spine Momentum Velocity pipeline."""
+    return self.build_pipeline_query(
+        PipelineArchitecture.MACD_MOMENTUM_VELOCITY_2STAGE,
+        target_metric=target_metric,
+        entity_type=entity_type,
+        anomaly_threshold=anomaly_threshold,
+        hypothesis_goal=hypothesis_goal,
+    )
+
+  def build_circadian_von_mises_query(
+      self,
+      target_metric: str = "auth_attempts_total",
+      entity_type: EntityType = EntityType.USER,
+      anomaly_threshold: float = 3.0,
+      hypothesis_goal: Optional[str] = None,
+  ) -> str:
+    """Builds a verified 2-Stage Circadian von Mises Temporal Distance pipeline."""
+    return self.build_pipeline_query(
+        PipelineArchitecture.CIRCADIAN_VON_MISES_2STAGE,
         target_metric=target_metric,
         entity_type=entity_type,
         anomaly_threshold=anomaly_threshold,

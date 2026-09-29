@@ -37,6 +37,8 @@ class StatisticalModel(str, Enum):
   PIECEWISE_CRI = "PIECEWISE_CRI"
   FLEET_PREVALENCE_SHIELD = "FLEET_PREVALENCE_SHIELD"
   ADAPTIVE_CONTEXT_THRESHOLD = "ADAPTIVE_CONTEXT_THRESHOLD"
+  MACD_MOMENTUM_VELOCITY = "MACD_MOMENTUM_VELOCITY"
+  CIRCADIAN_VON_MISES = "CIRCADIAN_VON_MISES"
 
 
 class PipelineArchitecture(str, Enum):
@@ -60,6 +62,8 @@ class PipelineArchitecture(str, Enum):
   HYBRID_METRIC_DERIVED_DOMAIN_PREVALENCE_2STAGE = "HYBRID_METRIC_DERIVED_DOMAIN_PREVALENCE_2STAGE"
   HYBRID_METRIC_WHOIS_DOMAIN_LIFECYCLE_2STAGE = "HYBRID_METRIC_WHOIS_DOMAIN_LIFECYCLE_2STAGE"
   HYBRID_METRIC_DERIVED_ASSET_AGE_2STAGE = "HYBRID_METRIC_DERIVED_ASSET_AGE_2STAGE"
+  MACD_MOMENTUM_VELOCITY_2STAGE = "MACD_MOMENTUM_VELOCITY_2STAGE"
+  CIRCADIAN_VON_MISES_2STAGE = "CIRCADIAN_VON_MISES_2STAGE"
 
 
 @dataclass
@@ -1386,7 +1390,8 @@ class MalachiteASTValidator:
                  StatisticalModel.HOURLY_TEMPORAL_ZSCORE, StatisticalModel.LONGITUDINAL_CUSUM,
                  StatisticalModel.TWO_PART_HURDLE, StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z,
                  StatisticalModel.PIECEWISE_CRI, StatisticalModel.FLEET_PREVALENCE_SHIELD,
-                 StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD]:
+                 StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD, StatisticalModel.MACD_MOMENTUM_VELOCITY,
+                 StatisticalModel.CIRCADIAN_VON_MISES]:
       if len(named_stages) != 1:
         errors.append(f"STAGE_TOPOLOGY_MISMATCH: Model {model.value} requires a 2-stage DAG (1 named extractor + root stage). Found {len(named_stages)} named stage(s).")
     elif "3STAGE" in model.value or model in [StatisticalModel.BAYESIAN_GAMMA, StatisticalModel.BAYESIAN_BETA_BINOMIAL]:
@@ -1402,6 +1407,12 @@ class MalachiteASTValidator:
     elif model == StatisticalModel.STANDARD_Z_SCORE:
       if "+ 1.0" not in query_text and "if(" not in query_text and "stddev" not in query_text.lower():
         errors.append("MODEL_FORMULA_MISMATCH: Standard Z-Score must apply dispersion floor (+ 1.0) or nested logic if($std > 0, $std, 1.0) to denominator.")
+    elif model == StatisticalModel.MACD_MOMENTUM_VELOCITY:
+      if "macd" not in query_text.lower() and "slow_z" not in query_text:
+        errors.append("MODEL_FORMULA_MISMATCH: MACD model must include dual-spine momentum differential ($macd_diff).")
+    elif model == StatisticalModel.CIRCADIAN_VON_MISES:
+      if "circ" not in query_text.lower() and "von_mises" not in query_text.lower():
+        errors.append("MODEL_FORMULA_MISMATCH: Circadian von Mises model must compute circular distance on 24-hour clock.")
 
     return errors
 

@@ -1,0 +1,34 @@
+// Root Stage: MACD Dual-Spine Momentum Indicator (Preserving Daily Timeline)
+$entity = $stage1_extract.entity
+$ws = $stage1_extract.window_start
+
+match:
+  $entity, $ws by 1d
+
+outcome:
+  $observed = max($stage1_extract.observed_val)
+  $hist_avg = max($stage1_extract.historical_avg)
+  $hist_stddev = max($stage1_extract.historical_stddev)
+  $active_days = max($stage1_extract.historical_active_days)
+  $hist_max = max($stage1_extract.historical_max)
+
+  // 1. Fast Spine: Instantaneous Standardized Deviation (Daily Velocity)
+  $fast_diff = $observed - $hist_avg
+  $safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)
+  $fast_z = $fast_diff / $safe_stddev
+
+  // 2. Slow Spine: Historical Baseline Departure (Reference Anchor)
+  $slow_diff = $hist_max - $hist_avg
+  $slow_z = $slow_diff / $safe_stddev
+
+  // 3. Momentum Velocity & Divergence (MACD Spread)
+  $macd_diff = $fast_z - $slow_z
+  $safe_max = if($hist_max > 0, $hist_max, 1.0)
+  $velocity_ratio = $observed / $safe_max
+
+  // 4. Half-Rectified Acceleration Surge
+  $scaled_diff = $macd_diff * $velocity_ratio
+  $macd_momentum_score = if($macd_diff > 0, $scaled_diff, $fast_z)
+
+order:
+  $macd_momentum_score desc

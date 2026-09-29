@@ -1,0 +1,81 @@
+// ============================================================================
+// ARCHITECTURE: 2-STAGE MACD DUAL-SPINE MOMENTUM VELOCITY PIPELINE
+// Skill: secops-risk-metrics-multistage
+// Purpose: Detects sudden momentum acceleration where short-term surge diverges from slow baseline anchor
+// Formula: MACD_Diff = Z_Fast - Z_Slow; MACD_Score = Scaled_Surge when MACD_Diff > 0 else Z_Fast
+// Telemetry Metric Mappings:
+//   - Network Bytes (Outbound): metrics.network_bytes_outbound (metric: value_sum, obs: sum(network.sent_bytes))
+//   - Authentication Attempts: metrics.auth_attempts_total (metric: event_count_sum, obs: count(metadata.id))
+//   - DNS Query Volume: metrics.dns_queries_total (metric: event_count_sum, obs: count(metadata.id))
+// ============================================================================
+
+// Stage 1: Daily Standardized Deviation Tracker & Baseline Metric Extraction
+stage stage1_extract {
+    metadata.event_type = "{{event_type}}"
+    {{entity_field}} = $entity
+    $entity != ""
+    {{value_filter}}
+
+  match:
+    $entity by 1d
+
+  outcome:
+    $observed_val = {{observed_aggregation}}
+    $observed_events = count(metadata.id)
+
+    $historical_avg = max(metrics.{{target_metric_name}}(
+        period: 1d, window: 30d, metric: {{metric_type_val}}, agg: avg,
+        {{dimension_key}}: $entity {{extra_dimensions}}
+    ))
+    $historical_stddev = max(metrics.{{target_metric_name}}(
+        period: 1d, window: 30d, metric: {{metric_type_val}}, agg: stddev,
+        {{dimension_key}}: $entity {{extra_dimensions}}
+    ))
+    $historical_active_days = max(metrics.{{target_metric_name}}(
+        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+        {{dimension_key}}: $entity {{extra_dimensions}}
+    ))
+    $historical_max = max(metrics.{{target_metric_name}}(
+        period: 1d, window: 30d, metric: {{metric_type_val}}, agg: max,
+        {{dimension_key}}: $entity {{extra_dimensions}}
+    ))
+    $historical_sum = max(metrics.{{target_metric_name}}(
+        period: 1d, window: 30d, metric: {{metric_type_val}}, agg: sum,
+        {{dimension_key}}: $entity {{extra_dimensions}}
+    ))
+}
+
+// Stage 2 (Root Stage): MACD Momentum Velocity & Divergence Scoring
+$entity = $stage1_extract.entity
+$ws = $stage1_extract.window_start
+
+match:
+  $entity, $ws by 1d
+
+outcome:
+  $observed = max($stage1_extract.observed_val)
+  $hist_avg = max($stage1_extract.historical_avg)
+  $hist_stddev = max($stage1_extract.historical_stddev)
+  $active_days = max($stage1_extract.historical_active_days)
+  $hist_max = max($stage1_extract.historical_max)
+
+  // 1. Fast Spine: Instantaneous Standardized Deviation (Daily Velocity)
+  $fast_diff = $observed - $hist_avg
+  $safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)
+  $fast_z = $fast_diff / $safe_stddev
+
+  // 2. Slow Spine: Historical Baseline Departure (Reference Anchor)
+  $slow_diff = $hist_max - $hist_avg
+  $slow_z = $slow_diff / $safe_stddev
+
+  // 3. Momentum Velocity & Divergence (MACD Spread)
+  $macd_diff = $fast_z - $slow_z
+  $safe_max = if($hist_max > 0, $hist_max, 1.0)
+  $velocity_ratio = $observed / $safe_max
+
+  // 4. Half-Rectified Acceleration Surge
+  $scaled_diff = $macd_diff * $velocity_ratio
+  $macd_momentum_score = if($macd_diff > 0, $scaled_diff, $fast_z)
+
+order:
+  $macd_momentum_score desc

@@ -87,6 +87,8 @@ class ExhaustiveMatrixSyntaxTest(unittest.TestCase):
         StatisticalModel.PIECEWISE_CRI,
         StatisticalModel.FLEET_PREVALENCE_SHIELD,
         StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD,
+        StatisticalModel.MACD_MOMENTUM_VELOCITY,
+        StatisticalModel.CIRCADIAN_VON_MISES,
     ]
     match_modes = [MatchMode.TIMELINE_BREAKDOWN, MatchMode.FLEET_ROLLUP]
 
@@ -125,6 +127,8 @@ class ExhaustiveMatrixSyntaxTest(unittest.TestCase):
     pipelines = [
         PipelineArchitecture.MULTI_SECTOR_FUSION_4STAGE,
         PipelineArchitecture.DUAL_BASELINE_3STAGE,
+        PipelineArchitecture.MACD_MOMENTUM_VELOCITY_2STAGE,
+        PipelineArchitecture.CIRCADIAN_VON_MISES_2STAGE,
     ]
     for ptype in pipelines:
       context = f"Pipeline={ptype.value}"

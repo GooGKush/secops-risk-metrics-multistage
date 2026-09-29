@@ -24,11 +24,14 @@ Every threat—known, emerging, or zero-day—physically deforms telemetry in on
 │ 3. Volumetric Shock         │ Sudden explosive surge over   │ Piecewise CRI (The Shock Absorber)   │
 │    ("The Spiky Rupture")    │ individual/peer baseline      │ or Asymmetric Directional Z (ReLU)   │
 ├─────────────────────────────┼───────────────────────────────┼──────────────────────────────────────┤
-│ 4. Volatility Regularity    │ Unnatural clockwork intervals │ Hourly Temporal Z-Score              │
-│    ("The Machine Pulse")    │ or collapsed entropy (C2)     │ or Fano Factor / Dispersion          │
+│ 4. Volatility Regularity    │ Unnatural clockwork intervals │ Circadian von Mises Temporal Dist    │
+│    ("The Machine Pulse")    │ or cyclic 24h clock shifts    │ or Hourly Temporal Z-Score / Fano    │
 ├─────────────────────────────┼───────────────────────────────┼──────────────────────────────────────┤
 │ 5. Orthogonal Dispersion    │ Mild elevations across 3–5    │ 360° Decoupled Behavioral Radar      │
 │    ("The Multi-Vector Fog") │ unrelated telemetry sectors   │ with Euclidean Distance (D >= 3.5σ)  │
+├─────────────────────────────┼───────────────────────────────┼──────────────────────────────────────┤
+│ 6. Kinetic Acceleration     │ Runaway velocity departure    │ MACD Dual-Spine Momentum Indicator   │
+│    ("The Runaway Train")    │ breaking historical ceilings  │ (Fast vs Slow Velocity Divergence)   │
 └─────────────────────────────┴───────────────────────────────┴──────────────────────────────────────┘
 ```
 
@@ -120,6 +123,7 @@ Every Phase 1A consultative response must be formatted with the following explic
   4. *Multilevel Network Triad Breakout*: Compare Outbound, Inbound, and Total Byte volume simultaneously against team cohort and enterprise wholes to catch asymmetric data siphoning (**Part-of-the-Whole Triad** via `part_of_the_whole_triad_multilevel.yl2`).
   5. *High-Frequency Session Surge & C2 Beaconing*: Detect micro-payload, high-frequency outbound connection bursts that bypass volumetric thresholds (**Flow Frequency Anomaly** on `network_flows_outbound` via `c2_beacon_flow_frequency_2stage.yl2`).
   6. *Context-Enhanced WHOIS Egress*: Cross-reference outbound transfer departures against WHOIS registration dates and expiration status to apply 2.5x–3.0x risk multipliers on Newly Registered Domains or expired infrastructure (**WHOIS Domain Lifecycle** via `templates/pipelines/hybrid_metric_whois_domain_lifecycle_2stage.yl2`).
+  7. *Runaway Velocity Divergence*: Detect sudden, unconstrained egress acceleration that shatters historical 30-day ceilings (**MACD Dual-Spine Momentum Indicator** on `network_bytes_outbound` via `macd_momentum_velocity_2stage.yl2`).
 * *Deep Dive Guide*: `references/consultative/data-exfiltration.md`
 
 ### Domain 2: Identity, Credential Abuse & Privilege Drift
@@ -130,6 +134,7 @@ Every Phase 1A consultative response must be formatted with the following explic
   2. *Dormant Account Wakeup*: Surface idle users or service accounts suddenly initiating sessions (**Two-Part Hurdle Model** on `auth_attempts_success` or `workspace_auth_attempts_total`).
   3. *Off-Hours / Unusual Login Volume*: Identify sudden access surges against a user's 30-day baseline (**Standard Z-Score** on `auth_attempts_total`).
   4. *Multilevel Authentication Triad*: Simultaneously compare an individual's Total, Failed, and Successful attempts against their peer team cohort and enterprise whole to distinguish high legitimate login volume from targeted credential attacks (**Part-of-the-Whole Triad** via `part_of_the_whole_triad_multilevel.yl2`).
+  5. *Circadian Clock Phase Shift*: Catch off-hours or night-shift credential replay using circular 24-hour distance penalties without linear wrap distortion (**Circadian von Mises Temporal Distance** on `auth_attempts_total` via `circadian_von_mises_2stage.yl2`).
 * *Deep Dive Guide*: `references/consultative/identity-and-access.md`
 
 ### Domain 3: Cloud Infrastructure Tampering & Sabotage

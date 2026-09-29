@@ -110,11 +110,25 @@ MODEL_AST_CONTRACTS = {
         "required_ops": ["$is_off_hours = if($active_days <= 5", "$dynamic_threshold = if($is_off_hours > 0, 1.75, 3.00)", "$sensitivity_excess = $personal_z - $dynamic_threshold"],
         "prohibited_substitutions": [],
     },
+    StatisticalModel.MACD_MOMENTUM_VELOCITY: {
+        "template": "macd_momentum_velocity.yl2",
+        "mandatory_vars": ["$fast_diff", "$safe_stddev", "$fast_z", "$slow_diff", "$slow_z", "$macd_diff", "$safe_max", "$velocity_ratio", "$scaled_diff", "$macd_momentum_score"],
+        "order_var": "$macd_momentum_score",
+        "required_ops": ["$fast_diff = $observed - $hist_avg", "$slow_diff = $hist_max - $hist_avg", "$macd_diff = $fast_z - $slow_z", "$macd_momentum_score = if($macd_diff > 0"],
+        "prohibited_substitutions": ["$personal_z"],
+    },
+    StatisticalModel.CIRCADIAN_VON_MISES: {
+        "template": "circadian_von_mises.yl2",
+        "mandatory_vars": ["$hourly_diff", "$safe_stddev_hourly", "$hourly_z", "$event_hour", "$raw_diff", "$inverted_dist", "$circ_dist", "$von_mises_arc", "$temporal_penalty", "$temporal_multiplier", "$circadian_threat_score"],
+        "order_var": "$circadian_threat_score",
+        "required_ops": ["by 1h", "timestamp.get_hour($ws)", "$circ_dist = if($raw_diff > 12", "math.pow($circ_dist, 2)", "$temporal_penalty = $von_mises_arc / 72.0"],
+        "prohibited_substitutions": ["$personal_z"],
+    },
 }
 
 
 class TestModelConcordance(unittest.TestCase):
-  """Validates that all 14 models adhere to their AST concordance contracts."""
+  """Validates that all 16 models adhere to their AST concordance contracts."""
 
   def setUp(self):
     self.repo_root = Path(__file__).resolve().parent.parent

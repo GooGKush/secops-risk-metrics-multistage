@@ -20,7 +20,7 @@ In multi-stage hunting workflows:
 
 ---
 
-## 2. 📊 The 14-Model AST Contract Matrix
+## 2. 📊 The 16-Model AST Contract Matrix
 
 | # | `StatisticalModel` Enum | Declared Prose Name | Mandatory `outcome:` Variables | Key Mathematical Operations | Primary `order:` Clause | Prohibited Fallback Anti-Pattern |
 |---|---|---|---|---|---|---|
@@ -38,6 +38,8 @@ In multi-stage hunting workflows:
 | 12 | `PIECEWISE_CRI` | Winsorized Z-Score & Piecewise CRI | `$diff`, `$safe_stddev`, `$raw_z`, `$clamped_low`, `$clamped_z`, `$cri_tier4`, `$cri_tier3`, `$cri_tier2`, `$cri_score` | Winsorization clamp to $[-4.0, +6.0]$, piecewise tiers [0-100] | `order: $cri_score desc` | Unclamped unbounded Z-score |
 | 13 | `FLEET_PREVALENCE_SHIELD` | Fleet Prevalence Discounting | `$fleet_count`, `$diff`, `$safe_stddev`, `$personal_z`, `$prevalence_factor`, `$shielded_z` | Fleet aggregation (`count`), immunity factor discounting | `order: $shielded_z desc` | Individual Z-score lacking fleet count suppression |
 | 14 | `ADAPTIVE_CONTEXT_THRESHOLD` | Context-Modulated Adaptive Sensitivity | `$diff`, `$safe_stddev`, `$personal_z`, `$is_off_hours`, `$dynamic_threshold`, `$sensitivity_excess` | Off-hours sensitivity tightening ($1.75\sigma$ vs $3.00\sigma$) | `order: $sensitivity_excess desc` | Static uniform threshold across all operating contexts |
+| 15 | `MACD_MOMENTUM_VELOCITY` | MACD Dual-Spine Momentum Indicator | `$fast_diff`, `$safe_stddev`, `$fast_z`, `$slow_diff`, `$slow_z`, `$macd_diff`, `$safe_max`, `$velocity_ratio`, `$scaled_diff`, `$macd_momentum_score` | Fast spine deviation, slow reference anchor, velocity ratio amplification | `order: $macd_momentum_score desc` | Univariate standard Z fallback |
+| 16 | `CIRCADIAN_VON_MISES` | Circadian von Mises Temporal Distance | `$hourly_diff`, `$safe_stddev_hourly`, `$hourly_z`, `$event_hour`, `$raw_diff`, `$inverted_dist`, `$circ_dist`, `$von_mises_arc`, `$temporal_penalty`, `$temporal_multiplier`, `$circadian_threat_score` | Circular distance on 24h clock, quadratic von Mises penalty ($d^2 / 72.0$) | `order: $circadian_threat_score desc` | Linear Euclidean hour subtraction |
 
 ---
 
@@ -372,12 +374,78 @@ order:
   $sensitivity_excess desc
 ```
 
+### 15. `MACD_MOMENTUM_VELOCITY` (`macd_momentum_velocity.yl2`)
+* **Hypothesis**: Detects sudden momentum acceleration where short-term surge diverges from slow baseline anchor and exceeds historical maximum departure.
+* **Mandatory AST Contract**:
+```yara
+outcome:
+  $observed = max($stage1_extract.observed_val)
+  $hist_avg = max($stage1_extract.historical_avg)
+  $hist_stddev = max($stage1_extract.historical_stddev)
+  $active_days = max($stage1_extract.historical_active_days)
+  $hist_max = max($stage1_extract.historical_max)
+
+  // 1. Fast Spine: Instantaneous Standardized Deviation (Daily Velocity)
+  $fast_diff = $observed - $hist_avg
+  $safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)
+  $fast_z = $fast_diff / $safe_stddev
+
+  // 2. Slow Spine: Historical Baseline Departure (Reference Anchor)
+  $slow_diff = $hist_max - $hist_avg
+  $slow_z = $slow_diff / $safe_stddev
+
+  // 3. Momentum Velocity & Divergence (MACD Spread)
+  $macd_diff = $fast_z - $slow_z
+  $safe_max = if($hist_max > 0, $hist_max, 1.0)
+  $velocity_ratio = $observed / $safe_max
+
+  // 4. Half-Rectified Acceleration Surge
+  $scaled_diff = $macd_diff * $velocity_ratio
+  $macd_momentum_score = if($macd_diff > 0, $scaled_diff, $fast_z)
+
+order:
+  $macd_momentum_score desc
+```
+
+### 16. `CIRCADIAN_VON_MISES` (`circadian_von_mises.yl2`)
+* **Hypothesis**: Evaluates hourly telemetry against a 24-hour circular clock to penalize off-hours deviations using von Mises quadratic arc distance.
+* **Mandatory AST Contract**:
+```yara
+outcome:
+  $observed_hour = max($stage1_extract.observed_val)
+  $avg_hourly = max($stage1_extract.historical_avg)
+  $stddev_hourly = max($stage1_extract.historical_stddev)
+  $active_days = max($stage1_extract.historical_active_days)
+  $max_hourly = max($stage1_extract.historical_max)
+
+  // 1. Hourly Volumetric Z-Score
+  $hourly_diff = $observed_hour - $avg_hourly
+  $safe_stddev_hourly = if($stddev_hourly > 0, $stddev_hourly, 1.0)
+  $hourly_z = $hourly_diff / $safe_stddev_hourly
+
+  // 2. Circadian von Mises Circular Distance (24-Hour Circular Clock)
+  // Expected Peak Operating Hour: 14:00 UTC (Anchor)
+  $event_hour = timestamp.get_hour($ws)
+  $raw_diff = math.abs($event_hour - 14)
+  $inverted_dist = 24 - $raw_diff
+  $circ_dist = if($raw_diff > 12, $inverted_dist, $raw_diff)
+  $von_mises_arc = math.pow($circ_dist, 2)
+  $temporal_penalty = $von_mises_arc / 72.0
+
+  // 3. Combined Circadian Threat Score: Hourly Volume Surge Scaled by Temporal Deviance
+  $temporal_multiplier = 1.0 + $temporal_penalty
+  $circadian_threat_score = $hourly_z * $temporal_multiplier
+
+order:
+  $circadian_threat_score desc
+```
+
 ---
 
 ## 4. ✅ Pre-Display Self-Concordance Checklist
 
 Before emitting any query preview under a Pre-Flight Card in Phase 1B, verify:
-1. **Model Identification**: Does the declared `• Statistical Model:` in the card correspond to one of the 14 defined models?
+1. **Model Identification**: Does the declared `• Statistical Model:` in the card correspond to one of the 16 defined models?
 2. **Outcome Variable Audit**: Does the emitted query's `outcome:` block contain all mandatory variables specified in the matrix above?
 3. **Primary Ranking Target**: Does the `order:` clause sort by the primary model output variable (e.g. `$cusum_drift_score desc`, `$hurdle_threat_score desc`, `$bayes_shift_ratio desc`)?
 4. **No Univariate Fallback**: If an advanced model (e.g. Bayesian, CUSUM, Hurdle, Piecewise CRI) was declared, ensure it is NOT replaced by a bare standard $Z$-score.

@@ -1,0 +1,81 @@
+// ============================================================================
+// ARCHITECTURE: 2-STAGE CIRCADIAN VON MISES TEMPORAL DISTANCE PIPELINE
+// Skill: secops-risk-metrics-multistage
+// Purpose: Evaluates hourly telemetry against 24-hour circular clock to penalize off-hours deviations
+// Formula: Circular_Dist = min(Raw_Diff, 24 - Raw_Diff); Score = Hourly_Z * (1.0 + (Dist^2 / 72.0))
+// Telemetry Metric Mappings:
+//   - Authentication Attempts: metrics.auth_attempts_total (metric: event_count_sum, obs: count(metadata.id))
+//   - Network Bytes (Outbound): metrics.network_bytes_outbound (metric: value_sum, obs: sum(network.sent_bytes))
+//   - Resource Reads: metrics.resource_read_total (metric: event_count_sum, obs: count(metadata.id))
+// ============================================================================
+
+// Stage 1: Hourly Standardized Deviation Tracker & Baseline Metric Extraction
+stage stage1_extract {
+    metadata.event_type = "{{event_type}}"
+    {{entity_field}} = $entity
+    $entity != ""
+    {{value_filter}}
+
+  match:
+    $entity by 1h
+
+  outcome:
+    $observed_val = {{observed_aggregation}}
+    $observed_events = count(metadata.id)
+
+    $historical_avg = max(metrics.{{target_metric_name}}(
+        period: 1d, window: 30d, metric: {{metric_type_val}}, agg: avg,
+        {{dimension_key}}: $entity {{extra_dimensions}}
+    ))
+    $historical_stddev = max(metrics.{{target_metric_name}}(
+        period: 1d, window: 30d, metric: {{metric_type_val}}, agg: stddev,
+        {{dimension_key}}: $entity {{extra_dimensions}}
+    ))
+    $historical_active_days = max(metrics.{{target_metric_name}}(
+        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+        {{dimension_key}}: $entity {{extra_dimensions}}
+    ))
+    $historical_max = max(metrics.{{target_metric_name}}(
+        period: 1d, window: 30d, metric: {{metric_type_val}}, agg: max,
+        {{dimension_key}}: $entity {{extra_dimensions}}
+    ))
+    $historical_sum = max(metrics.{{target_metric_name}}(
+        period: 1d, window: 30d, metric: {{metric_type_val}}, agg: sum,
+        {{dimension_key}}: $entity {{extra_dimensions}}
+    ))
+}
+
+// Stage 2 (Root Stage): Circadian von Mises Temporal Distance Scoring
+$entity = $stage1_extract.entity
+$ws = $stage1_extract.window_start
+
+match:
+  $entity, $ws by 1h
+
+outcome:
+  $observed_hour = max($stage1_extract.observed_val)
+  $avg_hourly = max($stage1_extract.historical_avg)
+  $stddev_hourly = max($stage1_extract.historical_stddev)
+  $active_days = max($stage1_extract.historical_active_days)
+  $max_hourly = max($stage1_extract.historical_max)
+
+  // 1. Hourly Volumetric Z-Score
+  $hourly_diff = $observed_hour - $avg_hourly
+  $safe_stddev_hourly = if($stddev_hourly > 0, $stddev_hourly, 1.0)
+  $hourly_z = $hourly_diff / $safe_stddev_hourly
+
+  // 2. Circadian von Mises Circular Distance (24-Hour Circular Clock)
+  // Expected Peak Operating Hour: 14:00 UTC (Anchor)
+  $event_hour = timestamp.get_hour($ws)
+  $raw_diff = math.abs($event_hour - 14)
+  $inverted_dist = 24 - $raw_diff
+  $circ_dist = if($raw_diff > 12, $inverted_dist, $raw_diff)
+  $von_mises_arc = math.pow($circ_dist, 2)
+  $temporal_penalty = $von_mises_arc / 72.0
+
+  // 3. Combined Circadian Threat Score: Hourly Volume Surge Scaled by Temporal Deviance
+  $temporal_multiplier = 1.0 + $temporal_penalty
+  $circadian_threat_score = $hourly_z * $temporal_multiplier
+
+order:
+  $circadian_threat_score desc

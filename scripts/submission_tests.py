@@ -319,6 +319,38 @@ order:
         )
     )
 
+    matrix.append(
+        TestCase(
+            test_id="PIPE-10-MACD-MOMENTUM",
+            category="Pipeline Template",
+            name="2-Stage MACD Dual-Spine Momentum Velocity Pipeline",
+            description="Evaluates outbound network bytes using short-term velocity divergence against historical baseline anchor.",
+            generator=lambda: self.router.build_pipeline_query(
+                PipelineArchitecture.MACD_MOMENTUM_VELOCITY_2STAGE,
+                target_metric="network_bytes_outbound",
+                entity_type=EntityType.ASSET,
+                anomaly_threshold=3.0,
+            ),
+            expected_stages=["stage1_extract"],
+        )
+    )
+
+    matrix.append(
+        TestCase(
+            test_id="PIPE-11-CIRCADIAN-VON-MISES",
+            category="Pipeline Template",
+            name="2-Stage Circadian von Mises Temporal Distance Pipeline",
+            description="Evaluates hourly authentication attempts against 24-hour circular clock penalizing off-hours deviation.",
+            generator=lambda: self.router.build_pipeline_query(
+                PipelineArchitecture.CIRCADIAN_VON_MISES_2STAGE,
+                target_metric="auth_attempts_total",
+                entity_type=EntityType.USER,
+                anomaly_threshold=3.0,
+            ),
+            expected_stages=["stage1_extract"],
+        )
+    )
+
     # -------------------------------------------------------------------------
     # 3. Decoupled 360° Risk Radar Micro-Queries (4 Cases)
     # -------------------------------------------------------------------------
@@ -387,6 +419,8 @@ order:
         ("ROUTER-12-PIECEWISE-CRI", "network_bytes_outbound", EntityType.ASSET, StatisticalModel.PIECEWISE_CRI, "Piecewise Winsorized Calibrated Risk Index"),
         ("ROUTER-13-FLEET-SHIELD", "network_bytes_outbound", EntityType.ASSET, StatisticalModel.FLEET_PREVALENCE_SHIELD, "Fleet prevalence concurrency discount shield"),
         ("ROUTER-14-ADAPTIVE-THRESH", "auth_attempts_total", EntityType.USER, StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD, "Adaptive context-modulated sensitivity tightening"),
+        ("ROUTER-15-MACD-MOMENTUM", "network_bytes_outbound", EntityType.ASSET, StatisticalModel.MACD_MOMENTUM_VELOCITY, "MACD dual-spine momentum velocity on egress"),
+        ("ROUTER-16-CIRCADIAN-VON-MISES", "auth_attempts_total", EntityType.USER, StatisticalModel.CIRCADIAN_VON_MISES, "Circadian von Mises temporal distance on auth"),
     ]
 
     for rid, metric, etype, model, desc in router_cases:

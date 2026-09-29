@@ -92,7 +92,7 @@ In addition to compiler syntax, all queries submitted to Chronicle must satisfy 
 
 ## 3. Pre-Submission Test Harness (`scripts/submission_tests.py`)
 
-The submission test harness automates compiler verification across 27 canonical test cases categorized into four operational suites:
+The submission test harness automates compiler verification across 31 canonical test cases categorized into four operational suites:
 
 | ID | Suite | Target Metric / Model | Key Compiler Check |
 |:---|:------|:----------------------|:-------------------|
@@ -105,6 +105,8 @@ The submission test harness automates compiler verification across 27 canonical 
 | `PIPE-07-EMPIRICAL-BAYES` | Pipeline Template | `http_queries_total` (Asset) | 3-stage hyperprior shrinkage (stddev²) |
 | `PIPE-08-CLOUD-SCOPE` | Pipeline Template | `resource_read_total` | Dual-branch cloud repository scope & origin outlier |
 | `PIPE-09-PREVALENCE` | Pipeline Template | `network_bytes_outbound` + Entity Graph | 2-stage IP prevalence ($\le 3$) & egress volume |
+| `PIPE-10-MACD-MOMENTUM` | Pipeline Template | `network_bytes_outbound` (Asset) | 2-stage MACD dual-spine momentum velocity |
+| `PIPE-11-CIRCADIAN-VON-MISES` | Pipeline Template | `auth_attempts_total` (User) | 2-stage Circadian von Mises temporal distance |
 | `RADAR-01-AUTH` | Decoupled Radar Spoke | `auth_attempts_fail` | Allowed vs failed login micro-query |
 | `RADAR-02-CLOUD` | Decoupled Radar Spoke | `resource_creation_total` | Multi-dimensional cloud CRUD tracking |
 | `RADAR-03-WORKSPACE` | Decoupled Radar Spoke | `google_workspace_downloads` | High-frequency document hoarding query |
@@ -123,6 +125,8 @@ The submission test harness automates compiler verification across 27 canonical 
 | `ROUTER-12-PIECEWISE-CRI`| Dynamic Router| `network_bytes_outbound` + CRI | Winsorized clamp & piecewise CRI tiers |
 | `ROUTER-13-FLEET-SHIELD`| Dynamic Router| `network_bytes_outbound` + Shield | Concurrency immunity discounting factor |
 | `ROUTER-14-ADAPTIVE-THRESH`| Dynamic Router| `auth_attempts_total` + Adaptive | Context-modulated off-hours thresholding |
+| `ROUTER-15-MACD-MOMENTUM`| Dynamic Router| `network_bytes_outbound` + MACD | Fast spine vs slow reference divergence |
+| `ROUTER-16-CIRCADIAN-VON-MISES`| Dynamic Router| `auth_attempts_total` + Circadian | Circular 24-hour clock quadratic distance |
 
 ---
 

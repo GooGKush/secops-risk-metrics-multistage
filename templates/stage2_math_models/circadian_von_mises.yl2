@@ -1,0 +1,34 @@
+// Root Stage: Circadian von Mises Temporal Distance (Preserving Hourly Timeline)
+$entity = $stage1_extract.entity
+$ws = $stage1_extract.window_start
+
+match:
+  $entity, $ws by 1h
+
+outcome:
+  $observed_hour = max($stage1_extract.observed_val)
+  $avg_hourly = max($stage1_extract.historical_avg)
+  $stddev_hourly = max($stage1_extract.historical_stddev)
+  $active_days = max($stage1_extract.historical_active_days)
+  $max_hourly = max($stage1_extract.historical_max)
+
+  // 1. Hourly Volumetric Z-Score
+  $hourly_diff = $observed_hour - $avg_hourly
+  $safe_stddev_hourly = if($stddev_hourly > 0, $stddev_hourly, 1.0)
+  $hourly_z = $hourly_diff / $safe_stddev_hourly
+
+  // 2. Circadian von Mises Circular Distance (24-Hour Circular Clock)
+  // Expected Peak Operating Hour: 14:00 UTC (Anchor)
+  $event_hour = timestamp.get_hour($ws)
+  $raw_diff = math.abs($event_hour - 14)
+  $inverted_dist = 24 - $raw_diff
+  $circ_dist = if($raw_diff > 12, $inverted_dist, $raw_diff)
+  $von_mises_arc = math.pow($circ_dist, 2)
+  $temporal_penalty = $von_mises_arc / 72.0
+
+  // 3. Combined Circadian Threat Score: Hourly Volume Surge Scaled by Temporal Deviance
+  $temporal_multiplier = 1.0 + $temporal_penalty
+  $circadian_threat_score = $hourly_z * $temporal_multiplier
+
+order:
+  $circadian_threat_score desc

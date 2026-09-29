@@ -31,7 +31,7 @@ Operational execution: `references/turn-execution-lifecycle.md`.
 ---
 
 ## 💡 How Risk Metrics Multi-Stage Analytics Work
-3-step **Execution Framework Summary**: 1. **30d Baselines** (`metrics.*`), 2. **Multi-Stage DAGs**, 3. **Statistical Framework** ($Z$, MAD, Poisson, $\Delta Z$, CUSUM, $D$). Ask for more information. Details: `references/multi-stage-metrics-guide.md`.
+3-step **Execution Framework Summary**: 1. **30d Baselines** (`metrics.*`), 2. **Multi-Stage DAGs**, 3. **Statistical Framework** ($Z$, MAD, Poisson, $\Delta Z$, CUSUM, MACD, Circadian, $D$). Ask for more information. Details: `references/multi-stage-metrics-guide.md`.
 
 ---
 

@@ -20,6 +20,8 @@ The Google SecOps Multi-Stage Risk Analytics Engine provides 10 distinct categor
 | **8. 🛡️ Concurrency Immunity & Suppression** | `FLEET_PREVALENCE_SHIELD`, `DUAL_BASELINE_3STAGE` | Workstation Egress, Admin Downloads | Disarms false positives during mass enterprise events (Patch Tuesday, vulnerability scans) by discounting individual scores when $>10$ hosts spike concurrently. |
 | **9. 🌙 Context-Modulated Sensitivity** | `ADAPTIVE_CONTEXT_THRESHOLD` | Off-Hours Logins, Weekend Bandwidth | Dynamically tightens detection hurdles (lowering threshold from $3.0\sigma$ to $1.75\sigma$) during high-risk off-hours or quiet shifts. |
 | **10. 🎯 Distortion-Proof Severity Tiering** | `PIECEWISE_CRI` (Winsorization + CRI) | Enterprise Leaderboards, Multi-Metric Hunts | Absorbs extreme mathematical blowouts on quiet accounts (Winsorized clamp) and maps raw deviations directly to deterministic SOC investigation SLAs ($0–100$). |
+| **11. 🚀 Momentum Velocity & Acceleration** | `MACD_MOMENTUM_VELOCITY` ($\Delta Z = Z_{\text{fast}} - Z_{\text{slow}}$) | Network Egress, Auth Attempts, DNS Volumes | Catches sudden acceleration departures where today's velocity breaks out beyond 30-day baseline ceiling and historical maximums. |
+| **12. ⏰ Cyclic 24h Clock Deviance** | `CIRCADIAN_VON_MISES` ($D_{\text{circ}}^2 / 72.0$) | Off-Hours Authentication, Weekend Bandwidth | Penalizes deviations on a circular 24-hour clock using von Mises quadratic arc distance, avoiding linear time wrapping errors. |
 
 > [!TIP]
 > **Ask for more information** if you would like a deep dive on how any of these specific models help expose behavioral outliers for your security use cases.
@@ -53,6 +55,12 @@ Before running a multi-stage statistical hunt, explain the approach to the secur
 
 ### 8. Multi-Sector Threat Fusion (The "Combined Arms Threat Radar")
 > *"Attackers don't stay in one lane: they spray passwords, run discovery tools, and exfiltrate data. If they do each step quietly, single-silo alerts never trigger. Our 4-stage pipeline calculates an orthogonal threat distance combining IAM, Endpoint, and Network signals into a single unified incident score."*
+
+### 9. MACD Dual-Spine Momentum (The "Highway Speedometer vs Cruise Control")
+> *"Cruise control keeps a car at 65 MPH. If the car gradually climbs a gentle hill, the speedometer nudges slightly ($Z \approx 1.2$). But if the driver stomps on the accelerator and blasts past 110 MPH, the instantaneous needle flies completely away from the historical cruise setting. The MACD Dual-Spine model compares today's fast speed needle against the slow 30-day cruise setting and past speed records. If today's acceleration breaks past the historical maximum, it flags high-velocity momentum divergence."*
+
+### 10. Circadian von Mises Temporal Distance (The "24-Hour Circular Clock Face")
+> *"If you use standard grade-school subtraction on time, 11:00 PM (23:00) and 1:00 AM (01:00) look 22 hours apart ($|23 - 1| = 22$). But on a round wall clock, they are right next to each other—only 2 hours apart! Linear math fails completely on time of day. The von Mises model treats time like a circular clock face. It measures the shortest arc distance around the circle and applies quadratic scaling, smoothly penalizing actions that occur far away from an entity's normal daytime hours (like 3:00 AM) while treating 11:00 PM and 1:00 AM as natural neighbors."*
 
 ---
 
@@ -304,7 +312,57 @@ Before running a multi-stage statistical hunt, explain the approach to the secur
 
 ---
 
-## 15. Advanced Multi-Stage DAG Pipeline Architectures
+## 15. MACD Dual-Spine Momentum Indicator (`MACD_MOMENTUM_VELOCITY`)
+* **Security Problem Solved**: Detects abrupt momentum acceleration and velocity divergence where today's instantaneous burst breaks out past the slow 30-day baseline anchor and exceeds the entity's historical maximum departure.
+* **Mathematical Formulation**:
+  $$Z_{\text{fast}} = \frac{x_{\text{observed}} - \mu_{\text{30d}}}{\sigma_{\text{safe}}}, \quad Z_{\text{slow}} = \frac{\mu_{\text{max}} - \mu_{\text{30d}}}{\sigma_{\text{safe}}}$$
+  $$\text{MACD}_{\text{diff}} = Z_{\text{fast}} - Z_{\text{slow}}$$
+  $$\text{Velocity Ratio} = \frac{x_{\text{observed}}}{\text{if}(\mu_{\text{max}} > 0, \mu_{\text{max}}, 1.0)}$$
+  $$\text{Score} = \text{if}(\text{MACD}_{\text{diff}} > 0, \text{MACD}_{\text{diff}} \times \text{Velocity Ratio}, Z_{\text{fast}})$$
+* **Where**:
+  * $\sigma_{\text{safe}} = \text{if}(\sigma > 0, \sigma, 1.0)$
+  * $x_{\text{observed}}$: Current observed volume (`$stage1_extract.observed_val`)
+  * $\mu_{\text{30d}}$: 30-day baseline average (`$stage1_extract.historical_avg`)
+  * $\mu_{\text{max}}$: 30-day peak recorded value (`$stage1_extract.historical_max`)
+* **Threat Meaning**: Identifies massive, runaway velocity departures (e.g. rapid automated data exfiltration or high-frequency API abuse) that break cleanly through historic ceiling records.
+* **Post-Hunt Plain-English Cyber Impact Statement Template**:
+```markdown
+> [!IMPORTANT]
+> **MACD Momentum Velocity Verdict: Acceleration Breakout (`[target_metric]`)**
+> * **Instantaneous Velocity**: Entity `[entity]` performed **[observed]** actions today against a 30-day average of **[hist_avg]** and historical maximum of **[hist_max]**.
+> * **Dual-Spine Departure**: Fast spine $Z_{\text{fast}} = \mathbf{[fast_z]\sigma}$, Slow spine anchor $Z_{\text{slow}} = \mathbf{[slow_z]\sigma}$.
+> * **Momentum Spread**: Accelerating departure of **+[macd_diff]σ** beyond historical peak capacity with a velocity ratio of **[velocity_ratio]×**.
+> * **Investigative Meaning**: Activity exhibits runaway kinetic acceleration, breaking past the 30-day ceiling and confirming unconstrained automated execution.
+```
+
+---
+
+## 16. Circadian von Mises Temporal Distance (`CIRCADIAN_VON_MISES`)
+* **Security Problem Solved**: Evaluates events across a 24-hour circular clock face to penalize off-hours and night-shift departures without circular boundary wrap distortion.
+* **Mathematical Formulation**:
+  $$H = \text{timestamp.get\_hour}(\$ws)$$
+  $$\Delta H = |H - H_{\text{peak}}|, \quad \text{where } H_{\text{peak}} = 14 \text{ (2:00 PM UTC baseline anchor)}$$
+  $$D_{\text{circ}} = \text{if}(\Delta H > 12, 24 - \Delta H, \Delta H)$$
+  $$\text{Von Mises Arc Penalty} = \frac{D_{\text{circ}}^2}{72.0}$$
+  $$\text{Circadian Threat Score} = Z_{\text{hourly}} \times (1.0 + \text{Von Mises Arc Penalty})$$
+* **Where**:
+  *$Z_{\text{hourly}} = \frac{x_{\text{hour}} - \mu_{\text{hour}}}{\sigma_{\text{safe}}}$
+  * Maximum possible circular distance $D_{\text{circ}} = 12$ hours (at opposite polarity, penalty multiplier = $1.0 + \frac{144}{72} = 3.0\times$).
+* **Threat Meaning**: Smoothly scales volumetric surges according to their temporal improbability on a cyclic 24-hour clock. An egress spike at 3:00 AM receives a $3.0\times$ multiplier penalty, while an identical spike at 2:00 PM receives a neutral $1.0\times$ multiplier.
+* **Post-Hunt Plain-English Cyber Impact Statement Template**:
+```markdown
+> [!IMPORTANT]
+> **Circadian Temporal Distance Verdict: Off-Hours von Mises Departure (`[target_metric]`)**
+> * **Hourly Observation**: Entity `[entity]` executed **[observed_hour]** events during hour **[event_hour]:00 UTC** against baseline average of **[avg_hourly]**.
+> * **Circular Clock Distance**: **[circ_dist] hours** away from normal 14:00 UTC operational peak.
+> * **Temporal Penalty**: Quadratic von Mises multiplier of **[temporal_multiplier]×**.
+> * **Combined Threat Score**: **[circadian_threat_score]** (Hourly $Z = [hourly_z]\sigma$).
+> * **Investigative Meaning**: High-confidence volumetric departure occurring at an anomalous circadian phase, indicating unauthorized off-hours operation or compromised credential replay from an opposing timezone.
+```
+
+---
+
+## 17. Advanced Multi-Stage DAG Pipeline Architectures
 
 Beyond 2-stage models, the engine provides pre-composed multi-stage DAG pipelines for composite multi-sector attacks:
 
