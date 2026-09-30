@@ -279,6 +279,30 @@ outcome:
   $http_std = max($s1.http_std)
   $z_http = (max($s1.http_obs) - max($s1.http_avg)) / if($http_std > 0, $http_std, 1.0)
 """,
+      "Security & EDR Alerts": """
+// Sector: Security & EDR Alerts
+stage alerts_risk {
+    metadata.event_type = "SCAN_UNCATEGORIZED"
+    principal.asset.hostname = "%(entity_id)s"
+    security_result.rule_name = $rule_name
+    $asset = principal.asset.hostname
+    $rule_name != ""
+  match:
+    $asset, $rule_name by 1d
+  outcome:
+    $obs = count(metadata.id)
+    $avg = max(metrics.alert_event_name_count(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.asset.hostname: "%(entity_id)s", security_result.rule_name: $rule_name))
+    $std = max(metrics.alert_event_name_count(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.asset.hostname: "%(entity_id)s", security_result.rule_name: $rule_name))
+    $z = ($obs - $avg) / if($std > 0, $std, 1.0)
+}
+$asset = $alerts_risk.asset
+match: $asset by 1d
+outcome:
+  $alerts_std = max($alerts_risk.std)
+  $z_alerts = max($alerts_risk.z)
+  $alerts_obs = max($alerts_risk.obs)
+  $alerts_avg = max($alerts_risk.avg)
+""",
   }
 
   def __init__(self, secops_client: Optional[Any] = None):
@@ -328,6 +352,7 @@ outcome:
         "web": 3, "http": 3, "proxy": 3,
         "cloud": 4, "infra": 4, "crud": 4,
         "proc": 5, "endpoint": 5, "process": 5,
+        "alert": 5, "edr": 5,
     }
     target_map = asset_map if entity_type.upper() == "ASSET" else user_map
 

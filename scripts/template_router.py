@@ -178,6 +178,12 @@ class MultiStageTemplateRouter:
         raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
       return pipeline_file.read_text().strip() + "\n"
 
+    elif pipeline_type == PipelineArchitecture.RADAR_360_SECTOR_ALERT:
+      pipeline_file = self.template_dir / "pipelines" / "radar_360_sector_alert.yl2"
+      if not pipeline_file.exists():
+        raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
+      return pipeline_file.read_text().strip() + "\n"
+
     elif pipeline_type == PipelineArchitecture.HYBRID_METRIC_HTTP_UA_PREVALENCE_2STAGE:
       pipeline_file = self.template_dir / "pipelines" / "hybrid_metric_http_ua_prevalence_2stage.yl2"
       if not pipeline_file.exists():

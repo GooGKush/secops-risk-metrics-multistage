@@ -1,10 +1,44 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.7.8)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.7.9)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v1.7.8 (Point Release) — September 2026  
+**Latest Version**: v1.7.9 (Point Release) — September 2026  
+
+---
+
+## 📢 What's New in v1.7.9 (Point Release) — Security & EDR Alert Decoupled Sector Pipeline, Compound Rule Binding Normalization, and Regression Integrity
+
+### 1. Security & EDR Alert Sector Decoupled Pipeline (`radar_360_sector_alert.yl2`)
+* **Chronicle Malachite Rule-Scoped Indexing Alignment**:
+  - Aligned the Alert Risk sector against authoritative Malachite source specifications (`google3/googlex/security/malachite/analytics/configs/config.textproto` lines 48–84) and devsite documentation. In Chronicle Malachite, all 4 pre-computed BigQuery roll-up pipelines for `ALERT_EVENT_NAME_COUNT` strictly require partitioning over `SECURITY_RESULT_RULE_NAME`.
+  - Added canonical decoupled 2-stage pipeline template `templates/pipelines/radar_360_sector_alert.yl2` implementing compound dimension matching in Stage 1 (`alerts_risk`: `$host, $rule_name by 1d` under `metadata.event_type = "SCAN_UNCATEGORIZED"`) and projecting peak rule outlier risk to the entity level in the Root Stage (`$host by 1d`, `$z = max($alerts_risk.z)`).
+  - Validated template live against Chronicle SIEM backend compiler via `validate_rule` tool call, achieving clean `{"success": true}` compilation.
+
+### 2. Router & Preflight AST Architecture Expansion
+* **Architecture Enum & Router Support**:
+  - Added `RADAR_360_SECTOR_ALERT = "RADAR_360_SECTOR_ALERT"` to `PipelineArchitecture` in `scripts/preflight_validator.py`.
+  - Wired `RADAR_360_SECTOR_ALERT` into `MultiStageTemplateRouter.build_pipeline_query()` in `scripts/template_router.py`.
+* **Radar Collector Spoke & Map Expansion**:
+  - Added canonical `"Security & EDR Alerts"` sector query into `EntityRadarCollector.ASSET_SECTOR_QUERIES` in `scripts/radar_collector.py`.
+  - Added `"alert": 5, "edr": 5` alias bindings to `asset_map` in `parse_scores_argument()`.
+
+### 3. Documentation & Reference Synchronization
+* **360° Behavioral Radar Guide Alignment**:
+  - Updated `references/360-behavioral-radar-guide.md` with explicit operational recipes documenting `templates/pipelines/radar_360_sector_alert.yl2` and the compound 2-stage roll-up pattern for `metrics.alert_event_name_count`.
+  - Preserved strict `SKILL.md` budget: `SKILL.md` was untouched and remains at 20,474 bytes (within the 20,480-byte ceiling).
+
+### 4. Regression & Invariant Test Verification
+* **Automated Unit Test Suite**:
+  - Added positive guardrail contract test in `tests/test_guardrail_contracts.py` ensuring `alert_event_name_count` with companion dimension `security_result.rule_name: $r` passes AST validation cleanly with zero errors.
+  - Added `test_radar_360_sector_alert_rendering` in `tests/test_template_router.py`.
+  - Verified `test_asset_sector_queries_are_compiler_valid` in `tests/test_radar_collector.py`.
+  - Verified all 9 template compliance tests in `tests/test_yaral_templates.py`.
+  - **273 / 273 Automated Unit Tests Passing (100%)** (`python3 -m pytest`).
+* **Live SecOps-Regress Evaluation**:
+  - Executed targeted live regression Option 2 (`REG-P0-03-RADAR-JOIN-LIMIT`, `REG-P0-04-AST-SYNTAX-TRAPS`, `REG-P1-12-RADAR-360-ENTITY-MODE-B`) with 3 parallel workers against live tenant `gus-sdl`.
+  - **3 / 3 Tests Passed (100% Invariant Pass)** with zero regressions and all 5 programmatic judges satisfied.
 
 ---
 

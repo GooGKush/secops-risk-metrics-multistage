@@ -1134,6 +1134,31 @@ class TestGuardrailContracts(unittest.TestCase):
     self.assertTrue(any("MISSING_MANDATORY_FILTER" in e for e in alert_errors))
     self.assertTrue(any("security_result.rule_name" in e for e in alert_errors))
 
+    # 2c. alert_event_name_count with security_result.rule_name passes cleanly
+    valid_alert_query = """
+    // Goal: Test valid alert query with companion rule name
+    stage stage1_extract {
+      metadata.event_type = "SCAN_UNCATEGORIZED"
+      principal.asset.hostname = "srv-01"
+      security_result.rule_name = "Mimikatz_Execution"
+      $h = principal.asset.hostname
+      $r = security_result.rule_name
+      match: $h, $r by 1d
+      outcome:
+        $mu = max(metrics.alert_event_name_count(
+          period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+          principal.asset.hostname: "srv-01",
+          security_result.rule_name: $r
+        ))
+    }
+    $h = $stage1_extract.h
+    match: $h by 1d
+    outcome:
+      $z = 1.0
+    """
+    valid_alert_errors = MalachiteASTValidator.validate_query(valid_alert_query)
+    self.assertFalse(any("MISSING_MANDATORY_FILTER" in e for e in valid_alert_errors))
+
     # 3. Multi-vector metric conflation in single stage
     conflated_query = """
     // Goal: Test multi-vector metric conflation in a single stage

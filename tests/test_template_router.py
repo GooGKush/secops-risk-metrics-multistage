@@ -259,6 +259,20 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
     self.assertIn("principal.user.userid = $user", query)
     self.assertIn("order:\n  $z desc", query)
 
+  def test_radar_360_sector_alert_rendering(self):
+    """Verifies that RADAR_360_SECTOR_ALERT renders micro-query for security & EDR alerts sector."""
+    query = self.router.build_pipeline_query(
+        PipelineArchitecture.RADAR_360_SECTOR_ALERT,
+    )
+    self.assertIn("stage alerts_risk", query)
+    self.assertIn('metadata.event_type = "SCAN_UNCATEGORIZED"', query)
+    self.assertIn("metrics.alert_event_name_count", query)
+    self.assertIn("security_result.rule_name = $rule_name", query)
+    self.assertIn("security_result.rule_name: $rule_name", query)
+    self.assertIn("$host = $alerts_risk.host", query)
+    self.assertIn("$z = max($alerts_risk.z)", query)
+    self.assertIn("order:\n  $z desc", query)
+
   def test_http_triad_multilevel_rendering(self):
     """Verifies that PART_OF_THE_WHOLE_TRIAD_MULTILEVEL renders an HTTP triad (total, fail, success)."""
     query = self.router.build_pipeline_query(

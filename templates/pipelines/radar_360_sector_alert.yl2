@@ -1,0 +1,48 @@
+// ============================================================================
+// ARCHITECTURE: 360° ENTITY BEHAVIORAL RISK RADAR (DECOUPLED SECTOR MICRO-QUERY)
+// Skill: secops-risk-metrics-multistage
+// Sector: Security & EDR Alerts (Representative Canonical Spoke)
+// Execution: Evaluated independently alongside Auth, Cloud, Workspace, Network, and DNS
+// Topology: Compound Dimension Aggregation ($host, $rule_name -> $host)
+// Platform Limit: maxJoinCount = 4 (Zero Monolithic Joins)
+// ============================================================================
+
+stage alerts_risk {
+    metadata.event_type = "SCAN_UNCATEGORIZED"
+    principal.asset.hostname = $host
+    security_result.rule_name = $rule_name
+    $host != ""
+    $rule_name != ""
+
+  match:
+    $host, $rule_name by 1d
+
+  outcome:
+    $obs = count(metadata.id)
+    $avg = max(metrics.alert_event_name_count(
+        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+        principal.asset.hostname: $host,
+        security_result.rule_name: $rule_name
+    ))
+    $std = max(metrics.alert_event_name_count(
+        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+        principal.asset.hostname: $host,
+        security_result.rule_name: $rule_name
+    ))
+    $z = ($obs - $avg) / if($std > 0, $std, 1.0)
+}
+
+// --- ROOT STAGE: Entity-Level Alert Z-Score Projection (Max Peak Outlier across Rules) ---
+$host = $alerts_risk.host
+
+match:
+  $host by 1d
+
+outcome:
+  $z = max($alerts_risk.z)
+  $observed = max($alerts_risk.obs)
+  $baseline = max($alerts_risk.avg)
+  $dispersion = max($alerts_risk.std)
+
+order:
+  $z desc
