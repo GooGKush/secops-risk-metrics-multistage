@@ -1,10 +1,53 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.7.7)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.7.8)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v1.7.7 (Point Release) — September 2026  
+**Latest Version**: v1.7.8 (Point Release) — September 2026  
+
+---
+
+## 📢 What's New in v1.7.8 (Point Release) — Byte-Volume Metric Invariant Alignment (`metric: value_sum`), Cloud CRUD Multi-Branch Invariants, and AST Anchor Normalization
+
+### 1. Byte-Volume Metric Invariant Alignment (`metric: value_sum`)
+* **Chronicle Malachite Source Ground Truth Conformance**:
+  - Aligned all 6 byte-volume metrics against authoritative Malachite source specifications (`google3/googlex/security/malachite/config.textproto` and `ueba_validator.go`).
+  - Fixed a latent compiler failure when calculating active-days baseline depth (`agg: num_metric_periods`) across all volumetric metrics: byte metrics aggregate `value_sum` (SUM_VALUE), whereas count metrics aggregate `event_count_sum`.
+  - Updated all 6 Stage 1 byte-volume extractors to enforce `metric: value_sum`:
+    - `templates/stage1_extractors/dns_bytes_outbound.yl2`
+    - `templates/stage1_extractors/network_bytes_inbound.yl2`
+    - `templates/stage1_extractors/network_bytes_outbound.yl2`
+    - `templates/stage1_extractors/network_bytes_total.yl2`
+    - `templates/stage1_extractors/workspace_network_bytes_outbound.yl2`
+    - `templates/stage1_extractors/workspace_network_bytes_total.yl2`
+  - Parameterized generic two-stage pipeline templates (`poisson_rarity_2stage.yl2`, `mad_modified_z_2stage.yl2`, `macd_momentum_velocity_2stage.yl2`, `longitudinal_cusum_2stage.yl2`, `circadian_von_mises_2stage.yl2`, `standard_z_score_2stage.yl2`) to dynamically bind `metric: {{metric_type_val}}` (`value_sum` vs. `event_count_sum`).
+
+### 2. AST Preflight Validator Enhancements
+* **Regex Anchor Normalization**:
+  - Enhanced `scripts/preflight_validator.py` (`MalachiteASTValidator`) to distinguish start-of-line regex anchors (`^`) inside regex literal delimiters (`/.../`) from illegal exponent operators (`^`), eliminating false positives on valid regex patterns such as `/^arn:aws:(iam|sts)::/`.
+* **Multi-Branch Cloud Resource CRUD Companion Scoping**:
+  - Relaxed companion dimension scoping checks in Anti-Pattern 6/6B to permit unified cloud audit operations (`RESOURCE_READ`, `RESOURCE_WRITTEN`, `RESOURCE_DELETION`) in multi-event stage extractions.
+
+### 3. Submission Test Suite & Invariant Hardening
+* **Static Invariant Gate Integration**:
+  - Integrated `MalachiteASTValidator` into `SubmissionTestSuite.validate_static_invariants` (`scripts/submission_tests.py`), automatically enforcing AST grammar and metric invocation rules on every CI/pre-commit run.
+* **Unit Test Alignment**:
+  - Fixed legacy test assertions in `tests/test_radar_collector.py` (removed non-existent `metric: sum_bytes` and aligned DNS mock calls to `dns_queries_total`).
+  - Strengthened `tests/test_yaral_templates.py` to assert per-call metric type compliance on every metric invocation across all 38 risk metrics.
+  - **272 / 272 Automated Unit Tests Passing (100%)** (`python3 -m unittest discover tests`).
+  - **31 / 31 Submission Gate Invariants Passing (100%)** (`python3 scripts/submission_tests.py`).
+
+### 4. Dual-Engine Live Chronicle SIEM Verification
+* **Full Batched Regression Suite**:
+  - Executed all 36 tests in dual mode (`agentapi` + headless `direct-mcp`) across 3 consolidated Super-Batches in 39m 07s against live production Chronicle SIEM tenant `gus-sdl`.
+  - **36 / 36 Queries Compiled Cleanly (100% Compiler Pass)** on Chronicle SIEM backend with zero compiler errors across all metric functions.
+  - **35 / 36 Overall Tests Passed (97.2%)** with 100% invariant parity.
+  - **4 Historical Defects Resolved**:
+    - `REG-P1-09-SVC-ACCT-ISOLATION` (Was `FAIL_PROTOCOL` ──► `PASS`)
+    - `REG-P1-15-HYBRID-FLEET-PREVALENCE` (Was `FAIL_COMPILER` ──► `PASS`)
+    - `REG-P2-12-POSTFLIGHT-RAW-AUDIT` (Was `FAIL_PAYLOAD` ──► `PASS`)
+    - `REG-P2-16-FLEET-OUTLIER-VISUAL` (Was `FAIL_PRESENTATION` ──► `PASS`)
 
 ---
 
