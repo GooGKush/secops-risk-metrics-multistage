@@ -13,6 +13,10 @@
 // - USER_LOGIN: raw_signature_field slot MUST be principal.ip or principal.asset.hostname
 // See references/udm-hunting-field-dictionary.md for complete canonical mapping.
 // macro_event_filter slot: the metric's "Observed event filter" lines from references/metric-sector-catalog.md, one per line.
+// METRIC CALL FORM (copy exactly; only the metric name, metric: and dimensions change):
+//   metrics.<name>(period: 1d, window: 30d, metric: <value_sum|event_count_sum>, agg: avg, <dim>: $entity)
+//   The stddev slot is the same call with agg: stddev; active days use agg: num_metric_periods.
+//   period: and agg: are required; there is no function: argument and no value_stddev metric.
 // ============================================================================
 
 // Stage 1: Macro 30-Day Volumetric Baseline Outlier Sieve (metrics.*)

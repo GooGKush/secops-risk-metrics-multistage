@@ -28,6 +28,10 @@
 //   sector_b_*: a metric whose catalog dimension set contains BOTH host_field and dest_field, so the
 //     baseline is per (host, destination). Verified: http_queries_total with principal.asset.ip +
 //     target.hostname. DNS (network.dns_domain) is config-valid but can be empty; probe first.
+//   METRIC CALL FORM (copy exactly; only the metric name, metric: and dimensions change):
+//     metrics.<name>(period: 1d, window: 30d, metric: <value_sum|event_count_sum>, agg: avg, <dim>: $host)
+//     The stddev slot is the same call with agg: stddev. period: and agg: are required; there is
+//     no function: argument and no value_stddev / event_count_stddev metric.
 //   ECG block (pick one):
 //     DOMAIN_NAME: ecg_entity_type = "DOMAIN_NAME", ecg_key_path = entity.domain.name,
 //                  ecg_prevalence_path = entity.domain.prevalence
