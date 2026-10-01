@@ -452,7 +452,7 @@ When evaluating statistical baselines (`metrics.*`), never filter the stage on e
 
 When presenting initial baseline findings to analysts, suggest refining the hunt by layering these 4 orthogonal dimensions (see `references/entity-context-graph-guide.md` for complete hunter playbooks on Narrowing vs. Enhancing):
 
-1. **🌐 Fleet Rarity**: Layer Entity Graph Domain/Hash Prevalence (`rolling_max <= 3`, `day_count = 10`) via `hybrid_metric_derived_file_prevalence_2stage.yl2` or `hybrid_metric_derived_domain_prevalence_2stage.yl2`.
+1. **🌐 Fleet Rarity**: Layer Entity Graph Domain/Hash Prevalence (`rolling_max <= 3`, `day_count = 10`) via `hybrid_metric_derived_file_prevalence_2stage.yl2` (execution counts) or `hybrid_metric_derived_domain_prevalence_2stage.yl2` (request counts); for any other measure, such as outbound bytes, use `rare_destination_ecg_3stage.yl2`.
 2. **⏳ Infrastructure Novelty**: Layer Entity Graph First-Seen age (`first_seen_time < 7/30/60/90 days`) or infant asset age via `hybrid_metric_derived_asset_age_2stage.yl2`.
 3. **🎯 Threat Intel Matches**: Layer GCTI feeds (`Tor Exit Nodes`, `Remote Access Tools`, `Google Safe Browsing`).
 4. **📅 WHOIS Domain Lifecycle**: Layer WHOIS domain registration age (`< 30 days` NRD) or expiration status via `hybrid_metric_whois_domain_lifecycle_2stage.yl2`.
@@ -526,8 +526,8 @@ To prevent runtime syntactic improvisation and avoid streaming rule syntax confu
 | **`multi_sector_fusion_4stage.yl2`** | 4 Stages | Multi-Sector Fusion (rectified $D$, any 2 catalog sectors + Fleet Norm) | Same as dual-sector plus cross-sectional fleet $\Delta Z$, within the 2-UDM-stage Search limit. |
 | **`rollup_sector_fusion_4stage.yl2`** | 4 Stages | Roll-up Sector Fusion (composite-only metric rolled up per entity + 1 catalog sector) | Process execution / cloud resource / alert metric fused with another sector (e.g. process + DNS by host). |
 | **`rollup_sector_fusion_5stage.yl2`** | 5 Stages | Roll-up Sector Fusion + Fleet Norm | As above plus fleet $\Delta Z$. 4 named stages + root: supported but does not always work; prefer the 4-stage variant. |
-| **`hybrid_metric_derived_file_prevalence_2stage.yl2`** | 2 Stages | Derived Context File Prevalence ($Z \times M_{\text{rare}}$) | Living-off-the-land surges, rare binary isolation, Patch Tuesday rollout pruning. |
-| **`hybrid_metric_derived_domain_prevalence_2stage.yl2`** | 2 Stages | Derived Context Domain Prevalence ($Z \times M_{\text{rare}}$) | External destination queries, novel SaaS/C2 hostnames, corporate CDN pruning. |
+| **`hybrid_metric_derived_file_prevalence_2stage.yl2`** | 2 Stages | Derived Context File Prevalence ($Z \times M_{\text{rare}}$) | Living-off-the-land surges, rare binary isolation (drops rollout binaries; to normalize a surge against a rollout use `hybrid_metric_fleet_prevalence_2stage.yl2`). |
+| **`hybrid_metric_derived_domain_prevalence_2stage.yl2`** | 2 Stages | Derived Context Domain Prevalence ($Z \times M_{\text{rare}}$) | HTTP/DNS request counts to novel SaaS/C2 hostnames, corporate CDN pruning. Bytes or any other measure: `rare_destination_ecg_3stage.yl2`. |
 | **`hybrid_metric_whois_domain_lifecycle_2stage.yl2`** | 2 Stages | WHOIS Domain Lifecycle (NRD & Expiration Fusion) | Acute web/DNS/network egress to Newly Registered Domains (<= 30d) or expired domains. |
 | **`hybrid_metric_derived_asset_age_2stage.yl2`** | 2 Stages | Derived Context Infant Asset Age ($Z \times M_{\text{infant}}$) | Rogue machine onboarding, infant endpoints (<= 7d) undergoing auth storms or egress. |
 | **`rare_destination_ecg_3stage.yl2`** | 3 Stages + Root (2 UDM + graph) | Sector $Z$ filtered to Entity Graph-rare destinations | "Unusual outbound bytes / DNS / HTTP to low-prevalence domains or IPs" (domain via `target.hostname` or `network.dns.questions.name`; IP via `target.ip`). |

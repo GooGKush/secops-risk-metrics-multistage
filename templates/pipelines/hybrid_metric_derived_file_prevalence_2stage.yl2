@@ -3,8 +3,9 @@
 // Skill: secops-risk-metrics-multistage
 // Purpose: Fuses 30-day host/binary process execution volumetric baseline
 //          (metrics.file_executions_total) with Chronicle Entity Context Graph
-//          (DERIVED_CONTEXT) file prevalence to isolate rare/unseen binaries
-//          and prune enterprise-wide software rollouts (Patch Tuesday Shield).
+//          (DERIVED_CONTEXT) file prevalence to keep only rare/unseen binaries.
+//          This drops rollout binaries; it does not normalize a surge against a
+//          rollout. For that (Patch Tuesday Shield) use hybrid_metric_fleet_prevalence_2stage.yl2.
 // Join Budget: 1 metric lookup (Stage 1) + 1 stage join (Root) = 2 joins total (<= 4).
 // Invariant: Stage 1 evaluates universal volume; Stage 2 isolates graph lookup (ECG_LIMIT = 1).
 //

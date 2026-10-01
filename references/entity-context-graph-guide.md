@@ -70,6 +70,7 @@ Curated external intelligence continuously updated by Google Cloud and commercia
   - Root Stage joins `$sha256` and computes personal $Z$-score.
 * **Operational Result**: If an update was pushed to 5,000 machines, its `rolling_max` is 5,000; Stage 2 drops it completely. Only binaries executing on $\le 3$ machines enterprise-wide reach the analyst's screen.
 * **Template**: `templates/pipelines/hybrid_metric_derived_file_prevalence_2stage.yl2`
+* **Not the same as normalizing**: to score a surge against how many hosts ran the same hash today (prevalence dampener), use `templates/pipelines/hybrid_metric_fleet_prevalence_2stage.yl2` (Patch Tuesday Shield).
 
 ### Playbook 2: Throwaway C2 & Egress Staging with WHOIS Domain Age (NRDs)
 * **The Scenario**: Threat actors frequently spin up brand-new domains 24–48 hours prior to launching an attack (e.g. spearphishing lures, Cobalt Strike beacons, or exfiltration staging).

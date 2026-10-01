@@ -1,10 +1,12 @@
 // ============================================================================
 // ARCHITECTURE: 2-STAGE DUAL-PLANE DERIVED CONTEXT DOMAIN PREVALENCE PIPELINE
 // Skill: secops-risk-metrics-multistage
-// Purpose: Fuses 30-day host/domain query volumetric baseline (metrics.http_queries_total
+// Purpose: Fuses 30-day host/domain request-count baseline (metrics.http_queries_total
 //          or metrics.dns_queries_total) with Chronicle Entity Context Graph
 //          (DERIVED_CONTEXT) domain prevalence to isolate rare/unseen external
 //          destinations and prune routine corporate SaaS/CDN traffic.
+// SCOPE: request counts per (host, domain) only. If the analyst asks about bytes or any other
+//          measure, use rare_destination_ecg_3stage.yl2 (that metric's sector + rare destinations).
 // Join Budget: 1 metric lookup (Stage 1) + 1 stage join (Root) = 2 joins total (<= 4).
 // Invariant: Stage 1 evaluates universal volume; Stage 2 isolates graph lookup (ECG_LIMIT = 1).
 //
