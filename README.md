@@ -116,7 +116,7 @@ secops-risk-metrics-multistage/
 │   ├── sync_malachite_catalog.py         # Re-syncs / drift-checks data/malachite against google3
 │   ├── template_router.py                # Maps natural language intent to .yl2 templates with condition filtering
 │   └── triage_formatter.py               # Generates 6-section triage reports & CRI scores
-└── tests/                                # Automated unit test suite (322 tests across 20 test modules)
+└── tests/                                # Automated unit test suite (333 tests across 21 test modules)
     ├── test_chart_specifications.py
     ├── test_chronicle_ingest.py
     ├── test_complex_multistage_syntax.py

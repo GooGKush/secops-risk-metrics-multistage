@@ -1,0 +1,111 @@
+// ============================================================================
+// ARCHITECTURE: 3-STAGE RARE DESTINATION FILTER (SECTOR BASELINE + ENTITY GRAPH PREVALENCE)
+// Skill: secops-risk-metrics-multistage
+// Purpose: "Hosts with unusual <sector> activity that talked to low-prevalence destinations."
+//          A personal 30-day sector baseline per host, kept only for hosts that contacted
+//          at least one destination seen on <= max_fleet_prevalence hosts enterprise-wide
+//          (Chronicle Entity Graph DERIVED_CONTEXT prevalence).
+// Math: Z = (observed - avg) / stddev for the sector; rarity evidence = min prevalence and the
+//       list of rare destinations contacted.
+// Budget: 2 UDM stages (the compiler maximum) + 1 graph stage. No third UDM stage fits.
+//
+// ENTITY GRAPH FRESHNESS (references/entity-context-graph-guide.md, Rule 5):
+//   Daily graph records (every prevalence.* filter) are built once a day and lag about a
+//   day; a window starting today 00:00Z overlaps none of them, the inner join drops every
+//   row, and zero rows are structural, not a true negative. Start the search window two
+//   days back at 00:00Z; the today_start_epoch slot (epoch of today 00:00Z) keeps both
+//   event stages on the analysis day. The graph stage matches by key only (no time predicate).
+//   Zero rows from a window starting today is a freshness gap: rerun, do not report clean.
+// FILTER ONLY: the graph stage is an inner join. Destinations with no graph record drop out
+//   (absent from the graph is not the same as rare); say so in the report.
+//
+// SLOTS:
+//   sector_filter / sector_observation_agg / sector_metric_func_avg|stddev: one metric's lines
+//     from references/metric-sector-catalog.md (e.g. network_bytes_outbound: sent_bytes filter,
+//     sum(network.sent_bytes), metrics.network_bytes_outbound(..., metric: value_sum, ...)).
+//   host_field: an identifier POPULATED in both event stages (probe first). Network sensors
+//     (Zeek, NGFW, proxies) often fill principal.asset.ip but not principal.asset.hostname.
+//     principal.asset.ip is repeated; one event can fan out to several keys.
+//   contact_filter / dest_field: the event stream that names the destination.
+//     HTTP:  contact_filter = the HTTP sector filter, dest_field = target.hostname
+//     DNS:   contact_filter = the DNS sector filter,  dest_field = network.dns.questions.name
+//            (not network.dns_domain: it can be empty even when DNS events exist)
+//     IP:    contact_filter = the network sector filter, dest_field = target.ip
+//   ECG block for the destination type (pick one):
+//     DOMAIN_NAME: ecg_entity_type = "DOMAIN_NAME", ecg_key_path = entity.domain.name,
+//                  ecg_prevalence_path = entity.domain.prevalence
+//     IP_ADDRESS:  ecg_entity_type = "IP_ADDRESS",  ecg_key_path = entity.artifact.ip,
+//                  ecg_prevalence_path = entity.artifact.prevalence
+//   Graph names can carry ports (www.bing.com:443) and reverse-DNS names (in-addr.arpa); internal
+//   RFC1918 addresses can look "rare". Exclusions are optional and untested; review them in triage.
+//   rolling_max > 0 is kept because the meaning of 0 is not documented.
+// ============================================================================
+
+// Stage 1: Personal 30-day sector baseline per host (today only)
+stage sector_a {
+    {{sector_filter}}
+    metadata.event_timestamp.seconds >= {{today_start_epoch}}
+    {{host_field}} = $host
+    $host != ""
+
+  match:
+    $host by 1d
+
+  outcome:
+    $obs = {{sector_observation_agg}}
+    $avg = max({{sector_metric_func_avg}})
+    $std = max({{sector_metric_func_stddev}})
+    $z = ($obs - $avg) / if($std > 0, $std, 1.0)
+}
+
+// Stage 2: Host -> destination contacts (today only)
+stage contacts {
+    {{contact_filter}}
+    metadata.event_timestamp.seconds >= {{today_start_epoch}}
+    {{host_field}} = $host
+    {{dest_field}} = $dest
+    $host != ""
+    $dest != ""
+
+  match:
+    $host, $dest
+
+  outcome:
+    $contact_events = count(metadata.id)
+}
+
+// Stage 3: Entity Graph rarity filter (matched by destination key only)
+stage rare_dest {
+    $g.graph.metadata.source_type = "DERIVED_CONTEXT"
+    $g.graph.metadata.entity_type = {{ecg_entity_type}}
+    $g.graph.{{ecg_key_path}} = $dest
+    $g.graph.{{ecg_prevalence_path}}.day_count = 10
+    $g.graph.{{ecg_prevalence_path}}.rolling_max <= {{max_fleet_prevalence}}
+    $g.graph.{{ecg_prevalence_path}}.rolling_max > 0
+
+  match:
+    $dest
+
+  outcome:
+    $prevalence = max($g.graph.{{ecg_prevalence_path}}.rolling_max)
+}
+
+// Root: hosts scored on the sector baseline, filtered to rare-destination contacts
+$host = $sector_a.host
+$host = $contacts.host
+$dest = $contacts.dest
+$dest = $rare_dest.dest
+
+match:
+  $host by 1d
+
+outcome:
+  $observed = max($sector_a.obs)
+  $baseline_avg = max($sector_a.avg)
+  $z_sector = max($sector_a.z)
+  $rare_destinations = array_distinct($contacts.dest)
+  $rare_destination_count = count_distinct($contacts.dest)
+  $min_prevalence = min($rare_dest.prevalence)
+
+order:
+  $z_sector desc

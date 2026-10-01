@@ -112,6 +112,14 @@ Every Phase 1A consultative response must be formatted with the following explic
 2. `### Summary View` (or `### Recommended Method`): Detail the recommended telemetry vectors, baseline metrics (`metrics.*`), and mathematical anomaly model.
 3. `### Alternative Vectors`: Provide 2–3 alternate vectors or consultative pivots (e.g. Cloud vs. Asset vs. Handoff).
 
+### Cross-Vector Pairing (when 2 or more vectors are relevant)
+When the hypothesis touches two or more vectors, do not stop at listing them. Propose concrete pairs and the template that fuses them, using `references/metric-sector-catalog.md` (*Fusion pairing rules* and *Choosing the template for a cross-vector request*):
+1. **Pick pairs that share an entity kind and identifier.** Name the join field for each pair, e.g. network bytes + HTTP on `principal.asset.ip`; failed logins + process execution on the host. Probe that the identifier is populated in both sectors before promising the pair (rule 7).
+2. **Map each pair to a template**: two fusion-capable sectors → `dual_sector_fusion_3stage.yl2` (`multi_sector_fusion_4stage.yl2` to rank against the fleet); a composite-only sector (process execution, cloud resource, alert) → `rollup_sector_fusion_4stage.yl2`; three metrics of one family → the sibling triad; three or more families → the 360 radar's decoupled micro-queries (a query holds at most two event stages).
+3. **Offer an Entity Graph filter** when a destination or binary is involved: rare domains or IPs (`rare_destination_ecg_3stage.yl2`, `fusion_rare_destination_3stage.yl2`) or rare binaries (derived file prevalence). It narrows; say that entities without a graph record drop out.
+4. **Reject invalid pairs with the reason** (user ↔ host, no shared identifier, a third event sector) and offer the nearest valid pair.
+5. Put the chosen pair, join field and template in the Pre-Flight Card (`Recommended Method`).
+
 
 ### Domain 1: Data Hoarding & Exfiltration
 * **Why Static Rules Miss It**: Fixed threshold alerts (e.g. `bytes > 5GB`) are easily bypassed by chunked daily transfers (e.g. 400MB/day), and blanket rules cannot distinguish routine developer egress from unauthorized dumps.
@@ -124,6 +132,7 @@ Every Phase 1A consultative response must be formatted with the following explic
   5. *High-Frequency Session Surge & C2 Beaconing*: Detect micro-payload, high-frequency outbound connection bursts that bypass volumetric thresholds (**Flow Frequency Anomaly** on `network_flows_outbound` via `c2_beacon_flow_frequency_2stage.yl2`).
   6. *Context-Enhanced WHOIS Egress*: Cross-reference outbound transfer departures against WHOIS registration dates and expiration status to apply 2.5x–3.0x risk multipliers on Newly Registered Domains or expired infrastructure (**WHOIS Domain Lifecycle** via `templates/pipelines/hybrid_metric_whois_domain_lifecycle_2stage.yl2`).
   7. *Runaway Velocity Divergence*: Detect sudden, unconstrained egress acceleration that shatters historical 30-day ceilings (**MACD Dual-Spine Momentum Indicator** on `network_bytes_outbound` via `macd_momentum_velocity_2stage.yl2`).
+  8. *Egress to Rare Destinations*: Score outbound bytes per host and keep only hosts that contacted domains or IPs seen on <= 3 hosts enterprise-wide (**Rare Destination Filter** via `rare_destination_ecg_3stage.yl2`).
 * *Deep Dive Guide*: `references/consultative/data-exfiltration.md`
 
 ### Domain 2: Identity, Credential Abuse & Privilege Drift
@@ -162,7 +171,8 @@ Every Phase 1A consultative response must be formatted with the following explic
 * **Common-Sense Rigor Check**: Require simultaneous elevation across multiple decoupled sectors before declaring high risk; rule out single-vector spikes that reflect normal isolated operational duties.
 * **Summary View Options**:
   1. *360° Multi-Sector Radar*: Profile Authentication, Cloud CRUD, Google Workspace, Network Egress, DNS, and Web & Proxy Activity simultaneously against 30-day baselines (**Euclidean Distance D >= 3.5σ**).
-  2. *Peer Group Discrepancy*: Compare an individual's multi-vector footprint against their departmental peers (**Fleet Prevalence Shield**).
+  2. *Peer Group Discrepancy*: Compare an individual against a named peer roster and the roster against the enterprise (**Part-of-the-Whole** via `part_of_the_whole_multilevel.yl2` or the triad; peers mentioned but not named → ask for the roster).
+  3. *Pairwise Sector Fusion*: Fuse the two most relevant sectors for one entity (see *Cross-Vector Pairing* above; e.g. network bytes + HTTP via `dual_sector_fusion_3stage.yl2`, process execution + failed logins via `rollup_sector_fusion_4stage.yl2`).
 * *Deep Dive Guide*: `references/consultative/insider-risk-360.md`
 
 ### Domain 6: Web, Proxy & Covert HTTP Channels

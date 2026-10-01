@@ -1,0 +1,110 @@
+// ============================================================================
+// ARCHITECTURE: 3-STAGE FUSION WITH A RARE-DESTINATION FILTER (2 SECTORS + ENTITY GRAPH)
+// Skill: secops-risk-metrics-multistage
+// Purpose: Two behavioral sectors on the same host, where the second sector is measured
+//          per (host, destination) and kept only for destinations seen on
+//          <= max_fleet_prevalence hosts enterprise-wide (Entity Graph DERIVED_CONTEXT).
+//          Example: unusual DNS volume (sector A) + unusual HTTP volume to a rare domain (sector B).
+// Math: D^2 = Z_a+^2 + Z_b+^2 (rectified: only increases count). Z_b is the highest pair Z over
+//       the host's rare destinations.
+// Budget: 2 UDM stages (the compiler maximum) + 1 graph stage. Sector B carries the destination
+//         key itself; a separate contacts stage would be a third UDM stage and fails to compile.
+//
+// ENTITY GRAPH FRESHNESS (references/entity-context-graph-guide.md, Rule 5):
+//   Daily graph records (every prevalence.* filter) are built once a day and lag about a
+//   day; a window starting today 00:00Z overlaps none of them, the inner join drops every
+//   row, and zero rows are structural, not a true negative. Start the search window two
+//   days back at 00:00Z; the today_start_epoch slot (epoch of today 00:00Z) keeps both
+//   event stages on the analysis day. The graph stage matches by key only (no time predicate).
+//   Zero rows from a window starting today is a freshness gap: rerun, do not report clean.
+// FILTER ONLY: the graph stage is an inner join. Destinations with no graph record drop out
+//   (absent from the graph is not the same as rare); say so in the report.
+//
+// SLOTS:
+//   host_field: an identifier POPULATED in both sectors (probe first; network sensors often fill
+//     principal.asset.ip but not principal.asset.hostname). It must be a valid dimension for both
+//     metrics in references/metric-sector-catalog.md.
+//   sector_a_*: any catalog metric keyed by host_field (filter lines, observation agg, avg/stddev).
+//   sector_b_*: a metric whose catalog dimension set contains BOTH host_field and dest_field, so the
+//     baseline is per (host, destination). Verified: http_queries_total with principal.asset.ip +
+//     target.hostname. DNS (network.dns_domain) is config-valid but can be empty; probe first.
+//   ECG block (pick one):
+//     DOMAIN_NAME: ecg_entity_type = "DOMAIN_NAME", ecg_key_path = entity.domain.name,
+//                  ecg_prevalence_path = entity.domain.prevalence
+//     IP_ADDRESS:  ecg_entity_type = "IP_ADDRESS",  ecg_key_path = entity.artifact.ip,
+//                  ecg_prevalence_path = entity.artifact.prevalence
+// ============================================================================
+
+// Stage 1: Sector A personal baseline per host (today only)
+stage sector_a {
+    {{sector_a_filter}}
+    metadata.event_timestamp.seconds >= {{today_start_epoch}}
+    {{host_field}} = $host
+    $host != ""
+
+  match:
+    $host by 1d
+
+  outcome:
+    $obs = {{sector_a_observation_agg}}
+    $avg = max({{sector_a_metric_func_avg}})
+    $std = max({{sector_a_metric_func_stddev}})
+    $z = ($obs - $avg) / if($std > 0, $std, 1.0)
+}
+
+// Stage 2: Sector B personal baseline per (host, destination) (today only)
+stage sector_b_detail {
+    {{sector_b_filter}}
+    metadata.event_timestamp.seconds >= {{today_start_epoch}}
+    {{host_field}} = $host
+    {{dest_field}} = $dest
+    $host != ""
+    $dest != ""
+
+  match:
+    $host, $dest by 1d
+
+  outcome:
+    $obs = {{sector_b_observation_agg}}
+    $avg = max({{sector_b_metric_func_avg}})
+    $std = max({{sector_b_metric_func_stddev}})
+    $z = ($obs - $avg) / if($std > 0, $std, 1.0)
+}
+
+// Stage 3: Entity Graph rarity filter (matched by destination key only)
+stage rare_dest {
+    $g.graph.metadata.source_type = "DERIVED_CONTEXT"
+    $g.graph.metadata.entity_type = {{ecg_entity_type}}
+    $g.graph.{{ecg_key_path}} = $dest
+    $g.graph.{{ecg_prevalence_path}}.day_count = 10
+    $g.graph.{{ecg_prevalence_path}}.rolling_max <= {{max_fleet_prevalence}}
+    $g.graph.{{ecg_prevalence_path}}.rolling_max > 0
+
+  match:
+    $dest
+
+  outcome:
+    $prevalence = max($g.graph.{{ecg_prevalence_path}}.rolling_max)
+}
+
+// Root: fuse both sectors per host, only through rare destinations
+$host = $sector_a.host
+$host = $sector_b_detail.host
+$dest = $sector_b_detail.dest
+$dest = $rare_dest.dest
+
+match:
+  $host by 1d
+
+outcome:
+  $a_observed = max($sector_a.obs)
+  $z_a = max($sector_a.z)
+  $z_b = max($sector_b_detail.z)
+  $z_a_pos = if($z_a > 0, $z_a, 0.0)
+  $z_b_pos = if($z_b > 0, $z_b, 0.0)
+  $d_sq = ($z_a_pos * $z_a_pos) + ($z_b_pos * $z_b_pos)
+  $rare_destinations = array_distinct($sector_b_detail.dest)
+  $min_prevalence = min($rare_dest.prevalence)
+
+order:
+  $d_sq desc

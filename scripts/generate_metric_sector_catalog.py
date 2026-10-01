@@ -80,7 +80,52 @@ elsewhere still fails if the combined set is not listed. Example: `auth_attempts
 5. Two metrics of the same family (e.g. `auth_attempts_fail` + `auth_attempts_total`) are allowed but
    correlated; add an `// ADVISORY:` line to the query header saying so.
 6. `email_addresses`, `ip` and `mac` are repeated fields: one event can fan out to several entities.
+7. **Identifier coverage (probe first).** A field valid in the config can still be empty in a sector's
+   data. Before fusing, run one cheap count per sector (`<field> != ""`) and pick an identifier populated
+   in both. Network sensors (Zeek, NGFW, proxies) often fill `principal.asset.ip` but not
+   `principal.asset.hostname`, so network + HTTP fusion usually joins on `principal.asset.ip`.
+8. **At most two UDM event stages per query** (compiler limit; Entity Graph stages do not count). Two
+   sectors fit; a third event sector does not compile. For three metrics of one family use the sibling
+   triad (one stage); for three families use the 360 radar's decoupled micro-queries. Never three event
+   stages.
+9. **Rare-destination filter.** An Entity Graph prevalence filter attaches to the stage keyed by the
+   destination (see *Entity Graph filters* below): `rare_destination_ecg_3stage.yl2` (one sector + rare
+   destinations) or `fusion_rare_destination_3stage.yl2` (two sectors, the second per (host,
+   destination)).
 
+### Choosing the template for a cross-vector request
+
+| Request shape | Template |
+| :--- | :--- |
+| Two fusion-capable sectors, same identifier (e.g. network bytes + HTTP on `principal.asset.ip`) | `dual_sector_fusion_3stage.yl2` |
+| Several entities scored against the fleet on two sectors | `multi_sector_fusion_4stage.yl2` |
+| One composite-only sector (process execution, resource, alert) + one fusion-capable (e.g. process + failed logins) | `rollup_sector_fusion_4stage.yl2` (`_5stage` with fleet normalization) |
+| Three metrics of one family | `part_of_the_whole_triad_multilevel.yl2` |
+| Three or more families | 360 radar decoupled micro-queries (one query per sector, fused in the report) |
+| A sector + rare destinations (domain or IP) | `rare_destination_ecg_3stage.yl2` |
+| Two sectors through rare destinations | `fusion_rare_destination_3stage.yl2` |
+
+"""
+
+ECG_FILTERS = """\
+## Entity Graph filters (`DERIVED_CONTEXT`)
+
+A graph stage narrows a metric hunt to rare entities. It is an inner join, so it is a **filter**:
+entities without a graph record drop out (absent is not the same as rare). It does not count against
+the two-UDM-stage limit. Freshness: in Mode A start the search window two days back at 00:00Z and put
+`metadata.event_timestamp.seconds >= <today 00:00Z epoch>` in every event stage
+(`references/entity-context-graph-guide.md`, Rule 5).
+
+| Rare entity | Graph stage predicates | Event join field(s) |
+| :--- | :--- | :--- |
+| Domain | `$g.graph.metadata.entity_type = "DOMAIN_NAME"`, `$g.graph.entity.domain.name = $dest`, `$g.graph.entity.domain.prevalence.day_count = 10`, `...prevalence.rolling_max <= 3`, `...rolling_max > 0` | HTTP `target.hostname`; DNS `network.dns.questions.name` |
+| IP address | `$g.graph.metadata.entity_type = "IP_ADDRESS"`, `$g.graph.entity.artifact.ip = $dest`, `$g.graph.entity.artifact.prevalence.day_count = 10`, `...rolling_max <= 3`, `...rolling_max > 0` | `target.ip` |
+| Binary | `$g.graph.metadata.entity_type = "FILE"`, `$g.graph.entity.file.sha256 = $sha256`, `$g.graph.entity.file.prevalence.day_count = 10`, `...rolling_max <= 3`, `...rolling_max > 0` | `principal.process.file.sha256` (or `target.process.file.sha256`) |
+| Asset age | `$g.graph.metadata.entity_type = "ASSET"`, `$g.graph.entity.asset.hostname = $host`; read `first_seen_time.seconds` | the stage's hostname field |
+
+Every graph stage also carries `$g.graph.metadata.source_type = "DERIVED_CONTEXT"`. Do not key a DNS
+destination on `network.dns_domain`: the DNS_DOMAIN metric dimension reads it, and it can be empty while
+DNS events exist; probe it before relying on a per-domain DNS baseline.
 """
 
 
@@ -166,8 +211,10 @@ TRIAD_RULES = """\
 One stage (`all_entities`) observes three sibling metrics for the same entity, then compares each
 against the personal 30-day baseline and the fleet (enterprise). A team cohort stage is optional: keep
 the template's `// >>> TEAM COHORT` blocks only when the analyst names a peer group; with no peer list
-it would just recompute the fleet, so delete them and rank by `$d_vs_fleet_sq`. Because one stage
-carries all three metrics:
+it would just recompute the fleet, so delete them and rank by `$d_vs_fleet_sq`. If the analyst mentions
+peers without naming them ("vs his team"), ask for the roster and wait; never drop the comparison. With a
+peer group the template also scores the group as a whole against the fleet (`$z*_team_vs_enterprise`,
+`$d_team_vs_fleet_sq`). Because one stage carries all three metrics:
 
 1. **One entity field for all three.** It must be valid alone for every metric (listed per triad).
    Bind it once: `<entity field> = $user` (or `$host`) in the stage and `<entity field>: $user` in all
@@ -235,6 +282,7 @@ def render() -> str:
   parts.append("## Metrics\n")
   parts.extend(_row(m) for m in metrics)
   parts.append(_triad_section())
+  parts.append(ECG_FILTERS)
   parts.append(_dimension_legend())
   return "\n".join(parts).rstrip() + "\n"
 

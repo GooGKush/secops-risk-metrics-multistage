@@ -519,7 +519,7 @@ To prevent runtime syntactic improvisation and avoid streaming rule syntax confu
 | **`longitudinal_cusum_2stage.yl2`** | 2 Stages | Longitudinal CUSUM Drift ($S^+$) | Multi-day low-and-slow exfiltration and behavioral drift. |
 | **`dual_baseline_delta_z_3stage.yl2`** | 3 Stages | Dual-Baseline Delta-$Z$ ($\Delta Z$) | Patch Tuesday fleet suppression, enterprise-wide spikes. |
 | **`hierarchical_empirical_bayes_3stage.yl2`** | 3 Stages | Hierarchical Empirical Bayes | Peer group shrinkage, regularizing inactive accounts. |
-| **`part_of_the_whole_multilevel.yl2`** | 4 Stages / 3 Wholes | Multilevel Hierarchical Z ($Z_{\text{personal}}, Z_{\text{vs\_team}}, Z_{\text{vs\_enterprise}}$) | Part-of-the-whole baselining against personal, peer cohort, and enterprise whole. |
+| **`part_of_the_whole_multilevel.yl2`** | 3 Stages (4 with a peer group) | Multilevel Hierarchical Z ($Z_{\text{personal}}, Z_{\text{vs\_enterprise}}$; with a peer group $Z_{\text{vs\_team}}, Z_{\text{team\_vs\_enterprise}}$) | Personal + fleet by default; user → named group → enterprise when a roster is given. |
 | **`part_of_the_whole_triad_multilevel.yl2`** | 3 Stages (4 with a peer group) | Multilevel Triad Breakdown (3 Sibling Metrics + Composite $D$) | Sibling metric ratio analysis (e.g. Total + Fail + Success) against personal baseline and fleet; team cohort only when a peer group is named. |
 | **`dual_sector_fusion_3stage.yl2`** | 3 Stages | Dual-Sector Fusion (rectified $D$, any 2 catalog sectors) | Cross-vector correlation of any two metrics for the same entity (sector slots from `references/metric-sector-catalog.md`). |
 | **`multi_sector_fusion_4stage.yl2`** | 4 Stages | Multi-Sector Fusion (rectified $D$, any 2 catalog sectors + Fleet Norm) | Same as dual-sector plus cross-sectional fleet $\Delta Z$, within the 2-UDM-stage Search limit. |
@@ -529,6 +529,8 @@ To prevent runtime syntactic improvisation and avoid streaming rule syntax confu
 | **`hybrid_metric_derived_domain_prevalence_2stage.yl2`** | 2 Stages | Derived Context Domain Prevalence ($Z \times M_{\text{rare}}$) | External destination queries, novel SaaS/C2 hostnames, corporate CDN pruning. |
 | **`hybrid_metric_whois_domain_lifecycle_2stage.yl2`** | 2 Stages | WHOIS Domain Lifecycle (NRD & Expiration Fusion) | Acute web/DNS/network egress to Newly Registered Domains (<= 30d) or expired domains. |
 | **`hybrid_metric_derived_asset_age_2stage.yl2`** | 2 Stages | Derived Context Infant Asset Age ($Z \times M_{\text{infant}}$) | Rogue machine onboarding, infant endpoints (<= 7d) undergoing auth storms or egress. |
+| **`rare_destination_ecg_3stage.yl2`** | 3 Stages + Root (2 UDM + graph) | Sector $Z$ filtered to Entity Graph-rare destinations | "Unusual outbound bytes / DNS / HTTP to low-prevalence domains or IPs" (domain via `target.hostname` or `network.dns.questions.name`; IP via `target.ip`). |
+| **`fusion_rare_destination_3stage.yl2`** | 3 Stages + Root (2 UDM + graph) | Dual-sector rectified $D$ through rare destinations | Two sectors on one host where the second is per (host, destination) and the destination is rare (e.g. DNS volume + HTTP to rare domains). |
 
 ---
 
@@ -551,7 +553,10 @@ When comparing an individual to a team cohort, single-tier comparisons create bl
    - **Personal Historical $Z$**: $Z_{\text{personal}} = (\text{obs} - \mu_{\text{personal}}) / \max(\sigma_{\text{personal}}, 1.0)$
    - **Team Cross-Sectional $Z$**: $Z_{\text{vs\_team}} = (\text{obs} - \mu_{\text{team}}) / \max(\sigma_{\text{team}}, 1.0)$
    - **Enterprise Cross-Sectional $Z$**: $Z_{\text{vs\_enterprise}} = (\text{obs} - \mu_{\text{enterprise}}) / \max(\sigma_{\text{enterprise}}, 1.0)$
-This produces 4 diagnostic states: **Individual Rogue** (high $Z_{\text{team}}$ & high $Z_{\text{enterprise}}$), **Role Benign** (low $Z_{\text{team}}$ & high $Z_{\text{enterprise}}$), **Stealth Compromise** (high $Z_{\text{team}}$ & low $Z_{\text{enterprise}}$), and **Team Campaign/Rollout** (low $Z_{\text{team}}$ & elevated team mean).
+   - **Group vs Enterprise**: $Z_{\text{team\_vs\_enterprise}} = (\mu_{\text{team}} - \mu_{\text{enterprise}}) / \sigma_{\text{enterprise}}$ (`$z_team_vs_enterprise`; triad: `$z*_team_vs_enterprise`, `$d_team_vs_fleet_sq`). This is the defined user → group → enterprise path: the user against the group, and the group against the whole.
+4. **Peer group rule**: no peers mentioned → delete the template's `// >>> TEAM COHORT` blocks (personal + fleet, rank by `$z_vs_enterprise`). Peers mentioned but not named ("vs his team") → ask for the roster and wait; never drop the comparison silently. Peers named → keep the blocks and rank by `$z_vs_team`. Groups are a roster of identifiers today (`$u = "a" or $u = "b"`).
+
+This produces 4 diagnostic states: **Individual Rogue** (high $Z_{\text{team}}$ & high $Z_{\text{enterprise}}$), **Role Benign** (low $Z_{\text{team}}$ & high $Z_{\text{enterprise}}$), **Stealth Compromise** (high $Z_{\text{team}}$ & low $Z_{\text{enterprise}}$), and **Team Campaign/Rollout** (low $Z_{\text{team}}$ & high $Z_{\text{team\_vs\_enterprise}}$).
 
 ### 4. Intra-Event Metric Triad Breakouts (`part_of_the_whole_triad_multilevel.yl2`)
 When hunting within a single telemetry vector, single-metric evaluations can obscure behavioral context:
