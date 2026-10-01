@@ -39,7 +39,7 @@ Operational execution: `references/turn-execution-lifecycle.md`.
 Lifecycle mechanics and turn contracts are in `references/turn-execution-lifecycle.md`.
 
 ### 🚦 State 1: Pre-Flight Clearance & Specification (Zero Execution on Turn 1) (MANDATORY STEP 1: PRE-FLIGHT CLEARANCE)
-On Turn 1 (including *"Run..."* or *"Scan..."*), focus strictly on pre-flight alignment: verify syntax via 1-shot compiler probe, render candidate preview, and offer Mode A or Mode B. Multi-stage execution and 6-pillar findings occur strictly in Turn 2 after clearance.
+On Turn 1 (including *"Run..."* or *"Scan..."*), focus strictly on pre-flight alignment: probe the event filter once, render candidate preview, and offer Mode A or Mode B. Multi-stage execution and 6-pillar findings occur strictly in Turn 2 after clearance.
 
 ### 🧭 Phase 1A: Consultative Vector & Scope Discovery (Dual-Requirement Gate)
 Phase 1B is **ONLY UNLOCKED** when **BOTH** are explicitly defined:
@@ -61,7 +61,7 @@ Phase 1B is **ONLY UNLOCKED** when **BOTH** are explicitly defined:
 
 ### 🔍 Phase 1B: Pre-Flight Spec & Query Preview (Once Scope & Vectors are Established)
 Once vectors and scope are confirmed (expert prompt, Phase 1A vector selection, or CTI mapping; card always precedes the query preview):
-1. **Turn 1 Tool Invariant**: Limit Turn 1 tools strictly to identity spot-checks (incl. AD TEAM LOOKUP, run first) and one 1-shot compiler probe (`udm_search`, `maxEvents: 1`). The probe is a single-event filter; multi-stage execution waits for Turn 2 clearance. After probe succeeds, call 0 more tools on Turn 1; emit card, query preview, and clearance question in text, then yield. Read templates directly at `templates/pipelines/<template_name>.yl2` with `view_file`; no exploratory shell searches.
+1. **Turn 1 Tool Invariant**: Limit Turn 1 tools strictly to identity spot-checks (incl. AD TEAM LOOKUP, run first) and one probe (`udm_search`, `maxEvents: 1`) of the event filter alone (no `stage`, `match:`, `metrics.`). Never probe the candidate itself, even with `maxEvents: 1`; it runs only after Turn 2 clearance. After probe succeeds, call 0 more tools on Turn 1; emit card, query preview, and clearance question in text, then yield. Read templates at `templates/pipelines/<name>.yl2` directly; no exploratory shell searches.
 2. **Identity Disambiguation & Confirmation Protocol (ZERO GUESSING & IMMEDIATE HALT)**:
    - *Technical IDs*: Display names (with spaces) are NOT `user.userid`. Single unqualified first names (e.g. `Frank`) must be spot-checked in UDM. Hostnames and fleet-wide scopes proceed directly with pre-flight vector formulation.
    - *14-Day UDM Spot-Check*: `udm_search(query='target.user.userid = "<name>" nocase or principal.user.userid = "<name>" nocase or target.user.user_display_name = /.*<name>.*/ nocase or principal.user.user_display_name = /.*<name>.*/ nocase', startTime: "<ISO_14D_AGO>", endTime: "<ISO_NOW>", maxEvents: 5)`.
@@ -91,7 +91,7 @@ Once vectors and scope are confirmed (expert prompt, Phase 1A vector selection, 
 
 ### 📊 State 2: Deterministic Multi-Stage Execution & 6-Pillar Report (After Clearance) (MANDATORY STEP 2: PRESENT FULL 6-SECTION REPORT)
 
-1. **State 2 Entry Condition**: If the preceding turn displayed a PRE-FLIGHT HUNTING SPECIFICATION card and the candidate multi-stage YARA-L query with its baseline filter probed clean (200 OK), Mode A/B clearance means execute now. Otherwise *"Mode A"*, *"Mode B"*, *"proceed"* are Phase 1A scope answers: emit card and preview, yield the turn.
+1. **State 2 Entry Condition**: If the preceding turn displayed a PRE-FLIGHT HUNTING SPECIFICATION card and the candidate query, its event filter probed clean (200 OK), Mode A/B clearance means execute now. Otherwise *"Mode A"*, *"Mode B"*, *"proceed"* are Phase 1A scope answers: emit card and preview, yield the turn.
 2. **Execution Telemetry Retrieval Mandate**: Analyst clearance on Turn 2 authorizes immediate query execution: always dispatch approved multi-stage `metrics.*` query via `udm_search` (for 360 Radar, dispatch sector queries returning `"stats"`) before generating text or rendering report, regardless of preliminary spot-check counts. When telemetry yields zero events or an empty stats payload, report findings affirmatively as nominal baseline under the Clean Hunt Exemption. Raw event filter substitutions are invalid on execution turns.
 3. **Deterministic 6-Pillar Report Structure**:
 #### 1. Statistical Outlier Report: `[Target Metric]` ([Statistical Model]) (`window: 30d`). Single visual surface: <agent-embed> in Jetski (`run_command` present); <svg> in MCP/webview; Client Tool (if present); ASCII on request. Zero data-uri or raw SVG in chat Markdown. Unicode magnitude bars (`▰▰▰▰▱▱▱▱`). Details: `references/chart-specifications-guide.md`.

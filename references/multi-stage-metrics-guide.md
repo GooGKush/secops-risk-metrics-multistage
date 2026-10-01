@@ -930,8 +930,9 @@ When an analyst's hypothesis crosses physical entity boundaries (such as correla
    * **Output**: Detailed chronological timeline of cloud API calls, bucket operations, or IAM modifications.
 
 ### B. Tool-Precondition Code Block Embargo (Zero Broken Queries)
-* Under no circumstances may an agent render a candidate YARA-L query in markdown (\`\`\`yara) without having executed a 1-shot pre-preview compiler probe (`udm_search(query="...", startTime="<ISO_10M_AGO>", endTime="<ISO_NOW>", maxEvents=1)`) in the immediately preceding tool call. Timestamps MUST be absolute ISO 8601 UTC — see section 30C.
-* If the compiler probe returns an invalid argument, syntax error, or ANTLR crash, the query preview must be withheld. The agent must auto-correct the query or present the Two-Phase Consultative Pivot.
+* Under no circumstances may an agent render a candidate YARA-L query in markdown (\`\`\`yara) without having executed a 1-shot pre-preview probe (`udm_search(query="<event filter>", startTime="<ISO_10M_AGO>", endTime="<ISO_NOW>", maxEvents=1)`) in the immediately preceding tool call. Timestamps MUST be absolute ISO 8601 UTC — see section 30C.
+* The probe is the candidate's event filter alone: no `stage`, `match:`, `outcome:` or `metrics.` calls. Running the candidate itself before clearance, even with `maxEvents: 1`, is execution, not a probe. The candidate first runs on Turn 2 clearance.
+* If the probe returns an invalid argument or syntax error, withhold the preview and correct the filter, or present the Two-Phase Consultative Pivot.
 
 ### C. Data Provenance & Execution Stamping
 To prevent fabricated results or recycled numbers, reports must stamp execution provenance directly from the Chronicle API response:

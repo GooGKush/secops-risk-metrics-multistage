@@ -152,8 +152,8 @@ Measured on GUS-SDL at 2026-10-01T11:50Z with the Playbook 1 shape (`day_count =
 | `2026-09-29T00:00:00Z` (D-2) | `metadata.event_timestamp.seconds >= 1790812800` (today 00:00Z) | rows; every match joined the `2026-09-30` graph day |
 
 **Mode A rule (any query with a `$alias.graph.*` stage):**
-1. Set `startTime` to **two days back at 00:00Z** (D-2) and `endTime` to now. This covers the newest built graph day even early in the UTC day.
-2. Keep the analysis on today: add `metadata.event_timestamp.seconds >= <epoch of today 00:00Z>` to **every event stage**. Without it the wider window silently pulls yesterday's events into "today".
+1. Set `startTime` to **two days back at 00:00Z** (D-2, literally `YYYY-MM-DDT00:00:00Z`, not now minus 48 hours) and `endTime` to now. This covers the newest built graph day even early in the UTC day.
+2. Keep the analysis on today: add `metadata.event_timestamp.seconds >= <epoch of today 00:00Z>` to **every event stage**. Without it the wider window silently pulls yesterday's events into "today". Check the epoch before use: it must be at or below now and more than now − 86400; an epoch above now (e.g. tomorrow's midnight) matches nothing.
 3. Do not add any time predicate to the graph stage; it joins on its key only (`$sha256`, `$domain`, `$host`, `$user`).
 
 <!-- yara-fragment: event stage only; the graph stage and root are unchanged from Playbook 1 -->

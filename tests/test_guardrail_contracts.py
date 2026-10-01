@@ -1406,7 +1406,8 @@ class TestGuardrailContracts(unittest.TestCase):
     self.assertIn("Tool-Precondition Code Block Embargo", skill_content)
     self.assertIn("Tool-Precondition Code Block Embargo (Zero Broken Queries)", guide_content)
     self.assertIn("emitting ```yara without an immediately preceding successful probe is STRICTLY PROHIBITED", skill_content)
-    self.assertIn("query preview must be withheld", guide_content)
+    self.assertIn("withhold the preview", guide_content)
+    self.assertIn("Running the candidate itself before clearance, even with `maxEvents: 1`, is execution, not a probe.", guide_content)
 
   def test_twophase_chained_hunt_specification_contract(self):
     """SKILL.md and multi-stage guide must define the Two-Phase Chained Hunt specification."""
@@ -1619,7 +1620,9 @@ class TestGuardrailContracts(unittest.TestCase):
 
     # SKILL.md assertions
     self.assertIn("State 2 Entry Condition", skill_content)
-    self.assertIn("PRE-FLIGHT HUNTING SPECIFICATION card and the candidate multi-stage YARA-L query with its baseline filter probed clean (200 OK)", skill_content)
+    self.assertIn("PRE-FLIGHT HUNTING SPECIFICATION card and the candidate query, its event filter probed clean (200 OK)", skill_content)
+    # The probe is the event filter only; the candidate never runs before clearance.
+    self.assertIn("of the event filter alone (no `stage`, `match:`, `metrics.`). Never probe the candidate itself, even with `maxEvents: 1`", skill_content)
     self.assertIn("Mode A/B clearance means execute now", skill_content)
     self.assertIn("Clearance Question (final sentence of Turn 1, then yield)", skill_content)
 
