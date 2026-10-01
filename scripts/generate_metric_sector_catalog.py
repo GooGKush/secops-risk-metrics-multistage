@@ -81,9 +81,11 @@ elsewhere still fails if the combined set is not listed. Example: `auth_attempts
    correlated; add an `// ADVISORY:` line to the query header saying so.
 6. `email_addresses`, `ip` and `mac` are repeated fields: one event can fan out to several entities.
 7. **Identifier coverage (probe first).** A field valid in the config can still be empty in a sector's
-   data. Before fusing, run one cheap count per sector (`<field> != ""`) and pick an identifier populated
-   in both. Network sensors (Zeek, NGFW, proxies) often fill `principal.asset.ip` but not
-   `principal.asset.hostname`, so network + HTTP fusion usually joins on `principal.asset.ip`.
+   data. Make the Turn 1 compiler probe do this check: probe the sector most likely to lack the field with
+   its filter plus `<field> != ""` (`maxEvents: 1`). If it returns no event, key both sectors on a field
+   that is populated and say so in the card. Network sensors (Zeek, NGFW, proxies) often fill
+   `principal.asset.ip` but not `principal.asset.hostname`, so network + HTTP fusion usually joins on
+   `principal.asset.ip`.
 8. **At most two UDM event stages per query** (compiler limit; Entity Graph stages do not count). Two
    sectors fit; a third event sector does not compile. For three metrics of one family use the sibling
    triad (one stage); for three families use the 360 radar's decoupled micro-queries. Never three event
