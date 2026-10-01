@@ -8,6 +8,16 @@
 // Join Budget: 1 metric lookup (Stage 1) + 1 stage join (Root) = 2 joins total (<= 4).
 // Invariant: Stage 1 evaluates universal volume; Stage 2 isolates graph lookup (ECG_LIMIT = 1).
 //
+// ENTITY GRAPH FRESHNESS (references/entity-context-graph-guide.md, Rule 5):
+//   Daily graph records (every prevalence.* filter) are built once a day and lag about a
+//   day; a window starting today 00:00Z overlaps none of them, the inner join drops every
+//   row, and zero rows are structural, not a true negative. Start the search window two
+//   days back at 00:00Z; the today_start_epoch slot (epoch of today 00:00Z) keeps the event
+//   stage on the analysis day. The graph stage matches by key only (no time predicate).
+//   Zero rows from a window starting today is a freshness gap: rerun, do not report clean.
+// FILTER ONLY: the graph stage is an inner join. Entities with no graph record drop out
+//   (absent from the graph is not the same as rare); say so in the report.
+//
 // CONCRETE FIELD BINDING & INSTANTIATION GUIDE:
 // Slots event_filter / macro_event_filter: the metric's "Observed event filter" lines from references/metric-sector-catalog.md, one per line.
 // 1. Host Authentication Volume vs. Asset Age:
@@ -27,6 +37,7 @@
 // Stage 1: Macro 30-Day Host Baseline (metrics.*)
 stage stage1_asset_baseline {
     {{event_filter}}
+    metadata.event_timestamp.seconds >= {{today_start_epoch}}
     principal.asset.hostname = $host
     $host != ""
 

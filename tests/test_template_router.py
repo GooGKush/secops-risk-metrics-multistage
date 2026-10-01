@@ -159,7 +159,28 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
     self.assertIn("$z_personal =", query)
     self.assertIn("$z_vs_team =", query)
     self.assertIn("$z_vs_enterprise =", query)
+    self.assertIn("$z_team_vs_enterprise = ($t_avg - $e_avg)", query)
     self.assertIn("order:\n  $z_vs_team desc", query)
+    self.assertNotIn("TEAM COHORT\n", query.split("// ======", 2)[-1])
+    self.assertNotIn("{{", query)
+
+  def test_part_of_the_whole_single_metric_fleet_only_without_cohort(self):
+    """No peer group: team blocks dropped (never a '$u != \"\"' copy of the fleet), fleet ordering."""
+    query = self.router.build_pipeline_query(
+        PipelineArchitecture.PART_OF_THE_WHOLE_MULTILEVEL,
+        target_metric="network_bytes_outbound",
+        entity_type=EntityType.ASSET,
+    )
+    self.assertIn("stage enterprise_stats {", query)
+    self.assertNotIn("stage team_cohort_stats", query)
+    self.assertNotIn("$team_cohort_stats", query)
+    body = "\n".join(ln for ln in query.splitlines() if not ln.lstrip().startswith("//"))
+    self.assertNotIn("$z_vs_team", body)
+    self.assertNotIn("$z_team_vs_enterprise", body)
+    self.assertNotIn("$u ", body)
+    self.assertNotIn("\n\n\n", query, "deleted blocks must not leave double blank lines")
+    self.assertIn("order:\n  $z_vs_enterprise desc", query)
+    self.assertNotIn("{{", query)
 
   def test_part_of_the_whole_triad_multilevel_user(self):
     """Verifies that PART_OF_THE_WHOLE_TRIAD_MULTILEVEL renders a 3-metric user auth triad."""
@@ -184,6 +205,8 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
     self.assertIn("$z3_vs_team =", query)
     self.assertIn("$d_vs_team_sq =", query)
     self.assertIn("$d_vs_fleet_sq =", query)
+    self.assertIn("$z1_team_vs_enterprise =", query)
+    self.assertIn("$d_team_vs_fleet_sq =", query)
     self.assertIn("order:\n  $d_vs_team_sq desc", query)
     self.assertNotIn("TEAM COHORT\n", query.split("// ======", 2)[-1])
     self.assertNotIn("{{", query)
@@ -320,6 +343,33 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
     self.assertIn("metrics.http_queries_fail", query)
     self.assertIn("metrics.http_queries_success", query)
     self.assertIn("$d_vs_team_sq =", query)
+
+  def test_entity_graph_templates_follow_freshness_rule(self):
+    """Rule 5 (entity-context-graph-guide.md): every event stage of a graph-joined
+    pipeline is pinned to today 00:00Z; graph-only stages carry no time predicate."""
+    import datetime
+    import re
+    now = datetime.datetime.now(datetime.timezone.utc)
+    today = int(datetime.datetime(now.year, now.month, now.day, tzinfo=datetime.timezone.utc).timestamp())
+    graph_pipelines = [
+        PipelineArchitecture.HYBRID_METRIC_DERIVED_FILE_PREVALENCE_2STAGE,
+        PipelineArchitecture.HYBRID_METRIC_DERIVED_DOMAIN_PREVALENCE_2STAGE,
+        PipelineArchitecture.HYBRID_METRIC_DERIVED_ASSET_AGE_2STAGE,
+        PipelineArchitecture.HYBRID_METRIC_FLEET_PREVALENCE_2STAGE,
+        PipelineArchitecture.HYBRID_METRIC_WHOIS_DOMAIN_LIFECYCLE_2STAGE,
+    ]
+    event_field = re.compile(r"(?<![$\w.])(?:metadata|principal|target|network)\.")
+    for arch in graph_pipelines:
+      with self.subTest(arch=arch.name):
+        query = self.router.build_pipeline_query(arch)
+        self.assertNotIn("{{", query)
+        code = re.sub(r"//[^\n]*", "", query)
+        stages = re.findall(r"stage\s+(\w+)\s*\{([^}]+)\}", code)
+        self.assertTrue(any(".graph." in body for _, body in stages))
+        for name, body in stages:
+          preds = re.split(r"^\s*(?:match|outcome)\s*:", body, maxsplit=1, flags=re.MULTILINE)[0]
+          has_filter = f"metadata.event_timestamp.seconds >= {today}" in preds
+          self.assertEqual(has_filter, bool(event_field.search(preds)), f"{arch.name}:{name}")
 
 
 if __name__ == "__main__":

@@ -8,6 +8,20 @@
 // Join Budget: 1 metric lookup (Stage 1) + 1 stage join (Root) = 2 joins total (<= 4).
 // Invariant: Stage 1 evaluates universal volume; Stage 2 isolates graph lookup (ECG_LIMIT = 1).
 //
+// ENTITY GRAPH FRESHNESS (references/entity-context-graph-guide.md, Rule 5):
+//   Daily graph records (every prevalence.* filter) are built once a day and lag about a
+//   day; a window starting today 00:00Z overlaps none of them, the inner join drops every
+//   row, and zero rows are structural, not a true negative. Start the search window two
+//   days back at 00:00Z; the today_start_epoch slot (epoch of today 00:00Z) keeps the event
+//   stage on the analysis day. The graph stage matches by key only (no time predicate).
+//   Zero rows from a window starting today is a freshness gap: rerun, do not report clean.
+// FILTER ONLY: the graph stage is an inner join. Entities with no graph record drop out
+//   (absent from the graph is not the same as rare); say so in the report.
+// IDENTIFIER: probe that principal.asset.hostname is populated in this sector first. Network
+//   sensors (Zeek, proxies) often fill only principal.asset.ip; swap it into the event line and
+//   both metric calls (PRINCIPAL_DEVICE). Baseline days are evidence, not a gate: a gate on
+//   active days would exclude exactly the new pairs the novelty multiplier exists to catch.
+//
 // CONCRETE FIELD BINDING & INSTANTIATION GUIDE:
 // Slots event_filter / macro_event_filter: the metric's "Observed event filter" lines from references/metric-sector-catalog.md, one per line.
 // 1. Web / HTTP Destination Domain:
@@ -16,7 +30,9 @@
 //    - target_metric_func_avg slot: metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.asset.hostname: $host, target.hostname: $domain)
 //    - target_metric_func_stddev slot: metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.asset.hostname: $host, target.hostname: $domain)
 //    - target_metric_func_active_days slot: metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.asset.hostname: $host, target.hostname: $domain)
-// 2. DNS Query Destination Domain:
+// 2. DNS Query Destination Domain (config-valid, but probe first: the DNS_DOMAIN dimension reads
+//    network.dns_domain, which is empty on some tenants. If it is empty, use
+//    rare_destination_ecg_3stage.yl2 with network.dns.questions.name as the destination):
 //    - event_filter slot: (network.dns.questions.name != "" or network.dns.answers.name != "" or network.dns.id != 0)
 //    - domain_field slot: network.dns_domain
 //    - target_metric_func_avg slot: metrics.dns_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.asset.hostname: $host, network.dns_domain: $domain)
@@ -27,6 +43,7 @@
 // Stage 1: Macro 30-Day Destination Query Baseline (metrics.*)
 stage stage1_query_baseline {
     {{event_filter}}
+    metadata.event_timestamp.seconds >= {{today_start_epoch}}
     principal.asset.hostname = $host
     {{domain_field}} = $domain
     $host != ""
@@ -93,7 +110,6 @@ outcome:
 
 condition:
   $z_score >= {{anomaly_threshold}}
-  and $active_baseline_days >= {{min_baseline_days}}
   and $fleet_prevalence <= {{max_fleet_prevalence}}
 
 order:

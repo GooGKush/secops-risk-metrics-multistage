@@ -7,11 +7,15 @@
 // Math: Multilevel Triad Z-Scores (Personal, Fleet[, Team]) + Composite D_fleet^2
 //
 // PEER GROUP (default = fleet only):
-//   No peer group named by the analyst -> delete every block between "// >>> TEAM COHORT" and
+//   No peers mentioned -> delete every block between "// >>> TEAM COHORT" and
 //   "// <<< TEAM COHORT" (3 blocks) and keep "order: $d_vs_fleet_sq desc". Without a peer
 //   list the team stage would just recompute the fleet.
-//   Peer group named -> keep the blocks, fill the cohort_filter slot with the peers
+//   Peers mentioned but not named (e.g. "vs his team") -> ask the analyst for the roster
+//   and yield. Never drop the team comparison silently.
+//   Peers named -> keep the blocks, fill the cohort_filter slot with the peers
 //   ($u = "a" or $u = "b"), delete only the marker lines, and order by $d_vs_team_sq desc.
+//   Path user -> group -> enterprise: $z*_vs_team (one vs group), $z*_team_vs_enterprise and
+//   $d_team_vs_fleet_sq (group mean vs fleet; elevated = team campaign/rollout).
 //
 // CONCRETE FIELD BINDING & INSTANTIATION GUIDE:
 // Slots event_filter and m1/m2/m3_observation_agg: take them from the triad's block in
@@ -54,30 +58,6 @@ stage all_entities {
     $z3_personal = ($m3_obs - $m3_p_avg) / if($m3_p_std > 0, $m3_p_std, 1.0)
 }
 
-// >>> TEAM COHORT
-// Optional stage: Team Cohort Whole (Macro baseline across the named peers)
-stage team_cohort_stats {
-    $u = $all_entities.{{entity_name}}
-    $ws = $all_entities.window_start
-    {{cohort_filter}}
-
-  match:
-    $ws by 1d
-
-  outcome:
-    $m1_team_avg = avg($all_entities.m1_obs)
-    $m1_team_std = stddev($all_entities.m1_obs)
-
-    $m2_team_avg = avg($all_entities.m2_obs)
-    $m2_team_std = stddev($all_entities.m2_obs)
-
-    $m3_team_avg = avg($all_entities.m3_obs)
-    $m3_team_std = stddev($all_entities.m3_obs)
-
-    $team_size = count_distinct($all_entities.{{entity_name}})
-}
-// <<< TEAM COHORT
-
 // Fleet stage: Enterprise Whole (Macro baseline across the entire fleet)
 stage enterprise_stats {
     $ws = $all_entities.window_start
@@ -95,8 +75,46 @@ stage enterprise_stats {
     $m3_fleet_avg = avg($all_entities.m3_obs)
     $m3_fleet_std = stddev($all_entities.m3_obs)
 
+    // Zero-safe divisors (keeps the root under the 20-outcome limit)
+    $m1_fleet_div = if($m1_fleet_std > 0, $m1_fleet_std, 1.0)
+    $m2_fleet_div = if($m2_fleet_std > 0, $m2_fleet_std, 1.0)
+    $m3_fleet_div = if($m3_fleet_std > 0, $m3_fleet_std, 1.0)
+
     $fleet_size = count_distinct($all_entities.{{entity_name}})
 }
+
+// >>> TEAM COHORT
+// Optional stage: Team Cohort Whole (named peers) + the group as a whole vs the fleet
+stage team_cohort_stats {
+    $u = $all_entities.{{entity_name}}
+    $ws = $all_entities.window_start
+    $ws = $enterprise_stats.ws
+    {{cohort_filter}}
+
+  match:
+    $ws by 1d
+
+  outcome:
+    $m1_team_avg = avg($all_entities.m1_obs)
+    $m2_team_avg = avg($all_entities.m2_obs)
+    $m3_team_avg = avg($all_entities.m3_obs)
+
+    $m1_team_std = stddev($all_entities.m1_obs)
+    $m2_team_std = stddev($all_entities.m2_obs)
+    $m3_team_std = stddev($all_entities.m3_obs)
+    $m1_team_div = if($m1_team_std > 0, $m1_team_std, 1.0)
+    $m2_team_div = if($m2_team_std > 0, $m2_team_std, 1.0)
+    $m3_team_div = if($m3_team_std > 0, $m3_team_std, 1.0)
+
+    // Group vs Enterprise ("Team as Part of the Fleet"): team mean in fleet std units
+    $z1_team_vs_enterprise = ($m1_team_avg - max($enterprise_stats.m1_fleet_avg)) / max($enterprise_stats.m1_fleet_div)
+    $z2_team_vs_enterprise = ($m2_team_avg - max($enterprise_stats.m2_fleet_avg)) / max($enterprise_stats.m2_fleet_div)
+    $z3_team_vs_enterprise = ($m3_team_avg - max($enterprise_stats.m3_fleet_avg)) / max($enterprise_stats.m3_fleet_div)
+    $d_team_vs_fleet_sq = ($z1_team_vs_enterprise * $z1_team_vs_enterprise) + ($z2_team_vs_enterprise * $z2_team_vs_enterprise) + ($z3_team_vs_enterprise * $z3_team_vs_enterprise)
+
+    $team_size = count_distinct($all_entities.{{entity_name}})
+}
+// <<< TEAM COHORT
 
 // Root Stage: Multilevel Triad Scoring & Composite Distance
 {{entity_var}} = $all_entities.{{entity_name}}
@@ -123,25 +141,21 @@ outcome:
 
   // >>> TEAM COHORT
   // Peer group only: Team Cross-Sectional Z-Scores ("Part of the Team")
-  $t1_std = max($team_cohort_stats.m1_team_std)
-  $t2_std = max($team_cohort_stats.m2_team_std)
-  $t3_std = max($team_cohort_stats.m3_team_std)
-
-  $z1_vs_team = ($m1_observed - max($team_cohort_stats.m1_team_avg)) / if($t1_std > 0, $t1_std, 1.0)
-  $z2_vs_team = ($m2_observed - max($team_cohort_stats.m2_team_avg)) / if($t2_std > 0, $t2_std, 1.0)
-  $z3_vs_team = ($m3_observed - max($team_cohort_stats.m3_team_avg)) / if($t3_std > 0, $t3_std, 1.0)
+  $z1_vs_team = ($m1_observed - max($team_cohort_stats.m1_team_avg)) / max($team_cohort_stats.m1_team_div)
+  $z2_vs_team = ($m2_observed - max($team_cohort_stats.m2_team_avg)) / max($team_cohort_stats.m2_team_div)
+  $z3_vs_team = ($m3_observed - max($team_cohort_stats.m3_team_avg)) / max($team_cohort_stats.m3_team_div)
 
   $d_vs_team_sq = ($z1_vs_team * $z1_vs_team) + ($z2_vs_team * $z2_vs_team) + ($z3_vs_team * $z3_vs_team)
+
+  // 4. Group vs Enterprise, computed in team_cohort_stats (elevated = team campaign/rollout)
+  $d_team_vs_fleet_sq = max($team_cohort_stats.d_team_vs_fleet_sq)
+  $team_size = max($team_cohort_stats.team_size)
   // <<< TEAM COHORT
 
   // 2. Enterprise Cross-Sectional Z-Scores ("Part of the Fleet")
-  $e1_std = max($enterprise_stats.m1_fleet_std)
-  $e2_std = max($enterprise_stats.m2_fleet_std)
-  $e3_std = max($enterprise_stats.m3_fleet_std)
-
-  $z1_vs_enterprise = ($m1_observed - max($enterprise_stats.m1_fleet_avg)) / if($e1_std > 0, $e1_std, 1.0)
-  $z2_vs_enterprise = ($m2_observed - max($enterprise_stats.m2_fleet_avg)) / if($e2_std > 0, $e2_std, 1.0)
-  $z3_vs_enterprise = ($m3_observed - max($enterprise_stats.m3_fleet_avg)) / if($e3_std > 0, $e3_std, 1.0)
+  $z1_vs_enterprise = ($m1_observed - max($enterprise_stats.m1_fleet_avg)) / max($enterprise_stats.m1_fleet_div)
+  $z2_vs_enterprise = ($m2_observed - max($enterprise_stats.m2_fleet_avg)) / max($enterprise_stats.m2_fleet_div)
+  $z3_vs_enterprise = ($m3_observed - max($enterprise_stats.m3_fleet_avg)) / max($enterprise_stats.m3_fleet_div)
 
   // 3. Composite Threat Norm Across the Triad vs the Fleet
   $d_vs_fleet_sq = ($z1_vs_enterprise * $z1_vs_enterprise) + ($z2_vs_enterprise * $z2_vs_enterprise) + ($z3_vs_enterprise * $z3_vs_enterprise)

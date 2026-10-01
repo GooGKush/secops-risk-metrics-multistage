@@ -7,11 +7,24 @@
 //          and prune enterprise-wide software rollouts (Patch Tuesday Shield).
 // Join Budget: 1 metric lookup (Stage 1) + 1 stage join (Root) = 2 joins total (<= 4).
 // Invariant: Stage 1 evaluates universal volume; Stage 2 isolates graph lookup (ECG_LIMIT = 1).
+//
+// ENTITY GRAPH FRESHNESS (references/entity-context-graph-guide.md, Rule 5):
+//   Daily graph records (every prevalence.* filter) are built once a day and lag about a
+//   day; a window starting today 00:00Z overlaps none of them, the inner join drops every
+//   row, and zero rows are structural, not a true negative. Start the search window two
+//   days back at 00:00Z; the today_start_epoch slot (epoch of today 00:00Z) keeps the event
+//   stage on the analysis day. The graph stage matches by key only (no time predicate).
+//   Zero rows from a window starting today is a freshness gap: rerun, do not report clean.
+// FILTER ONLY: the graph stage is an inner join. Entities with no graph record drop out
+//   (absent from the graph is not the same as rare); say so in the report.
+// Baseline days are evidence, not a gate: a gate on active days would exclude exactly the
+//   new binaries the novelty multiplier exists to catch.
 // ============================================================================
 
 // Stage 1: Macro 30-Day Process Execution Baseline (metrics.file_executions_total)
 stage stage1_process_baseline {
     metadata.event_type = "PROCESS_LAUNCH"
+    metadata.event_timestamp.seconds >= {{today_start_epoch}}
     $event_type = metadata.event_type
     principal.asset.hostname = $host
     principal.process.file.sha256 = $sha256
@@ -102,7 +115,6 @@ outcome:
 
 condition:
   $z_score >= {{anomaly_threshold}}
-  and $active_baseline_days >= {{min_baseline_days}}
   and $fleet_prevalence <= {{max_fleet_prevalence}}
 
 order:

@@ -3,6 +3,7 @@
 __author__ = "Greg Kushmerek"
 __version__ = "2.1.1"
 
+import datetime
 from pathlib import Path
 import re
 from typing import List, Optional, Sequence
@@ -24,6 +25,12 @@ _TEAM_BLOCK_RE = re.compile(
 def _apply_team_cohort_blocks(rendered: str, keep: bool) -> str:
   """Keeps (marker lines removed) or deletes the optional '// >>> TEAM COHORT' blocks."""
   return _TEAM_BLOCK_RE.sub((lambda m: m.group(1) + (m.group(2) or "")) if keep else "", rendered)
+
+
+def _today_start_epoch() -> int:
+  """Epoch seconds of today 00:00Z (Entity Graph freshness: event stages stay on today)."""
+  now = datetime.datetime.now(datetime.timezone.utc)
+  return int(datetime.datetime(now.year, now.month, now.day, tzinfo=datetime.timezone.utc).timestamp())
 
 
 def _swap_identifier_leaf(field: str, target_field: str) -> str:
@@ -541,13 +548,16 @@ class MultiStageTemplateRouter:
       entity_var = "$user" if entity_type == EntityType.USER else "$host"
       entity_name = entity_var.lstrip("$")
 
+      # Peer group rule (template header): no named cohort -> drop the TEAM COHORT blocks
+      # (fleet only, order by $z_vs_enterprise); named cohort -> keep them, order by $z_vs_team.
+      rendered = _apply_team_cohort_blocks(raw, keep=bool(cohort_entities))
       if cohort_entities:
         if len(cohort_entities) > 1:
           cohort_filter = "(\n      " + " or\n      ".join(f'$u = "{c}"' for c in cohort_entities) + "\n    )"
         else:
           cohort_filter = f'$u = "{cohort_entities[0]}"'
-      else:
-        cohort_filter = '$u != ""'
+        rendered = rendered.replace("{{cohort_filter}}", cohort_filter)
+        rendered = rendered.replace("order:\n  $z_vs_enterprise desc", "order:\n  $z_vs_team desc")
 
       if target_entity:
         target_filter = f'{entity_var} = "{target_entity}"'
@@ -559,12 +569,11 @@ class MultiStageTemplateRouter:
       else:
         target_filter = f'{entity_var} != ""'
 
-      rendered = _fill_event_filter(raw, "{{event_filter}}", audit["event_filter"])
+      rendered = _fill_event_filter(rendered, "{{event_filter}}", audit["event_filter"])
       rendered = rendered.replace("{{entity_field}}", audit["target_field"])
       rendered = rendered.replace("{{entity_var}}", entity_var)
       rendered = rendered.replace("{{entity_name}}", entity_name)
       rendered = rendered.replace("{{observation_agg}}", obs_agg)
-      rendered = rendered.replace("{{cohort_filter}}", cohort_filter)
       rendered = rendered.replace("{{target_entity_filter}}", target_filter)
       rendered = rendered.replace(
           "{{target_metric_func_avg}}",
@@ -866,6 +875,7 @@ class MultiStageTemplateRouter:
       rendered = rendered.replace("{{personal_threshold}}", str(anomaly_threshold))
       rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
       rendered = rendered.replace("{{max_fleet_adopters}}", "3")
+      rendered = rendered.replace("{{today_start_epoch}}", str(_today_start_epoch()))
 
       if hypothesis_goal:
         rendered = f"// Goal: {hypothesis_goal}\n" + rendered
@@ -920,6 +930,7 @@ class MultiStageTemplateRouter:
       rendered = raw.replace("{{anomaly_threshold}}", str(anomaly_threshold))
       rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
       rendered = rendered.replace("{{max_fleet_prevalence}}", "3")
+      rendered = rendered.replace("{{today_start_epoch}}", str(_today_start_epoch()))
       if hypothesis_goal:
         rendered = f"// Goal: {hypothesis_goal}\n" + rendered
       return rendered + "\n"
@@ -956,6 +967,7 @@ class MultiStageTemplateRouter:
       rendered = rendered.replace("{{anomaly_threshold}}", str(anomaly_threshold))
       rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
       rendered = rendered.replace("{{max_fleet_prevalence}}", "3")
+      rendered = rendered.replace("{{today_start_epoch}}", str(_today_start_epoch()))
       if hypothesis_goal:
         rendered = f"// Goal: {hypothesis_goal}\n" + rendered
       return rendered + "\n"
@@ -991,6 +1003,7 @@ class MultiStageTemplateRouter:
       )
       rendered = rendered.replace("{{anomaly_threshold}}", str(anomaly_threshold))
       rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
+      rendered = rendered.replace("{{today_start_epoch}}", str(_today_start_epoch()))
       if hypothesis_goal:
         rendered = f"// Goal: {hypothesis_goal}\n" + rendered
       return rendered + "\n"
@@ -1026,6 +1039,7 @@ class MultiStageTemplateRouter:
       )
       rendered = rendered.replace("{{anomaly_threshold}}", str(anomaly_threshold))
       rendered = rendered.replace("{{max_asset_age_days}}", "7.0")
+      rendered = rendered.replace("{{today_start_epoch}}", str(_today_start_epoch()))
       if hypothesis_goal:
         rendered = f"// Goal: {hypothesis_goal}\n" + rendered
       return rendered + "\n"

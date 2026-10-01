@@ -7,6 +7,15 @@
 // Join Budget: 1 metric lookup (Stage 1) + 1 stage join (Root) = 2 joins total (<= 4).
 // Match Topology: Token-centric match key ($token by 1d) joining personal anomaly to fleet breadth.
 //
+// ENTITY GRAPH FRESHNESS (references/entity-context-graph-guide.md, Rule 5):
+//   Daily graph records (every prevalence.* filter) are built once a day and lag about a
+//   day; a window starting today 00:00Z overlaps none of them, the inner join drops every
+//   row, and zero rows are structural, not a true negative. Start the search window two
+//   days back at 00:00Z; the today_start_epoch slot (epoch of today 00:00Z) keeps the event
+//   stages on the analysis day (stage 2 mixes events and the graph alias; the filter
+//   applies to its events only). The graph alias matches by key only (no time predicate).
+//   Zero rows from a window starting today is a freshness gap: rerun, do not report clean.
+//
 // CONCRETE FIELD BINDING & INSTANTIATION GUIDE:
 // Slots event_filter / macro_event_filter: the metric's "Observed event filter" lines from references/metric-sector-catalog.md, one per line.
 // 1. Process / Binary Execution Surge (Patch Tuesday Shield for Unfamiliar Binaries):
@@ -40,6 +49,7 @@ stage stage1_personal_surge {
     {{macro_token_field}} = $token
     $token != ""
     {{macro_event_filter}}
+    metadata.event_timestamp.seconds >= {{today_start_epoch}}
 
   match:
     $entity, $token by 1d
@@ -58,6 +68,7 @@ stage stage1_personal_surge {
 // Stage 2: Enterprise-Wide Concurrent Fleet Adoption on Micro-Token (UDM_EVENTS with Entity Graph DERIVED_CONTEXT Rarity)
 stage stage2_fleet_prevalence {
     metadata.event_type = "{{raw_event_type}}"
+    metadata.event_timestamp.seconds >= {{today_start_epoch}}
     {{raw_token_field}} = $token
     $token != ""
     {{raw_event_filter}}

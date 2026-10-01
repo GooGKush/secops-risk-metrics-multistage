@@ -1,9 +1,20 @@
 // ============================================================================
 // ARCHITECTURE: 3-PART HIERARCHICAL MULTILEVEL PART-OF-THE-WHOLE DAG
 // Skill: secops-risk-metrics-multistage
-// Purpose: Evaluates an individual against their personal 30-day baseline,
-//          their immediate peer team cohort, and the entire enterprise population.
-// Math: Multilevel Z-Scores: Z_Personal, Z_vs_Team, Z_vs_Enterprise
+// Purpose: Evaluates an individual against their personal 30-day baseline and
+//          the entire enterprise population; optionally also against a named peer
+//          group, and that group as a whole against the enterprise.
+// Math: Multilevel Z-Scores: Z_Personal, Z_vs_Enterprise[, Z_vs_Team, Z_Team_vs_Enterprise]
+//
+// PEER GROUP (default = fleet only):
+//   No peers mentioned -> delete every block between "// >>> TEAM COHORT" and
+//   "// <<< TEAM COHORT" (3 blocks) and keep "order: $z_vs_enterprise desc".
+//   Peers mentioned but not named (e.g. "vs his team") -> ask the analyst for the roster
+//   and yield. Never drop the team comparison silently.
+//   Peers named -> keep the blocks, fill cohort_filter ($u = "a" or $u = "b"), delete only
+//   the marker lines, and order by $z_vs_team desc.
+//   Path user -> group -> enterprise: $z_vs_team (one vs group), $z_team_vs_enterprise
+//   (group mean vs fleet, in fleet std units; elevated = team campaign/rollout).
 //
 // CONCRETE FIELD BINDING & INSTANTIATION GUIDE:
 // Slots event_filter / macro_event_filter: the metric's "Observed event filter" lines from references/metric-sector-catalog.md, one per line.
@@ -37,7 +48,8 @@ stage all_entities {
     $z_personal = ($obs - $personal_avg) / if($personal_std > 0, $personal_std, 1.0)
 }
 
-// Stage 2: Team Cohort Whole (Macro baseline across designated peers)
+// >>> TEAM COHORT
+// Optional stage 2: Team Cohort Whole (Macro baseline across the named peers)
 stage team_cohort_stats {
     $u = $all_entities.{{entity_name}}
     $ws = $all_entities.window_start
@@ -51,6 +63,7 @@ stage team_cohort_stats {
     $team_std = stddev($all_entities.obs)
     $team_size = count_distinct($all_entities.{{entity_name}})
 }
+// <<< TEAM COHORT
 
 // Stage 3: Enterprise Whole (Macro baseline across the entire organization)
 stage enterprise_stats {
@@ -68,7 +81,9 @@ stage enterprise_stats {
 // Root Stage: The "One" (or Team Members) Evaluated Against Both Wholes
 {{entity_var}} = $all_entities.{{entity_name}}
 $ws = $all_entities.window_start
+// >>> TEAM COHORT
 $ws = $team_cohort_stats.ws
+// <<< TEAM COHORT
 $ws = $enterprise_stats.ws
 
 {{target_entity_filter}}
@@ -80,17 +95,25 @@ outcome:
   $observed = max($all_entities.obs)
   $z_personal = max($all_entities.z_personal)
 
-  $t_avg = max($team_cohort_stats.team_avg)
-  $t_std = max($team_cohort_stats.team_std)
-
   $e_avg = max($enterprise_stats.fleet_avg)
   $e_std = max($enterprise_stats.fleet_std)
+  $fleet_size = max($enterprise_stats.fleet_size)
+
+  // >>> TEAM COHORT
+  // Peer group only: one vs group, and the group as a whole vs the enterprise
+  $t_avg = max($team_cohort_stats.team_avg)
+  $t_std = max($team_cohort_stats.team_std)
+  $team_size = max($team_cohort_stats.team_size)
 
   // 1. Team Cross-Sectional Z-Score ("Part of the Team")
   $z_vs_team = ($observed - $t_avg) / if($t_std > 0, $t_std, 1.0)
+
+  // 3. Group vs Enterprise ("Team as Part of the Enterprise"): team mean in fleet std units
+  $z_team_vs_enterprise = ($t_avg - $e_avg) / if($e_std > 0, $e_std, 1.0)
+  // <<< TEAM COHORT
 
   // 2. Enterprise Cross-Sectional Z-Score ("Part of the Enterprise")
   $z_vs_enterprise = ($observed - $e_avg) / if($e_std > 0, $e_std, 1.0)
 
 order:
-  $z_vs_team desc
+  $z_vs_enterprise desc
