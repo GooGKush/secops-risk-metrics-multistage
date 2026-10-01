@@ -1,17 +1,24 @@
 // ============================================================================
 // ARCHITECTURE: 3-METRIC MULTILEVEL PART-OF-THE-WHOLE TRIAD DAG
 // Skill: secops-risk-metrics-multistage
-// Purpose: Evaluates an individual against their personal 30-day baseline,
-//          their immediate peer team cohort, and the enterprise whole across
-//          three sibling metrics within the same UDM event stream.
-// Math: Multilevel Triad Z-Scores (Personal, Team, Enterprise) + Composite D_team^2
+// Purpose: Evaluates an individual against their personal 30-day baseline and
+//          the fleet (enterprise whole) across three sibling metrics within the
+//          same UDM event stream; optionally also against a named peer cohort.
+// Math: Multilevel Triad Z-Scores (Personal, Fleet[, Team]) + Composite D_fleet^2
+//
+// PEER GROUP (default = fleet only):
+//   No peer group named by the analyst -> delete every block between "// >>> TEAM COHORT" and
+//   "// <<< TEAM COHORT" (3 blocks) and keep "order: $d_vs_fleet_sq desc". Without a peer
+//   list the team stage would just recompute the fleet.
+//   Peer group named -> keep the blocks, fill the cohort_filter slot with the peers
+//   ($u = "a" or $u = "b"), delete only the marker lines, and order by $d_vs_team_sq desc.
 //
 // CONCRETE FIELD BINDING & INSTANTIATION GUIDE:
 // Slots event_filter and m1/m2/m3_observation_agg: take them from the triad's block in
 //   references/metric-sector-catalog.md "Sibling triads" (Auth, DNS, HTTP, Network bytes, Network flows).
 //   The stage filter is shared by all three metrics; never paste one metric's own extra line into it.
 //   Composite-only families (file_executions_*, resource_*) cannot form a triad.
-// Math is two-sided (D^2 = sum of Z_vs_team^2); a drop in one metric also raises D.
+// Math is two-sided (D^2 = sum of Z^2); a drop in one metric also raises D.
 // Canonical Triad: HTTP Telemetry (Queries Total, Queries Fail, Queries Success)
 //   - event_filter slot: (network.http.method != "" or network.http.user_agent != "" or network.http.response_code != 0 or network.http.referral_url != ""), entity_field slot: principal.asset.hostname, entity_var slot: $host
 //   - Metric 1 (Total Queries): m1_observation_agg slot: count(metadata.id), m1_metric_func_avg slot: metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.asset.hostname: $host)
@@ -47,7 +54,8 @@ stage all_entities {
     $z3_personal = ($m3_obs - $m3_p_avg) / if($m3_p_std > 0, $m3_p_std, 1.0)
 }
 
-// Stage 2: Team Cohort Whole (Macro baseline across designated peers)
+// >>> TEAM COHORT
+// Optional stage: Team Cohort Whole (Macro baseline across the named peers)
 stage team_cohort_stats {
     $u = $all_entities.{{entity_name}}
     $ws = $all_entities.window_start
@@ -68,8 +76,9 @@ stage team_cohort_stats {
 
     $team_size = count_distinct($all_entities.{{entity_name}})
 }
+// <<< TEAM COHORT
 
-// Stage 3: Enterprise Whole (Macro baseline across the entire organization)
+// Fleet stage: Enterprise Whole (Macro baseline across the entire fleet)
 stage enterprise_stats {
     $ws = $all_entities.window_start
 
@@ -89,10 +98,12 @@ stage enterprise_stats {
     $fleet_size = count_distinct($all_entities.{{entity_name}})
 }
 
-// Root Stage: Multilevel Triad Scoring & Composite Team Distance
+// Root Stage: Multilevel Triad Scoring & Composite Distance
 {{entity_var}} = $all_entities.{{entity_name}}
 $ws = $all_entities.window_start
+// >>> TEAM COHORT
 $ws = $team_cohort_stats.ws
+// <<< TEAM COHORT
 $ws = $enterprise_stats.ws
 
 {{target_entity_filter}}
@@ -110,7 +121,8 @@ outcome:
   $z2_personal = max($all_entities.z2_personal)
   $z3_personal = max($all_entities.z3_personal)
 
-  // 2. Team Cross-Sectional Z-Scores ("Part of the Team")
+  // >>> TEAM COHORT
+  // Peer group only: Team Cross-Sectional Z-Scores ("Part of the Team")
   $t1_std = max($team_cohort_stats.m1_team_std)
   $t2_std = max($team_cohort_stats.m2_team_std)
   $t3_std = max($team_cohort_stats.m3_team_std)
@@ -119,7 +131,10 @@ outcome:
   $z2_vs_team = ($m2_observed - max($team_cohort_stats.m2_team_avg)) / if($t2_std > 0, $t2_std, 1.0)
   $z3_vs_team = ($m3_observed - max($team_cohort_stats.m3_team_avg)) / if($t3_std > 0, $t3_std, 1.0)
 
-  // 3. Enterprise Cross-Sectional Z-Scores ("Part of the Enterprise")
+  $d_vs_team_sq = ($z1_vs_team * $z1_vs_team) + ($z2_vs_team * $z2_vs_team) + ($z3_vs_team * $z3_vs_team)
+  // <<< TEAM COHORT
+
+  // 2. Enterprise Cross-Sectional Z-Scores ("Part of the Fleet")
   $e1_std = max($enterprise_stats.m1_fleet_std)
   $e2_std = max($enterprise_stats.m2_fleet_std)
   $e3_std = max($enterprise_stats.m3_fleet_std)
@@ -128,8 +143,8 @@ outcome:
   $z2_vs_enterprise = ($m2_observed - max($enterprise_stats.m2_fleet_avg)) / if($e2_std > 0, $e2_std, 1.0)
   $z3_vs_enterprise = ($m3_observed - max($enterprise_stats.m3_fleet_avg)) / if($e3_std > 0, $e3_std, 1.0)
 
-  // 4. Composite Threat Norm Across the Triad vs Team Cohort
-  $d_vs_team_sq = ($z1_vs_team * $z1_vs_team) + ($z2_vs_team * $z2_vs_team) + ($z3_vs_team * $z3_vs_team)
+  // 3. Composite Threat Norm Across the Triad vs the Fleet
+  $d_vs_fleet_sq = ($z1_vs_enterprise * $z1_vs_enterprise) + ($z2_vs_enterprise * $z2_vs_enterprise) + ($z3_vs_enterprise * $z3_vs_enterprise)
 
 order:
-  $d_vs_team_sq desc
+  $d_vs_fleet_sq desc

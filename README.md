@@ -116,7 +116,7 @@ secops-risk-metrics-multistage/
 │   ├── sync_malachite_catalog.py         # Re-syncs / drift-checks data/malachite against google3
 │   ├── template_router.py                # Maps natural language intent to .yl2 templates with condition filtering
 │   └── triage_formatter.py               # Generates 6-section triage reports & CRI scores
-└── tests/                                # Automated unit test suite (320 tests across 20 test modules)
+└── tests/                                # Automated unit test suite (322 tests across 20 test modules)
     ├── test_chart_specifications.py
     ├── test_chronicle_ingest.py
     ├── test_complex_multistage_syntax.py
@@ -293,7 +293,7 @@ The skill package is verified through a rigorous three-tier testing hierarchy:
 pytest tests/
 # or: python3 -m unittest discover tests
 ```
-* **Status**: **320 / 320 passing unit tests** across 20 test modules (100% pass rate).
+* **Status**: **322 / 322 passing unit tests** across 20 test modules (100% pass rate).
 * **Scope**: Enforces Chronicle AST grammar rules, KaTeX formatting compliance, prompt guardrail contracts, 20,480-byte budget ceilings, and template router permutations across all 38 metrics and 14 mathematical models.
 
 ### 2. Google SecOps Malachite Compiler Submission Harness

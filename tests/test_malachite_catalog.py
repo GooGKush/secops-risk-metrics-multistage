@@ -486,6 +486,23 @@ class TestSiblingTriads(unittest.TestCase):
     tpl = (SKILL_ROOT / "templates" / "pipelines" / "part_of_the_whole_triad_multilevel.yl2").read_text(encoding="utf-8")
     self.assertIn("$d_vs_team_sq = ($z1_vs_team * $z1_vs_team)", tpl)
     self.assertIn("Sibling triads", tpl)
+    self.assertIn("Peer group is optional (default = fleet only)", section)
+
+  def test_triad_defaults_to_fleet_and_team_blocks_are_optional(self):
+    tpl = (SKILL_ROOT / "templates" / "pipelines" / "part_of_the_whole_triad_multilevel.yl2").read_text(encoding="utf-8")
+    opens = [ln for ln in tpl.splitlines() if ln.strip().startswith("// >>> TEAM COHORT")]
+    closes = [ln for ln in tpl.splitlines() if ln.strip().startswith("// <<< TEAM COHORT")]
+    self.assertEqual(len(opens), 3)
+    self.assertEqual(len(closes), 3)
+    self.assertIn("$d_vs_fleet_sq = ($z1_vs_enterprise * $z1_vs_enterprise)", tpl)
+    self.assertTrue(tpl.rstrip().endswith("order:\n  $d_vs_fleet_sq desc"))
+    # Every team reference sits inside a marked block, so deleting the blocks leaves no dangling refs.
+    from scripts.template_router import _apply_team_cohort_blocks
+    fleet_only = _apply_team_cohort_blocks(tpl, keep=False)
+    body = "\n".join(ln for ln in fleet_only.splitlines() if not ln.lstrip().startswith("//"))
+    self.assertNotIn("team", body)
+    self.assertNotIn("{{cohort_filter}}", fleet_only)
+    self.assertIn("TEAM COHORT", gen.render().split("## Sibling triads", 1)[1].split("### ", 1)[0])
 
 
 class TestIdentifierSwapComments(unittest.TestCase):

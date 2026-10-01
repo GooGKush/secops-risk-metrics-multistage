@@ -183,7 +183,30 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
     self.assertIn("$z2_vs_team =", query)
     self.assertIn("$z3_vs_team =", query)
     self.assertIn("$d_vs_team_sq =", query)
+    self.assertIn("$d_vs_fleet_sq =", query)
     self.assertIn("order:\n  $d_vs_team_sq desc", query)
+    self.assertNotIn("TEAM COHORT\n", query.split("// ======", 2)[-1])
+    self.assertNotIn("{{", query)
+
+  def test_part_of_the_whole_triad_fleet_only_without_cohort(self):
+    """No peer group: the team stage would recompute the fleet, so it is dropped."""
+    query = self.router.build_pipeline_query(
+        PipelineArchitecture.PART_OF_THE_WHOLE_TRIAD_MULTILEVEL,
+        entity_type=EntityType.ASSET,
+        target_metrics=["dns_queries_total", "dns_queries_fail", "dns_queries_success"],
+    )
+    self.assertIn("stage all_entities {", query)
+    self.assertIn("stage enterprise_stats {", query)
+    self.assertNotIn("stage team_cohort_stats", query)
+    self.assertNotIn("$team_cohort_stats", query)
+    self.assertNotIn("$z1_vs_team", query)
+    body = "\n".join(ln for ln in query.splitlines() if not ln.lstrip().startswith("//"))
+    self.assertNotIn("$u ", body)
+    self.assertNotIn("\n\n\n", query, "deleted blocks must not leave double blank lines")
+    self.assertIn("$d_vs_fleet_sq =", query)
+    self.assertIn("order:\n  $d_vs_fleet_sq desc", query)
+    self.assertIn("$host != \"\"", query)
+    self.assertNotIn("{{", query)
 
   def test_part_of_the_whole_triad_multilevel_host(self):
     """Verifies that PART_OF_THE_WHOLE_TRIAD_MULTILEVEL renders a 3-metric host network triad."""

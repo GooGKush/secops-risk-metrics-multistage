@@ -17,6 +17,15 @@ def _fill_event_filter(rendered: str, slot: str, lines: Sequence[str], indent: s
   return re.sub(r"^[ \t]*" + re.escape(slot) + r"[ \t]*\n", "", rendered, flags=re.M)
 
 
+_TEAM_BLOCK_RE = re.compile(
+    r"^[ \t]*// >>> TEAM COHORT[^\n]*\n(.*?)^[ \t]*// <<< TEAM COHORT[^\n]*\n([ \t]*\n)?", re.M | re.S)
+
+
+def _apply_team_cohort_blocks(rendered: str, keep: bool) -> str:
+  """Keeps (marker lines removed) or deletes the optional '// >>> TEAM COHORT' blocks."""
+  return _TEAM_BLOCK_RE.sub((lambda m: m.group(1) + (m.group(2) or "")) if keep else "", rendered)
+
+
 def _swap_identifier_leaf(field: str, target_field: str) -> str:
   """Applies target_field's identifier leaf (userid, email_addresses, ...) to a raw companion field."""
   leaf = target_field.rsplit(".", 1)[-1]
@@ -589,14 +598,6 @@ class MultiStageTemplateRouter:
       entity_var = "$user" if entity_type == EntityType.USER else "$host"
       entity_name = entity_var.lstrip("$")
 
-      if cohort_entities:
-        if len(cohort_entities) > 1:
-          cohort_filter = "(\n      " + " or\n      ".join(f'$u = "{c}"' for c in cohort_entities) + "\n    )"
-        else:
-          cohort_filter = f'$u = "{cohort_entities[0]}"'
-      else:
-        cohort_filter = '$u != ""'
-
       if target_entity:
         target_filter = f'{entity_var} = "{target_entity}"'
       elif cohort_entities:
@@ -607,11 +608,21 @@ class MultiStageTemplateRouter:
       else:
         target_filter = f'{entity_var} != ""'
 
-      rendered = _fill_event_filter(raw, "{{event_filter}}", triad_filter)
+      # Peer group rule (template header): with no named cohort the team stage would just
+      # recompute the fleet, so the marked TEAM COHORT blocks are dropped (fleet only).
+      rendered = _apply_team_cohort_blocks(raw, keep=bool(cohort_entities))
+      if cohort_entities:
+        if len(cohort_entities) > 1:
+          cohort_filter = "(\n      " + " or\n      ".join(f'$u = "{c}"' for c in cohort_entities) + "\n    )"
+        else:
+          cohort_filter = f'$u = "{cohort_entities[0]}"'
+        rendered = rendered.replace("{{cohort_filter}}", cohort_filter)
+        rendered = rendered.replace("order:\n  $d_vs_fleet_sq desc", "order:\n  $d_vs_team_sq desc")
+
+      rendered = _fill_event_filter(rendered, "{{event_filter}}", triad_filter)
       rendered = rendered.replace("{{entity_field}}", triad_audit["target_field"])
       rendered = rendered.replace("{{entity_var}}", entity_var)
       rendered = rendered.replace("{{entity_name}}", entity_name)
-      rendered = rendered.replace("{{cohort_filter}}", cohort_filter)
       rendered = rendered.replace("{{target_entity_filter}}", target_filter)
 
       for idx, m in enumerate(target_metrics[:3], 1):

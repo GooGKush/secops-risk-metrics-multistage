@@ -164,8 +164,10 @@ TRIAD_RULES = """\
 ## Sibling triads (`part_of_the_whole_triad_multilevel.yl2`)
 
 One stage (`all_entities`) observes three sibling metrics for the same entity, then compares each
-against the personal 30-day baseline, the team cohort and the enterprise. Because one stage carries
-all three metrics:
+against the personal 30-day baseline and the fleet (enterprise). A team cohort stage is optional: keep
+the template's `// >>> TEAM COHORT` blocks only when the analyst names a peer group; with no peer list
+it would just recompute the fleet, so delete them and rank by `$d_vs_fleet_sq`. Because one stage
+carries all three metrics:
 
 1. **One entity field for all three.** It must be valid alone for every metric (listed per triad).
    Bind it once: `<entity field> = $user` (or `$host`) in the stage and `<entity field>: $user` in all
@@ -183,10 +185,11 @@ all three metrics:
    have no entity-only baseline. For process execution use a per-(host, hash) pipeline or a roll-up
    sector. Do not mix families into a triad (e.g. `dns_bytes_outbound` with DNS query counts: it counts
    port-53 traffic, not DNS messages); use a sector fusion instead.
-5. **Math (as the template computes it).** Per metric: $Z_{personal}$, $Z_{vs\\_team}$,
-   $Z_{vs\\_enterprise}$. Composite: $D_{vs\\_team}^2 = \\sum_{m=1}^{3} Z_{vs\\_team,m}^2$. The terms are
-   **two-sided**, so a collapse (e.g. success drops while fail rises) also raises $D$. To score surges
-   only, rectify each term in the root outcome: `$z1_sq = if($z1_vs_team > 0, $z1_vs_team * $z1_vs_team, 0)`.
+5. **Math (as the template computes it).** Per metric: $Z_{personal}$ and $Z_{vs\\_enterprise}$ (plus
+   $Z_{vs\\_team}$ with a peer group). Composite: $D_{vs\\_fleet}^2 = \\sum_{m=1}^{3} Z_{vs\\_enterprise,m}^2$
+   ($D_{vs\\_team}^2$ likewise with a peer group). The terms are **two-sided**, so a collapse (e.g.
+   success drops while fail rises) also raises $D$. To score surges only, rectify each term in the root
+   outcome: `$z1_sq = if($z1_vs_enterprise > 0, $z1_vs_enterprise * $z1_vs_enterprise, 0)`.
 6. Byte triads observe `sum(network.sent_bytes)` / `sum(network.received_bytes)` over the union of
    rows; the per-metric `< 1000000000000000` guard is not applied per metric, so a single corrupt
    row (>= 1e15 bytes) can inflate one observed value.

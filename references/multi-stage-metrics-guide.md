@@ -520,7 +520,7 @@ To prevent runtime syntactic improvisation and avoid streaming rule syntax confu
 | **`dual_baseline_delta_z_3stage.yl2`** | 3 Stages | Dual-Baseline Delta-$Z$ ($\Delta Z$) | Patch Tuesday fleet suppression, enterprise-wide spikes. |
 | **`hierarchical_empirical_bayes_3stage.yl2`** | 3 Stages | Hierarchical Empirical Bayes | Peer group shrinkage, regularizing inactive accounts. |
 | **`part_of_the_whole_multilevel.yl2`** | 4 Stages / 3 Wholes | Multilevel Hierarchical Z ($Z_{\text{personal}}, Z_{\text{vs\_team}}, Z_{\text{vs\_enterprise}}$) | Part-of-the-whole baselining against personal, peer cohort, and enterprise whole. |
-| **`part_of_the_whole_triad_multilevel.yl2`** | 4 Stages / 3 Wholes | Multilevel Triad Breakdown (3 Sibling Metrics + Composite $D$) | Sibling metric ratio analysis (e.g. Total + Fail + Success) against team and enterprise. |
+| **`part_of_the_whole_triad_multilevel.yl2`** | 3 Stages (4 with a peer group) | Multilevel Triad Breakdown (3 Sibling Metrics + Composite $D$) | Sibling metric ratio analysis (e.g. Total + Fail + Success) against personal baseline and fleet; team cohort only when a peer group is named. |
 | **`dual_sector_fusion_3stage.yl2`** | 3 Stages | Dual-Sector Fusion (rectified $D$, any 2 catalog sectors) | Cross-vector correlation of any two metrics for the same entity (sector slots from `references/metric-sector-catalog.md`). |
 | **`multi_sector_fusion_4stage.yl2`** | 4 Stages | Multi-Sector Fusion (rectified $D$, any 2 catalog sectors + Fleet Norm) | Same as dual-sector plus cross-sectional fleet $\Delta Z$, within the 2-UDM-stage Search limit. |
 | **`rollup_sector_fusion_4stage.yl2`** | 4 Stages | Roll-up Sector Fusion (composite-only metric rolled up per entity + 1 catalog sector) | Process execution / cloud resource / alert metric fused with another sector (e.g. process + DNS by host). |
@@ -555,9 +555,11 @@ This produces 4 diagnostic states: **Individual Rogue** (high $Z_{\text{team}}$ 
 
 ### 4. Intra-Event Metric Triad Breakouts (`part_of_the_whole_triad_multilevel.yl2`)
 When hunting within a single telemetry vector, single-metric evaluations can obscure behavioral context:
-* **The Sibling Metric Advantage**: One stage observes 3 sibling metrics of the same family (e.g. `auth_attempts_total`, `auth_attempts_fail`, `auth_attempts_success`) for one entity, so all three get personal, team and enterprise baselines without extra UDM stages.
-* **Math (as the template computes it)**: For each metric $m \in \{1, 2, 3\}$: $Z_{\text{personal}, m}$, $Z_{\text{vs\_team}, m}$ and $Z_{\text{vs\_enterprise}, m}$, fused into
-  $$D_{\text{vs\_team}}^2 = \sum_{m=1}^3 Z_{\text{vs\_team}, m}^2$$
+* **The Sibling Metric Advantage**: One stage observes 3 sibling metrics of the same family (e.g. `auth_attempts_total`, `auth_attempts_fail`, `auth_attempts_success`) for one entity, so all three get personal and fleet baselines without extra UDM stages.
+* **Peer group is optional (default = fleet only)**: keep the template's `// >>> TEAM COHORT` blocks only when the analyst names a peer group. Without a peer list the team stage recomputes the fleet, so delete the blocks and rank by `$d_vs_fleet_sq`.
+* **Math (as the template computes it)**: For each metric $m \in \{1, 2, 3\}$: $Z_{\text{personal}, m}$ and $Z_{\text{vs\_enterprise}, m}$ (plus $Z_{\text{vs\_team}, m}$ with a peer group), fused into
+  $$D_{\text{vs\_fleet}}^2 = \sum_{m=1}^3 Z_{\text{vs\_enterprise}, m}^2$$
+  ($D_{\text{vs\_team}}^2$ likewise when a peer group is kept).
   The terms are two-sided: a collapse (success drops while fail rises) also raises $D$.
 * **Valid triads and every slot value**: `references/metric-sector-catalog.md` § *Sibling triads* (Auth, DNS, HTTP, Network bytes, Network flows). It gives the shared stage filter, the conditional-sum observed values and the entity fields valid for all three metrics. Do not build a triad from the individual metric rows: pasting one metric's own filter line into the shared stage zeroes its siblings.
 * **No process or cloud-resource triads**: `file_executions_*` and `resource_*` are composite-only (no entity-only baseline), so the single-entity triad stage cannot carry them.
