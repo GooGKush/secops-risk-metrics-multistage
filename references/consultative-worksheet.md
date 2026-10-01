@@ -171,7 +171,7 @@ When the hypothesis touches two or more vectors, do not stop at listing them. Pr
 * **Common-Sense Rigor Check**: Require simultaneous elevation across multiple decoupled sectors before declaring high risk; rule out single-vector spikes that reflect normal isolated operational duties.
 * **Summary View Options**:
   1. *360° Multi-Sector Radar*: Profile Authentication, Cloud CRUD, Google Workspace, Network Egress, DNS, and Web & Proxy Activity simultaneously against 30-day baselines (**Euclidean Distance D >= 3.5σ**).
-  2. *Peer Group Discrepancy*: Compare an individual against a named peer roster and the roster against the enterprise (**Part-of-the-Whole** via `part_of_the_whole_multilevel.yl2` or the triad; peers mentioned but not named → ask for the roster).
+  2. *Peer Group Discrepancy*: Compare an individual against a named peer roster and the roster against the enterprise (**Part-of-the-Whole** via `part_of_the_whole_multilevel.yl2` or the triad; peers mentioned but not named → AD TEAM LOOKUP for the subject's team, then ask for the roster only if AD has none).
   3. *Pairwise Sector Fusion*: Fuse the two most relevant sectors for one entity (see *Cross-Vector Pairing* above; e.g. network bytes + HTTP via `dual_sector_fusion_3stage.yl2`, process execution + failed logins via `rollup_sector_fusion_4stage.yl2`).
 * *Deep Dive Guide*: `references/consultative/insider-risk-360.md`
 

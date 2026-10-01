@@ -10,10 +10,14 @@
 //   No peers mentioned -> delete every block between "// >>> TEAM COHORT" and
 //   "// <<< TEAM COHORT" (3 blocks) and keep "order: $d_vs_fleet_sq desc". Without a peer
 //   list the team stage would just recompute the fleet.
-//   Peers mentioned but not named (e.g. "vs his team") -> ask the analyst for the roster
-//   and yield. Never drop the team comparison silently.
-//   Peers named -> keep the blocks, fill the cohort_filter slot with the peers
-//   ($u = "a" or $u = "b"), delete only the marker lines, and order by $d_vs_team_sq desc.
+//   Peers mentioned but not named (e.g. "vs his team") -> resolve the team from Active
+//   Directory in Turn 1 (AD TEAM LOOKUP in references/multi-stage-metrics-guide.md, Peer
+//   group rule): the subject's department, else one AD group. Ask the analyst for the
+//   roster only if AD has no team for the subject. Never drop the team comparison silently.
+//   Roster known (named in the request, supplied in a later turn, or resolved from AD) ->
+//   keep the blocks, fill the cohort_filter slot with the peers ($u = "a" or $u = "b"),
+//   delete only the marker lines, and order by $d_vs_team_sq desc. Show the filled query
+//   in the Turn 1 Pre-Flight.
 //   Path user -> group -> enterprise: $z*_vs_team (one vs group), $z*_team_vs_enterprise and
 //   $d_team_vs_fleet_sq (group mean vs fleet; elevated = team campaign/rollout).
 //

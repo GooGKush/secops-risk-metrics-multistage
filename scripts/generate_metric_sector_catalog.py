@@ -212,9 +212,11 @@ TRIAD_RULES = """\
 
 One stage (`all_entities`) observes three sibling metrics for the same entity, then compares each
 against the personal 30-day baseline and the fleet (enterprise). A team cohort stage is optional: keep
-the template's `// >>> TEAM COHORT` blocks only when the analyst names a peer group; with no peer list
+the template's `// >>> TEAM COHORT` blocks only when a roster is known; with no peer list
 it would just recompute the fleet, so delete them and rank by `$d_vs_fleet_sq`. If the analyst mentions
-peers without naming them ("vs his team"), ask for the roster and wait; never drop the comparison. With a
+peers without naming them ("vs his team"), resolve the team with the AD TEAM LOOKUP
+(`references/multi-stage-metrics-guide.md`, Peer group rule) and ask for the roster only if AD has no
+team; never drop the comparison. With a
 peer group the template also scores the group as a whole against the fleet (`$z*_team_vs_enterprise`,
 `$d_team_vs_fleet_sq`). Because one stage carries all three metrics:
 

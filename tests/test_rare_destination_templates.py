@@ -115,10 +115,21 @@ class TestCrossVectorDocs(unittest.TestCase):
   def test_peer_group_path_documented(self):
     guide = (SKILL_ROOT / "references" / "multi-stage-metrics-guide.md").read_text(encoding="utf-8")
     self.assertIn("$z_team_vs_enterprise", guide)
-    self.assertIn("ask for the roster", guide)
+    self.assertIn("AD TEAM LOOKUP", guide)
+    self.assertIn("graph.entity.user.department", guide)
+    self.assertIn("graph.relations.entity.group.group_display_name", guide)
+    self.assertIn("ask the analyst for the roster and yield", guide)
     skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
-    self.assertIn("ask for the roster and yield", skill)
+    self.assertIn("AD TEAM LOOKUP (multi-stage-metrics-guide.md), else ask for the roster", skill)
+    self.assertIn("incl. AD TEAM LOOKUP, run first", skill)
     self.assertLessEqual(len(skill.encode("utf-8")), 20480)
+
+  def test_part_whole_templates_resolve_unnamed_team_from_ad(self):
+    for name in ("part_of_the_whole_multilevel.yl2", "part_of_the_whole_triad_multilevel.yl2"):
+      text = (SKILL_ROOT / "templates" / "pipelines" / name).read_text(encoding="utf-8")
+      self.assertIn("AD TEAM LOOKUP", text, name)
+      self.assertIn("supplied in a later turn", text, name)
+      self.assertNotIn("ask the analyst for the roster\n//   and yield", text, name)
 
   def test_entity_graph_guide_lists_ip_address(self):
     text = (SKILL_ROOT / "references" / "entity-context-graph-guide.md").read_text(encoding="utf-8")

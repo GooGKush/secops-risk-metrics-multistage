@@ -61,7 +61,7 @@ Phase 1B is **ONLY UNLOCKED** when **BOTH** are explicitly defined:
 
 ### 🔍 Phase 1B: Pre-Flight Spec & Query Preview (Once Scope & Vectors are Established)
 Once vectors and scope are confirmed (expert prompt, Phase 1A vector selection, or CTI mapping; card always precedes the query preview):
-1. **Turn 1 Tool Invariant**: Limit Turn 1 tools strictly to identity spot-checks and one 1-shot compiler probe (`udm_search`, `maxEvents: 1`). The probe is a single-event filter; multi-stage DAG execution is reserved for Turn 2 after clearance. After probe succeeds, call 0 more tools on Turn 1; emit card, query preview, and clearance question in text, then yield. Read templates directly at `templates/pipelines/<template_name>.yl2` with `view_file`; no exploratory shell searches.
+1. **Turn 1 Tool Invariant**: Limit Turn 1 tools strictly to identity spot-checks (incl. AD TEAM LOOKUP, run first) and one 1-shot compiler probe (`udm_search`, `maxEvents: 1`). The probe is a single-event filter; multi-stage execution waits for Turn 2 clearance. After probe succeeds, call 0 more tools on Turn 1; emit card, query preview, and clearance question in text, then yield. Read templates directly at `templates/pipelines/<template_name>.yl2` with `view_file`; no exploratory shell searches.
 2. **Identity Disambiguation & Confirmation Protocol (ZERO GUESSING & IMMEDIATE HALT)**:
    - *Technical IDs*: Display names (with spaces) are NOT `user.userid`. Single unqualified first names (e.g. `Frank`) must be spot-checked in UDM. Hostnames and fleet-wide scopes proceed directly with pre-flight vector formulation.
    - *14-Day UDM Spot-Check*: `udm_search(query='target.user.userid = "<name>" nocase or principal.user.userid = "<name>" nocase or target.user.user_display_name = /.*<name>.*/ nocase or principal.user.user_display_name = /.*<name>.*/ nocase', startTime: "<ISO_14D_AGO>", endTime: "<ISO_NOW>", maxEvents: 5)`.
@@ -81,7 +81,7 @@ Once vectors and scope are confirmed (expert prompt, Phase 1A vector selection, 
    • Significance Threshold: [Z >= 3.0σ | 2.0σ <= Z < 3.0σ | D >= 3.5σ]
    ```
    * *Mandatory Upfront Query Preview Protocol (Mandatory Query Preview)* & *Tool-Precondition Code Block Embargo*: Probe once with ISO 8601 UTC timestamps: `udm_search(query="<single_event_udm_filter>", startTime="<ISO_10M_AGO>", endTime="<ISO_NOW>", maxEvents=1)`. Relative 'now-10m' is invalid. Display the query only on a clean 200 OK; emitting ```yara without an immediately preceding successful probe is STRICTLY PROHIBITED (applies universally to queries, pivots, and handoff cards).
-   * *Peer Cohort & Roster*: List cohort entities; if $N < 7$, flag `⚠️ Sparse Baseline Caution (N < 7)`. Peer Cohort Roster Requirement: no peers mentioned → fleet only; peers mentioned but unnamed → ask for the roster and yield, never drop.
+   * *Peer Cohort & Roster*: List cohort entities; if $N < 7$, flag `⚠️ Sparse Baseline Caution (N < 7)`. Peer Cohort Roster Requirement: no peers mentioned → fleet only; peers mentioned but unnamed → AD TEAM LOOKUP (multi-stage-metrics-guide.md), else ask for the roster; never drop.
    * *Interactive Entity Graph Dimension Mandate*: Express joins under `• Entity Graph Dimension: [Exact Filter]` (Domain Rarity, Fleet Prevalence, Binary Rarity, IP Rarity `rolling_max <= 3`, `day_count = 10` platform invariant).
    * *Model Concordance*: Match outcome/order clauses to templates (`references/model-concordance-guide.md`).
    * *Two-Phase Chained Hunt Specification*: Cross-entity hunts emit Two-Phase Chained Hunt Specification: Phase 1 (UEBA Outlier), Bridge Contract ($host, $timestamp, $user, $caller_ip), Phase 2 (Targeted Cloud UDM Query).
@@ -103,7 +103,8 @@ Once vectors and scope are confirmed (expert prompt, Phase 1A vector selection, 
 4. **Zero-Telemetry Clean Hunt Exemption (True Negative Audit Summary)**: When executed query returns empty `stats` (`{}` or `{"stats": []}`), emit 2-Section Clean Hunt Audit:
    - `#### 1. Statistical Outlier Report: [Target Metric] (Nominal Baseline)`: 0 observed events ($Z = 0.00\sigma, \text{CRI} = 0$, 🟢 **Nominal Fleet Baseline**).
    - `#### 2. Executed Multi-Stage YARA-L Query`: Literal query and scope.
-   - Pillars 3, 4, 5, and 6 are waived (360° radar profiles evaluate all 6 sectors with visual radar).
+   - Pillars 3–6 are waived (360° radar: all 6 sectors plus visual radar).
+   - Mode A: say the window was today so far and offer Mode B.
 
 ### 🔁 State 3: Iteration, Entity Shifts & Federated Bridge (Active Hunt Session Lock & Boundary)
 * **Entity Shift**: On *"same query for"*, retain Active Hunt Session Lock & Boundary (ZERO CROSS-SKILL DRIFT) and Re-enter State 1 for new entity.

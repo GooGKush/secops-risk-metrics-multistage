@@ -554,14 +554,36 @@ When comparing an individual to a team cohort, single-tier comparisons create bl
    - **Team Cross-Sectional $Z$**: $Z_{\text{vs\_team}} = (\text{obs} - \mu_{\text{team}}) / \max(\sigma_{\text{team}}, 1.0)$
    - **Enterprise Cross-Sectional $Z$**: $Z_{\text{vs\_enterprise}} = (\text{obs} - \mu_{\text{enterprise}}) / \max(\sigma_{\text{enterprise}}, 1.0)$
    - **Group vs Enterprise**: $Z_{\text{team\_vs\_enterprise}} = (\mu_{\text{team}} - \mu_{\text{enterprise}}) / \sigma_{\text{enterprise}}$ (`$z_team_vs_enterprise`; triad: `$z*_team_vs_enterprise`, `$d_team_vs_fleet_sq`). This is the defined user → group → enterprise path: the user against the group, and the group against the whole.
-4. **Peer group rule**: no peers mentioned → delete the template's `// >>> TEAM COHORT` blocks (personal + fleet, rank by `$z_vs_enterprise`). Peers mentioned but not named ("vs his team") → ask for the roster and wait; never drop the comparison silently. Peers named → keep the blocks and rank by `$z_vs_team`. Groups are a roster of identifiers today (`$u = "a" or $u = "b"`).
+4. **Peer group rule**: no peers mentioned → delete the template's `// >>> TEAM COHORT` blocks (personal + fleet, rank by `$z_vs_enterprise`). Peers named → keep the blocks and rank by `$z_vs_team`. Peers mentioned but not named ("vs his team", "his group") → run the **AD TEAM LOOKUP** below in Turn 1, fill the roster from it, and show it in the Pre-Flight as `• Peer Cohort & Roster: <team> (AD department | AD group): <members>` above a candidate query that already contains the filled TEAM COHORT blocks. Ask for the roster only if the lookup finds no team for the subject; never drop the comparison silently. A roster from any source (named, supplied in a later turn, or AD) keeps the blocks. The roster is a list of identifiers in the query (`$u = "a" or $u = "b"`), subject included.
+
+   **AD TEAM LOOKUP** (Active Directory records in the Entity Graph, `ENTITY_CONTEXT`). This is the one Turn 1 query allowed besides the compiler probe: it reads AD user records only, never events, so it is context resolution, not hunt execution. Window: the last 30 days (AD records are not daily prevalence records, so Rule 5 freshness does not apply). Replace `frank.kolzig` with the subject. Verified live on gus-sdl: returns `Information Technology` → `frank.kolzig, tim.smith, tim.smith_admin, bobby.fuhr`.
+   ```
+   graph.metadata.source_type = "ENTITY_CONTEXT"
+   graph.metadata.entity_type = "USER"
+   $dept = graph.entity.user.department
+   $dept != ""
+   match:
+     $dept
+   outcome:
+     $has_subject = max(if(graph.entity.user.userid = "frank.kolzig", 1, 0))
+     $members = array_distinct(graph.entity.user.userid)
+     $team_size = count_distinct(graph.entity.user.userid)
+   order:
+     $has_subject desc, $team_size asc
+   limit:
+     1
+   ```
+   * `$has_subject = 1` → that department is the team.
+   * `$has_subject = 0` or no row → run it once more keyed on AD group membership: replace the `$dept` lines with `$grp = graph.relations.entity.group.group_display_name`, `$grp != ""`, `$grp != "Domain Users"` and `match: $grp`. Ordering by `$team_size asc` picks the smallest group the subject belongs to; name that group in the Pre-Flight so the analyst can change it.
+   * Still `$has_subject = 0` → ask the analyst for the roster and yield.
+   * Team size below 7 → keep the team stage and flag `⚠️ Sparse Baseline Caution (N < 7)`.
 
 This produces 4 diagnostic states: **Individual Rogue** (high $Z_{\text{team}}$ & high $Z_{\text{enterprise}}$), **Role Benign** (low $Z_{\text{team}}$ & high $Z_{\text{enterprise}}$), **Stealth Compromise** (high $Z_{\text{team}}$ & low $Z_{\text{enterprise}}$), and **Team Campaign/Rollout** (low $Z_{\text{team}}$ & high $Z_{\text{team\_vs\_enterprise}}$).
 
 ### 4. Intra-Event Metric Triad Breakouts (`part_of_the_whole_triad_multilevel.yl2`)
 When hunting within a single telemetry vector, single-metric evaluations can obscure behavioral context:
 * **The Sibling Metric Advantage**: One stage observes 3 sibling metrics of the same family (e.g. `auth_attempts_total`, `auth_attempts_fail`, `auth_attempts_success`) for one entity, so all three get personal and fleet baselines without extra UDM stages.
-* **Peer group is optional (default = fleet only)**: keep the template's `// >>> TEAM COHORT` blocks only when the analyst names a peer group. Without a peer list the team stage recomputes the fleet, so delete the blocks and rank by `$d_vs_fleet_sq`.
+* **Peer group is optional (default = fleet only)**: keep the template's `// >>> TEAM COHORT` blocks only when a roster is known (named, supplied later, or from the AD TEAM LOOKUP in the Peer group rule above). Without a peer list the team stage recomputes the fleet, so delete the blocks and rank by `$d_vs_fleet_sq`.
 * **Math (as the template computes it)**: For each metric $m \in \{1, 2, 3\}$: $Z_{\text{personal}, m}$ and $Z_{\text{vs\_enterprise}, m}$ (plus $Z_{\text{vs\_team}, m}$ with a peer group), fused into
   $$D_{\text{vs\_fleet}}^2 = \sum_{m=1}^3 Z_{\text{vs\_enterprise}, m}^2$$
   ($D_{\text{vs\_team}}^2$ likewise when a peer group is kept).
