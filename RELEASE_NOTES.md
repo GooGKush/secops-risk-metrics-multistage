@@ -1,10 +1,75 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.7.9)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.8.0)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v1.7.9 (Point Release) — September 2026  
+**Latest Version**: v1.8.0 (Major Dot Release) — October 2026  
+
+---
+
+## 📢 What's New in v1.8.0 (Major Dot Release) — Config-Driven Metric Sectors, Cross-Vector Fusion, Rare-Destination Filtering, and the Peer Group Path
+
+Before this release, multi-sector queries were built from templates with fixed metric combinations (for example, authentication + outbound network bytes). v1.8.0 replaces those combinations with a catalog generated from the Chronicle compiler's own metric configuration, so the agent can judge whether two metrics can be combined and then build the query from per-metric rules.
+
+### 1. Config-Driven Metric Sectors
+* **Compiler configuration as the source of truth**: `data/malachite/` vendors the compiler's metric dimension sets and dimension-to-UDM field mapping (`.textproto` / `.proto` only). `data/metric_baseline_semantics.json` restates what each baseline counts and the matching observed event filter.
+* **Generated catalog**: `references/metric-sector-catalog.md` lists, for every metric, the observed event filter, observed value, `metric:` argument, identifier fields valid alone, and the other valid dimension sets. It also carries the pairing rules, roll-up sector sets and sibling triads. The agent reads this file at hunt time; SKILL.md requires every `metrics.*` stage to take its values from it and its filter arguments to equal one valid dimension set.
+* **Maintainer tooling** (not used at hunt time): `scripts/malachite_catalog.py` (dimension-set validator, entity bindings, fusion and roll-up checks), `scripts/generate_metric_sector_catalog.py` (regenerates the catalog; `--check` reports drift), and `scripts/sync_malachite_catalog.py` (re-syncs `data/malachite/`).
+* **Observed filters aligned**: the observed event filter in all 38 Stage 1 extractors, the pipelines, the radar collector and the guides now matches what each baseline counts.
+* **Identifier notes**: every Stage 1 extractor lists the identifier fields valid alone for its metric. The router removes the note once it binds the field.
+
+### 2. Generic Cross-Vector Fusion
+* `dual_sector_fusion_3stage.yl2` and `multi_sector_fusion_4stage.yl2` now take any two sectors from the catalog instead of a hardcoded auth + network bytes pair. The 4-stage form adds each sector's deviation from the fleet mean for the day.
+* **Pairing rules**: both sectors must have the same entity kind and the same identifier (user ↔ user on `userid`, device ↔ device on `hostname` or `principal.asset.ip`, and so on). User ↔ host pairs are refused with the reason. A query may hold at most 2 UDM event stages.
+* **Identifier coverage check**: when a pair relies on a field one sector may not populate, the Turn 1 probe checks that field (`<field> != ""`, `maxEvents: 1`). If it is empty, both sectors are keyed on a populated field and the Pre-Flight card says so.
+* **Roll-up sectors**: new `rollup_sector_fusion_4stage.yl2` lets a metric that only has composite baselines (`file_executions_*`, `resource_*`, `alert_event_name_count`) act as one fusion sector by taking the peak per-key score for the entity, e.g. process execution + DNS by host. `rollup_sector_fusion_5stage.yl2` adds each sector's deviation from the fleet mean.
+* **Template choice**: the catalog's "Choosing the template for a cross-vector request" table maps each kind of request to a template.
+* **Consultative guidance**: the consultative worksheet gains a Cross-Vector Pairing section. It maps a requested pair to a template, offers the rare-destination filter where it applies, and explains why an invalid pair is rejected.
+
+### 3. Sibling Triads (Part-of-the-Whole)
+* Valid triads are generated into the catalog with a shared stage filter and per-member observed values: authentication, DNS, HTTP, network bytes and network flows.
+* The process triad and the mixed DNS triad (which used `dns_bytes_outbound`) were removed as invalid.
+* The documented triad math now matches the template (two-sided $Z^2$).
+
+### 4. User → Peer Group → Enterprise
+* `part_of_the_whole_multilevel.yl2` and `part_of_the_whole_triad_multilevel.yl2` default to the user's own baseline plus the enterprise. The peer group (team cohort) blocks are kept when a peer group is given.
+* With a peer group, the templates also score the group against the enterprise (`$z_team_vs_enterprise`, `$d_team_vs_fleet_sq`). Fleet-stage divisors are zero-safe.
+* **Active Directory team lookup**: when the analyst mentions a team without naming members, the agent reads the Entity Graph's Active Directory user records in Turn 1. It uses the subject's department, or else the smallest AD group the subject belongs to (excluding Domain Users). The roster appears in the Pre-Flight card above a candidate query that already includes the team stage. The agent asks for a roster only if no AD team is found.
+* A roster supplied in a later turn keeps the team stage when the query is rebuilt.
+
+### 5. Entity Graph (DERIVED_CONTEXT) Rare-Destination Filtering
+* **New templates**: `rare_destination_ecg_3stage.yl2` (one sector per host) and `fusion_rare_destination_3stage.yl2` (two fused sectors, the second per host and destination). Both keep results only for hosts that contacted destinations seen on 3 or fewer hosts.
+* **Join fields**: domains on `target.hostname` (HTTP) or `network.dns.questions.name` (DNS); IPs on `target.ip` with the `IP_ADDRESS` prevalence fields.
+* **Filter, not weight**: graph prevalence narrows results; it does not change scores.
+* The catalog gains an "Entity Graph filters" section, and `entity-context-graph-guide.md` gains the `IP_ADDRESS` row and the destination join fields.
+
+### 6. Entity Graph Freshness (Rule 5)
+* `DERIVED_CONTEXT` prevalence records are built once a day and lag about a day, so a Mode A window that starts at today 00:00Z joins no graph records and returns zero rows for a structural reason.
+* **Rule 5**: in Mode A, any query with a graph stage starts its search window at D-2 00:00Z and restricts every event stage to today with `metadata.event_timestamp.seconds >= <today 00:00Z>`. The graph stage stays time-free. Mode B is unchanged.
+* Applied in all graph templates via the `{{today_start_epoch}}` slot, which the router fills. Zero rows from a window starting today is reported as a freshness gap, not a quiet baseline.
+* The guide includes a self-check: the D-2 start is literally `T00:00:00Z`, and the today epoch must be no later than now and no earlier than 24 hours ago.
+* Derived file and domain prevalence templates no longer require a minimum number of active baseline days. That gate excluded the new entities those templates look for.
+
+### 7. Turn 1 Probe Scope and Mode A Follow-Up
+* The Turn 1 probe runs the candidate's event filter alone (`udm_search`, `maxEvents: 1`; no `stage`, `match:` or `metrics.`). The multi-stage candidate itself runs only after clearance.
+* When a Mode A hunt returns no rows, the report says the window was today so far and offers Mode B.
+
+### 8. Template Call Forms
+* `fusion_rare_destination_3stage.yl2`, `rare_destination_ecg_3stage.yl2` and `hybrid_metric_raw_enrichment_2stage.yl2` now show the literal `metrics.*` call (`period:`, `window:`, `metric:`, `agg:`) next to the slot. Previously they only named the slot.
+
+### 9. Known Limitations
+* A 5-stage query (4 named stages + root) is supported by the compiler but does not always work; `rollup_sector_fusion_5stage.yl2` says to fall back to `rollup_sector_fusion_4stage.yl2` when it fails.
+* A query may hold at most 2 UDM event stages, so a single query fuses at most two event-backed sectors.
+* Entity Graph prevalence is a filter only. Using it as a score weight is deferred.
+* `network.dns_domain` can be empty while DNS events exist; DNS destination joins use `network.dns.questions.name`.
+* The graph stage is an inner join: a destination with no graph record drops out. Absent from the graph is not the same as rare, and reports say so.
+
+### 10. Tests
+* New `tests/test_malachite_catalog.py` (catalog generator, dimension sets, pairing rules, catalog drift) and `tests/test_rare_destination_templates.py`; Entity Graph freshness test added to `tests/test_template_router.py`.
+* **334 / 334 automated unit tests passing** across 21 modules (`python3 -m pytest tests`).
+* **32 / 32 submission test cases passing** (`python3 scripts/submission_tests.py`).
+* `SKILL.md` is 20,468 bytes (limit 20,480).
 
 ---
 
