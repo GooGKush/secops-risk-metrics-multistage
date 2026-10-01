@@ -138,6 +138,42 @@ Graph timestamp calculations must **never** perform binary arithmetic (`-`, `+`,
 ### Rule 4: The Part-of-the-Whole Anti-Pattern (Decoupled Baseline Sieve)
 Never evaluate `metrics.*` in the same stage that filters by external threat attributes (e.g. WHOIS, GCTI, or Safe Browsing). Stage 1 must measure the entity's universal 30-day baseline; Stage 2 evaluates the context; Root Stage performs the risk fusion.
 
+### Rule 5: Entity Graph Freshness (Search Window Must Cover Built Graph Days)
+A graph stage only matches graph records whose interval overlaps the `udm_search` window. `DERIVED_CONTEXT` daily records (every `prevalence.*` filter: file and domain rarity) are built once a day and lag about a day: on day D the newest built interval is `[D-1 00:00Z, D 00:00Z)`. A Mode A window that starts at today 00:00Z therefore overlaps **no** prevalence records, the inner join drops every row, and zero rows come back for a structural reason, not because nothing is rare.
+
+Measured on GUS-SDL at 2026-10-01T11:50Z with the Playbook 1 shape (`day_count = 10`, `rolling_max <= 3`):
+
+| `startTime` | Event stage filter | Rows |
+| :--- | :--- | :--- |
+| `2026-10-01T00:00:00Z` (today) | none | **0** |
+| `2026-09-29T00:00:00Z` (D-2) | `metadata.event_timestamp.seconds >= 1790812800` (today 00:00Z) | rows; every match joined the `2026-09-30` graph day |
+
+**Mode A rule (any query with a `$alias.graph.*` stage):**
+1. Set `startTime` to **two days back at 00:00Z** (D-2) and `endTime` to now. This covers the newest built graph day even early in the UTC day.
+2. Keep the analysis on today: add `metadata.event_timestamp.seconds >= <epoch of today 00:00Z>` to **every event stage**. Without it the wider window silently pulls yesterday's events into "today".
+3. Do not add any time predicate to the graph stage; it joins on its key only (`$sha256`, `$domain`, `$host`, `$user`).
+
+<!-- yara-fragment: event stage only; the graph stage and root are unchanged from Playbook 1 -->
+```yara
+stage stage1_process_baseline {
+    metadata.event_type = "PROCESS_LAUNCH"
+    metadata.event_timestamp.seconds >= 1790812800   // today 00:00Z; window starts D-2 00:00Z
+    principal.asset.hostname = $host
+    principal.process.file.sha256 = $sha256
+
+  match:
+    $host, $sha256 by 1d
+
+  outcome:
+    $observed_val = count(metadata.id)
+}
+```
+
+* **Mode B** (14-day timeline) already spans built days; keep its window and do not add the today filter.
+* Graph records without daily intervals (on GUS-SDL: the long-lived `FILE` entity records, which carry `prevalence.day_count = 0`, and the `ASSET` records used for first-seen age) do overlap today. The rule is still applied uniformly: it costs nothing for them and the agent does not have to classify the stage first.
+* **Zero rows are not a Nominal Baseline unless the window covered built graph days.** If a graph-joined Mode A query started at today 00:00Z and returned zero rows, report a freshness gap and rerun with the D-2 window; do not report a clean hunt.
+* Inner join caveat: an entity with no graph record drops out entirely. Absent from the graph is not the same as rare; say so in the report.
+
 ---
 
 ## 🗣️ 5. Consultative Dialogue: Engaging Hunters in Phase 1A & Phase 5
