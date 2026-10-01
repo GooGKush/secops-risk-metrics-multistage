@@ -27,10 +27,14 @@ def _apply_team_cohort_blocks(rendered: str, keep: bool) -> str:
   return _TEAM_BLOCK_RE.sub((lambda m: m.group(1) + (m.group(2) or "")) if keep else "", rendered)
 
 
-def _today_start_epoch() -> int:
-  """Epoch seconds of today 00:00Z (Entity Graph freshness: event stages stay on today)."""
-  now = datetime.datetime.now(datetime.timezone.utc)
-  return int(datetime.datetime(now.year, now.month, now.day, tzinfo=datetime.timezone.utc).timestamp())
+def _today_date() -> str:
+  """Today's UTC date as YYYY-MM-DD (Entity Graph freshness: event stages stay on today).
+
+  Rendered into timestamp.get_date(metadata.event_timestamp.seconds) = "<date>". A date string
+  replaces the earlier epoch literal because agents writing the query by hand computed the
+  epoch wrong (tomorrow's midnight, now - 48h) but write today's date reliably.
+  """
+  return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
 
 
 def _swap_identifier_leaf(field: str, target_field: str) -> str:
@@ -875,7 +879,7 @@ class MultiStageTemplateRouter:
       rendered = rendered.replace("{{personal_threshold}}", str(anomaly_threshold))
       rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
       rendered = rendered.replace("{{max_fleet_adopters}}", "3")
-      rendered = rendered.replace("{{today_start_epoch}}", str(_today_start_epoch()))
+      rendered = rendered.replace("{{today_date}}", _today_date())
 
       if hypothesis_goal:
         rendered = f"// Goal: {hypothesis_goal}\n" + rendered
@@ -930,7 +934,7 @@ class MultiStageTemplateRouter:
       rendered = raw.replace("{{anomaly_threshold}}", str(anomaly_threshold))
       rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
       rendered = rendered.replace("{{max_fleet_prevalence}}", "3")
-      rendered = rendered.replace("{{today_start_epoch}}", str(_today_start_epoch()))
+      rendered = rendered.replace("{{today_date}}", _today_date())
       if hypothesis_goal:
         rendered = f"// Goal: {hypothesis_goal}\n" + rendered
       return rendered + "\n"
@@ -967,7 +971,7 @@ class MultiStageTemplateRouter:
       rendered = rendered.replace("{{anomaly_threshold}}", str(anomaly_threshold))
       rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
       rendered = rendered.replace("{{max_fleet_prevalence}}", "3")
-      rendered = rendered.replace("{{today_start_epoch}}", str(_today_start_epoch()))
+      rendered = rendered.replace("{{today_date}}", _today_date())
       if hypothesis_goal:
         rendered = f"// Goal: {hypothesis_goal}\n" + rendered
       return rendered + "\n"
@@ -1003,7 +1007,7 @@ class MultiStageTemplateRouter:
       )
       rendered = rendered.replace("{{anomaly_threshold}}", str(anomaly_threshold))
       rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
-      rendered = rendered.replace("{{today_start_epoch}}", str(_today_start_epoch()))
+      rendered = rendered.replace("{{today_date}}", _today_date())
       if hypothesis_goal:
         rendered = f"// Goal: {hypothesis_goal}\n" + rendered
       return rendered + "\n"
@@ -1039,7 +1043,7 @@ class MultiStageTemplateRouter:
       )
       rendered = rendered.replace("{{anomaly_threshold}}", str(anomaly_threshold))
       rendered = rendered.replace("{{max_asset_age_days}}", "7.0")
-      rendered = rendered.replace("{{today_start_epoch}}", str(_today_start_epoch()))
+      rendered = rendered.replace("{{today_date}}", _today_date())
       if hypothesis_goal:
         rendered = f"// Goal: {hypothesis_goal}\n" + rendered
       return rendered + "\n"

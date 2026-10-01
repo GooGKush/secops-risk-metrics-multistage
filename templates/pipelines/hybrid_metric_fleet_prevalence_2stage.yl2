@@ -11,7 +11,7 @@
 //   Daily graph records (every prevalence.* filter) are built once a day and lag about a
 //   day; a window starting today 00:00Z overlaps none of them, the inner join drops every
 //   row, and zero rows are structural, not a true negative. Start the search window two
-//   days back at 00:00Z; the today_start_epoch slot (epoch of today 00:00Z) keeps the event
+//   days back at 00:00Z; the today_date slot (today's UTC date, YYYY-MM-DD) keeps the event
 //   stages on the analysis day (stage 2 mixes events and the graph alias; the filter
 //   applies to its events only). The graph alias matches by key only (no time predicate).
 //   Zero rows from a window starting today is a freshness gap: rerun, do not report clean.
@@ -49,7 +49,7 @@ stage stage1_personal_surge {
     {{macro_token_field}} = $token
     $token != ""
     {{macro_event_filter}}
-    metadata.event_timestamp.seconds >= {{today_start_epoch}}
+    timestamp.get_date(metadata.event_timestamp.seconds) = "{{today_date}}"
 
   match:
     $entity, $token by 1d
@@ -68,7 +68,7 @@ stage stage1_personal_surge {
 // Stage 2: Enterprise-Wide Concurrent Fleet Adoption on Micro-Token (UDM_EVENTS with Entity Graph DERIVED_CONTEXT Rarity)
 stage stage2_fleet_prevalence {
     metadata.event_type = "{{raw_event_type}}"
-    metadata.event_timestamp.seconds >= {{today_start_epoch}}
+    timestamp.get_date(metadata.event_timestamp.seconds) = "{{today_date}}"
     {{raw_token_field}} = $token
     $token != ""
     {{raw_event_filter}}

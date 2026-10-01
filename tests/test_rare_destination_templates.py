@@ -6,7 +6,7 @@ import unittest
 
 SKILL_ROOT = pathlib.Path(__file__).resolve().parent.parent
 PIPELINES = SKILL_ROOT / "templates" / "pipelines"
-TODAY_FILTER = "metadata.event_timestamp.seconds >= <<today_start_epoch>>"
+TODAY_FILTER = 'timestamp.get_date(metadata.event_timestamp.seconds) = "<<today_date>>"'
 EVENT_FIELD = re.compile(r"(?<![$\w.])(?:metadata|principal|target|network)\.")
 
 # Slot values that compiled and returned rows live on GUS-SDL (2026-10-01, window D-2 00:00Z..now).
@@ -17,7 +17,7 @@ DOMAIN_ECG = {
     "{{ecg_key_path}}": "entity.domain.name",
     "{{ecg_prevalence_path}}": "entity.domain.prevalence",
     "{{max_fleet_prevalence}}": "3",
-    "{{today_start_epoch}}": "1790812800",
+    "{{today_date}}": "2026-10-01",
 }
 
 
@@ -90,7 +90,8 @@ class TestRareDestinationTemplates(unittest.TestCase):
     self.assertIn('$g.graph.metadata.entity_type = "DOMAIN_NAME"', code)
     self.assertIn("$g.graph.entity.domain.name = $dest", code)
     self.assertIn("target.hostname = $dest", code)
-    self.assertIn("metadata.event_timestamp.seconds >= 1790812800", code)
+    self.assertIn('timestamp.get_date(metadata.event_timestamp.seconds) = "2026-10-01"', code)
+    self.assertNotIn("event_timestamp.seconds >=", code)
 
 
 class TestCrossVectorDocs(unittest.TestCase):

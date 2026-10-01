@@ -115,7 +115,7 @@ ECG_FILTERS = """\
 A graph stage narrows a metric hunt to rare entities. It is an inner join, so it is a **filter**:
 entities without a graph record drop out (absent is not the same as rare). It does not count against
 the two-UDM-stage limit. Freshness: in Mode A start the search window two days back at 00:00Z and put
-`metadata.event_timestamp.seconds >= <today 00:00Z epoch>` in every event stage
+`timestamp.get_date(metadata.event_timestamp.seconds) = "<today, YYYY-MM-DD>"` (UTC) in every event stage
 (`references/entity-context-graph-guide.md`, Rule 5).
 
 | Rare entity | Graph stage predicates | Event join field(s) |

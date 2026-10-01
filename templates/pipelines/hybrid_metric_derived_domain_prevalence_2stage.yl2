@@ -12,7 +12,7 @@
 //   Daily graph records (every prevalence.* filter) are built once a day and lag about a
 //   day; a window starting today 00:00Z overlaps none of them, the inner join drops every
 //   row, and zero rows are structural, not a true negative. Start the search window two
-//   days back at 00:00Z; the today_start_epoch slot (epoch of today 00:00Z) keeps the event
+//   days back at 00:00Z; the today_date slot (today's UTC date, YYYY-MM-DD) keeps the event
 //   stage on the analysis day. The graph stage matches by key only (no time predicate).
 //   Zero rows from a window starting today is a freshness gap: rerun, do not report clean.
 // FILTER ONLY: the graph stage is an inner join. Entities with no graph record drop out
@@ -43,7 +43,7 @@
 // Stage 1: Macro 30-Day Destination Query Baseline (metrics.*)
 stage stage1_query_baseline {
     {{event_filter}}
-    metadata.event_timestamp.seconds >= {{today_start_epoch}}
+    timestamp.get_date(metadata.event_timestamp.seconds) = "{{today_date}}"
     principal.asset.hostname = $host
     {{domain_field}} = $domain
     $host != ""

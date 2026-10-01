@@ -346,11 +346,12 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
 
   def test_entity_graph_templates_follow_freshness_rule(self):
     """Rule 5 (entity-context-graph-guide.md): every event stage of a graph-joined
-    pipeline is pinned to today 00:00Z; graph-only stages carry no time predicate."""
+    pipeline is pinned to today's UTC date (date string, not an epoch literal); graph-only
+    stages carry no time predicate."""
     import datetime
     import re
     now = datetime.datetime.now(datetime.timezone.utc)
-    today = int(datetime.datetime(now.year, now.month, now.day, tzinfo=datetime.timezone.utc).timestamp())
+    today = now.strftime("%Y-%m-%d")
     graph_pipelines = [
         PipelineArchitecture.HYBRID_METRIC_DERIVED_FILE_PREVALENCE_2STAGE,
         PipelineArchitecture.HYBRID_METRIC_DERIVED_DOMAIN_PREVALENCE_2STAGE,
@@ -368,7 +369,8 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
         self.assertTrue(any(".graph." in body for _, body in stages))
         for name, body in stages:
           preds = re.split(r"^\s*(?:match|outcome)\s*:", body, maxsplit=1, flags=re.MULTILINE)[0]
-          has_filter = f"metadata.event_timestamp.seconds >= {today}" in preds
+          has_filter = f'timestamp.get_date(metadata.event_timestamp.seconds) = "{today}"' in preds
+          self.assertNotIn("event_timestamp.seconds >=", preds, f"{arch.name}:{name}")
           self.assertEqual(has_filter, bool(event_field.search(preds)), f"{arch.name}:{name}")
 
 

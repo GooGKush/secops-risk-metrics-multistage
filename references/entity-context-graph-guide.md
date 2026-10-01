@@ -150,17 +150,18 @@ Measured on GUS-SDL at 2026-10-01T11:50Z with the Playbook 1 shape (`day_count =
 | :--- | :--- | :--- |
 | `2026-10-01T00:00:00Z` (today) | none | **0** |
 | `2026-09-29T00:00:00Z` (D-2) | `metadata.event_timestamp.seconds >= 1790812800` (today 00:00Z) | rows; every match joined the `2026-09-30` graph day |
+| `2026-09-29T00:00:00Z` (D-2) | `timestamp.get_date(metadata.event_timestamp.seconds) = "2026-10-01"` (measured 15:00Z, HTTP + `DOMAIN_NAME`) | rows; every match in the `2026-10-01` bucket |
 
 **Mode A rule (any query with a `$alias.graph.*` stage):**
 1. Set `startTime` to **two days back at 00:00Z** (D-2, literally `YYYY-MM-DDT00:00:00Z`, not now minus 48 hours) and `endTime` to now. This covers the newest built graph day even early in the UTC day.
-2. Keep the analysis on today: add `metadata.event_timestamp.seconds >= <epoch of today 00:00Z>` to **every event stage**. Without it the wider window silently pulls yesterday's events into "today". Check the epoch before use: it must be at or below now and more than now − 86400; an epoch above now (e.g. tomorrow's midnight) matches nothing.
+2. Keep the analysis on today: add `timestamp.get_date(metadata.event_timestamp.seconds) = "<today, YYYY-MM-DD>"` to **every event stage**, using today's UTC date. Without it the wider window silently pulls yesterday's events into "today". Use the date string, not an epoch literal: hand-computed epochs came out as tomorrow's midnight or now minus 48 hours, and an epoch above now matches nothing.
 3. Do not add any time predicate to the graph stage; it joins on its key only (`$sha256`, `$domain`, `$host`, `$user`).
 
 <!-- yara-fragment: event stage only; the graph stage and root are unchanged from Playbook 1 -->
 ```yara
 stage stage1_process_baseline {
     metadata.event_type = "PROCESS_LAUNCH"
-    metadata.event_timestamp.seconds >= 1790812800   // today 00:00Z; window starts D-2 00:00Z
+    timestamp.get_date(metadata.event_timestamp.seconds) = "2026-10-01"   // today (UTC); window starts D-2 00:00Z
     principal.asset.hostname = $host
     principal.process.file.sha256 = $sha256
 
