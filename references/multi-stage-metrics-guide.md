@@ -393,6 +393,7 @@ In Google SecOps, the **Entity Graph** pre-computes trailing prevalence context 
 1. **Source Type Filter**: Always set `$graph.graph.metadata.source_type = "DERIVED_CONTEXT"`.
 2. **Day Count Anchor**: Always set `$graph.graph.entity.<type>.prevalence.day_count = 10` to distinguish Prevalence from First/Last Seen records.
 3. **Non-Zero Bound**: Always include `rolling_max > 0` alongside `rolling_max <= 3` to avoid false positives on unpopulated entity stubs.
+4. **Mode A Freshness**: Set `startTime` to two days back at 00:00Z (D-2) and add `timestamp.get_date(metadata.event_timestamp.seconds) = "<today UTC, YYYY-MM-DD>"` to every event stage. A window that starts today 00:00Z overlaps no built prevalence records, so zero rows from it are a freshness gap, not a clean hunt. Mode B keeps its window and omits the date filter. See `references/entity-context-graph-guide.md`, Rule 5.
 
 ### 3. Hard Platform Limitation: 10-Day Period Invariant (`day_count = 10`):
 * **Platform Invariant**: In Google SecOps Entity Graph, prevalence tables are indexed strictly on a **fixed 10-day rolling window**.
@@ -964,12 +965,14 @@ To provide maximum analytical value without compromising mathematical integrity,
 1. **The Rationale**:
    Rather than attempting to calculate second-level timing across millions of raw events or relying solely on volume, the agent leverages **Entity Graph Derived Context** to screen for external destinations with isolated enterprise prevalence ($\le 3$ internal hosts over 10 days).
 2. **The Compilable Multi-Stage Query (`PIPE-09-PREVALENCE`)**:
-   The query pairs raw `NETWORK_CONNECTION` events with `metrics.network_bytes_outbound` (for host-level historical context) and joins with `graph.entity.artifact.prevalence` (`rolling_max <= 3`, `day_count = 10`):
+   The query pairs raw `NETWORK_CONNECTION` events with `metrics.network_bytes_outbound` (for host-level historical context) and joins with `graph.entity.artifact.prevalence` (`rolling_max <= 3`, `day_count = 10`).
+   **Mode A window**: `startTime` two days back at 00:00Z (D-2), `endTime` now, and today's UTC date in the `get_date` line. A window that starts today 00:00Z matches no built graph days; zero rows from it are a freshness gap, not a clean hunt. For Mode B, delete the `get_date` line and keep the 2–14 day window (Rule 5, `references/entity-context-graph-guide.md`).
    ```yara
    // Stage 1: Measure outbound network connection activity and 30-day baseline per host and external IP
    stage host_egress {
        $net.network.sent_bytes > 0
        $net.network.sent_bytes < 1000000000000000
+       timestamp.get_date($net.metadata.event_timestamp.seconds) = "<today UTC, YYYY-MM-DD>"   // Mode A only
        $net.principal.asset.hostname = $host
        $net.target.ip = $dst_ip
 
@@ -1253,6 +1256,7 @@ To operationalize advanced statistical models without tripping Chronicle's join 
   For rare binary or rare domain hunting, pair primary UDM telemetry with Entity Graph Derived Context:
   ```yara
   metadata.event_type = "PROCESS_LAUNCH"
+  timestamp.get_date(metadata.event_timestamp.seconds) = "<today UTC, YYYY-MM-DD>"   // Mode A: startTime D-2 00:00Z (Rule 5)
   principal.process.file.sha256 = $token
   $graph.graph.metadata.entity_type = "FILE"
   $graph.graph.metadata.source_type = "DERIVED_CONTEXT"
