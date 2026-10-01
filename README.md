@@ -330,10 +330,11 @@ pytest tests/
 # Offline static AST & compiler invariant verification (32 canonical test cases)
 python3 scripts/submission_tests.py
 
-# Live Chronicle backend compilation (requires GCP auth; pass your own tenant IDs)
-python3 scripts/submission_tests.py --live --customer-id <CUSTOMER_ID> --project-id <PROJECT_ID>
+# Export the 32 rendered queries, e.g. to run each one through the SecOps MCP udm_search tool
+python3 scripts/submission_tests.py --dump-dir <OUTPUT_DIR>
 ```
 * **Status**: **32 / 32 passing submission test cases** offline.
+* **Live compilation**: not part of this harness; it sends nothing to Chronicle. To check against a live tenant, export with `--dump-dir` and run each file through `udm_search`.
 * **Scope**: Verifies Malachite AST compliance, continuous outcome arithmetic, Function Factory built-ins, and compiler invariants across all composite pipelines, decoupled radar spokes, and router configurations.
 
 ---

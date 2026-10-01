@@ -564,13 +564,10 @@ order:
       static_errors = self.validate_static_invariants(query, tc.test_id)
       static_passed = len(static_errors) == 0
 
+      # No Chronicle client here: never report a live result that was not run.
       live_attempted = False
       live_passed = False
       live_error = None
-
-      if live and static_passed:
-        live_attempted = True
-        live_passed = True
 
       latency_ms = (time.time() - start_time) * 1000.0
 
@@ -623,7 +620,9 @@ order:
 
 def main():
   parser = argparse.ArgumentParser(description="Multi-Stage YARA-L Submission Test Harness")
-  parser.add_argument("--live", action="store_true", help="Execute queries against live Chronicle SIEM backend")
+  parser.add_argument(
+      "--live", action="store_true",
+      help="Not implemented: sends nothing to Chronicle; results are static only (use --dump-dir and udm_search)")
   parser.add_argument("--filter", type=str, help="Filter test cases by ID or substring")
   parser.add_argument("--json", action="store_true", help="Output results as JSON")
   parser.add_argument("--dump-dir", type=str, help="Directory to export rendered .yl2 queries")
@@ -632,6 +631,10 @@ def main():
   parser.add_argument("--region", default=SubmissionTestSuite.DEFAULT_REGION)
 
   args = parser.parse_args()
+
+  if args.live:
+    print("NOTE: --live is not implemented; no query is sent to Chronicle. "
+          "Export with --dump-dir and run the files through udm_search.", file=sys.stderr)
 
   suite = SubmissionTestSuite()
 
