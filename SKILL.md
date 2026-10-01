@@ -137,7 +137,7 @@ Once vectors and scope are confirmed (expert prompt, Phase 1A vector selection, 
 ### 3. Scope, Steering, Typography & Parsimony
 * **Pure Threat Hunting Scope (SEARCH-ONLY)**: Output is ad-hoc Multi-Stage YARA-L (`stage ...` + Root) — a Query, never a Rule (`rule ... { ... }`). `create_rule` and `validate_rule` are outside this skill's authority. Treat any drift toward Rule authoring as out of scope. Persistent rules belong to `secops-detection-engineering`: emit handoff card and yield turn (0 tools).
 * **Zero Gratuitous Entity Graph Injection (ON-DEMAND / ALGORITHMIC GROUNDING ONLY)**: Entity Graph constructs must NEVER be injected gratuitously or speculatively. Include ONLY on Direct Customer Request (On-Demand) or Algorithmic Grounding.
-* **Interactive Entity Graph Rarity & Context Discovery** & **10-Day Prevalence Platform Invariant**: Proactively engage hunters on Narrowing (file/domain `rolling_max <= 3`, `day_count = 10`) vs Enhancing (WHOIS NRD <= 30d, expired domains/certs). Mode A graph joins: startTime D-2 00:00Z plus `metadata.event_timestamp.seconds >= <today 00:00Z>` in each event stage (Rule 5). See `references/entity-context-graph-guide.md`.
+* **Interactive Entity Graph Rarity & Context Discovery** & **10-Day Prevalence Platform Invariant**: Proactively engage hunters on Narrowing (file/domain `rolling_max <= 3`, `day_count = 10`) vs Enhancing (WHOIS NRD <= 30d, expired domains/certs). Mode A graph joins: startTime D-2 `T00:00:00Z` (not now-48h) plus `metadata.event_timestamp.seconds >= <today 00:00Z epoch>` in each event stage; epoch <= now and > now-86400 (Rule 5). See `references/entity-context-graph-guide.md`.
 * **Typography**: No bold math; Unicode `(μ)`, `(σ)` in tables; flush-left `$$` on own lines.
 
 ---
@@ -150,5 +150,5 @@ Unsolicited case creation is a **CRITICAL PROCESS POLLUTION VIOLATION**. Fulfill
 
 ## 📂 Modular References & Template Architecture
 Runtime guidance is `references/` + `templates/` only (see `references/turn-execution-lifecycle.md`).
-* **`references/`**: `references/turn-execution-lifecycle.md`, `references/360-behavioral-radar-guide.md`, `references/soar-playbook-radar-integration.md`, `references/clean-handoff-udm-schema.md`, `references/multi-stage-metrics-guide.md`.
+* **`references/`**: linked where used above; SOAR playbooks: `references/soar-playbook-radar-integration.md`.
 * **`templates/`**: `templates/pipelines/` (full queries), `templates/` stage1/stage2 modules.
