@@ -1,0 +1,162 @@
+# proto-file: googlex/security/malachite/rules/proto/ueba_metric.proto
+# proto-message: googlex.security.malachite.rules2.DimensionFieldMapping
+mappings: {
+  dimension: PRINCIPAL_DEVICE
+  udm_fields: "event.idm.read_only_udm.principal.asset.product_object_id"
+  udm_fields: "event.idm.read_only_udm.principal.asset.ip"
+  udm_fields: "event.idm.read_only_udm.principal.asset.mac"
+  udm_fields: "event.idm.read_only_udm.principal.asset.asset_id"
+  udm_fields: "event.idm.read_only_udm.principal.asset.hostname"
+}
+mappings: {
+  dimension: PRINCIPAL_COUNTRY
+  udm_fields: "event.idm.read_only_udm.principal.ip_geo_artifact.location.country_or_region"
+}
+mappings: {
+  dimension: TARGET_USER
+  udm_fields: "event.idm.read_only_udm.target.user.product_object_id"
+  udm_fields: "event.idm.read_only_udm.target.user.email_addresses"
+  udm_fields: "event.idm.read_only_udm.target.user.userid"
+  udm_fields: "event.idm.read_only_udm.target.user.windows_sid"
+  udm_fields: "event.idm.read_only_udm.target.user.employee_id"
+}
+mappings: {
+  dimension: EVENT_TYPE
+  udm_fields: "event.idm.read_only_udm.metadata.event_type"
+}
+mappings: {
+  dimension: NETWORK_ASN
+  udm_fields: "event.idm.read_only_udm.network.asn"
+}
+mappings: {
+  dimension: TARGET_APPLICATION
+  udm_fields: "event.idm.read_only_udm.target.application"
+}
+mappings: {
+  dimension: PRINCIPAL_USER
+  udm_fields: "event.idm.read_only_udm.principal.user.product_object_id"
+  udm_fields: "event.idm.read_only_udm.principal.user.email_addresses"
+  udm_fields: "event.idm.read_only_udm.principal.user.userid"
+  udm_fields: "event.idm.read_only_udm.principal.user.windows_sid"
+  udm_fields: "event.idm.read_only_udm.principal.user.employee_id"
+}
+mappings: {
+  dimension: SECURITY_CATEGORY
+  udm_fields: "event.idm.read_only_udm.security_result.category"
+}
+mappings: {
+  dimension: HTTP_USER_AGENT
+  udm_fields: "event.idm.read_only_udm.network.http.user_agent"
+}
+mappings: {
+  dimension: TARGET_IP
+  udm_fields: "event.idm.read_only_udm.target.ip"
+}
+mappings: {
+  dimension: DNS_QUERY_TYPE
+  udm_fields: "event.idm.read_only_udm.network.dns.questions.type"
+}
+mappings: {
+  dimension: DNS_DOMAIN
+  udm_fields: "event.idm.read_only_udm.network.dns_domain"
+}
+mappings: {
+  dimension: PRINCIPAL_FILE_HASH
+  udm_fields: "event.idm.read_only_udm.principal.file.sha256"
+}
+mappings: {
+  dimension: TARGET_DEVICE
+  udm_fields: "event.idm.read_only_udm.target.asset.product_object_id"
+  udm_fields: "event.idm.read_only_udm.target.asset.ip"
+  udm_fields: "event.idm.read_only_udm.target.asset.mac"
+  udm_fields: "event.idm.read_only_udm.target.asset.asset_id"
+  udm_fields: "event.idm.read_only_udm.target.asset.hostname"
+}
+mappings: {
+  dimension: EMAIL_TO_ADDRESS
+  udm_fields: "event.idm.read_only_udm.network.email.to"
+}
+mappings: {
+  dimension: EMAIL_FROM_ADDRESS
+  udm_fields: "event.idm.read_only_udm.network.email.from"
+}
+mappings: {
+  dimension: MAIL_ID
+  udm_fields: "event.idm.read_only_udm.network.email.mail_id"
+}
+mappings: {
+  dimension: PRINCIPAL_APPLICATION
+  udm_fields: "event.idm.read_only_udm.principal.application"
+}
+mappings: {
+  dimension: TARGET_RESOURCE_NAME
+  udm_fields: "event.idm.read_only_udm.target.resource.name"
+}
+mappings: {
+  dimension: PRODUCT_NAME
+  udm_fields: "event.idm.read_only_udm.metadata.product_name"
+}
+mappings: {
+  dimension: PRINCIPAL_IP
+  udm_fields: "event.idm.read_only_udm.principal.ip"
+}
+mappings: {
+  dimension: PRODUCT_EVENT_TYPE
+  udm_fields: "event.idm.read_only_udm.metadata.product_event_type"
+}
+mappings: {
+  dimension: SECURITY_ACTION
+  udm_fields: "event.idm.read_only_udm.security_result.action"
+}
+mappings: {
+  dimension: CLIENT_CERTIFICATE_HASH
+  udm_fields: "event.idm.read_only_udm.network.tls.client.certificate.sha256"
+}
+mappings: {
+  dimension: TARGET_NETWORK_ORGANIZATION_NAME
+  udm_fields: "event.idm.read_only_udm.target.ip_geo_artifact.network.organization_name"
+}
+mappings: {
+  dimension: PRINCIPAL_NETWORK_ORGANIZATION_NAME
+  udm_fields: "event.idm.read_only_udm.principal.ip_geo_artifact.network.organization_name"
+}
+mappings: {
+  dimension: SECURITY_RULE_ID
+  udm_fields: "event.idm.read_only_udm.security_result.rule_id"
+}
+mappings: {
+  dimension: PRINCIPAL_PROCESS_FILE_HASH
+  udm_fields: "event.idm.read_only_udm.principal.process.file.sha256"
+}
+mappings: {
+  dimension: PRINCIPAL_PROCESS_FILE_PATH
+  udm_fields: "event.idm.read_only_udm.principal.process.file.full_path"
+}
+mappings: {
+  dimension: SECURITY_RESULT_RULE_NAME
+  udm_fields: "event.idm.read_only_udm.security_result.rule_name"
+}
+mappings: {
+  dimension: TARGET_RESOURCE_LABEL_KEY
+  udm_fields: "event.idm.read_only_udm.target.resource.attribute.labels.key"
+}
+mappings: {
+  dimension: VENDOR_NAME
+  udm_fields: "event.idm.read_only_udm.metadata.vendor_name"
+}
+mappings: {
+  dimension: TARGET_RESOURCE_TYPE
+  udm_fields: "event.idm.read_only_udm.target.resource.resource_type"
+}
+mappings: {
+  dimension: TARGET_LOCATION_NAME
+  udm_fields: "event.idm.read_only_udm.target.location.name"
+}
+mappings: {
+  dimension: LOG_TYPE
+  udm_fields: "event.idm.read_only_udm.metadata.log_type"
+}
+mappings: {
+  dimension: TARGET_HOSTNAME
+  udm_fields: "event.idm.read_only_udm.target.hostname"
+}

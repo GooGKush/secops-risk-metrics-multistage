@@ -1,0 +1,296 @@
+{
+  "schema_version": 1,
+  "provenance": {
+    "description": "What each metric's pre-computed baseline counts, restated in our own notation from the Malachite baseline SQL. No SQL is copied. observed_filter / observed_agg are the YARA-L event predicates and outcome aggregation that select the same events on the observed (today) side.",
+    "source_dir": "googlex/security/malachite/analytics/configs/sql/<metric>/<dimensions>.sql",
+    "source_snapshot": "read 2026-09-30 from CitC workspace sync_secops_risk_metrics; config.textproto @ CL 966654211",
+    "enum_source": "googlex/security/malachite/proto/external/udm.proto (proto3): SecurityResult.Action UNKNOWN_ACTION=0, ALLOW=1; EventType USER_LOGIN=15001, PROCESS_LAUNCH=10001, RESOURCE_CREATION=1, RESOURCE_DELETION=2, RESOURCE_READ=4, RESOURCE_WRITTEN=5, USER_RESOURCE_CREATION=15009, USER_RESOURCE_UPDATE_CONTENT=15010, USER_RESOURCE_ACCESS=15013, USER_RESOURCE_DELETION=15014",
+    "consistency_check": "For every metric the non-dimension part of the WHERE clause is identical across all of its <dimensions>.sql files.",
+    "search_semantics": [
+      "UDM is proto3. 'X IS NOT NULL' on a scalar inside a sub-message is true whenever the sub-message is present (unset scalars read as 0 / \"\"), so it means 'message present', not 'field set'.",
+      "UDM Search cannot match the enum default: security_result.action = \"UNKNOWN_ACTION\" returns 0 rows on gus-sdl while grouping by action reports UNKNOWN_ACTION for logins that carry no action. Explicit UNKNOWN_ACTION and 'no action' are therefore indistinguishable on the observed side; both are treated as 'not ALLOW'.",
+      "Message presence cannot be tested directly in YARA-L; presence is approximated by a disjunction of the commonly populated fields of that message (see *_PRESENT notes)."
+    ],
+    "live_verification": [
+      "auth: gus-sdl 2026-09-29, user root(uid=0): 1632 logins, none with an action. Baseline auth_attempts_fail avg 1634.5, success avg 0, total avg 1634.5. Logins without an action are FAILURES in the baseline. 'not security_result.action = \"ALLOW\"' returns 1632; the previous 'security_result.action != \"ALLOW\"' returns 0.",
+      "http: gus-sdl 2026-09-29, host MUGATU: 22 NETWORK_HTTP events with only user_agent set (no method, response_code 0). Baseline http_queries_total avg 25, success avg 25, fail avg 0. Events without a method are counted, and response_code 0 counts as success.",
+      "http: gus-sdl 2026-09-29, principal.asset.ip 172.16.2.6: 347992 NETWORK_HTTP events, 81126 with a method; baseline http_queries_total avg 82095.8. NETWORK_HTTP events with no http fields are NOT counted.",
+      "network: gus-sdl 2026-09-29: events with sent_bytes in (0, 1e15) exist under NETWORK_CONNECTION (8277832), NETWORK_HTTP (30) and STATUS_UNCATEGORIZED (3); the baseline has no event_type filter."
+    ]
+  },
+  "metrics": {
+    "auth_attempts_total": {
+      "event_types": ["USER_LOGIN"],
+      "baseline_sql_where": "event_type = USER_LOGIN and security_result.action array is not null (always true for a present array, including empty)",
+      "observed_filter": ["metadata.event_type = \"USER_LOGIN\""],
+      "observed_agg": "count(metadata.id)",
+      "metric_arg": "event_count_sum"
+    },
+    "auth_attempts_success": {
+      "event_types": ["USER_LOGIN"],
+      "baseline_sql_where": "event_type = USER_LOGIN and (UNKNOWN_ACTION in actions or ALLOW in actions)",
+      "observed_filter": ["metadata.event_type = \"USER_LOGIN\"", "security_result.action = \"ALLOW\""],
+      "observed_agg": "count(metadata.id)",
+      "metric_arg": "event_count_sum",
+      "notes": ["Logins whose only action is an explicit UNKNOWN_ACTION are success in the baseline but cannot be selected in UDM Search (see search_semantics)."]
+    },
+    "auth_attempts_fail": {
+      "event_types": ["USER_LOGIN"],
+      "baseline_sql_where": "event_type = USER_LOGIN and not (UNKNOWN_ACTION in actions or ALLOW in actions); logins with no action value count as failures",
+      "observed_filter": ["metadata.event_type = \"USER_LOGIN\"", "not security_result.action = \"ALLOW\""],
+      "observed_agg": "count(metadata.id)",
+      "metric_arg": "event_count_sum",
+      "notes": ["Replaces 'security_result.action != \"ALLOW\"', which drops logins that carry no action (verified live, see provenance)."]
+    },
+    "dns_bytes_outbound": {
+      "event_types": [],
+      "baseline_sql_where": "sent_bytes != 0 and ((ip_protocol = UDP and target.port = 53) or (ip_protocol = TCP and target.port in (53, 3000))); no event_type filter",
+      "observed_filter": ["network.sent_bytes > 0", "((network.ip_protocol = \"UDP\" and target.port = 53) or (network.ip_protocol = \"TCP\" and (target.port = 53 or target.port = 3000)))"],
+      "observed_agg": "sum(network.sent_bytes)",
+      "metric_arg": "value_sum"
+    },
+    "dns_queries_total": {
+      "event_types": [],
+      "baseline_sql_where": "network.dns message present (dns.id is not null); no event_type filter",
+      "observed_filter": ["(network.dns.questions.name != \"\" or network.dns.answers.name != \"\" or network.dns.id != 0)"],
+      "observed_agg": "count(metadata.id)",
+      "metric_arg": "event_count_sum",
+      "notes": ["DNS_PRESENT approximation. On gus-sdl 2026-09-29 every NETWORK_DNS event had a question name and no other event type did."]
+    },
+    "dns_queries_success": {
+      "event_types": [],
+      "baseline_sql_where": "network.dns message present and dns.response_code = 0 (unset reads as 0)",
+      "observed_filter": ["(network.dns.questions.name != \"\" or network.dns.answers.name != \"\" or network.dns.id != 0)", "network.dns.response_code = 0"],
+      "observed_agg": "count(metadata.id)",
+      "metric_arg": "event_count_sum"
+    },
+    "dns_queries_fail": {
+      "event_types": [],
+      "baseline_sql_where": "network.dns message present and dns.response_code != 0",
+      "observed_filter": ["(network.dns.questions.name != \"\" or network.dns.answers.name != \"\" or network.dns.id != 0)", "network.dns.response_code != 0"],
+      "observed_agg": "count(metadata.id)",
+      "metric_arg": "event_count_sum"
+    },
+    "http_queries_total": {
+      "event_types": [],
+      "baseline_sql_where": "network.http message present (http.method is not null); no event_type filter",
+      "observed_filter": ["(network.http.method != \"\" or network.http.user_agent != \"\" or network.http.response_code != 0 or network.http.referral_url != \"\")"],
+      "observed_agg": "count(metadata.id)",
+      "metric_arg": "event_count_sum",
+      "notes": ["HTTP_PRESENT approximation, verified against baselines for MUGATU and 172.16.2.6 (see provenance). A method-only filter misses user-agent-only events; an event_type-only filter overcounts Zeek NETWORK_HTTP rows with no http fields."]
+    },
+    "http_queries_success": {
+      "event_types": [],
+      "baseline_sql_where": "network.http message present and response_code < 400 (unset response_code reads as 0 and counts as success)",
+      "observed_filter": ["(network.http.method != \"\" or network.http.user_agent != \"\" or network.http.response_code != 0 or network.http.referral_url != \"\")", "network.http.response_code < 400"],
+      "observed_agg": "count(metadata.id)",
+      "metric_arg": "event_count_sum",
+      "notes": ["Replaces 'response_code >= 200 and < 400', which drops response_code 0 events that the baseline counts as success (verified live)."]
+    },
+    "http_queries_fail": {
+      "event_types": [],
+      "baseline_sql_where": "network.http message present and (response_code >= 400 or response_code is null); the null branch cannot fire for a present proto3 message",
+      "observed_filter": ["(network.http.method != \"\" or network.http.user_agent != \"\" or network.http.response_code != 0 or network.http.referral_url != \"\")", "network.http.response_code >= 400"],
+      "observed_agg": "count(metadata.id)",
+      "metric_arg": "event_count_sum"
+    },
+    "network_bytes_outbound": {
+      "event_types": [],
+      "baseline_sql_where": "sent_bytes != 0 and sent_bytes < 1e15; no event_type filter",
+      "observed_filter": ["network.sent_bytes > 0", "network.sent_bytes < 1000000000000000"],
+      "observed_agg": "sum(network.sent_bytes)",
+      "metric_arg": "value_sum"
+    },
+    "network_bytes_inbound": {
+      "event_types": [],
+      "baseline_sql_where": "received_bytes != 0 and received_bytes < 1e15; no event_type filter",
+      "observed_filter": ["network.received_bytes > 0", "network.received_bytes < 1000000000000000"],
+      "observed_agg": "sum(network.received_bytes)",
+      "metric_arg": "value_sum"
+    },
+    "network_bytes_total": {
+      "event_types": [],
+      "baseline_sql_where": "(received_bytes in (0, 1e15)) or (sent_bytes in (0, 1e15)); value = sent + received; no event_type filter",
+      "observed_filter": ["((network.sent_bytes > 0 and network.sent_bytes < 1000000000000000) or (network.received_bytes > 0 and network.received_bytes < 1000000000000000))"],
+      "observed_agg": "sum(network.sent_bytes) + sum(network.received_bytes)",
+      "metric_arg": "value_sum"
+    },
+    "network_flows_outbound": {
+      "event_types": [],
+      "baseline_sql_where": "sent_bytes != 0 and sent_bytes < 1e15; counts events; no event_type filter",
+      "observed_filter": ["network.sent_bytes > 0", "network.sent_bytes < 1000000000000000"],
+      "observed_agg": "count(metadata.id)",
+      "metric_arg": "event_count_sum"
+    },
+    "network_flows_inbound": {
+      "event_types": [],
+      "baseline_sql_where": "received_bytes != 0 and received_bytes < 1e15; counts events; no event_type filter",
+      "observed_filter": ["network.received_bytes > 0", "network.received_bytes < 1000000000000000"],
+      "observed_agg": "count(metadata.id)",
+      "metric_arg": "event_count_sum"
+    },
+    "network_flows_total": {
+      "event_types": [],
+      "baseline_sql_where": "(received_bytes in (0, 1e15)) or (sent_bytes in (0, 1e15)); counts events; no event_type filter",
+      "observed_filter": ["((network.sent_bytes > 0 and network.sent_bytes < 1000000000000000) or (network.received_bytes > 0 and network.received_bytes < 1000000000000000))"],
+      "observed_agg": "count(metadata.id)",
+      "metric_arg": "event_count_sum"
+    },
+    "file_executions_total": {
+      "event_types": ["PROCESS_LAUNCH"],
+      "baseline_sql_where": "event_type = PROCESS_LAUNCH",
+      "observed_filter": ["metadata.event_type = \"PROCESS_LAUNCH\""],
+      "observed_agg": "count(metadata.id)",
+      "metric_arg": "event_count_sum"
+    },
+    "file_executions_success": {
+      "event_types": ["PROCESS_LAUNCH"],
+      "baseline_sql_where": "event_type = PROCESS_LAUNCH and ALLOW in actions",
+      "observed_filter": ["metadata.event_type = \"PROCESS_LAUNCH\"", "security_result.action = \"ALLOW\""],
+      "observed_agg": "count(metadata.id)",
+      "metric_arg": "event_count_sum"
+    },
+    "file_executions_fail": {
+      "event_types": ["PROCESS_LAUNCH"],
+      "baseline_sql_where": "event_type = PROCESS_LAUNCH and ALLOW not in actions (includes launches with no action)",
+      "observed_filter": ["metadata.event_type = \"PROCESS_LAUNCH\"", "not security_result.action = \"ALLOW\""],
+      "observed_agg": "count(metadata.id)",
+      "metric_arg": "event_count_sum"
+    },
+    "resource_creation_total": {
+      "event_types": ["RESOURCE_CREATION", "USER_RESOURCE_CREATION"],
+      "baseline_sql_where": "event_type in (RESOURCE_CREATION, USER_RESOURCE_CREATION)",
+      "observed_filter": ["(metadata.event_type = \"RESOURCE_CREATION\" or metadata.event_type = \"USER_RESOURCE_CREATION\")"],
+      "observed_agg": "count(metadata.id)",
+      "metric_arg": "event_count_sum"
+    },
+    "resource_creation_success": {
+      "event_types": ["RESOURCE_CREATION", "USER_RESOURCE_CREATION"],
+      "baseline_sql_where": "event_type in (RESOURCE_CREATION, USER_RESOURCE_CREATION) and (UNKNOWN_ACTION or ALLOW in actions)",
+      "observed_filter": ["(metadata.event_type = \"RESOURCE_CREATION\" or metadata.event_type = \"USER_RESOURCE_CREATION\")", "security_result.action = \"ALLOW\""],
+      "observed_agg": "count(metadata.id)",
+      "metric_arg": "event_count_sum"
+    },
+    "resource_creation_fail": {
+      "event_types": ["RESOURCE_CREATION", "USER_RESOURCE_CREATION"],
+      "baseline_sql_where": "event_type in (RESOURCE_CREATION, USER_RESOURCE_CREATION) and not (UNKNOWN_ACTION or ALLOW in actions)",
+      "observed_filter": ["(metadata.event_type = \"RESOURCE_CREATION\" or metadata.event_type = \"USER_RESOURCE_CREATION\")", "not security_result.action = \"ALLOW\""],
+      "observed_agg": "count(metadata.id)",
+      "metric_arg": "event_count_sum"
+    },
+    "resource_deletion_total": {
+      "event_types": ["RESOURCE_DELETION", "USER_RESOURCE_DELETION"],
+      "baseline_sql_where": "event_type in (RESOURCE_DELETION, USER_RESOURCE_DELETION)",
+      "observed_filter": ["(metadata.event_type = \"RESOURCE_DELETION\" or metadata.event_type = \"USER_RESOURCE_DELETION\")"],
+      "observed_agg": "count(metadata.id)",
+      "metric_arg": "event_count_sum"
+    },
+    "resource_deletion_success": {
+      "event_types": ["RESOURCE_DELETION", "USER_RESOURCE_DELETION"],
+      "baseline_sql_where": "event_type in (RESOURCE_DELETION, USER_RESOURCE_DELETION) and (UNKNOWN_ACTION or ALLOW in actions)",
+      "observed_filter": ["(metadata.event_type = \"RESOURCE_DELETION\" or metadata.event_type = \"USER_RESOURCE_DELETION\")", "security_result.action = \"ALLOW\""],
+      "observed_agg": "count(metadata.id)",
+      "metric_arg": "event_count_sum"
+    },
+    "resource_deletion_fail": {
+      "event_types": ["RESOURCE_DELETION", "USER_RESOURCE_DELETION"],
+      "baseline_sql_where": "event_type in (RESOURCE_DELETION, USER_RESOURCE_DELETION) and not (UNKNOWN_ACTION or ALLOW in actions)",
+      "observed_filter": ["(metadata.event_type = \"RESOURCE_DELETION\" or metadata.event_type = \"USER_RESOURCE_DELETION\")", "not security_result.action = \"ALLOW\""],
+      "observed_agg": "count(metadata.id)",
+      "metric_arg": "event_count_sum"
+    },
+    "resource_read_total": {
+      "event_types": ["RESOURCE_READ", "USER_RESOURCE_ACCESS"],
+      "baseline_sql_where": "event_type in (RESOURCE_READ, USER_RESOURCE_ACCESS)",
+      "observed_filter": ["(metadata.event_type = \"RESOURCE_READ\" or metadata.event_type = \"USER_RESOURCE_ACCESS\")"],
+      "observed_agg": "count(metadata.id)",
+      "metric_arg": "event_count_sum"
+    },
+    "resource_read_success": {
+      "event_types": ["RESOURCE_READ", "USER_RESOURCE_ACCESS"],
+      "baseline_sql_where": "event_type in (RESOURCE_READ, USER_RESOURCE_ACCESS) and (UNKNOWN_ACTION or ALLOW in actions)",
+      "observed_filter": ["(metadata.event_type = \"RESOURCE_READ\" or metadata.event_type = \"USER_RESOURCE_ACCESS\")", "security_result.action = \"ALLOW\""],
+      "observed_agg": "count(metadata.id)",
+      "metric_arg": "event_count_sum"
+    },
+    "resource_read_fail": {
+      "event_types": ["RESOURCE_READ", "USER_RESOURCE_ACCESS"],
+      "baseline_sql_where": "event_type in (RESOURCE_READ, USER_RESOURCE_ACCESS) and not (UNKNOWN_ACTION or ALLOW in actions)",
+      "observed_filter": ["(metadata.event_type = \"RESOURCE_READ\" or metadata.event_type = \"USER_RESOURCE_ACCESS\")", "not security_result.action = \"ALLOW\""],
+      "observed_agg": "count(metadata.id)",
+      "metric_arg": "event_count_sum"
+    },
+    "resource_written_total": {
+      "event_types": ["RESOURCE_WRITTEN", "USER_RESOURCE_UPDATE_CONTENT"],
+      "baseline_sql_where": "event_type in (RESOURCE_WRITTEN, USER_RESOURCE_UPDATE_CONTENT)",
+      "observed_filter": ["(metadata.event_type = \"RESOURCE_WRITTEN\" or metadata.event_type = \"USER_RESOURCE_UPDATE_CONTENT\")"],
+      "observed_agg": "count(metadata.id)",
+      "metric_arg": "event_count_sum"
+    },
+    "resource_written_success": {
+      "event_types": ["RESOURCE_WRITTEN", "USER_RESOURCE_UPDATE_CONTENT"],
+      "baseline_sql_where": "event_type in (RESOURCE_WRITTEN, USER_RESOURCE_UPDATE_CONTENT) and (UNKNOWN_ACTION or ALLOW in actions)",
+      "observed_filter": ["(metadata.event_type = \"RESOURCE_WRITTEN\" or metadata.event_type = \"USER_RESOURCE_UPDATE_CONTENT\")", "security_result.action = \"ALLOW\""],
+      "observed_agg": "count(metadata.id)",
+      "metric_arg": "event_count_sum"
+    },
+    "resource_written_fail": {
+      "event_types": ["RESOURCE_WRITTEN", "USER_RESOURCE_UPDATE_CONTENT"],
+      "baseline_sql_where": "event_type in (RESOURCE_WRITTEN, USER_RESOURCE_UPDATE_CONTENT) and not (UNKNOWN_ACTION or ALLOW in actions)",
+      "observed_filter": ["(metadata.event_type = \"RESOURCE_WRITTEN\" or metadata.event_type = \"USER_RESOURCE_UPDATE_CONTENT\")", "not security_result.action = \"ALLOW\""],
+      "observed_agg": "count(metadata.id)",
+      "metric_arg": "event_count_sum"
+    },
+    "workspace_auth_attempts_total": {
+      "event_types": [],
+      "baseline_sql_where": "vendor_name = 'Google Workspace' and product_name in ('login', 'saml', 'token'); no event_type filter",
+      "observed_filter": ["metadata.vendor_name = \"Google Workspace\"", "(metadata.product_name = \"login\" or metadata.product_name = \"saml\" or metadata.product_name = \"token\")"],
+      "observed_agg": "count(metadata.id)",
+      "metric_arg": "event_count_sum"
+    },
+    "workspace_emails_sent_total": {
+      "event_types": [],
+      "baseline_sql_where": "network message present (sent_bytes is not null) and product_name in ('GMAIL', 'gmail') (case-sensitive); no event_type filter",
+      "observed_filter": ["(metadata.product_name = \"GMAIL\" or metadata.product_name = \"gmail\")"],
+      "observed_agg": "count(metadata.id)",
+      "metric_arg": "event_count_sum",
+      "notes": ["The product_name match is case-sensitive in the baseline: gus-sdl logs 'Gmail', which the baseline does not count.", "The 'network message present' condition cannot be expressed in YARA-L and is not applied."]
+    },
+    "workspace_network_bytes_outbound": {
+      "event_types": [],
+      "baseline_sql_where": "network message present and product_name in ('GMAIL', 'gmail'); value = sent_bytes",
+      "observed_filter": ["(metadata.product_name = \"GMAIL\" or metadata.product_name = \"gmail\")"],
+      "observed_agg": "sum(network.sent_bytes)",
+      "metric_arg": "value_sum"
+    },
+    "workspace_network_bytes_total": {
+      "event_types": [],
+      "baseline_sql_where": "network message present and product_name in ('GMAIL', 'gmail'); value = sent + received",
+      "observed_filter": ["(metadata.product_name = \"GMAIL\" or metadata.product_name = \"gmail\")"],
+      "observed_agg": "sum(network.sent_bytes) + sum(network.received_bytes)",
+      "metric_arg": "value_sum"
+    },
+    "workspace_total_change_actions": {
+      "event_types": [],
+      "baseline_sql_where": "vendor_name = 'Google Workspace' (every Workspace event); no event_type filter",
+      "observed_filter": ["metadata.vendor_name = \"Google Workspace\""],
+      "observed_agg": "count(metadata.id)",
+      "metric_arg": "event_count_sum",
+      "notes": ["Despite the name, the baseline counts every Google Workspace event, not only change actions."]
+    },
+    "workspace_total_download_actions": {
+      "event_types": [],
+      "baseline_sql_where": "vendor_name = 'Google Workspace' and product_event_type = 'download'",
+      "observed_filter": ["metadata.vendor_name = \"Google Workspace\"", "metadata.product_event_type = \"download\""],
+      "observed_agg": "count(metadata.id)",
+      "metric_arg": "event_count_sum"
+    },
+    "alert_event_name_count": {
+      "event_types": [],
+      "baseline_sql_where": "log_type in (CB_EDR, CS_EDR, MICROSOFT_GRAPH_ALERT, SENTINELONE_ALERTS); no event_type filter",
+      "observed_filter": ["(metadata.log_type = \"CB_EDR\" or metadata.log_type = \"CS_EDR\" or metadata.log_type = \"MICROSOFT_GRAPH_ALERT\" or metadata.log_type = \"SENTINELONE_ALERTS\")"],
+      "observed_agg": "count(metadata.id)",
+      "metric_arg": "event_count_sum"
+    }
+  }
+}

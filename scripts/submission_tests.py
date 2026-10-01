@@ -98,7 +98,6 @@ class SubmissionTestSuite:
       template_filename: str,
       metric_name: str,
       entity_type: EntityType,
-      value_filter: str = "",
       dispersion_floor: str = "1.0",
       anomaly_threshold: str = "3.0",
   ) -> str:
@@ -109,16 +108,13 @@ class SubmissionTestSuite:
 
     raw = path.read_text(encoding="utf-8")
     audit = PreFlightValidator.audit(target_metric=metric_name, entity_type=entity_type)
-    is_bytes = "bytes" in metric_name
-    metric_type_val = "value_sum" if is_bytes else "event_count_sum"
-    obs_agg = "sum(network.sent_bytes)" if is_bytes else "count(metadata.id)"
 
-    rendered = raw.replace("{{event_type}}", audit["required_event_type"])
+    # Event selection, observed value and metric argument come from the vendored baseline semantics.
+    rendered = raw.replace("{{event_filter}}", "\n    ".join(audit["event_filter"]))
     rendered = rendered.replace("{{entity_field}}", audit["target_field"])
-    rendered = rendered.replace("{{value_filter}}", value_filter)
-    rendered = rendered.replace("{{observed_aggregation}}", obs_agg)
+    rendered = rendered.replace("{{observed_aggregation}}", audit["observed_agg"])
     rendered = rendered.replace("{{target_metric_name}}", metric_name)
-    rendered = rendered.replace("{{metric_type_val}}", metric_type_val)
+    rendered = rendered.replace("{{metric_type_val}}", audit["metric_arg"])
     rendered = rendered.replace("{{dimension_key}}", audit["target_field"])
     rendered = rendered.replace("{{extra_dimensions}}", "")
     rendered = rendered.replace("{{dispersion_floor}}", dispersion_floor)
@@ -157,7 +153,6 @@ class SubmissionTestSuite:
                 "poisson_rarity_2stage.yl2",
                 "auth_attempts_fail",
                 EntityType.USER,
-                value_filter='security_result.action = "BLOCK"',
             ),
             expected_stages=["stage1_extract"],
         )
@@ -212,10 +207,13 @@ class SubmissionTestSuite:
         TestCase(
             test_id="PIPE-06-DUAL-SECTOR",
             category="Pipeline Template",
-            name="3-Stage Dual-Sector Threat Fusion (Auth + Network)",
-            description="Combines orthogonal authentication and network egress signals into a 2D Euclidean norm.",
-            generator=lambda: (self.pipelines_dir / "dual_sector_fusion_3stage.yl2").read_text(encoding="utf-8"),
-            expected_stages=["auth_sector", "net_sector"],
+            name="3-Stage Dual-Sector Threat Fusion (generic; default auth fail + network egress by userid)",
+            description="Fuses two entity-keyed metric sectors into a 2D Euclidean norm, rendered from the generic template.",
+            generator=lambda: self.router.build_pipeline_query(
+                PipelineArchitecture.DUAL_SECTOR_FUSION_3STAGE,
+                entity_type=EntityType.USER,
+            ),
+            expected_stages=["sector_a", "sector_b"],
         )
     )
 
@@ -253,7 +251,8 @@ class SubmissionTestSuite:
             description="Evaluates outbound network connection volume against 30d baseline joined with Entity Graph external IP prevalence (<= 3 hosts).",
             generator=lambda: """// Stage 1: Measure outbound network connection activity and 30-day baseline per host and external IP
 stage host_egress {
-    $net.metadata.event_type = "NETWORK_CONNECTION"
+    $net.network.sent_bytes > 0
+    $net.network.sent_bytes < 1000000000000000
     $net.principal.asset.hostname = $host
     $net.target.ip = $dst_ip
 
@@ -349,6 +348,20 @@ order:
                 anomaly_threshold=3.0,
             ),
             expected_stages=["stage1_extract"],
+        )
+    )
+
+    matrix.append(
+        TestCase(
+            test_id="PIPE-12-MULTI-SECTOR-4STAGE",
+            category="Pipeline Template",
+            name="4-Stage Multi-Sector Threat Fusion with Fleet Normalization",
+            description="Fuses two entity-keyed UDM sector stages (<= 2 UDM limit; default auth fail + network egress by userid) with Stage 3 cross-sectional fleet normalization into a 4-stage rectified norm.",
+            generator=lambda: self.router.build_pipeline_query(
+                PipelineArchitecture.MULTI_SECTOR_FUSION_4STAGE,
+                entity_type=EntityType.USER,
+            ),
+            expected_stages=["sector_a", "sector_b", "fleet_sector_norm"],
         )
     )
 

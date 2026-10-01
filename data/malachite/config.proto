@@ -1,0 +1,37 @@
+edition = "2024";
+
+package googlex.security.malachite.analytics;
+
+import "googlex/security/malachite/proto/external/entity.proto";
+
+import option "third_party/protobuf/cpp_features.proto";
+
+option features.field_presence = IMPLICIT;
+option java_package = "googlex.security.malachite.analytics";
+
+// Basic config used by textproto to add queries.
+message MetricConfig {
+  // Contains the query as a string and the fields used in the query.
+  message QueryInfo {
+    reserved 2;
+
+    // Query.
+    string query = 1 [features.(pb.cpp).string_type = STRING];
+
+    // Metric name used in the query.
+    backstory.Metric.MetricName metric_name = 3;
+
+    // Query dimensions like PRINCIPAL_DEVICE.
+    repeated backstory.Metric.Dimension dimensions = 4;
+
+    // Query metrics names to check if the sum_measure is being calculated.
+    bool has_sum_measure = 5;
+    string filter_string = 6 [features.(pb.cpp).string_type = STRING];
+
+    // Shard number for query execution.
+    int32 shard_number = 7;
+  }
+
+  // Set of queries to be used by analytics.
+  repeated QueryInfo query_info = 1;
+}

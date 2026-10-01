@@ -7,16 +7,21 @@
 // Math: Multilevel Triad Z-Scores (Personal, Team, Enterprise) + Composite D_team^2
 //
 // CONCRETE FIELD BINDING & INSTANTIATION GUIDE:
-// Canonical Triad: HTTP Telemetry (Queries Total, Queries Fail, Target Domains)
-//   - {{event_type}}: "NETWORK_HTTP", {{entity_field}}: principal.asset.hostname, {{entity_var}}: $host
-//   - Metric 1 (Total Queries): {{m1_observation_agg}}: count(metadata.id), {{m1_metric_func_avg}}: metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.asset.hostname: $host)
-//   - Metric 2 (Failed Queries): {{m2_observation_agg}}: sum(if(network.http.response_code >= 400, 1, 0)), {{m2_metric_func_avg}}: metrics.http_queries_fail(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.asset.hostname: $host)
-//   - Metric 3 (Target Hostnames): {{m3_observation_agg}}: count_distinct(target.hostname), {{m3_metric_func_avg}}: metrics.http_queries_success(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.asset.hostname: $host)
+// Slots event_filter and m1/m2/m3_observation_agg: take them from the triad's block in
+//   references/metric-sector-catalog.md "Sibling triads" (Auth, DNS, HTTP, Network bytes, Network flows).
+//   The stage filter is shared by all three metrics; never paste one metric's own extra line into it.
+//   Composite-only families (file_executions_*, resource_*) cannot form a triad.
+// Math is two-sided (D^2 = sum of Z_vs_team^2); a drop in one metric also raises D.
+// Canonical Triad: HTTP Telemetry (Queries Total, Queries Fail, Queries Success)
+//   - event_filter slot: (network.http.method != "" or network.http.user_agent != "" or network.http.response_code != 0 or network.http.referral_url != ""), entity_field slot: principal.asset.hostname, entity_var slot: $host
+//   - Metric 1 (Total Queries): m1_observation_agg slot: count(metadata.id), m1_metric_func_avg slot: metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.asset.hostname: $host)
+//   - Metric 2 (Failed Queries): m2_observation_agg slot: sum(if(network.http.response_code >= 400, 1, 0)), m2_metric_func_avg slot: metrics.http_queries_fail(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.asset.hostname: $host)
+//   - Metric 3 (Successful Queries): m3_observation_agg slot: sum(if(network.http.response_code < 400, 1, 0)), m3_metric_func_avg slot: metrics.http_queries_success(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.asset.hostname: $host)
 // ============================================================================
 
 // Stage 1: Enterprise Population Telemetry + 30-Day Baselines for 3 Metrics
 stage all_entities {
-    metadata.event_type = "{{event_type}}"
+    {{event_filter}}
     {{entity_field}} = {{entity_var}}
     {{entity_var}} != ""
 

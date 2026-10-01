@@ -1,4 +1,4 @@
-// Goal: {{ hypothesis_goal | default("Hunt for hosts with anomalous HTTP error ratios and web reconnaissance") }}
+// Purpose: Hunt for hosts with anomalous HTTP error ratios and web reconnaissance
 // ============================================================================
 // ARCHITECTURE: 2-STAGE HTTP ERROR RATIO & RECONNAISSANCE SURGE PIPELINE
 // Skill: secops-risk-metrics-multistage
@@ -11,7 +11,7 @@
 
 // Stage 1: Personal Host HTTP Failure Baseline & Reconnaissance Footprint
 stage stage1_http_failure_surge {
-    metadata.event_type = "NETWORK_HTTP"
+    (network.http.method != "" or network.http.user_agent != "" or network.http.response_code != 0 or network.http.referral_url != "")
     network.http.response_code >= 400
     principal.asset.hostname = $host
     $host != ""
@@ -43,7 +43,7 @@ stage stage1_http_failure_surge {
 
 // Stage 2: Host Overall Web Traffic Baseline (Total Volume)
 stage stage2_total_traffic {
-    metadata.event_type = "NETWORK_HTTP"
+    (network.http.method != "" or network.http.user_agent != "" or network.http.response_code != 0 or network.http.referral_url != "")
     principal.asset.hostname = $host
     $host != ""
 

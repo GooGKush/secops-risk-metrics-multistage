@@ -53,3 +53,7 @@ Key instructions for agents:
     - Every variable extracted in intermediate stages must serve an explicit role: `[JOIN_KEY]` (stage/root match), `[SCORING_DIMENSION]` (in math formula), `[ACTIVE_FILTER]` (in stage event filter / prevalence filter), or `[TRIAGE_DECORATION]` (in outcome array).
     - Qualitative primary threat vectors (command lines, LOLBins, script arguments, rare binaries) MUST NEVER act solely as `[TRIAGE_DECORATION]`. They must be bound to an active Cross-Sectional Fleet Rarity DAG (`count_distinct(principal.asset.hostname) <= 2`) or Entity Graph Derived Context constraint.
 
+12. METRIC SLOTS FROM THE SECTOR CATALOG & GENERIC FUSION:
+    - Every `metrics.*` stage takes its observed event filter, observed value, `metric:` arg and entity field from `references/metric-sector-catalog.md` (generated from the compiler config `config.textproto`). The metric call's filter args must equal ONE valid dimension set exactly.
+    - Multi-sector fusion (`multi_sector_fusion_4stage.yl2`, `dual_sector_fusion_3stage.yl2`) accepts any two fusion-capable metrics that share the same identifier (userid <-> userid, hostname <-> hostname, email_addresses <-> email_addresses). NEVER join a user sector to a host sector. Composite-only metrics (`file_executions_*`, `resource_*`, `alert_event_name_count`) join only as ONE roll-up sector (`rollup_sector_fusion_4stage.yl2` / `_5stage.yl2`): per-key Z against each key's own baseline, rolled up to max Z per entity.
+

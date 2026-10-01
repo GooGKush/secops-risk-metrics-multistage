@@ -20,6 +20,9 @@ secops-risk-metrics-multistage/
 ├── CONTRIBUTING.md                       # Contribution guidelines & test requirements
 ├── LICENSE                               # Apache 2.0 License
 ├── llms.txt                              # AI agent summary & guardrail reference
+├── data/                                 # Vendored source-of-truth data (maintainer-side; generates references)
+│   ├── malachite/                        # Compiler config (textproto/proto only, no .go/.sql) + provenance README
+│   └── metric_baseline_semantics.json    # What each metric's baseline counts + the matching observed event filter
 ├── docs/
 │   └── compiler-submission-policy.md     # Maintainer/CI submission gates & test matrix (NOT runtime guidance)
 ├── evals/
@@ -38,7 +41,8 @@ secops-risk-metrics-multistage/
 │   │   └── insider-risk-360.md           # Holistic multi-silo insider profiling & 360° radar
 │   ├── entity-context-graph-guide.md     # Chronicle Entity Context Graph (DERIVED_CONTEXT & GLOBAL_CONTEXT) guide
 │   ├── malachite-function-factory-matrix.md # Chronicle Function Factory built-in functions & AST grammar contracts
-│   ├── metrics-catalog.md                # Full catalog of 38 pre-computed behavioral risk metrics
+│   ├── metric-sector-catalog.md          # GENERATED: per-metric observed filter, value, metric arg, entity fields, fusion rules
+│   ├── metrics-catalog.md                # GENERATED: catalog of 38 pre-computed behavioral risk metrics
 │   ├── model-concordance-guide.md        # AST concordance contracts, outcome variables & prohibited fallbacks across all 14 models
 │   ├── multi-stage-metrics-guide.md      # Multi-stage YARA-L DAG contracts, condition gating, & Entity Graph rules
 │   ├── soar-playbook-radar-integration.md# Chronicle SOAR playbook integration for 360° radar
@@ -47,7 +51,7 @@ secops-risk-metrics-multistage/
 │   ├── turn-execution-lifecycle.md       # Codified turn lifecycle, transition invariants, & quiet baseline protocol
 │   └── udm-hunting-field-dictionary.md   # Field-level dictionary mapping UDM protobuf fields to hunter dimensions
 ├── templates/                            # Composable YARA-L 2.0 template library
-│   ├── pipelines/                        # Pre-composed multi-stage DAG pipelines (25 templates)
+│   ├── pipelines/                        # Pre-composed multi-stage DAG pipelines (30 templates)
 │   │   ├── c2_beacon_flow_frequency_2stage.yl2
 │   │   ├── cloud_repository_scope_dual_branch.yl2
 │   │   ├── dual_baseline_delta_z_3stage.yl2
@@ -72,6 +76,8 @@ secops-risk-metrics-multistage/
 │   │   ├── poisson_rarity_2stage.yl2
 │   │   ├── radar_360_decoupled_sector.yl2
 │   │   ├── radar_360_sector_web_http.yl2
+│   │   ├── rollup_sector_fusion_4stage.yl2
+│   │   ├── rollup_sector_fusion_5stage.yl2
 │   │   └── standard_z_score_2stage.yl2
 │   ├── stage1_extractors/                # Complete catalog of all 38 Stage 1 baseline extractors
 │   │   ├── auth_attempts_* (fail, success, total)
@@ -101,13 +107,16 @@ secops-risk-metrics-multistage/
 │   ├── chronicle_ingest.py               # Direct ImportEvents REST ingestion (MCP-independent path)
 │   ├── clean_handoff.py                  # Synthetic UDM telemetry formulation & Chronicle ingestion
 │   ├── federated_handoff.py              # Cross-skill bilateral threat hunt handoff protocol
+│   ├── generate_metric_sector_catalog.py # Generates references/metric-sector-catalog.md from data/ (--check for drift)
 │   ├── generate_references.py            # Code-as-SSOT reference documentation generator
+│   ├── malachite_catalog.py              # Parses data/malachite: valid dimension sets, entity bindings, fusion rules, filter gaps
 │   ├── preflight_validator.py            # Pre-flight syntax and outcome contract validator
 │   ├── radar_collector.py                # 6-Sector 360° radar SVG/HTML generator & score collector
 │   ├── submission_tests.py               # Canonical 27-case compiler verification test harness
+│   ├── sync_malachite_catalog.py         # Re-syncs / drift-checks data/malachite against google3
 │   ├── template_router.py                # Maps natural language intent to .yl2 templates with condition filtering
 │   └── triage_formatter.py               # Generates 6-section triage reports & CRI scores
-└── tests/                                # Automated unit test suite (270 tests across 19 test modules)
+└── tests/                                # Automated unit test suite (320 tests across 20 test modules)
     ├── test_chart_specifications.py
     ├── test_chronicle_ingest.py
     ├── test_complex_multistage_syntax.py
@@ -118,6 +127,7 @@ secops-risk-metrics-multistage/
     ├── test_global_context_syntax.py
     ├── test_guardrail_contracts.py
     ├── test_hybrid_pipelines.py
+    ├── test_malachite_catalog.py
     ├── test_model_concordance.py
     ├── test_radar_collector.py
     ├── test_skill_efficiency_and_clarity.py
@@ -283,7 +293,7 @@ The skill package is verified through a rigorous three-tier testing hierarchy:
 pytest tests/
 # or: python3 -m unittest discover tests
 ```
-* **Status**: **270 / 270 passing unit tests** across 19 test modules (100% pass rate).
+* **Status**: **320 / 320 passing unit tests** across 20 test modules (100% pass rate).
 * **Scope**: Enforces Chronicle AST grammar rules, KaTeX formatting compliance, prompt guardrail contracts, 20,480-byte budget ceilings, and template router permutations across all 38 metrics and 14 mathematical models.
 
 ### 2. Google SecOps Malachite Compiler Submission Harness

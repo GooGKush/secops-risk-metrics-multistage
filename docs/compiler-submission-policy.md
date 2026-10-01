@@ -24,11 +24,14 @@ This policy defines the mandatory verification gates and syntax invariants requi
 Extensive live compilation testing against Google SecOps customer instances has identified the following hard architectural constraints enforced by the Chronicle Malachite compiler. Violations cause immediate `INVALID_ARGUMENT` or `INTERNAL` compilation crashes.
 
 ### 2.1 Join and Stage Cardinality Limits
-* **Maximum Raw Event Extraction Stages**: In UDM Search mode, Chronicle enforces a hard ceiling of `maxJoinCount = 4`. A search query permits **at most 2 raw event extraction stages** (stages querying `metadata.event_type = ...`).
+* **Maximum Raw Event & ECG Extraction Stages**: In UDM Search mode (`get_structured_query_view_utils.cc:3040-3064`), Chronicle enforces `maxJoinCount = 4` alongside hard per-source-type ceilings across all stages combined:
+  * **UDM Event Stages (`SourceCount["udm"] <= 2`)**: At most **2 stages** may query raw UDM events (`metadata.event_type = ...`). Exceeding this triggers `Number of UDM events exceeded max limit: <N> > 2`.
+  * **Entity Context Graph Stages (`SourceCount["entity"] <= 1`)**: At most **1 stage** may query the Entity Graph (`graph.entity.*` / `graph.metadata.*`). Exceeding this triggers `Number of ECG events exceeded max limit: <N> > 1`.
+  * **Stage-to-Stage Reference Stages**: Intermediate stages that only reference prior `$stage_name.*` outputs (zero raw UDM or ECG queries) do not increment `SourceCount["udm"]` or `SourceCount["entity"]`.
 * **Multi-Sector Fusion Architecture**:
-  * Combining 2 orthogonal sectors (e.g., Auth + Network) in a monolithic 3-stage query (`stage auth_sector`, `stage net_sector`, and root stage) is valid and fully supported (`PIPE-06-DUAL-SECTOR`).
-  * Combining $\ge 3$ raw event sectors (e.g., Auth + Cloud + Process + Network) in a single monolithic query causes `INVALID_ARGUMENT: maxJoinCount exceeded`.
-  * **Resolution**: High-order multi-sector analysis (such as the 6-sector 360° Risk Radar) MUST use the **Decoupled Micro-Query Architecture** (`scripts/radar_collector.py`), where individual sector queries execute in parallel and correlate in memory.
+  * Combining 2 orthogonal UDM sectors (e.g., Auth + Network, DNS + HTTP) in a 3-stage query (`PIPE-06-DUAL-SECTOR`) or a 4-stage query with an intermediate Stage-to-Stage cross-sectional fleet normalization stage (`PIPE-12-MULTI-SECTOR-4STAGE`: `stage sector_a` + `stage sector_b` + `stage fleet_sector_norm` + Root stage; any two fusion-capable metrics sharing one entity identifier, per `references/metric-sector-catalog.md`) is valid and fully supported (`SourceCount["udm"] = 2 <= 2`).
+  * Combining $\ge 3$ raw UDM event stages (e.g., Auth + Cloud + Process + Network) in a single monolithic query causes `INVALID_ARGUMENT: Number of UDM events exceeded max limit: 3 > 2`.
+  * **Resolution**: High-order multi-sector analysis across $\ge 3$ raw event families (such as the 6-sector 360° Risk Radar) MUST use the **Decoupled Micro-Query Architecture** (`scripts/radar_collector.py`), where individual sector queries execute in parallel and correlate in memory.
 
 ### 2.2 Aggregation and Mathematical Function Syntax
 * **No `variance()` Aggregate**: YARA-L 2.0 does **not** support `variance(...)`. The compiler accepts only:
@@ -92,7 +95,7 @@ In addition to compiler syntax, all queries submitted to Chronicle must satisfy 
 
 ## 3. Pre-Submission Test Harness (`scripts/submission_tests.py`)
 
-The submission test harness automates compiler verification across 31 canonical test cases categorized into four operational suites:
+The submission test harness automates compiler verification across 32 canonical test cases categorized into four operational suites:
 
 | ID | Suite | Target Metric / Model | Key Compiler Check |
 |:---|:------|:----------------------|:-------------------|
@@ -107,6 +110,7 @@ The submission test harness automates compiler verification across 31 canonical 
 | `PIPE-09-PREVALENCE` | Pipeline Template | `network_bytes_outbound` + Entity Graph | 2-stage IP prevalence ($\le 3$) & egress volume |
 | `PIPE-10-MACD-MOMENTUM` | Pipeline Template | `network_bytes_outbound` (Asset) | 2-stage MACD dual-spine momentum velocity |
 | `PIPE-11-CIRCADIAN-VON-MISES` | Pipeline Template | `auth_attempts_total` (User) | 2-stage Circadian von Mises temporal distance |
+| `PIPE-12-MULTI-SECTOR-4STAGE` | Pipeline Template | Auth + Network + Fleet Norm | 4-stage multi-sector fusion (2 UDM + 1 Stage-to-Stage + Root) |
 | `RADAR-01-AUTH` | Decoupled Radar Spoke | `auth_attempts_fail` | Allowed vs failed login micro-query |
 | `RADAR-02-CLOUD` | Decoupled Radar Spoke | `resource_creation_total` | Multi-dimensional cloud CRUD tracking |
 | `RADAR-03-WORKSPACE` | Decoupled Radar Spoke | `google_workspace_downloads` | High-frequency document hoarding query |

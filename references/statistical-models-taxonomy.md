@@ -54,7 +54,7 @@ Before running a multi-stage statistical hunt, explain the approach to the secur
 > *"During daytime business hours, an office building has delivery trucks, visitors, and employees coming and going; security requires a high bar of suspicion ($3.0\sigma$) to avoid false alarms. But at 3:00 AM on Sunday, the same building is dead quiet. A single flashlight beam is suspicious. The adaptive context model dynamically tightens sensitivity hurdles—dropping the detection threshold from $3.0\sigma$ to $1.75\sigma$ when an account operates outside its established active schedule."*
 
 ### 8. Multi-Sector Threat Fusion (The "Combined Arms Threat Radar")
-> *"Attackers don't stay in one lane: they spray passwords, run discovery tools, and exfiltrate data. If they do each step quietly, single-silo alerts never trigger. Our 4-stage pipeline calculates an orthogonal threat distance combining IAM, Endpoint, and Network signals into a single unified incident score."*
+> *"Attackers don't stay in one lane: they spray passwords, resolve odd domains, and exfiltrate data. If they do each step quietly, single-silo alerts never trigger. Our 4-stage pipeline calculates an orthogonal threat distance combining two signals for the same user or host (for example IAM and Network, or DNS and Web) into a single unified incident score."*
 
 ### 9. MACD Dual-Spine Momentum (The "Highway Speedometer vs Cruise Control")
 > *"Cruise control keeps a car at 65 MPH. If the car gradually climbs a gentle hill, the speedometer nudges slightly ($Z \approx 1.2$). But if the driver stomps on the accelerator and blasts past 110 MPH, the instantaneous needle flies completely away from the historical cruise setting. The MACD Dual-Spine model compares today's fast speed needle against the slow 30-day cruise setting and past speed records. If today's acceleration breaks past the historical maximum, it flags high-velocity momentum divergence."*
@@ -372,9 +372,9 @@ Beyond 2-stage models, the engine provides pre-composed multi-stage DAG pipeline
 * **Outcome**: Isolates targeted host intrusions during enterprise-wide events.
 
 ### 2. Multi-Sector Threat Vector Fusion (`MULTI_SECTOR_FUSION_4STAGE`)
-* **Pipeline Architecture**: 4 Stages (IAM Sector $\to$ Process Sector $\to$ Network Sector $\to$ Root Join)
-* **Formulation**: Euclidean Threat Distance $D = \sqrt{\max(0, Z_{\text{Auth}})^2 + \max(0, Z_{\text{Proc}})^2 + \max(0, Z_{\text{Net}})^2}$
-* **Outcome**: Correlates subtle multi-vector attack steps (credential abuse + process staging + network egress) into a unified incident score.
+* **Pipeline Architecture**: 4 Stages (Sector A [UDM #1] $\to$ Sector B [UDM #2] $\to$ Cross-Sectional Fleet Normalization [Stage-to-Stage] $\to$ Root Join, respecting `SourceCount["udm"] <= 2`). Sectors are any two fusion-capable metrics that share the same entity identifier (see `references/metric-sector-catalog.md`); the router default is `auth_attempts_fail` + `network_bytes_outbound`.
+* **Formulation**: Rectified Euclidean Threat Distance $D^2 = Z_A^2 + Z_B^2 + \max(0, \Delta Z_A)^2 + \max(0, \Delta Z_B)^2$
+* **Outcome**: Correlates two attack steps on the same entity (e.g. DNS failures + HTTP volume, HTTP volume + outbound bytes, auth failures + outbound bytes) with cross-sectional fleet normalization into a unified incident score. User and host sectors are never mixed.
 
 ### 3. Hierarchical Empirical Bayes (`EMPIRICAL_BAYES_3STAGE`)
 * **Pipeline Architecture**: 3 Stages (Individual Host $\to$ Peer-Group Hyperpriors $\to$ Root Shrinkage)

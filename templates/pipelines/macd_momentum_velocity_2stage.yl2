@@ -3,6 +3,7 @@
 // Skill: secops-risk-metrics-multistage
 // Purpose: Detects sudden momentum acceleration where short-term surge diverges from slow baseline anchor
 // Formula: MACD_Diff = Z_Fast - Z_Slow; MACD_Score = Scaled_Surge when MACD_Diff > 0 else Z_Fast
+// event_filter slot: the metric's "Observed event filter" lines from references/metric-sector-catalog.md, one per line.
 // Telemetry Metric Mappings:
 //   - Network Bytes (Outbound): metrics.network_bytes_outbound (metric: value_sum, obs: sum(network.sent_bytes))
 //   - Authentication Attempts: metrics.auth_attempts_total (metric: event_count_sum, obs: count(metadata.id))
@@ -11,10 +12,9 @@
 
 // Stage 1: Daily Standardized Deviation Tracker & Baseline Metric Extraction
 stage stage1_extract {
-    metadata.event_type = "{{event_type}}"
+    {{event_filter}}
     {{entity_field}} = $entity
     $entity != ""
-    {{value_filter}}
 
   match:
     $entity by 1d

@@ -1,0 +1,18 @@
+edition = "2024";
+
+package malachite.rules2;
+
+import "googlex/security/malachite/proto/external/entity.proto";
+
+// DimensionFieldMapping contains all the mappings from dimensions to the
+// possible udm fields that can be used to populate the dimension.
+message DimensionFieldMapping {
+  message DimensionFieldMappingVal {
+    backstory.Metric.Dimension dimension = 1
+        [features.field_presence = IMPLICIT];
+
+    repeated string udm_fields = 2;
+  }
+
+  repeated DimensionFieldMappingVal mappings = 1;
+}

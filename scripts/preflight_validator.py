@@ -8,6 +8,11 @@ from enum import Enum
 import re
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+try:
+  from . import malachite_catalog as _mc
+except ImportError:  # imported as a top-level module
+  import malachite_catalog as _mc  # type: ignore[no-redef]
+
 
 class EntityType(str, Enum):
   USER = "USER"
@@ -46,6 +51,7 @@ class PipelineArchitecture(str, Enum):
   DUAL_BASELINE_3STAGE = "DUAL_BASELINE_3STAGE"
   EMPIRICAL_BAYES_3STAGE = "EMPIRICAL_BAYES_3STAGE"
   MULTI_SECTOR_FUSION_4STAGE = "MULTI_SECTOR_FUSION_4STAGE"
+  DUAL_SECTOR_FUSION_3STAGE = "DUAL_SECTOR_FUSION_3STAGE"
   RADAR_360_DECOUPLED_SECTOR = "RADAR_360_DECOUPLED_SECTOR"
   CLOUD_REPOSITORY_SCOPE_DUAL_BRANCH = "CLOUD_REPOSITORY_SCOPE_DUAL_BRANCH"
   HYBRID_METRIC_RAW_ENRICHMENT_2STAGE = "HYBRID_METRIC_RAW_ENRICHMENT_2STAGE"
@@ -69,6 +75,15 @@ class PipelineArchitecture(str, Enum):
 
 @dataclass
 class MetricDefinition:
+  """Skill-level metadata for one metric.
+
+  `event_type` is a nominal telemetry-vector label used for grouping (conflation
+  checks, report headers). It is NOT the event filter: the events a baseline
+  counts come from `malachite_catalog.baseline_semantics(metric).observed_filter`.
+  `dimension_fields` are the default entity key per EntityType; each must be a
+  field the compiler accepts for the metric (see malachite_catalog).
+  """
+
   metric_id: int
   metric_name: str
   event_type: str
@@ -307,8 +322,8 @@ METRIC_CATALOG: Dict[str, MetricDefinition] = {
         metric_id=20,
         metric_name="workspace_emails_sent_total",
         event_type="EMAIL_TRANSACTION",
-        supported_entity_types=[EntityType.USER, EntityType.EMAIL],
-        dimension_fields={EntityType.USER: "principal.user.userid", EntityType.EMAIL: "network.email.from"},
+        supported_entity_types=[EntityType.USER],
+        dimension_fields={EntityType.USER: "principal.user.userid"},
         backing_log_types=["GOOGLE_WORKSPACE", "GMAIL"],
         is_vendor_scoped=True,
         default_floor_days=7,
@@ -372,9 +387,9 @@ METRIC_CATALOG: Dict[str, MetricDefinition] = {
     "alert_event_name_count": MetricDefinition(
         metric_id=26,
         metric_name="alert_event_name_count",
-        event_type="SCAN_UNCATEGORIZED",
-        supported_entity_types=[EntityType.ASSET, EntityType.USER],
-        dimension_fields={EntityType.ASSET: "principal.asset.hostname", EntityType.USER: "principal.user.userid"},
+        event_type="EDR_ALERT",
+        supported_entity_types=[EntityType.ASSET],
+        dimension_fields={EntityType.ASSET: "principal.asset.hostname"},
         backing_log_types=["CB_EDR", "CS_EDR", "MICROSOFT_GRAPH_ALERT", "SENTINELONE_ALERTS"],
         is_vendor_scoped=False,
         default_floor_days=7,
@@ -519,6 +534,41 @@ METRIC_CATALOG: Dict[str, MetricDefinition] = {
 class PreFlightValidator:
   """Validates multi-stage parameters, prevents division-by-zero, and audits dimensions."""
 
+  @staticmethod
+  def resolve_identifier_field(target_metric: str, entity_type: EntityType, identifier_field: Optional[str]) -> str:
+    """Returns the entity key field for `target_metric`, validated against config.textproto.
+
+    `identifier_field` may be a full UDM path ('principal.user.email_addresses') or
+    just an identifier leaf ('email_addresses'), which is applied to the metric's
+    default field for `entity_type`.
+    """
+    metric_def = METRIC_CATALOG[target_metric]
+    default_field = metric_def.dimension_fields[entity_type]
+    if not identifier_field:
+      return default_field
+    field = identifier_field
+    if "." not in identifier_field:
+      field = _mc.with_identifier(default_field, identifier_field)
+    expected_class = {EntityType.USER: "user", EntityType.ASSET: "device"}.get(entity_type)
+    if expected_class:
+      binding = _mc.entity_binding_for_field(field)
+      if binding.entity_class != expected_class:
+        raise ValueError(
+            f"Identifier field '{field}' is a {binding.entity_class} field but entity_type is {entity_type.value}."
+        )
+    if _mc.is_composite_only(target_metric):
+      dim = _mc.field_to_dimension().get(field)
+      if not any(dim in s for s in _mc.metric_dimension_sets()[target_metric]):
+        raise ValueError(
+            f"'{field}' ({dim}) appears in no valid dimension set for {target_metric}: "
+            f"{_mc.valid_dimension_sets_text(target_metric)}"
+        )
+    else:
+      err = _mc.validate_filter_fields(target_metric, [field])
+      if err:
+        raise ValueError(err)
+    return field
+
   @classmethod
   def audit(
       cls,
@@ -527,6 +577,7 @@ class PreFlightValidator:
       min_baseline_days: Optional[int] = None,
       user_log_type_filter: Optional[str] = None,
       match_mode: MatchMode = MatchMode.TIMELINE_BREAKDOWN,
+      identifier_field: Optional[str] = None,
   ) -> Dict[str, Any]:
     if target_metric not in METRIC_CATALOG:
       raise ValueError(f"Unknown risk metric: {target_metric}")
@@ -539,7 +590,8 @@ class PreFlightValidator:
       )
 
     effective_floor_days = min_baseline_days if min_baseline_days is not None else metric_def.default_floor_days
-    target_field = metric_def.dimension_fields[entity_type]
+    target_field = cls.resolve_identifier_field(target_metric, entity_type, identifier_field)
+    semantics = _mc.baseline_semantics(target_metric)
 
     # Mathematical Guardrail Verification
     math_guardrails = [
@@ -562,7 +614,12 @@ class PreFlightValidator:
         "status": "VALID",
         "metric_id": metric_def.metric_id,
         "metric_name": metric_def.metric_name,
+        # Nominal vector label only; use event_filter for event selection.
         "required_event_type": metric_def.event_type,
+        "event_filter": list(semantics.observed_filter),
+        "event_label": semantics.event_label,
+        "observed_agg": semantics.observed_agg,
+        "metric_arg": semantics.metric_arg,
         "target_field": target_field,
         "min_baseline_days": effective_floor_days,
         "match_mode": match_mode.value,
@@ -576,20 +633,28 @@ class PreFlightValidator:
       target_metrics: List[str],
       entity_type: EntityType,
       min_baseline_days: Optional[int] = None,
+      identifier_field: Optional[str] = None,
   ) -> Dict[str, Any]:
     """Audits 1 to 3 metrics for an atomic multilevel triad pipeline."""
     if not (1 <= len(target_metrics) <= 3):
       raise ValueError(f"Triad audit requires 1 to 3 metrics, got {len(target_metrics)}.")
 
     audits = [
-        cls.audit(m, entity_type=entity_type, min_baseline_days=min_baseline_days)
+        cls.audit(m, entity_type=entity_type, min_baseline_days=min_baseline_days, identifier_field=identifier_field)
         for m in target_metrics
     ]
+    # Mixed metric families is the more fundamental error, so report it first.
     event_types = set(a["required_event_type"] for a in audits)
     if len(event_types) > 1:
       raise ValueError(
           f"Heterogeneous event types not permitted in atomic triad: {event_types}. "
           "All metrics must share identical event_type."
+      )
+    fields = {a["target_field"] for a in audits}
+    if len(fields) > 1:
+      raise ValueError(
+          f"Triad metrics resolve to different entity fields {sorted(fields)}; one stage can bind only one. "
+          "Pass identifier_field as a full UDM path valid for all three metrics."
       )
     return {
         "status": "VALID",
@@ -652,264 +717,16 @@ class PreFlightValidator:
     return card
 
 
-# Canonical UDM Filter Fields per Metric from Google SecOps YARA-L 2.0 specifications
+# UDM filter fields usable per metric (union over every valid dimension set), derived
+# from the vendored compiler configuration (data/malachite/). A field listed here is
+# necessary but not sufficient: the combination of filters in one metrics.*() call must
+# also form exactly one valid dimension set (see UNSUPPORTED_DIMENSION_SET).
 MALACHITE_SUPPORTED_FILTERS: Dict[str, Set[str]] = {
-    "alert_event_name_count": {
-        "principal.asset.asset_id", "principal.asset.hostname", "principal.asset.ip",
-        "principal.asset.mac", "principal.asset.product_object_id", "principal.process.file.full_path",
-        "principal.process.file.sha256", "principal.user.email_addresses", "principal.user.employee_id",
-        "principal.user.product_object_id", "principal.user.userid", "principal.user.windows_sid",
-        "security_result.rule_name"
-    },
-    "auth_attempts_fail": {
-        "metadata.event_type", "network.http.user_agent", "network.tls.client.certificate.sha256",
-        "principal.asset.asset_id", "principal.asset.hostname", "principal.asset.ip", "principal.asset.mac",
-        "principal.asset.product_object_id", "principal.ip_geo_artifact.location.country_or_region",
-        "principal.ip_geo_artifact.network.organization_name", "principal.user.email_addresses",
-        "principal.user.employee_id", "principal.user.product_object_id", "principal.user.userid",
-        "principal.user.windows_sid", "target.application", "target.asset.asset_id", "target.asset.hostname",
-        "target.asset.ip", "target.asset.mac", "target.asset.product_object_id", "target.user.email_addresses",
-        "target.user.employee_id", "target.user.product_object_id", "target.user.userid", "target.user.windows_sid"
-    },
-    "auth_attempts_success": {
-        "metadata.event_type", "network.http.user_agent", "network.tls.client.certificate.sha256",
-        "principal.asset.asset_id", "principal.asset.hostname", "principal.asset.ip", "principal.asset.mac",
-        "principal.asset.product_object_id", "principal.ip_geo_artifact.location.country_or_region",
-        "principal.ip_geo_artifact.network.organization_name", "principal.user.email_addresses",
-        "principal.user.employee_id", "principal.user.product_object_id", "principal.user.userid",
-        "principal.user.windows_sid", "target.application", "target.asset.asset_id", "target.asset.hostname",
-        "target.asset.ip", "target.asset.mac", "target.asset.product_object_id", "target.user.email_addresses",
-        "target.user.employee_id", "target.user.product_object_id", "target.user.userid", "target.user.windows_sid"
-    },
-    "auth_attempts_total": {
-        "metadata.event_type", "network.http.user_agent", "network.tls.client.certificate.sha256",
-        "principal.asset.asset_id", "principal.asset.hostname", "principal.asset.ip", "principal.asset.mac",
-        "principal.asset.product_object_id", "principal.ip_geo_artifact.location.country_or_region",
-        "principal.ip_geo_artifact.network.organization_name", "principal.user.email_addresses",
-        "principal.user.employee_id", "principal.user.product_object_id", "principal.user.userid",
-        "principal.user.windows_sid", "target.application", "target.asset.asset_id", "target.asset.hostname",
-        "target.asset.ip", "target.asset.mac", "target.asset.product_object_id", "target.user.email_addresses",
-        "target.user.employee_id", "target.user.product_object_id", "target.user.userid", "target.user.windows_sid"
-    },
-    "dns_bytes_outbound": {
-        "principal.asset.asset_id", "principal.asset.hostname", "principal.asset.ip", "principal.asset.mac",
-        "principal.asset.product_object_id", "principal.user.email_addresses", "principal.user.employee_id",
-        "principal.user.product_object_id", "principal.user.userid", "principal.user.windows_sid", "target.ip"
-    },
-    "dns_queries_fail": {
-        "network.dns.questions.type", "network.dns_domain", "principal.asset.asset_id",
-        "principal.asset.hostname", "principal.asset.ip", "principal.asset.mac", "principal.asset.product_object_id",
-        "principal.user.email_addresses", "principal.user.employee_id", "principal.user.product_object_id",
-        "principal.user.userid", "principal.user.windows_sid"
-    },
-    "dns_queries_success": {
-        "network.dns.questions.type", "network.dns_domain", "principal.asset.asset_id",
-        "principal.asset.hostname", "principal.asset.ip", "principal.asset.mac", "principal.asset.product_object_id",
-        "principal.user.email_addresses", "principal.user.employee_id", "principal.user.product_object_id",
-        "principal.user.userid", "principal.user.windows_sid"
-    },
-    "dns_queries_total": {
-        "network.dns.questions.type", "network.dns_domain", "principal.asset.asset_id",
-        "principal.asset.hostname", "principal.asset.ip", "principal.asset.mac", "principal.asset.product_object_id",
-        "principal.user.email_addresses", "principal.user.employee_id", "principal.user.product_object_id",
-        "principal.user.userid", "principal.user.windows_sid"
-    },
-    "file_executions_fail": {
-        "metadata.event_type", "principal.asset.asset_id", "principal.asset.hostname", "principal.asset.ip",
-        "principal.asset.mac", "principal.asset.product_object_id", "principal.process.file.sha256",
-        "principal.user.email_addresses", "principal.user.employee_id", "principal.user.product_object_id",
-        "principal.user.userid", "principal.user.windows_sid"
-    },
-    "file_executions_success": {
-        "metadata.event_type", "principal.asset.asset_id", "principal.asset.hostname", "principal.asset.ip",
-        "principal.asset.mac", "principal.asset.product_object_id", "principal.process.file.sha256",
-        "principal.user.email_addresses", "principal.user.employee_id", "principal.user.product_object_id",
-        "principal.user.userid", "principal.user.windows_sid"
-    },
-    "file_executions_total": {
-        "metadata.event_type", "principal.asset.asset_id", "principal.asset.hostname", "principal.asset.ip",
-        "principal.asset.mac", "principal.asset.product_object_id", "principal.process.file.sha256",
-        "principal.user.email_addresses", "principal.user.employee_id", "principal.user.product_object_id",
-        "principal.user.userid", "principal.user.windows_sid"
-    },
-    "http_queries_fail": {
-        "network.http.user_agent", "principal.asset.asset_id", "principal.asset.hostname",
-        "principal.asset.ip", "principal.asset.mac", "principal.asset.product_object_id",
-        "principal.user.email_addresses", "principal.user.employee_id", "principal.user.product_object_id",
-        "principal.user.userid", "principal.user.windows_sid", "target.hostname"
-    },
-    "http_queries_success": {
-        "network.http.user_agent", "principal.asset.asset_id", "principal.asset.hostname",
-        "principal.asset.ip", "principal.asset.mac", "principal.asset.product_object_id",
-        "principal.user.email_addresses", "principal.user.employee_id", "principal.user.product_object_id",
-        "principal.user.userid", "principal.user.windows_sid", "target.hostname"
-    },
-    "http_queries_total": {
-        "network.http.user_agent", "principal.asset.asset_id", "principal.asset.hostname",
-        "principal.asset.ip", "principal.asset.mac", "principal.asset.product_object_id",
-        "principal.user.email_addresses", "principal.user.employee_id", "principal.user.product_object_id",
-        "principal.user.userid", "principal.user.windows_sid", "target.hostname"
-    },
-    "network_bytes_inbound": {
-        "principal.asset.asset_id", "principal.asset.hostname", "principal.asset.ip", "principal.asset.mac",
-        "principal.asset.product_object_id", "principal.ip_geo_artifact.location.country_or_region",
-        "principal.user.email_addresses", "principal.user.employee_id", "principal.user.product_object_id",
-        "principal.user.userid", "principal.user.windows_sid", "security_result.category",
-        "target.asset.asset_id", "target.asset.hostname", "target.asset.ip", "target.asset.mac",
-        "target.asset.product_object_id", "target.ip_geo_artifact.network.organization_name"
-    },
-    "network_bytes_outbound": {
-        "principal.asset.asset_id", "principal.asset.hostname", "principal.asset.ip", "principal.asset.mac",
-        "principal.asset.product_object_id", "principal.ip_geo_artifact.location.country_or_region",
-        "principal.user.email_addresses", "principal.user.employee_id", "principal.user.product_object_id",
-        "principal.user.userid", "principal.user.windows_sid", "security_result.category",
-        "target.asset.asset_id", "target.asset.hostname", "target.asset.ip", "target.asset.mac",
-        "target.asset.product_object_id", "target.ip_geo_artifact.network.organization_name"
-    },
-    "network_bytes_total": {
-        "principal.asset.asset_id", "principal.asset.hostname", "principal.asset.ip", "principal.asset.mac",
-        "principal.asset.product_object_id", "principal.ip_geo_artifact.location.country_or_region",
-        "principal.user.email_addresses", "principal.user.employee_id", "principal.user.product_object_id",
-        "principal.user.userid", "principal.user.windows_sid", "security_result.category",
-        "target.asset.asset_id", "target.asset.hostname", "target.asset.ip", "target.asset.mac",
-        "target.asset.product_object_id", "target.ip_geo_artifact.network.organization_name"
-    },
-    "network_flows_inbound": {
-        "principal.asset.asset_id", "principal.asset.hostname", "principal.asset.ip", "principal.asset.mac",
-        "principal.asset.product_object_id", "principal.user.email_addresses", "principal.user.employee_id",
-        "principal.user.product_object_id", "principal.user.userid", "principal.user.windows_sid"
-    },
-    "network_flows_outbound": {
-        "principal.asset.asset_id", "principal.asset.hostname", "principal.asset.ip", "principal.asset.mac",
-        "principal.asset.product_object_id", "principal.user.email_addresses", "principal.user.employee_id",
-        "principal.user.product_object_id", "principal.user.userid", "principal.user.windows_sid"
-    },
-    "network_flows_total": {
-        "principal.asset.asset_id", "principal.asset.hostname", "principal.asset.ip", "principal.asset.mac",
-        "principal.asset.product_object_id", "principal.user.email_addresses", "principal.user.employee_id",
-        "principal.user.product_object_id", "principal.user.userid", "principal.user.windows_sid"
-    },
-    "resource_creation_fail": {
-        "metadata.product_name", "metadata.vendor_name", "principal.ip", "principal.user.email_addresses",
-        "principal.user.employee_id", "principal.user.product_object_id", "principal.user.userid",
-        "principal.user.windows_sid", "target.application", "target.location.name", "target.resource.name",
-        "target.resource.resource_type", "target.user.email_addresses", "target.user.employee_id",
-        "target.user.product_object_id", "target.user.userid", "target.user.windows_sid"
-    },
-    "resource_creation_success": {
-        "metadata.product_name", "metadata.vendor_name", "principal.ip", "principal.user.email_addresses",
-        "principal.user.employee_id", "principal.user.product_object_id", "principal.user.userid",
-        "principal.user.windows_sid", "target.application", "target.location.name", "target.resource.name",
-        "target.resource.resource_type", "target.user.email_addresses", "target.user.employee_id",
-        "target.user.product_object_id", "target.user.userid", "target.user.windows_sid"
-    },
-    "resource_creation_total": {
-        "metadata.product_name", "metadata.vendor_name", "principal.ip", "principal.user.email_addresses",
-        "principal.user.employee_id", "principal.user.product_object_id", "principal.user.userid",
-        "principal.user.windows_sid", "target.application", "target.location.name", "target.resource.name",
-        "target.resource.resource_type", "target.user.email_addresses", "target.user.employee_id",
-        "target.user.product_object_id", "target.user.userid", "target.user.windows_sid"
-    },
-    "resource_deletion_fail": {
-        "metadata.product_name", "metadata.vendor_name", "principal.ip", "principal.user.email_addresses",
-        "principal.user.employee_id", "principal.user.product_object_id", "principal.user.userid",
-        "principal.user.windows_sid", "target.application", "target.location.name", "target.resource.name",
-        "target.resource.resource_type", "target.user.email_addresses", "target.user.employee_id",
-        "target.user.product_object_id", "target.user.userid", "target.user.windows_sid"
-    },
-    "resource_deletion_success": {
-        "metadata.product_name", "metadata.vendor_name", "principal.ip", "principal.user.email_addresses",
-        "principal.user.employee_id", "principal.user.product_object_id", "principal.user.userid",
-        "principal.user.windows_sid", "target.application", "target.location.name", "target.resource.name",
-        "target.resource.resource_type", "target.user.email_addresses", "target.user.employee_id",
-        "target.user.product_object_id", "target.user.userid", "target.user.windows_sid"
-    },
-    "resource_deletion_total": {
-        "metadata.product_name", "metadata.vendor_name", "principal.ip", "principal.user.email_addresses",
-        "principal.user.employee_id", "principal.user.product_object_id", "principal.user.userid",
-        "principal.user.windows_sid", "target.application", "target.location.name", "target.resource.name",
-        "target.resource.resource_type", "target.user.email_addresses", "target.user.employee_id",
-        "target.user.product_object_id", "target.user.userid", "target.user.windows_sid"
-    },
-    "resource_read_fail": {
-        "metadata.product_name", "metadata.vendor_name", "principal.ip", "principal.user.email_addresses",
-        "principal.user.employee_id", "principal.user.product_object_id", "principal.user.userid",
-        "principal.user.windows_sid", "target.application", "target.location.name", "target.resource.name",
-        "target.resource.resource_type", "target.user.email_addresses", "target.user.employee_id",
-        "target.user.product_object_id", "target.user.userid", "target.user.windows_sid"
-    },
-    "resource_read_success": {
-        "metadata.product_name", "metadata.vendor_name", "principal.ip", "principal.user.email_addresses",
-        "principal.user.employee_id", "principal.user.product_object_id", "principal.user.userid",
-        "principal.user.windows_sid", "target.application", "target.location.name", "target.resource.name",
-        "target.resource.resource_type", "target.user.email_addresses", "target.user.employee_id",
-        "target.user.product_object_id", "target.user.userid", "target.user.windows_sid"
-    },
-    "resource_read_total": {
-        "metadata.product_name", "metadata.vendor_name", "principal.ip", "principal.user.email_addresses",
-        "principal.user.employee_id", "principal.user.product_object_id", "principal.user.userid",
-        "principal.user.windows_sid", "target.application", "target.location.name", "target.resource.name",
-        "target.resource.resource_type", "target.user.email_addresses", "target.user.employee_id",
-        "target.user.product_object_id", "target.user.userid", "target.user.windows_sid"
-    },
-    "resource_written_fail": {
-        "metadata.product_name", "metadata.vendor_name", "principal.ip", "principal.user.email_addresses",
-        "principal.user.employee_id", "principal.user.product_object_id", "principal.user.userid",
-        "principal.user.windows_sid", "target.application", "target.location.name", "target.resource.name",
-        "target.resource.resource_type", "target.user.email_addresses", "target.user.employee_id",
-        "target.user.product_object_id", "target.user.userid", "target.user.windows_sid"
-    },
-    "resource_written_success": {
-        "metadata.product_name", "metadata.vendor_name", "principal.ip", "principal.user.email_addresses",
-        "principal.user.employee_id", "principal.user.product_object_id", "principal.user.userid",
-        "principal.user.windows_sid", "target.application", "target.location.name", "target.resource.name",
-        "target.resource.resource_type", "target.user.email_addresses", "target.user.employee_id",
-        "target.user.product_object_id", "target.user.userid", "target.user.windows_sid"
-    },
-    "resource_written_total": {
-        "metadata.product_name", "metadata.vendor_name", "principal.ip", "principal.user.email_addresses",
-        "principal.user.employee_id", "principal.user.product_object_id", "principal.user.userid",
-        "principal.user.windows_sid", "target.application", "target.location.name", "target.resource.name",
-        "target.resource.resource_type", "target.user.email_addresses", "target.user.employee_id",
-        "target.user.product_object_id", "target.user.userid", "target.user.windows_sid"
-    },
-    "workspace_auth_attempts_total": {
-        "metadata.product_event_type", "principal.ip", "principal.ip_geo_artifact.location.country_or_region",
-        "principal.user.email_addresses", "principal.user.employee_id", "principal.user.product_object_id",
-        "principal.user.userid", "principal.user.windows_sid", "security_result.action", "target.application",
-        "target.user.email_addresses", "target.user.employee_id", "target.user.product_object_id",
-        "target.user.userid", "target.user.windows_sid"
-    },
-    "workspace_emails_sent_total": {
-        "network.email.from", "network.email.mail_id", "network.email.to", "principal.application",
-        "principal.ip", "principal.user.email_addresses", "principal.user.employee_id",
-        "principal.user.product_object_id", "principal.user.userid", "principal.user.windows_sid",
-        "security_result.rule_id", "target.ip"
-    },
-    "workspace_network_bytes_outbound": {
-        "principal.ip_geo_artifact.location.country_or_region", "principal.user.email_addresses",
-        "principal.user.employee_id", "principal.user.product_object_id", "principal.user.userid",
-        "principal.user.windows_sid"
-    },
-    "workspace_network_bytes_total": {
-        "principal.ip_geo_artifact.location.country_or_region", "principal.user.email_addresses",
-        "principal.user.employee_id", "principal.user.product_object_id", "principal.user.userid",
-        "principal.user.windows_sid"
-    },
-    "workspace_total_change_actions": {
-        "metadata.product_event_type", "metadata.product_name", "principal.ip", "principal.user.email_addresses",
-        "principal.user.employee_id", "principal.user.product_object_id", "principal.user.userid",
-        "principal.user.windows_sid", "security_result.action", "target.resource.name",
-        "target.user.email_addresses", "target.user.employee_id", "target.user.product_object_id",
-        "target.user.userid", "target.user.windows_sid"
-    },
-    "workspace_total_download_actions": {
-        "metadata.product_name", "principal.ip", "principal.user.email_addresses", "principal.user.employee_id",
-        "principal.user.product_object_id", "principal.user.userid", "principal.user.windows_sid",
-        "target.resource.name"
-    },
+    m: _mc.supported_filter_fields(m) for m in sorted(_mc.known_metrics())
 }
 
+# Filters that appear in EVERY valid dimension set of the metric. Consistency with
+# config.textproto is enforced by tests/test_malachite_catalog.py.
 MALACHITE_MANDATORY_FILTERS = {
     # All Cloud Resource Lifecycle (CRUD) metrics strictly require both metadata.vendor_name and metadata.product_name
     "resource_creation_fail": {"metadata.vendor_name", "metadata.product_name"},
@@ -936,10 +753,110 @@ MALACHITE_MANDATORY_FILTERS = {
 class MalachiteASTValidator:
   """Enforces Google SecOps compiler rules and mathematical AST constraints on YARA-L 2.0 queries."""
 
+  CLOUD_RESOURCE_EVENTS = frozenset({"RESOURCE_CREATION", "RESOURCE_READ", "RESOURCE_WRITTEN", "RESOURCE_DELETION"})
+  STANDARD_METRIC_PARAMS = frozenset({"period", "window", "metric", "agg", "filter"})
+
+  @staticmethod
+  def _metric_filter_hint(m_lower: str, param: str, valid_filters: Set[str]) -> str:
+    if param == "principal.ip" and "principal.asset.ip" in valid_filters:
+      return " (In Chronicle, device IP filtering requires 'principal.asset.ip' or 'principal.asset.hostname')"
+    if param == "target.ip" and "target.asset.ip" in valid_filters:
+      return " (In Chronicle, device IP filtering requires 'target.asset.ip' or 'target.asset.hostname')"
+    if m_lower.startswith("http_queries"):
+      if param == "target.url":
+        return " (In Chronicle Malachite, HTTP metrics only baseline 'target.hostname'. Full URL/URI analysis must be performed in raw event companion stages or via secops-statistical-hunter.)"
+      if param in ("target.ip", "target.asset.ip"):
+        return " (In Chronicle Malachite, HTTP metrics support 'target.hostname'. For IP destination baselines use 'metrics.dns_bytes_outbound' or secops-statistical-hunter.)"
+      if param in ("network.http.response_code", "network.http.method"):
+        return " (In Chronicle Malachite, HTTP methods/response codes are partitioned at ingest into 'metrics.http_queries_fail' and 'metrics.http_queries_success', not dynamic filters.)"
+    if m_lower.startswith("dns_queries"):
+      if param == "network.dns.questions.name":
+        return " (In Chronicle Malachite, DNS query metrics baseline 'network.dns_domain' or 'network.dns.questions.type', not full question name 'network.dns.questions.name'.)"
+      if param in ("target.hostname", "target.ip"):
+        return " (In Chronicle Malachite, DNS query metrics baseline 'network.dns_domain', not target hostname or IP.)"
+    return ""
+
+  @staticmethod
+  def _validate_metric_calls(location: str, body: str) -> List[str]:
+    """Validates every metrics.*() call in `body` against the compiler configuration.
+
+    `location` is "stage '<name>'" or "root stage" and prefixes each message.
+    """
+    errors: List[str] = []
+    for m_name, args_body in re.findall(r"metrics\.([a-zA-Z0-9_]+)\s*\(([^)]+)\)", body, re.DOTALL):
+      m_lower = m_name.lower()
+      called_params = re.findall(r"([a-zA-Z0-9_.]+)\s*:", args_body)
+      filter_keys = [p for p in called_params if p not in MalachiteASTValidator.STANDARD_METRIC_PARAMS]
+      has_slots = "{{" in args_body
+
+      unsupported = False
+      if m_lower in MALACHITE_SUPPORTED_FILTERS:
+        valid_filters = MALACHITE_SUPPORTED_FILTERS[m_lower]
+        for param in filter_keys:
+          if param not in valid_filters:
+            unsupported = True
+            hint = MalachiteASTValidator._metric_filter_hint(m_lower, param, valid_filters)
+            errors.append(
+                f"INVALID_METRIC_FILTER in {location}: '{param}' is not a supported filter for 'metrics.{m_name}'.{hint}"
+            )
+
+      missing_dims: Set[str] = set()
+      if m_lower in MALACHITE_MANDATORY_FILTERS:
+        missing_dims = MALACHITE_MANDATORY_FILTERS[m_lower] - set(filter_keys)
+        if missing_dims and not has_slots:
+          hint = ""
+          if "metadata.vendor_name" in missing_dims:
+            hint = " In Chronicle Malachite, all Cloud CRUD metrics require both 'metadata.vendor_name' and 'metadata.product_name' when filtering by user/asset."
+          elif "principal.process.file.sha256" in missing_dims:
+            hint = " In Chronicle Malachite, process execution metrics require both 'metadata.event_type' and 'principal.process.file.sha256'."
+          elif "security_result.rule_name" in missing_dims:
+            hint = " In Chronicle Malachite, 'metrics.alert_event_name_count' requires companion dimension 'security_result.rule_name'."
+          errors.append(
+              f"MISSING_MANDATORY_FILTER in {location}: Metric 'metrics.{m_name}' is missing required companion dimension(s): {sorted(list(missing_dims))}.{hint}"
+          )
+
+      # The compiler maps every filter to its dimension and requires the resulting SET to equal one of
+      # the metric's valid dimension sets (ueba_validator.go). Individually valid filters can still fail.
+      if m_lower in _mc.known_metrics() and not has_slots and not unsupported and not missing_dims:
+        set_err = _mc.validate_filter_fields(m_lower, filter_keys)
+        if set_err:
+          errors.append(
+              f"UNSUPPORTED_DIMENSION_SET in {location}: {set_err}. Valid sets: "
+              f"{_mc.valid_dimension_sets_text(m_lower)}"
+          )
+
+      # Metric type parameter (value_sum vs event_count_sum)
+      if "metric_value_sum" in args_body:
+        errors.append(
+            f"INVALID_METRIC_TYPE in {location}: 'metric_value_sum' is invalid in Google SecOps YARA-L 2.0. "
+            "Use 'metric: value_sum' for volume metrics or 'metric: event_count_sum' for count metrics."
+        )
+      m_type_match = re.search(r"\bmetric\s*:\s*([a-zA-Z0-9_]+)", args_body)
+      if m_type_match:
+        m_type_val = m_type_match.group(1)
+        if m_lower in _mc.known_metrics():
+          expected = _mc.baseline_semantics(m_lower).metric_arg
+        else:
+          expected = "value_sum" if "bytes" in m_lower else "event_count_sum"
+        if m_type_val not in ("value_sum", "event_count_sum"):
+          errors.append(
+              f"INVALID_METRIC_TYPE in {location}: Unsupported metric type '{m_type_val}' for 'metrics.{m_name}'. "
+              "In Google SecOps YARA-L 2.0, metric baseline functions strictly accept 'value_sum' or 'event_count_sum'."
+          )
+        elif expected == "value_sum" and m_type_val != "value_sum":
+          errors.append(
+              f"METRIC_TYPE_MISMATCH in {location}: Byte-volume metric 'metrics.{m_name}' must use 'metric: value_sum', found '{m_type_val}'."
+          )
+        elif expected == "event_count_sum" and m_type_val == "value_sum":
+          errors.append(
+              f"METRIC_TYPE_MISMATCH in {location}: Count-based metric 'metrics.{m_name}' must use 'metric: event_count_sum', found '{m_type_val}'."
+          )
+    return errors
+
+
   @staticmethod
   def validate_query(query_text: str) -> List[str]:
     errors = []
-    standard_params = {"period", "window", "metric", "agg", "filter"}
 
     # 1. Methodology & Goal Comment Header
     if not re.search(r"//\s*(?:Goal:|ARCHITECTURE:|Sector:|Stage\s*\d*:)", query_text, re.IGNORECASE):
@@ -990,8 +907,9 @@ class MalachiteASTValidator:
       )
 
     # 2. Stage count & naming rules
-    stage_blocks = re.findall(r"(?:stage\s+([a-zA-Z0-9_]+)\s*\{|\$(\w+)\s*=)", query_text)
-    named_stages = [s[0] for s in stage_blocks if s[0]]
+    stage1_matches, root_body = MalachiteASTValidator._extract_stage_blocks(query_text)
+    named_stages = [s[0] for s in stage1_matches]
+    named_stage_set = {s.lstrip("$") for s in named_stages}
 
     for s_name in named_stages:
       if s_name.startswith("$"):
@@ -1000,8 +918,34 @@ class MalachiteASTValidator:
     if len(named_stages) > 4:
       errors.append(f"STAGE_LIMIT_EXCEEDED: Query defines {len(named_stages)} stages (max allowed is 4).")
 
+    # 2B. Multi-Stage Data Source Limits (get_structured_query_view_utils.cc:3040-3064)
+    # Chronicle Search enforces hard caps across all stages combined:
+    #   - source_count_limits["udm"] = 2 (FLAGS_malachite_search_join_query_max_event_tables_joined)
+    #   - source_count_limits["entity"] = 1 (FLAGS_malachite_search_max_ecg_event_tables_in_event_ecg_join)
+    total_udm_sources = 0
+    total_ecg_sources = 0
+    for _, s_body in stage1_matches:
+      u_cnt, e_cnt = MalachiteASTValidator._count_stage_data_sources(s_body, named_stage_set)
+      total_udm_sources += u_cnt
+      total_ecg_sources += e_cnt
+    if root_body.strip():
+      u_cnt, e_cnt = MalachiteASTValidator._count_stage_data_sources(root_body, named_stage_set)
+      total_udm_sources += u_cnt
+      total_ecg_sources += e_cnt
+
+    if total_udm_sources > 2:
+      errors.append(
+          f"UDM_SOURCE_LIMIT_EXCEEDED: Number of UDM events exceeded max limit: {total_udm_sources} > 2 "
+          "(Chronicle Search caps total UDM event sources across all stages at 2; use at most 2 UDM stages per query "
+          "or decouple into parallel 360° sector micro-queries)."
+      )
+    if total_ecg_sources > 1:
+      errors.append(
+          f"ECG_SOURCE_LIMIT_EXCEEDED: Number of ECG events exceeded max limit: {total_ecg_sources} > 1 "
+          "(Chronicle Search caps total Entity Context Graph sources across all stages at 1)."
+      )
+
     # 3. Stage 1 Extraction Contracts
-    stage1_matches = re.findall(r"stage\s+([a-zA-Z0-9_]+)\s*\{([^}]+)\}", query_text, re.DOTALL)
     for stage_name, stage_body in stage1_matches:
       # Check outcome count limit <= 20
       outcome_match = re.search(r"outcome:\s*(.*?)(?=\n\s*(?:condition|match|\}|$))", stage_body, re.DOTALL)
@@ -1062,11 +1006,16 @@ class MalachiteASTValidator:
           event_part = stage_body[:outcome_block.start()]
           errors.extend(MalachiteASTValidator._check_arithmetic_in_event_section(stage_name, event_part))
 
-      # Anti-Pattern 6: Single-stage multi-vector cramming
-      cloud_resource_events = {"RESOURCE_READ", "RESOURCE_WRITTEN", "RESOURCE_DELETION"}
+      # Anti-Pattern 6: Single-stage multi-vector cramming. OR'd event types are allowed only when they
+      # all belong to the baselines of the metrics evaluated in the stage (e.g. resource_read_* counts
+      # RESOURCE_READ and USER_RESOURCE_ACCESS).
       distinct_event_types = set(re.findall(r"metadata\.event_type\s*==?\s*[\"']([A-Z_]+)[\"']", stage_body))
       metrics_calls = re.findall(r"metrics\.([a-zA-Z0-9_]+)\s*\(", stage_body)
-      if len(distinct_event_types) > 1 and metrics_calls and not (distinct_event_types <= cloud_resource_events):
+      allowed_event_types = set(MalachiteASTValidator.CLOUD_RESOURCE_EVENTS)
+      for m in metrics_calls:
+        if m in _mc.known_metrics():
+          allowed_event_types |= set(_mc.baseline_semantics(m).event_types)
+      if len(distinct_event_types) > 1 and metrics_calls and not (distinct_event_types <= allowed_event_types):
         errors.append(
             f"ANTI-PATTERN 6 (Single-Stage Multi-Vector Cramming in stage '{stage_name}'): Stage contains multiple OR'd "
             f"event types {distinct_event_types} while evaluating metrics. Use independent DAG stages fused in Root stage."
@@ -1074,7 +1023,7 @@ class MalachiteASTValidator:
 
       # Anti-Pattern 6B: Multi-vector metric conflation within single stage
       metric_event_types = {METRIC_CATALOG[m].event_type for m in metrics_calls if m in METRIC_CATALOG}
-      if len(metric_event_types) > 1 and not (metric_event_types <= cloud_resource_events):
+      if len(metric_event_types) > 1 and not (metric_event_types <= MalachiteASTValidator.CLOUD_RESOURCE_EVENTS):
         errors.append(
             f"MULTI_VECTOR_STAGE_CONFLATION in stage '{stage_name}': Stage attempts to evaluate metrics across different event types ({sorted(list(metric_event_types))}). "
             "Each telemetry vector must be evaluated in its own decoupled stage or micro-query."
@@ -1087,76 +1036,8 @@ class MalachiteASTValidator:
               f"ANTI-PATTERN 7 (Non-Existent Metric Function in stage '{stage_name}'): 'metrics.{metric_name}' does not exist in METRIC_CATALOG."
           )
 
-      # Metric Filter Validation against Malachite source definitions
-      standard_params = {"period", "window", "metric", "agg", "filter"}
-      metric_call_matches = re.findall(r"metrics\.([a-zA-Z0-9_]+)\s*\(([^)]+)\)", stage_body, re.DOTALL)
-      for m_name, args_body in metric_call_matches:
-        m_lower = m_name.lower()
-        called_params = re.findall(r"([a-zA-Z0-9_.]+)\s*:", args_body)
-        if m_lower in MALACHITE_SUPPORTED_FILTERS:
-          valid_filters = MALACHITE_SUPPORTED_FILTERS[m_lower]
-          for param in called_params:
-            if param not in standard_params and param not in valid_filters:
-              hint = ""
-              if param == "principal.ip" and "principal.asset.ip" in valid_filters:
-                hint = " (In Chronicle, device IP filtering requires 'principal.asset.ip' or 'principal.asset.hostname')"
-              elif param == "target.ip" and "target.asset.ip" in valid_filters:
-                hint = " (In Chronicle, device IP filtering requires 'target.asset.ip' or 'target.asset.hostname')"
-              elif m_lower.startswith("http_queries"):
-                if param == "target.url":
-                  hint = " (In Chronicle Malachite, HTTP metrics only baseline 'target.hostname'. Full URL/URI analysis must be performed in raw event companion stages or via secops-statistical-hunter.)"
-                elif param in ("target.ip", "target.asset.ip"):
-                  hint = " (In Chronicle Malachite, HTTP metrics support 'target.hostname'. For IP destination baselines use 'metrics.dns_bytes_outbound' or secops-statistical-hunter.)"
-                elif param in ("network.http.response_code", "network.http.method"):
-                  hint = " (In Chronicle Malachite, HTTP methods/response codes are partitioned at ingest into 'metrics.http_queries_fail' and 'metrics.http_queries_success', not dynamic filters.)"
-              elif m_lower.startswith("dns_queries"):
-                if param == "network.dns.questions.name":
-                  hint = " (In Chronicle Malachite, DNS query metrics baseline 'network.dns_domain' or 'network.dns.questions.type', not full question name 'network.dns.questions.name'.)"
-                elif param in ("target.hostname", "target.ip"):
-                  hint = " (In Chronicle Malachite, DNS query metrics baseline 'network.dns_domain', not target hostname or IP.)"
-              errors.append(
-                  f"INVALID_METRIC_FILTER in stage '{stage_name}': '{param}' is not a supported filter for 'metrics.{m_name}'.{hint}"
-              )
-
-        # Check for mandatory companion dimensions
-        if m_lower in MALACHITE_MANDATORY_FILTERS:
-          required_dims = MALACHITE_MANDATORY_FILTERS[m_lower]
-          called_filter_keys = set(called_params) - standard_params
-          missing_dims = required_dims - called_filter_keys
-          if missing_dims:
-            hint = ""
-            if "metadata.vendor_name" in missing_dims:
-              hint = " In Chronicle Malachite, all Cloud CRUD metrics require both 'metadata.vendor_name' and 'metadata.product_name' when filtering by user/asset."
-            elif "principal.process.file.sha256" in missing_dims:
-              hint = " In Chronicle Malachite, process execution metrics require both 'metadata.event_type' and 'principal.process.file.sha256'."
-            elif "security_result.rule_name" in missing_dims:
-              hint = " In Chronicle Malachite, 'metrics.alert_event_name_count' requires companion dimension 'security_result.rule_name'."
-            errors.append(
-                f"MISSING_MANDATORY_FILTER in stage '{stage_name}': Metric 'metrics.{m_name}' is missing required companion dimension(s): {sorted(list(missing_dims))}.{hint}"
-            )
-
-        # Check metric type parameter (value_sum vs event_count_sum)
-        if "metric_value_sum" in args_body:
-          errors.append(
-              f"INVALID_METRIC_TYPE in stage '{stage_name}': 'metric_value_sum' is invalid in Google SecOps YARA-L 2.0. "
-              "Use 'metric: value_sum' for volume metrics or 'metric: event_count_sum' for count metrics."
-          )
-        m_type_match = re.search(r"\bmetric\s*:\s*([a-zA-Z0-9_]+)", args_body)
-        if m_type_match:
-          m_type_val = m_type_match.group(1)
-          if m_type_val not in ("value_sum", "event_count_sum"):
-            errors.append(
-                f"INVALID_METRIC_TYPE in stage '{stage_name}': Unsupported metric type '{m_type_val}' for 'metrics.{m_name}'. "
-                "In Google SecOps YARA-L 2.0, metric baseline functions strictly accept 'value_sum' or 'event_count_sum'."
-            )
-          elif "bytes" in m_lower and m_type_val != "value_sum":
-            errors.append(
-                f"METRIC_TYPE_MISMATCH in stage '{stage_name}': Byte-volume metric 'metrics.{m_name}' must use 'metric: value_sum', found '{m_type_val}'."
-            )
-          elif "bytes" not in m_lower and m_type_val == "value_sum":
-            errors.append(
-                f"METRIC_TYPE_MISMATCH in stage '{stage_name}': Count-based metric 'metrics.{m_name}' must use 'metric: event_count_sum', found '{m_type_val}'."
-            )
+      # Metric filter validation against the compiler configuration
+      errors.extend(MalachiteASTValidator._validate_metric_calls(f"stage '{stage_name}'", stage_body))
 
       # Invariant: Maximum 1 ECG (Entity Context Graph) lookup per stage
       graph_aliases = set(re.findall(r"\$([a-zA-Z0-9_]+)\.graph\.", stage_body))
@@ -1175,11 +1056,6 @@ class MalachiteASTValidator:
             "(Universal Anomaly) and threat context into Stage 2 (Threat Hits)."
         )
 
-    last_stage_end = 0
-    for match in re.finditer(r"stage\s+[a-zA-Z0-9_]+\s*\{[^}]*\}", query_text, re.DOTALL):
-      last_stage_end = max(last_stage_end, match.end())
-    root_body = query_text[last_stage_end:]
-
     if stage1_matches:
       has_root_match = bool(re.search(r"\bmatch:\s*", root_body))
       has_root_outcome_or_cond = bool(re.search(r"\b(?:outcome|condition):\s*", root_body))
@@ -1195,70 +1071,8 @@ class MalachiteASTValidator:
           "INVALID_UDM_PATH in root stage: User-Agent string is located at 'network.http.user_agent' in UDM (udm.proto Line 3889), not 'target.user_agent'."
       )
 
-    # Check root stage metric filter fields
-    root_metric_calls = re.findall(r"metrics\.([a-zA-Z0-9_]+)\s*\(([^)]+)\)", root_body, re.DOTALL)
-    for m_name, args_body in root_metric_calls:
-      m_lower = m_name.lower()
-      called_params = re.findall(r"([a-zA-Z0-9_.]+)\s*:", args_body)
-      if m_lower in MALACHITE_SUPPORTED_FILTERS:
-        valid_filters = MALACHITE_SUPPORTED_FILTERS[m_lower]
-        for param in called_params:
-          if param not in standard_params and param not in valid_filters:
-            hint = ""
-            if param == "principal.ip" and "principal.asset.ip" in valid_filters:
-              hint = " (In Chronicle, device IP filtering requires 'principal.asset.ip' or 'principal.asset.hostname')"
-            elif param == "target.ip" and "target.asset.ip" in valid_filters:
-              hint = " (In Chronicle, device IP filtering requires 'target.asset.ip' or 'target.asset.hostname')"
-            elif m_lower.startswith("http_queries"):
-              if param == "target.url":
-                hint = " (In Chronicle Malachite, HTTP metrics only baseline 'target.hostname'. Full URL/URI analysis must be performed in raw event companion stages or via secops-statistical-hunter.)"
-              elif param in ("target.ip", "target.asset.ip"):
-                hint = " (In Chronicle Malachite, HTTP metrics support 'target.hostname'. For IP destination baselines use 'metrics.dns_bytes_outbound' or secops-statistical-hunter.)"
-              elif param in ("network.http.response_code", "network.http.method"):
-                hint = " (In Chronicle Malachite, HTTP methods/response codes are partitioned at ingest into 'metrics.http_queries_fail' and 'metrics.http_queries_success', not dynamic filters.)"
-            errors.append(
-                f"INVALID_METRIC_FILTER in root stage: '{param}' is not a supported filter for 'metrics.{m_name}'.{hint}"
-            )
-
-      # Check for mandatory companion dimensions in root stage
-      if m_lower in MALACHITE_MANDATORY_FILTERS:
-        required_dims = MALACHITE_MANDATORY_FILTERS[m_lower]
-        called_filter_keys = set(called_params) - standard_params
-        missing_dims = required_dims - called_filter_keys
-        if missing_dims:
-          hint = ""
-          if "metadata.vendor_name" in missing_dims:
-            hint = " In Chronicle Malachite, all Cloud CRUD metrics require both 'metadata.vendor_name' and 'metadata.product_name' when filtering by user/asset."
-          elif "principal.process.file.sha256" in missing_dims:
-            hint = " In Chronicle Malachite, process execution metrics require both 'metadata.event_type' and 'principal.process.file.sha256'."
-          elif "security_result.rule_name" in missing_dims:
-            hint = " In Chronicle Malachite, 'metrics.alert_event_name_count' requires companion dimension 'security_result.rule_name'."
-          errors.append(
-              f"MISSING_MANDATORY_FILTER in root stage: Metric 'metrics.{m_name}' is missing required companion dimension(s): {sorted(list(missing_dims))}.{hint}"
-          )
-
-      # Check metric type parameter (value_sum vs event_count_sum) in root stage
-      if "metric_value_sum" in args_body:
-        errors.append(
-            "INVALID_METRIC_TYPE in root stage: 'metric_value_sum' is invalid in Google SecOps YARA-L 2.0. "
-            "Use 'metric: value_sum' for volume metrics or 'metric: event_count_sum' for count metrics."
-        )
-      m_type_match = re.search(r"\bmetric\s*:\s*([a-zA-Z0-9_]+)", args_body)
-      if m_type_match:
-        m_type_val = m_type_match.group(1)
-        if m_type_val not in ("value_sum", "event_count_sum"):
-          errors.append(
-              f"INVALID_METRIC_TYPE in root stage: Unsupported metric type '{m_type_val}' for 'metrics.{m_name}'. "
-              "In Google SecOps YARA-L 2.0, metric baseline functions strictly accept 'value_sum' or 'event_count_sum'."
-          )
-        elif "bytes" in m_lower and m_type_val != "value_sum":
-          errors.append(
-              f"METRIC_TYPE_MISMATCH in root stage: Byte-volume metric 'metrics.{m_name}' must use 'metric: value_sum', found '{m_type_val}'."
-          )
-        elif "bytes" not in m_lower and m_type_val == "value_sum":
-          errors.append(
-              f"METRIC_TYPE_MISMATCH in root stage: Count-based metric 'metrics.{m_name}' must use 'metric: event_count_sum', found '{m_type_val}'."
-          )
+    # Check root stage metric calls
+    errors.extend(MalachiteASTValidator._validate_metric_calls("root stage", root_body))
 
     # Check for events: header in root stage
     if re.search(r"^\s*events:\s*", root_body, re.MULTILINE):
@@ -1281,11 +1095,60 @@ class MalachiteASTValidator:
 
     # 4. Multi-Sector Fusion Architecture Validation
     if "MULTI_SECTOR" in query_text.upper() or "MULTI-SECTOR" in query_text.upper():
-      if len(named_stages) < 3:
-        errors.append(f"PIPELINE ARCHITECTURE MISMATCH: Multi-Sector Threat Fusion requires 3 distinct extractor stages (found {len(named_stages)}).")
-        errors.append(f"STAGE PARITY ERROR: Stage count ({len(named_stages)}) does not match required telemetry sectors (3).")
+      min_required_stages = 3 if "4-STAGE" in query_text.upper() else 2
+      if len(named_stages) < min_required_stages:
+        errors.append(
+            f"PIPELINE ARCHITECTURE MISMATCH: Multi-Sector Threat Fusion requires {min_required_stages} distinct extractor stages (found {len(named_stages)})."
+        )
+        errors.append(
+            f"STAGE PARITY ERROR: Stage count ({len(named_stages)}) does not match required telemetry sectors ({min_required_stages})."
+        )
 
     return errors
+
+  @staticmethod
+  def _extract_stage_blocks(query_text: str) -> Tuple[List[Tuple[str, str]], str]:
+    """Extracts named stage blocks and the trailing root stage using balanced braces (ignoring {{...}} placeholders)."""
+    masked = re.sub(r"\{\{[^}]*\}\}", lambda m: "_" * len(m.group(0)), query_text)
+    stages: List[Tuple[str, str]] = []
+    last_end = 0
+    for m in re.finditer(r"\bstage\s+(\$?[a-zA-Z0-9_]+)\s*\{", masked):
+      sname = m.group(1)
+      start_brace = m.end() - 1
+      depth = 0
+      i = start_brace
+      while i < len(masked):
+        if masked[i] == "{":
+          depth += 1
+        elif masked[i] == "}":
+          depth -= 1
+          if depth == 0:
+            stages.append((sname, query_text[start_brace + 1 : i]))
+            last_end = max(last_end, i + 1)
+            break
+        i += 1
+    return stages, query_text[last_end:]
+
+  @staticmethod
+  def _count_stage_data_sources(body: str, named_stage_set: Set[str]) -> Tuple[int, int]:
+    """Counts distinct UDM event sources and ECG ('entity') sources within a single stage body."""
+    clean = re.sub(r"//[^\n]*", "", body)
+    clean = re.sub(r"/\*.*?\*/", "", clean, flags=re.DOTALL)
+    clean = re.sub(r"\{\{[^}]*\}\}", "", clean)
+    clean = re.sub(r'"(?:\\.|[^"\\])*"', '""', clean)
+    clean = re.sub(r"/(?:\\.|[^/\\])+/", "//", clean)
+    # Strip metrics.*(...) calls so dimension filter keys inside UEBA functions are not counted as UDM event sources
+    no_metrics = re.sub(r"metrics\.[a-zA-Z0-9_]+\s*\([^)]*\)", "", clean, flags=re.DOTALL)
+
+    ecg_aliases = set(re.findall(r"\$([a-zA-Z0-9_]+)\.graph\.", no_metrics)) - named_stage_set
+    unprefixed_ecg = bool(re.search(r"(?<![a-zA-Z0-9_$.])\bgraph\.(?:entity|metadata|relations)\b", no_metrics))
+    ecg_count = len(ecg_aliases) + (1 if unprefixed_ecg else 0)
+
+    udm_roots = r"(?:metadata|principal|target|src|observer|intermediary|about|network|security_result|additional|extensions)"
+    udm_aliases = set(re.findall(rf"\$([a-zA-Z0-9_]+)\.{udm_roots}\.", no_metrics)) - named_stage_set
+    unprefixed_udm = bool(re.search(rf"(?<![a-zA-Z0-9_$.])\b{udm_roots}\.", no_metrics))
+    udm_count = len(udm_aliases) + (1 if unprefixed_udm else 0)
+    return udm_count, ecg_count
 
   @staticmethod
   def _check_arithmetic_in_event_section(stage_name: str, event_part: str) -> List[str]:

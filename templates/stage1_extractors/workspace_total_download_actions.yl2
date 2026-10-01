@@ -1,6 +1,10 @@
 // Stage 1: Google Workspace File Downloads & 30d Baseline
+// Identifier swap: this extractor keys on `principal.user.userid`. Any ONE field below is valid alone for workspace_total_download_actions;
+//   replace it in the event binding AND in every metrics call, keeping the same variable:
+//   - PRINCIPAL_USER (principal.user.userid | email_addresses | employee_id | product_object_id | windows_sid)
+//   ip, mac and email_addresses are repeated fields: one event can count toward several entities.
 stage stage1_extract {
-    metadata.event_type = "USER_RESOURCE_ACCESS"
+    metadata.vendor_name = "Google Workspace"
     metadata.product_event_type = "download"
     principal.user.userid = $user
     $user != ""

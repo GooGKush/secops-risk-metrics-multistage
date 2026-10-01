@@ -5,22 +5,22 @@
 // Formula: Z_P = (k - lambda) / if(poisson_sigma > 0, poisson_sigma, 1.0) where poisson_sigma = math.sqrt(lambda)
 //
 // CONCRETE FIELD BINDING & INSTANTIATION GUIDE:
+// Slots event_filter / macro_event_filter: the metric's "Observed event filter" lines from references/metric-sector-catalog.md, one per line.
 // 1. Rare User Authentication Failures:
-//    - {{event_type}}: "USER_LOGIN", {{entity_field}}: target.user.userid, {{value_filter}}: security_result.action = "BLOCK"
-//    - {{observed_aggregation}}: count(metadata.id), {{target_metric_name}}: auth_attempts_fail
-//    - {{dimension_key}}: target.user.userid
+//    - event_filter slot: metadata.event_type = "USER_LOGIN" AND not security_result.action = "ALLOW", entity_field slot: target.user.userid
+//    - observed_aggregation slot: count(metadata.id), target_metric_name slot: auth_attempts_fail
+//    - dimension_key slot: target.user.userid
 // 2. Rare Failed File Executions:
-//    - {{event_type}}: "PROCESS_LAUNCH", {{entity_field}}: principal.asset.hostname
+//    - event_filter slot: metadata.event_type = "PROCESS_LAUNCH" AND not security_result.action = "ALLOW", entity_field slot: principal.asset.hostname
 //    - Companion Dimension: principal.process.file.sha256 = $sha (CRITICAL: NEVER target.process.file.sha256)
-//    - {{target_metric_name}}: file_executions_fail (requires metadata.event_type: $event_type, principal.asset.hostname: $entity, principal.process.file.sha256: $sha)
+//    - target_metric_name slot: file_executions_fail (requires metadata.event_type: $event_type, principal.asset.hostname: $entity, principal.process.file.sha256: $sha)
 // ============================================================================
 
 // Stage 1: Rare Telemetry Extraction & 30d Historical Lambda Lookup
 stage stage1_extract {
-    metadata.event_type = "{{event_type}}"
+    {{event_filter}}
     {{entity_field}} = $entity
     $entity != ""
-    {{value_filter}}
 
   match:
     $entity by 1d

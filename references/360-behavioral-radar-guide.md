@@ -202,7 +202,7 @@ order:
 * **Spoke Unit**: `actions` | **Dimension Scope**: `principal.user.userid`, `metadata.vendor_name`, `metadata.product_name`
 ```yara
 stage cloud_risk {
-    (metadata.event_type = "RESOURCE_CREATION" or metadata.event_type = "RESOURCE_DELETION" or metadata.event_type = "RESOURCE_WRITTEN" or metadata.event_type = "RESOURCE_PERMISSIONS_CHANGE")
+    (metadata.event_type = "RESOURCE_CREATION" or metadata.event_type = "USER_RESOURCE_CREATION")
     principal.user.userid = "%(entity_id)s"
     $user = principal.user.userid
     $vendor = metadata.vendor_name
@@ -245,7 +245,8 @@ order:
 * **Spoke Unit**: `downloads` | **Dimension Scope**: `principal.user.userid`
 ```yara
 stage workspace_risk {
-    metadata.event_type = "USER_RESOURCE_ACCESS"
+    metadata.vendor_name = "Google Workspace"
+    metadata.product_event_type = "download"
     principal.user.userid = "%(entity_id)s"
     $user = principal.user.userid
   match:
@@ -282,7 +283,8 @@ order:
 * **Spoke Unit**: `bytes` | **Dimension Scope**: `principal.user.userid`
 ```yara
 stage egress_risk {
-    metadata.event_type = "NETWORK_CONNECTION"
+    network.sent_bytes > 0
+    network.sent_bytes < 1000000000000000
     principal.user.userid = "%(entity_id)s"
     $user = principal.user.userid
   match:
@@ -319,7 +321,7 @@ order:
 * **Spoke Unit**: `queries` | **Dimension Scope**: `principal.user.userid`
 ```yara
 stage dns_risk {
-    metadata.event_type = "NETWORK_DNS"
+    (network.dns.questions.name != "" or network.dns.answers.name != "" or network.dns.id != 0)
     principal.user.userid = "%(entity_id)s"
     $user = principal.user.userid
   match:
@@ -356,7 +358,7 @@ order:
 * **Spoke Unit**: `requests` | **Dimension Scope**: `principal.user.userid`
 ```yara
 stage web_risk {
-    metadata.event_type = "NETWORK_HTTP"
+    (network.http.method != "" or network.http.user_agent != "" or network.http.response_code != 0 or network.http.referral_url != "")
     principal.user.userid = "%(entity_id)s"
     $user = principal.user.userid
   match:
@@ -400,10 +402,10 @@ When the entity is a Host (`ASSET`), telemetry scope maps across the 6 canonical
 | **Network Egress** | `metrics.network_bytes_outbound` | `principal.asset.hostname` |
 | **DNS Resolution** | `metrics.dns_queries_total` | `principal.asset.hostname` |
 | **Web & Proxy Activity** | `metrics.http_queries_total` | `principal.asset.hostname` |
-| **Cloud Infrastructure** | `metrics.resource_creation_total` | `principal.asset.hostname` (requires `metadata.vendor_name`, `metadata.product_name`) |
+| **Cloud Infrastructure** | `metrics.resource_creation_total` | Not host-bindable: every valid dimension set needs `principal.user.userid` or `target.user.userid` plus `metadata.vendor_name` and `metadata.product_name`. Report the Deterministic Nominal Baseline ($Z = 0.00\sigma$) for hosts. |
 | **Endpoint Activity** | `metrics.file_executions_total` | `principal.asset.hostname` (requires `principal.process.file.sha256: $sha`, `metadata.event_type: "PROCESS_LAUNCH"`) |
 
-*(Note on Host-Level Multi-Sector Fusion & Endpoint Telemetry: For fleet-wide sweeps across all hosts—such as multi-sector threat fusion calculating composite threat distance $D$ across hosts—deploy the orthogonal single-dimension host vectors: **Authentication** (`metrics.auth_attempts_total` or `metrics.auth_attempts_fail`), **Network Egress** (`metrics.network_bytes_outbound`), and **DNS Resolution** (`metrics.dns_queries_total`), which natively bind directly to `principal.asset.hostname: $host`. In endpoint investigations, pair `metrics.file_executions_total` with its companion process hash (`principal.process.file.sha256: $sha`, `metadata.event_type = "PROCESS_LAUNCH"`). For security rule and EDR alert baselining, `metrics.alert_event_name_count` operates as a rule-scoped compound metric pairing the entity with `security_result.rule_name: $rule_name` under `SCAN_UNCATEGORIZED` (`templates/pipelines/radar_360_sector_alert.yl2` and `templates/stage1_extractors/alert_event_name_count.yl2`). In 2-stage queries, stage 1 (`alerts_risk`) matches `$host, $rule_name by 1d` to calculate rule-level Z-scores, and the root stage matches `$host by 1d` projecting peak risk via `$z = max($alerts_risk.z)`. All 6 canonical sectors (Authentication, Cloud Infrastructure, Workspace / Endpoint Activity, Network Egress, DNS Resolution, Web & Proxy Activity) MUST appear in the ranked triage report table. For Host/Asset scopes where Cloud Infrastructure or Workspace Data is quiet or unobserved, assign the Deterministic Nominal Baseline ($Z = 0.00\sigma$) so all 6 rows are always fully represented. All 6 sectors synthesize client-side into composite Euclidean Threat Distance $D = \sqrt{\sum_{i=1}^6 \max(0, Z_i)^2}$.*
+*(Note on Host-Level Multi-Sector Fusion & Endpoint Telemetry: For fleet-wide sweeps across all hosts—such as multi-sector threat fusion calculating composite threat distance $D$ across hosts—deploy the orthogonal single-dimension host vectors: **Authentication** (`metrics.auth_attempts_total` or `metrics.auth_attempts_fail`), **Network Egress** (`metrics.network_bytes_outbound`), and **DNS Resolution** (`metrics.dns_queries_total`), which natively bind directly to `principal.asset.hostname: $host`. In endpoint investigations, pair `metrics.file_executions_total` with its companion process hash (`principal.process.file.sha256: $sha`, `metadata.event_type = "PROCESS_LAUNCH"`). For security rule and EDR alert baselining, `metrics.alert_event_name_count` operates as a rule-scoped compound metric pairing the entity with `security_result.rule_name: $rule_name`; its baseline selects events by EDR `metadata.log_type` (see `references/metric-sector-catalog.md`), not by `metadata.event_type` (`templates/pipelines/radar_360_sector_alert.yl2` and `templates/stage1_extractors/alert_event_name_count.yl2`). In 2-stage queries, stage 1 (`alerts_risk`) matches `$host, $rule_name by 1d` to calculate rule-level Z-scores, and the root stage matches `$host by 1d` projecting peak risk via `$z = max($alerts_risk.z)`. All 6 canonical sectors (Authentication, Cloud Infrastructure, Workspace / Endpoint Activity, Network Egress, DNS Resolution, Web & Proxy Activity) MUST appear in the ranked triage report table. For Host/Asset scopes where Cloud Infrastructure or Workspace Data is quiet or unobserved, assign the Deterministic Nominal Baseline ($Z = 0.00\sigma$) so all 6 rows are always fully represented. All 6 sectors synthesize client-side into composite Euclidean Threat Distance $D = \sqrt{\sum_{i=1}^6 \max(0, Z_i)^2}$.*
 
 ---
 

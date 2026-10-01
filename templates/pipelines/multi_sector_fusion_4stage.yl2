@@ -1,133 +1,134 @@
 // ============================================================================
-// ARCHITECTURE: 4-STAGE MULTI-SECTOR THREAT FUSION (AUTH + CLOUD + PROC + NET)
+// ARCHITECTURE: 4-STAGE MULTI-SECTOR THREAT FUSION (GENERIC: SECTOR A + SECTOR B + FLEET NORM -> ROOT)
 // Skill: secops-risk-metrics-multistage
-// Purpose: Fuses orthogonal anomaly signals across IAM, Cloud, Endpoint, and Network into a single composite threat vector norm
-// Math: Composite Threat Norm D^2 = Z_auth^2 + Z_cloud^2 + Z_proc^2 + Z_net^2
+// Sector A: {{sector_a_label}}
+// Sector B: {{sector_b_label}}
+// Purpose: Fuses two independent anomaly signals for the same entity, plus each signal's deviation from the
+//          fleet-wide mean for the day, into one composite threat vector norm
+// Source Accounting: 2 UDM stages (sector_a, sector_b) <= 2 UDM limit + 1 stage-to-stage fleet norm + 1 root = 4 stages
+// Math: D^2 = Z_a^2 + Z_b^2 + dZ_a^2 + dZ_b^2, where dZ_x = max(0, Z_x - fleet mean of Z_x for the day)
+//       A sector scores 0 until its baseline has {{min_baseline_days}} active days (gated before the fleet mean).
+//
+// SLOT FILLING: take every value from the metric's row in references/metric-sector-catalog.md
+//   sector_X_event_filter      "Observed event filter" lines, one per line, indented 4 spaces
+//   sector_X_observed_agg      "Observed value" expression
+//   sector_X_metric            metric name (metrics.<name>)
+//   sector_X_metric_arg        "metric:" argument (value_sum for *_bytes_* metrics, else event_count_sum)
+//   sector_X_entity_field      one of the metric's "Entity identifier fields"
+// PAIRING RULES (apply them yourself; full list in references/metric-sector-catalog.md):
+//   1. Same entity kind in both sectors: user <-> user or device <-> device. Never user <-> host.
+//   2. Same identifier in both sectors: userid <-> userid, hostname <-> hostname, email_addresses <-> email_addresses.
+//      Principal vs. target does not matter (target.user.userid joins principal.user.userid).
+//   3. Each entity field must be listed for its metric (the compiler's exact dimension-set rule).
+//   4. Composite-only metrics (file_executions_*, resource_*, alert_event_name_count) have no entity-only
+//      baseline; use rollup_sector_fusion_4stage.yl2 / _5stage.yl2 to make one of them a roll-up sector.
 // ============================================================================
 
-// --- STAGE 1: Sector 1 - Authentication / Credential Access ---
-stage auth_sector {
-    metadata.event_type = "USER_LOGIN"
-    principal.user.userid = $user
-    $user != ""
+// --- STAGE 1: Sector A (UDM Source 1 of 2) ---
+stage sector_a {
+    {{sector_a_event_filter}}
+    {{sector_a_entity_field}} = $entity
+    $entity != ""
 
   match:
-    $user by 1d
+    $entity by 1d
 
   outcome:
-    $auth_obs = count(metadata.id)
-    $auth_avg = max(metrics.auth_attempts_total(
-        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
-        principal.user.userid: $user
+    $a_obs = {{sector_a_observed_agg}}
+    $a_avg = max(metrics.{{sector_a_metric}}(
+        period: 1d, window: 30d, metric: {{sector_a_metric_arg}}, agg: avg,
+        {{sector_a_entity_field}}: $entity
     ))
-    $auth_std = max(metrics.auth_attempts_total(
-        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
-        principal.user.userid: $user
+    $a_std = max(metrics.{{sector_a_metric}}(
+        period: 1d, window: 30d, metric: {{sector_a_metric_arg}}, agg: stddev,
+        {{sector_a_entity_field}}: $entity
     ))
-    $z_auth = ($auth_obs - $auth_avg) / if($auth_std > 0, $auth_std, 1.0)
+    $a_days = max(metrics.{{sector_a_metric}}(
+        period: 1d, window: 30d, metric: {{sector_a_metric_arg}}, agg: num_metric_periods,
+        {{sector_a_entity_field}}: $entity
+    ))
+    $z_a_raw = ($a_obs - $a_avg) / if($a_std > 0, $a_std, 1.0)
+    $z_a_pos = if($z_a_raw > 0, $z_a_raw, 0.0)
+    $z_a = if($a_days >= {{min_baseline_days}}, $z_a_pos, 0.0)
 }
 
-// --- STAGE 2: Sector 2 - Cloud Infrastructure CRUD ---
-stage cloud_sector {
-    metadata.event_type = "RESOURCE_WRITTEN"
-    principal.user.userid = $user
-    metadata.vendor_name = $c_vendor
-    metadata.product_name = $c_product
-    $user != ""
+// --- STAGE 2: Sector B (UDM Source 2 of 2) ---
+stage sector_b {
+    {{sector_b_event_filter}}
+    {{sector_b_entity_field}} = $entity
+    $entity != ""
 
   match:
-    $user, $c_vendor, $c_product by 1d
+    $entity by 1d
 
   outcome:
-    $cloud_obs = count(metadata.id)
-    $cloud_avg = max(metrics.resource_written_total(
-        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
-        principal.user.userid: $user,
-        metadata.vendor_name: $c_vendor,
-        metadata.product_name: $c_product
+    $b_obs = {{sector_b_observed_agg}}
+    $b_avg = max(metrics.{{sector_b_metric}}(
+        period: 1d, window: 30d, metric: {{sector_b_metric_arg}}, agg: avg,
+        {{sector_b_entity_field}}: $entity
     ))
-    $cloud_std = max(metrics.resource_written_total(
-        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
-        principal.user.userid: $user,
-        metadata.vendor_name: $c_vendor,
-        metadata.product_name: $c_product
+    $b_std = max(metrics.{{sector_b_metric}}(
+        period: 1d, window: 30d, metric: {{sector_b_metric_arg}}, agg: stddev,
+        {{sector_b_entity_field}}: $entity
     ))
-    $z_cloud = ($cloud_obs - $cloud_avg) / if($cloud_std > 0, $cloud_std, 1.0)
+    $b_days = max(metrics.{{sector_b_metric}}(
+        period: 1d, window: 30d, metric: {{sector_b_metric_arg}}, agg: num_metric_periods,
+        {{sector_b_entity_field}}: $entity
+    ))
+    $z_b_raw = ($b_obs - $b_avg) / if($b_std > 0, $b_std, 1.0)
+    $z_b_pos = if($z_b_raw > 0, $z_b_raw, 0.0)
+    $z_b = if($b_days >= {{min_baseline_days}}, $z_b_pos, 0.0)
 }
 
-// --- STAGE 3: Sector 3 - Endpoint Administrative Tools / LOLBins ---
-stage proc_sector {
-    metadata.event_type = "PROCESS_LAUNCH"
-    principal.user.userid = $user
-    principal.process.file.sha256 = $p_hash
-    metadata.event_type = $p_event
-    $user != ""
+// --- STAGE 3: Cross-Sectional Fleet Sector Normalization (Stage-to-Stage Source) ---
+stage fleet_sector_norm {
+    $ws = $sector_a.window_start
+    $ws = $sector_b.window_start
+    $e = $sector_a.entity
+    $e = $sector_b.entity
 
   match:
-    $user, $p_hash, $p_event by 1d
+    $ws
 
   outcome:
-    $proc_obs = count(metadata.id)
-    $proc_avg = max(metrics.file_executions_total(
-        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
-        principal.user.userid: $user,
-        principal.process.file.sha256: $p_hash,
-        metadata.event_type: $p_event
-    ))
-    $proc_std = max(metrics.file_executions_total(
-        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
-        principal.user.userid: $user,
-        principal.process.file.sha256: $p_hash,
-        metadata.event_type: $p_event
-    ))
-    $z_proc = ($proc_obs - $proc_avg) / if($proc_std > 0, $proc_std, 1.0)
-}
-
-// --- STAGE 4: Sector 4 - Network Egress Data Volume ---
-stage net_sector {
-    metadata.event_type = "NETWORK_CONNECTION"
-    principal.user.userid = $user
-    $user != ""
-
-  match:
-    $user by 1d
-
-  outcome:
-    $net_bytes_obs = sum(network.sent_bytes)
-    $net_bytes_avg = max(metrics.network_bytes_outbound(
-        period: 1d, window: 30d, metric: value_sum, agg: avg,
-        principal.user.userid: $user
-    ))
-    $net_bytes_std = max(metrics.network_bytes_outbound(
-        period: 1d, window: 30d, metric: value_sum, agg: stddev,
-        principal.user.userid: $user
-    ))
-    $z_net = ($net_bytes_obs - $net_bytes_avg) / if($net_bytes_std > 0, $net_bytes_std, 1.0)
+    $fleet_z_a_avg = avg($sector_a.z_a)
+    $fleet_z_b_avg = avg($sector_b.z_b)
 }
 
 // --- ROOT STAGE: Multi-Sector Threat Fusion & Distance Scoring ---
-$user = $auth_sector.user
-$user = $cloud_sector.user
-$user = $proc_sector.user
-$user = $net_sector.user
+$entity = $sector_a.entity
+$entity = $sector_b.entity
+$ws = $sector_a.window_start
+$ws = $sector_b.window_start
+$ws = $fleet_sector_norm.ws
 
 match:
-  $user by 1d
+  $entity, $ws by 1d
 
 outcome:
-  // Sector Z-Scores fused from Stages 1-4
-  $z_auth = max($auth_sector.z_auth)
-  $z_cloud = max($cloud_sector.z_cloud)
-  $z_proc = max($proc_sector.z_proc)
-  $z_net = max($net_sector.z_net)
+  $a_observed = max($sector_a.a_obs)
+  $b_observed = max($sector_b.b_obs)
+  $a_active_days = max($sector_a.a_days)
+  $b_active_days = max($sector_b.b_days)
 
-  // Euclidean Vector Threat Norm D^2 = Z_auth^2 + Z_cloud^2 + Z_proc^2 + Z_net^2
-  $z_auth_sq = $z_auth * $z_auth
-  $z_cloud_sq = $z_cloud * $z_cloud
-  $z_proc_sq = $z_proc * $z_proc
-  $z_net_sq = $z_net * $z_net
-  $composite_threat_norm_sq = $z_auth_sq + $z_cloud_sq + $z_proc_sq + $z_net_sq
+  // Personal sector Z-scores (already rectified and baseline-gated in Stages 1-2)
+  $z_a = max($sector_a.z_a)
+  $z_b = max($sector_b.z_b)
+
+  // Fleet-normalized sector Delta-Z scores from Stage 3
+  $fleet_a_mu = max($fleet_sector_norm.fleet_z_a_avg)
+  $fleet_b_mu = max($fleet_sector_norm.fleet_z_b_avg)
+  $dz_a_raw = $z_a - $fleet_a_mu
+  $dz_b_raw = $z_b - $fleet_b_mu
+  $delta_z_a = if($dz_a_raw > 0, $dz_a_raw, 0.0)
+  $delta_z_b = if($dz_b_raw > 0, $dz_b_raw, 0.0)
+
+  // Euclidean Vector Threat Norm D^2 = Z_a^2 + Z_b^2 + dZ_a^2 + dZ_b^2
+  $z_a_sq = $z_a * $z_a
+  $z_b_sq = $z_b * $z_b
+  $dz_a_sq = $delta_z_a * $delta_z_a
+  $dz_b_sq = $delta_z_b * $delta_z_b
+  $composite_threat_norm_sq = $z_a_sq + $z_b_sq + $dz_a_sq + $dz_b_sq
 
 order:
   $composite_threat_norm_sq desc
-

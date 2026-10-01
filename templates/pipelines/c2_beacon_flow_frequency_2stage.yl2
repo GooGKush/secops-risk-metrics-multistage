@@ -10,10 +10,10 @@
 
 // Stage 1: Personal Host Outbound Flow Baseline & Payload Density Derivation
 stage stage1_outbound_flow_frequency {
-    metadata.event_type = "NETWORK_CONNECTION"
+    network.sent_bytes > 0
+    network.sent_bytes < 1000000000000000
     principal.asset.hostname = $host
     $host != ""
-    network.sent_bytes != 0
 
   match:
     $host by 1d
@@ -45,10 +45,10 @@ stage stage1_outbound_flow_frequency {
 
 // Stage 2: Target Destination & Port Dispersion (C2 Infrastructure Breadth)
 stage stage2_target_dispersion {
-    metadata.event_type = "NETWORK_CONNECTION"
+    network.sent_bytes > 0
+    network.sent_bytes < 1000000000000000
     principal.asset.hostname = $host
     $host != ""
-    network.sent_bytes != 0
 
   match:
     $host by 1d

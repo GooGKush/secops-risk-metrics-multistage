@@ -8,7 +8,7 @@
 // ============================================================================
 
 stage web_http_risk {
-    metadata.event_type = "NETWORK_HTTP"
+    (network.http.method != "" or network.http.user_agent != "" or network.http.response_code != 0 or network.http.referral_url != "")
     principal.user.userid = $user
     $user != ""
 

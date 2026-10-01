@@ -1,6 +1,7 @@
 """Unit tests for MultiStageTemplateRouter and Multi-Database Account Binding."""
 
 import unittest
+from scripts import malachite_catalog as mc
 from scripts.preflight_validator import EntityType, MatchMode, PipelineArchitecture, StatisticalModel
 from scripts.statistical_validator import StatisticalAntipatternAuditor
 from scripts.template_router import MultiStageTemplateRouter
@@ -254,7 +255,9 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
         PipelineArchitecture.RADAR_360_SECTOR_WEB_HTTP,
     )
     self.assertIn("stage web_http_risk", query)
-    self.assertIn("metadata.event_type = \"NETWORK_HTTP\"", query)
+    # The baseline counts HTTP-populated events of any event_type, so the stage must too.
+    self.assertIn(mc.baseline_semantics("http_queries_total").observed_filter[0], query)
+    self.assertNotIn('metadata.event_type = "NETWORK_HTTP"', query)
     self.assertIn("metrics.http_queries_total", query)
     self.assertIn("principal.user.userid = $user", query)
     self.assertIn("order:\n  $z desc", query)
@@ -265,7 +268,9 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
         PipelineArchitecture.RADAR_360_SECTOR_ALERT,
     )
     self.assertIn("stage alerts_risk", query)
-    self.assertIn('metadata.event_type = "SCAN_UNCATEGORIZED"', query)
+    # The alert baseline selects EDR log types; SCAN_UNCATEGORIZED is not its filter.
+    self.assertIn(mc.baseline_semantics("alert_event_name_count").observed_filter[0], query)
+    self.assertNotIn("SCAN_UNCATEGORIZED", query)
     self.assertIn("metrics.alert_event_name_count", query)
     self.assertIn("security_result.rule_name = $rule_name", query)
     self.assertIn("security_result.rule_name: $rule_name", query)
@@ -284,7 +289,10 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
         hypothesis_goal="Evaluate alice against web peers across HTTP triad",
     )
     self.assertIn("stage all_entities {", query)
-    self.assertIn("metadata.event_type = \"NETWORK_HTTP\"", query)
+    self.assertIn("    " + mc.baseline_semantics("http_queries_total").observed_filter[0] + "\n", query)
+    # Fail / success are conditional counts over the shared HTTP population.
+    self.assertIn("$m2_obs = sum(if(network.http.response_code >= 400, 1, 0))", query)
+    self.assertIn("$m3_obs = sum(if(network.http.response_code < 400, 1, 0))", query)
     self.assertIn("metrics.http_queries_total", query)
     self.assertIn("metrics.http_queries_fail", query)
     self.assertIn("metrics.http_queries_success", query)

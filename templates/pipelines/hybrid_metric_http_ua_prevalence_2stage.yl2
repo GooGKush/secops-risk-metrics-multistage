@@ -10,7 +10,7 @@
 
 // Stage 1: Personal Host User-Agent Baseline Surge (metrics.http_queries_total)
 stage stage1_personal_surge {
-    metadata.event_type = "NETWORK_HTTP"
+    (network.http.method != "" or network.http.user_agent != "" or network.http.response_code != 0 or network.http.referral_url != "")
     principal.asset.hostname = $entity
     $entity != ""
     network.http.user_agent = $token
@@ -43,7 +43,7 @@ stage stage1_personal_surge {
 
 // Stage 2: Enterprise-Wide Concurrent Fleet Adoption of the User-Agent (UDM_EVENTS)
 stage stage2_fleet_prevalence {
-    metadata.event_type = "NETWORK_HTTP"
+    (network.http.method != "" or network.http.user_agent != "" or network.http.response_code != 0 or network.http.referral_url != "")
     network.http.user_agent = $token
     $token != ""
 

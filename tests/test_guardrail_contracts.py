@@ -742,6 +742,81 @@ class TestGuardrailContracts(unittest.TestCase):
     errors_rule = MalachiteASTValidator.validate_query(bad_detection_rule)
     self.assertTrue(any("INVALID_DETECTION_RULE_SYNTAX" in e for e in errors_rule))
 
+  def test_malachite_ast_validator_enforces_udm_and_ecg_source_limits(self):
+    """MalachiteASTValidator must reject >2 UDM event stages (3 > 2) and >1 ECG stages (2 > 1), and all pipeline templates must comply."""
+    from scripts.preflight_validator import MalachiteASTValidator
+
+    three_udm_stages_query = """
+    // ARCHITECTURE: 3-SECTOR HOST THREAT FUSION
+    stage auth_sector {
+      metadata.event_type = "USER_LOGIN"
+      principal.asset.hostname = $host
+      match: $host by 1d
+      outcome: $obs = count(metadata.id)
+    }
+    stage net_sector {
+      metadata.event_type = "NETWORK_CONNECTION"
+      principal.asset.hostname = $host
+      match: $host by 1d
+      outcome: $obs = sum(network.sent_bytes)
+    }
+    stage dns_sector {
+      metadata.event_type = "NETWORK_DNS"
+      principal.asset.hostname = $host
+      match: $host by 1d
+      outcome: $obs = count(metadata.id)
+    }
+    $host = $auth_sector.host
+    $host = $net_sector.host
+    $host = $dns_sector.host
+    match: $host by 1d
+    outcome: $total = max($auth_sector.obs)
+    """
+    udm_errors = MalachiteASTValidator.validate_query(three_udm_stages_query)
+    self.assertTrue(
+        any("UDM_SOURCE_LIMIT_EXCEEDED" in e and "3 > 2" in e for e in udm_errors),
+        f"Expected UDM_SOURCE_LIMIT_EXCEEDED (3 > 2), got: {udm_errors}",
+    )
+
+    two_ecg_stages_query = """
+    // Goal: Test 2 ECG stages rejection
+    stage ecg_file {
+      $g1.graph.metadata.entity_type = "FILE"
+      $g1.graph.entity.file.sha256 = $sha
+      match: $sha
+      outcome: $c1 = count($g1.graph.metadata.entity_type)
+    }
+    stage ecg_domain {
+      $g2.graph.metadata.entity_type = "DOMAIN_NAME"
+      $g2.graph.entity.hostname = $sha
+      match: $sha
+      outcome: $c2 = count($g2.graph.metadata.entity_type)
+    }
+    $sha = $ecg_file.sha
+    $sha = $ecg_domain.sha
+    match: $sha
+    outcome: $tot = max($ecg_file.c1)
+    """
+    ecg_errors = MalachiteASTValidator.validate_query(two_ecg_stages_query)
+    self.assertTrue(
+        any("ECG_SOURCE_LIMIT_EXCEEDED" in e and "2 > 1" in e for e in ecg_errors),
+        f"Expected ECG_SOURCE_LIMIT_EXCEEDED (2 > 1), got: {ecg_errors}",
+    )
+
+    # Every pipeline template in templates/pipelines/ must have <= 2 UDM sources and <= 1 ECG source
+    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    pipelines_dir = os.path.join(skill_dir, "templates", "pipelines")
+    for fpath in sorted(glob.glob(os.path.join(pipelines_dir, "*.yl2"))):
+      with open(fpath, "r", encoding="utf-8") as f:
+        raw = f.read()
+      errs = MalachiteASTValidator.validate_query(raw)
+      source_limit_errs = [e for e in errs if "SOURCE_LIMIT_EXCEEDED" in e]
+      self.assertEqual(
+          source_limit_errs,
+          [],
+          f"Pipeline template {os.path.basename(fpath)} violated data source limits: {source_limit_errs}",
+      )
+
   def test_malachite_ast_validator_catches_unbound_match_variable(self):
     """MalachiteASTValidator must detect unbound match variables in stage and root sections."""
     bad_query = """
@@ -892,7 +967,7 @@ class TestGuardrailContracts(unittest.TestCase):
     # 3. Valid HTTP query with host + user_agent + target.hostname
     valid_http_query = """
     stage s1 {
-      metadata.event_type = "NETWORK_HTTP"
+      (network.http.method != "" or network.http.user_agent != "" or network.http.response_code != 0 or network.http.referral_url != "")
       $host = principal.asset.hostname
       $ua = network.http.user_agent
       $target = target.hostname
@@ -1064,7 +1139,7 @@ class TestGuardrailContracts(unittest.TestCase):
     invalid_cloud_query = """
     // Goal: Test invalid cloud read without vendor and product
     stage stage1_extract {
-      metadata.event_type = "RESOURCE_READ"
+      (metadata.event_type = "RESOURCE_READ" or metadata.event_type = "USER_RESOURCE_ACCESS")
       principal.user.userid = "admin"
       $user = principal.user.userid
       match: $user by 1d
@@ -1087,7 +1162,7 @@ class TestGuardrailContracts(unittest.TestCase):
     valid_cloud_query = """
     // Goal: Test valid cloud read with vendor and product
     stage stage1_extract {
-      metadata.event_type = "RESOURCE_READ"
+      (metadata.event_type = "RESOURCE_READ" or metadata.event_type = "USER_RESOURCE_ACCESS")
       principal.user.userid = "admin"
       $user = principal.user.userid
       $v = metadata.vendor_name
@@ -1115,7 +1190,7 @@ class TestGuardrailContracts(unittest.TestCase):
     invalid_alert_query = """
     // Goal: Test invalid alert query missing rule name
     stage stage1_extract {
-      metadata.event_type = "SCAN_UNCATEGORIZED"
+      (metadata.log_type = "CB_EDR" or metadata.log_type = "CS_EDR" or metadata.log_type = "MICROSOFT_GRAPH_ALERT" or metadata.log_type = "SENTINELONE_ALERTS")
       principal.asset.hostname = "srv-01"
       $h = principal.asset.hostname
       match: $h by 1d
@@ -1138,7 +1213,7 @@ class TestGuardrailContracts(unittest.TestCase):
     valid_alert_query = """
     // Goal: Test valid alert query with companion rule name
     stage stage1_extract {
-      metadata.event_type = "SCAN_UNCATEGORIZED"
+      (metadata.log_type = "CB_EDR" or metadata.log_type = "CS_EDR" or metadata.log_type = "MICROSOFT_GRAPH_ALERT" or metadata.log_type = "SENTINELONE_ALERTS")
       principal.asset.hostname = "srv-01"
       security_result.rule_name = "Mimikatz_Execution"
       $h = principal.asset.hostname
@@ -1261,7 +1336,11 @@ class TestGuardrailContracts(unittest.TestCase):
     self.assertIn("Consultative Pivot & Handoff Protocol", skill_content)
     self.assertIn("ZERO FORCED JOINS", skill_content)
     self.assertIn("secops-statistical-hunter", skill_content)
-    self.assertIn("NEVER bind `principal.user.userid` to file metrics", skill_content)
+    # Metric filter arguments come from the config-derived catalog (SKILL.md is always loaded, so
+    # the pointer must live here, not only in references/).
+    self.assertIn("references/metric-sector-catalog.md", skill_content)
+    self.assertIn("filter args must equal one valid dimension set", skill_content)
+    self.assertIn("NEVER force cross-entity joins", skill_content)
 
     # Deep Reference in multi-stage guide
     self.assertIn("Metric Entity Affinity, Cross-Entity Boundaries & The Consultative Pivot Protocol", guide_content)

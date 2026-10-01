@@ -6,6 +6,7 @@
 import re
 import unittest
 
+from scripts import malachite_catalog as mc
 from scripts.preflight_validator import EntityType, MalachiteASTValidator, PipelineArchitecture
 from scripts.statistical_validator import StatisticalAntipatternAuditor
 from scripts.template_router import MultiStageTemplateRouter
@@ -36,7 +37,9 @@ class TestHybridPipelines(unittest.TestCase):
 
     # 2. Stage 1 Macro Baseline
     self.assertIn("stage stage1_macro_baseline {", query)
-    self.assertIn('metadata.event_type = "NETWORK_CONNECTION"', query)
+    for line in mc.baseline_semantics("network_bytes_outbound").observed_filter:
+      self.assertIn(line, query)
+    self.assertNotIn('metadata.event_type = "NETWORK_CONNECTION"', query.split("stage stage2_raw_telemetry")[0])
     self.assertIn("principal.asset.hostname = $entity", query)
     self.assertIn("metrics.network_bytes_outbound(", query)
     self.assertIn("$z_score = ($observed_val - $hist_mean) / if($hist_stddev > 0, $hist_stddev, 1.0)", query)
@@ -340,7 +343,11 @@ class TestHybridPipelines(unittest.TestCase):
     self.assertIn("metrics.dns_queries_total(", query)
     self.assertIn("network.dns_domain: $domain", query)
     self.assertIn("network.dns_domain = $domain", query)
-    self.assertNotIn("network.dns.questions.name", query)
+    # The DNS-present observed filter reads network.dns.questions.name (baseline alignment), but the
+    # field must never be a metric filter arg or the domain binding.
+    self.assertIn(mc.baseline_semantics("dns_queries_total").observed_filter[0], query)
+    self.assertNotIn("network.dns.questions.name:", query)
+    self.assertNotIn("network.dns.questions.name = $", query)
     stage1_code = query[query.index("stage stage1_query_baseline"):]
     self.assertNotIn("target.hostname", stage1_code)
     self.assertIn("stage stage2_domain_derived_context {", query)
@@ -363,7 +370,9 @@ class TestHybridPipelines(unittest.TestCase):
     self.assertIn("metrics.dns_queries_total(", query)
     self.assertIn("network.dns_domain: $domain", query)
     self.assertIn("network.dns_domain = $domain", query)
-    self.assertNotIn("network.dns.questions.name", query)
+    self.assertIn(mc.baseline_semantics("dns_queries_total").observed_filter[0], query)
+    self.assertNotIn("network.dns.questions.name:", query)
+    self.assertNotIn("network.dns.questions.name = $", query)
     stage1_code = query[query.index("stage stage1_egress_baseline"):]
     self.assertNotIn("target.hostname", stage1_code)
     self.assertIn("stage stage2_whois_lifecycle {", query)

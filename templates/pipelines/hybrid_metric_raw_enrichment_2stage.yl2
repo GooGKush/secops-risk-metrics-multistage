@@ -8,15 +8,15 @@
 // Invariant: Both stages MUST share identical match key ($entity) and window (by 1d).
 //
 // CANONICAL UDM SIGNATURE FIELD GUIDANCE (DO NOT HALLUCINATE):
-// - NETWORK_HTTP: {{raw_signature_field}} MUST be network.http.user_agent (NOT target.user_agent)
-// - PROCESS_LAUNCH: {{raw_signature_field}} MUST be principal.process.file.sha256 or principal.process.command_line
-// - USER_LOGIN: {{raw_signature_field}} MUST be principal.ip or principal.asset.hostname
+// - NETWORK_HTTP: raw_signature_field slot MUST be network.http.user_agent (NOT target.user_agent)
+// - PROCESS_LAUNCH: raw_signature_field slot MUST be principal.process.file.sha256 or principal.process.command_line
+// - USER_LOGIN: raw_signature_field slot MUST be principal.ip or principal.asset.hostname
 // See references/udm-hunting-field-dictionary.md for complete canonical mapping.
+// macro_event_filter slot: the metric's "Observed event filter" lines from references/metric-sector-catalog.md, one per line.
 // ============================================================================
 
 // Stage 1: Macro 30-Day Volumetric Baseline Outlier Sieve (metrics.*)
 stage stage1_macro_baseline {
-    metadata.event_type = "{{macro_event_type}}"
     {{macro_entity_field}} = $entity
     $entity != ""
     {{macro_event_filter}}

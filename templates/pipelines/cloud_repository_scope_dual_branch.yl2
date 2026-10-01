@@ -14,8 +14,11 @@
 stage stage1_extract {
     (
         metadata.event_type = "RESOURCE_READ" or
+        metadata.event_type = "USER_RESOURCE_ACCESS" or
         metadata.event_type = "RESOURCE_DELETION" or
-        metadata.event_type = "RESOURCE_WRITTEN"
+        metadata.event_type = "USER_RESOURCE_DELETION" or
+        metadata.event_type = "RESOURCE_WRITTEN" or
+        metadata.event_type = "USER_RESOURCE_UPDATE_CONTENT"
     )
     $sa = principal.user.userid
     $vendor = metadata.vendor_name
@@ -32,9 +35,10 @@ stage stage1_extract {
     $sa, $vendor, $product, $resource, $ip by 1d
 
   outcome:
-    $observed_reads = sum(if(metadata.event_type = "RESOURCE_READ", 1, 0))
-    $observed_writes = sum(if(metadata.event_type = "RESOURCE_WRITTEN", 1, 0))
-    $observed_deletes = sum(if(metadata.event_type = "RESOURCE_DELETION", 1, 0))
+    // Each count matches its resource_*_total baseline population (see references/metric-sector-catalog.md)
+    $observed_reads = sum(if(metadata.event_type = "RESOURCE_READ" or metadata.event_type = "USER_RESOURCE_ACCESS", 1, 0))
+    $observed_writes = sum(if(metadata.event_type = "RESOURCE_WRITTEN" or metadata.event_type = "USER_RESOURCE_UPDATE_CONTENT", 1, 0))
+    $observed_deletes = sum(if(metadata.event_type = "RESOURCE_DELETION" or metadata.event_type = "USER_RESOURCE_DELETION", 1, 0))
 
     // 1. Destination Resource Baseline (Local-Baseline Isolation)
     $dest_avg = max(metrics.resource_read_total(

@@ -5,8 +5,27 @@ __version__ = "2.1.1"
 
 from pathlib import Path
 import re
-from typing import List, Optional
-from .preflight_validator import EntityType, MatchMode, PipelineArchitecture, PreFlightValidator, StatisticalModel
+from typing import List, Optional, Sequence
+from . import malachite_catalog as mc
+from .preflight_validator import METRIC_CATALOG, EntityType, MalachiteASTValidator, MatchMode, PipelineArchitecture, PreFlightValidator, StatisticalModel
+
+
+def _fill_event_filter(rendered: str, slot: str, lines: Sequence[str], indent: str = "    ") -> str:
+  """Fills a stand-alone filter slot line with one predicate per line (or drops the line)."""
+  if lines:
+    return rendered.replace(slot, ("\n" + indent).join(lines))
+  return re.sub(r"^[ \t]*" + re.escape(slot) + r"[ \t]*\n", "", rendered, flags=re.M)
+
+
+def _swap_identifier_leaf(field: str, target_field: str) -> str:
+  """Applies target_field's identifier leaf (userid, email_addresses, ...) to a raw companion field."""
+  leaf = target_field.rsplit(".", 1)[-1]
+  candidate = field.rsplit(".", 1)[0] + "." + leaf
+  try:
+    mc.entity_binding_for_field(candidate)
+  except ValueError:
+    return field
+  return candidate
 
 
 class MultiStageTemplateRouter:
@@ -17,6 +36,165 @@ class MultiStageTemplateRouter:
       self.template_dir = Path(__file__).resolve().parent.parent / "templates"
     else:
       self.template_dir = template_dir
+    self.last_advisories: List[str] = []
+
+  # Default sector pair when a fusion pipeline is requested without explicit metrics.
+  DEFAULT_FUSION_METRICS = ("auth_attempts_fail", "network_bytes_outbound")
+
+  # ---------------------------------------------------------------------------
+  # Entity binding helpers
+  # ---------------------------------------------------------------------------
+
+  @staticmethod
+  def _sector_entity_field(metric: str, entity_type: EntityType, identifier_field: Optional[str]) -> str:
+    """Entity key field for one fusion sector (validated), or the raw request for check_fusion_pair to reject."""
+    if metric in METRIC_CATALOG and entity_type in METRIC_CATALOG[metric].supported_entity_types and not mc.is_composite_only(metric):
+      return PreFlightValidator.resolve_identifier_field(metric, entity_type, identifier_field)
+    if identifier_field and "." in identifier_field:
+      return identifier_field
+    return METRIC_CATALOG[metric].dimension_fields.get(entity_type, "") if metric in METRIC_CATALOG else ""
+
+  @staticmethod
+  def _strip_identifier_swap_note(stage1_content: str) -> str:
+    """Drops the extractor's '// Identifier swap:' authoring note (and its continuation lines).
+
+    The note tells an agent filling the template by hand which fields it may swap in. The router
+    binds the field itself, so the note would only leave a stale "keys on <old field>" comment.
+    """
+    out, skipping = [], False
+    for line in stage1_content.split("\n"):
+      if line.startswith("// Identifier swap:"):
+        skipping = True
+        continue
+      if skipping and line.startswith("//   "):
+        continue
+      skipping = False
+      out.append(line)
+    return "\n".join(out)
+
+  @staticmethod
+  def _rebind_entity_field(stage1_content: str, target_metric: str, target_field: str) -> str:
+    """Rebinds a Stage 1 extractor from its default entity field to `target_field`.
+
+    Swaps the event binding (`field = $var` or `$var = field`) and every metric filter
+    (`field: $var`) for the extractor's primary match variable, then re-checks each
+    metric call against the compiler's exact dimension-set rule.
+    """
+    match_var = re.search(r"match:\s+([$][a-zA-Z0-9_]+)", stage1_content)
+    if not match_var:
+      return stage1_content
+    var = match_var.group(1)
+    v = re.escape(var)
+    m = re.search(r"^\s*([a-z][a-zA-Z0-9_.]*)\s*=\s*" + v + r"\s*$", stage1_content, re.M) or re.search(
+        r"^\s*" + v + r"\s*=\s*([a-z][a-zA-Z0-9_.]*)\s*$", stage1_content, re.M
+    )
+    if not m:
+      return stage1_content
+    old_field = m.group(1)
+    if old_field == target_field:
+      return stage1_content
+    if re.search(r"(?<![\w.])" + re.escape(target_field) + r"\s*(?:=|:)", stage1_content):
+      # Composite extractor that already keys on target_field (e.g. target.resource.name next to the user).
+      return stage1_content
+    f = re.escape(old_field)
+    out = re.sub(r"^(\s*)" + f + r"(\s*=\s*" + v + r"\s*)$", r"\g<1>" + target_field + r"\g<2>", stage1_content, flags=re.M)
+    out = re.sub(r"^(\s*" + v + r"\s*=\s*)" + f + r"(\s*)$", r"\g<1>" + target_field + r"\g<2>", out, flags=re.M)
+    out = re.sub(r"\b" + f + r"(\s*:\s*" + v + r"\b)", target_field + r"\g<1>", out)
+    for metric, body in re.findall(r"metrics\.([a-zA-Z0-9_]+)\s*\(([^)]*)\)", out, re.S):
+      fields = [x for x in re.findall(r"([a-zA-Z0-9_.]+)\s*:", body) if x not in ("period", "window", "metric", "agg")]
+      err = mc.validate_filter_fields(metric, fields)
+      if err:
+        raise ValueError(f"Cannot key {target_metric} on {target_field}: {err}")
+    return out
+
+  @staticmethod
+  def _triad_event_selection(metrics: Sequence[str]):
+    """Shared stage filter + per-metric observed value; see malachite_catalog.triad_event_selection."""
+    return mc.triad_event_selection(metrics)
+
+  @staticmethod
+  def _inject_condition(rendered: str, default_score: str, condition_expression: Optional[str],
+                        min_threshold: Optional[float], max_threshold: Optional[float]) -> str:
+    order_match = re.search(r"order:\s*\n\s*([$][a-zA-Z0-9_]+)", rendered)
+    score_var = order_match.group(1) if order_match else default_score
+    if condition_expression:
+      cond = condition_expression
+    elif min_threshold is not None and max_threshold is not None:
+      cond = f"{score_var} >= {min_threshold} and {score_var} < {max_threshold}"
+    elif min_threshold is not None:
+      cond = f"{score_var} >= {min_threshold}"
+    elif max_threshold is not None:
+      cond = f"{score_var} <= {max_threshold}"
+    else:
+      return rendered
+    return re.sub(r"(\border:\s*)", f"condition:\n  {cond}\n\n\\1", rendered, count=1)
+
+  # ---------------------------------------------------------------------------
+  # Generic sector fusion
+  # ---------------------------------------------------------------------------
+
+  def build_sector_fusion_query(
+      self,
+      sector_a: "mc.SectorSpec",
+      sector_b: "mc.SectorSpec",
+      four_stage: bool = False,
+      min_baseline_days: int = 7,
+      hypothesis_goal: Optional[str] = None,
+      min_threshold: Optional[float] = None,
+      max_threshold: Optional[float] = None,
+      condition_expression: Optional[str] = None,
+  ) -> str:
+    """Renders a dual-sector (3-stage) or multi-sector (4-stage, fleet-normalized) fusion for ANY two
+    entity-keyed metrics. Pairing rules come from malachite_catalog.check_fusion_pair; advisories are
+    emitted as '// ADVISORY:' lines and kept in self.last_advisories.
+
+    If one sector is a composite-only metric (no entity-only baseline), it is rendered as a roll-up
+    sector in slot A of rollup_sector_fusion_4stage.yl2 (or _5stage.yl2 when four_stage is set)."""
+    if sector_b.is_rollup and not sector_a.is_rollup:
+      sector_a, sector_b = sector_b, sector_a  # the roll-up template's slot A is the roll-up sector
+    check = mc.check_fusion_pair(sector_a, sector_b)
+    if not check.ok:
+      raise ValueError("Invalid fusion pair: " + " ".join(check.errors))
+    self.last_advisories = list(check.advisories)
+
+    rollup = sector_a.is_rollup
+    if rollup:
+      name = "rollup_sector_fusion_5stage.yl2" if four_stage else "rollup_sector_fusion_4stage.yl2"
+    else:
+      name = "multi_sector_fusion_4stage.yl2" if four_stage else "dual_sector_fusion_3stage.yl2"
+    pipeline_file = self.template_dir / "pipelines" / name
+    if not pipeline_file.exists():
+      raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
+    rendered = pipeline_file.read_text().strip()
+
+    if rollup:
+      plan = sector_a.rollup()
+      rendered = _fill_event_filter(rendered, "{{sector_a_companion_bindings}}", plan.companion_bindings())
+      rendered = rendered.replace("{{sector_a_match_keys}}", plan.match_keys())
+      rendered = rendered.replace("{{sector_a_metric_filters}}", plan.metric_filters())
+      rendered = rendered.replace("{{sector_a_detail_key}}", mc.companion_var(plan.detail_key_dimension).lstrip("$"))
+    for tag, spec in (("a", sector_a), ("b", sector_b)):
+      sem = mc.baseline_semantics(spec.metric)
+      rendered = rendered.replace(f"{{{{sector_{tag}_label}}}}", spec.label())
+      rendered = _fill_event_filter(rendered, f"{{{{sector_{tag}_event_filter}}}}", sem.observed_filter)
+      rendered = rendered.replace(f"{{{{sector_{tag}_entity_field}}}}", spec.entity_field)
+      rendered = rendered.replace(f"{{{{sector_{tag}_observed_agg}}}}", sem.observed_agg)
+      rendered = rendered.replace(f"{{{{sector_{tag}_metric_arg}}}}", sem.metric_arg)
+      rendered = rendered.replace(f"{{{{sector_{tag}_metric}}}}", spec.metric)
+    rendered = rendered.replace("{{min_baseline_days}}", str(min_baseline_days))
+    # The template's slot guide is for agents filling slots by hand; it is noise once rendered.
+    rendered = re.sub(r"^// SLOT FILLING:.*?(?=^// ====)", "", rendered, flags=re.M | re.S)
+
+    rendered = self._inject_condition(rendered, "$composite_threat_norm_sq", condition_expression, min_threshold, max_threshold)
+    prefix = "".join(f"// ADVISORY: {a}\n" for a in check.advisories)
+    if hypothesis_goal:
+      prefix = f"// Goal: {hypothesis_goal}\n" + prefix
+    rendered = prefix + rendered
+
+    errors = MalachiteASTValidator.validate_query(rendered)
+    if errors:
+      raise ValueError("Rendered fusion query failed validation: " + " | ".join(errors))
+    return rendered + "\n"
 
   def build_query(
       self,
@@ -31,12 +209,14 @@ class MultiStageTemplateRouter:
       max_threshold: Optional[float] = None,
       condition_expression: Optional[str] = None,
       apply_threshold_condition: bool = False,
+      identifier_field: Optional[str] = None,
   ) -> str:
     audit = PreFlightValidator.audit(
         target_metric=target_metric,
         entity_type=entity_type,
         min_baseline_days=min_baseline_days,
         match_mode=match_mode,
+        identifier_field=identifier_field,
     )
 
     # Enforce Local-Baseline Isolation: multi-database account queries must route to CLOUD_REPOSITORY_SCOPE_DUAL_BRANCH
@@ -58,7 +238,8 @@ class MultiStageTemplateRouter:
     stage1_path = self.template_dir / "stage1_extractors" / f"{target_metric}.yl2"
     if not stage1_path.exists():
       raise FileNotFoundError(f"Missing Stage 1 template: {stage1_path}")
-    stage1_content = stage1_path.read_text().strip()
+    stage1_content = self._rebind_entity_field(
+        self._strip_identifier_swap_note(stage1_path.read_text().strip()), target_metric, audit["target_field"])
 
     stage2_file_map = {
         StatisticalModel.STANDARD_Z_SCORE: "standard_z_score.yl2",
@@ -134,7 +315,8 @@ class MultiStageTemplateRouter:
         "// ============================================================================\n"
         "// METHODOLOGY & HUNTING GOAL\n"
         f"// Goal: {hypothesis_goal or ('Hunt for statistical outliers in ' + target_metric)}\n"
-        f"// Target Telemetry: {audit['required_event_type']} (Dimensions: {audit['target_field']})\n"
+        f"// Target Telemetry: {audit['event_label']} (Dimensions: {audit['target_field']})\n"
+        f"// Event Filter: {' AND '.join(audit['event_filter'])}\n"
         f"// Statistical Model: {statistical_model.value} (Threshold >= {anomaly_threshold})\n"
         f"// Match Mode: {match_mode.value}\n"
         f"// Baseline Window: 30-Day Historical Pre-Computed Metrics (Min Active Days: {audit['min_baseline_days']})\n"
@@ -158,13 +340,23 @@ class MultiStageTemplateRouter:
       cohort_entities: Optional[List[str]] = None,
       target_entity: Optional[str] = None,
       target_metrics: Optional[List[str]] = None,
+      identifier_field: Optional[str] = None,
   ) -> str:
     """Renders 3-Stage and 4-Stage advanced DAG pipelines."""
-    if pipeline_type == PipelineArchitecture.MULTI_SECTOR_FUSION_4STAGE:
-      pipeline_file = self.template_dir / "pipelines" / "multi_sector_fusion_4stage.yl2"
-      if not pipeline_file.exists():
-        raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
-      return pipeline_file.read_text().strip() + "\n"
+    if pipeline_type in (PipelineArchitecture.MULTI_SECTOR_FUSION_4STAGE, PipelineArchitecture.DUAL_SECTOR_FUSION_3STAGE):
+      metrics = list(target_metrics or self.DEFAULT_FUSION_METRICS)
+      if len(metrics) != 2:
+        raise ValueError(f"Sector fusion takes exactly 2 metrics, got {len(metrics)}: {metrics}")
+      sectors = [mc.SectorSpec(m, self._sector_entity_field(m, entity_type, identifier_field)) for m in metrics]
+      return self.build_sector_fusion_query(
+          sectors[0], sectors[1],
+          four_stage=pipeline_type == PipelineArchitecture.MULTI_SECTOR_FUSION_4STAGE,
+          min_baseline_days=min_baseline_days if min_baseline_days is not None else 7,
+          hypothesis_goal=hypothesis_goal,
+          min_threshold=min_threshold,
+          max_threshold=max_threshold,
+          condition_expression=condition_expression,
+      )
 
     elif pipeline_type == PipelineArchitecture.RADAR_360_DECOUPLED_SECTOR:
       pipeline_file = self.template_dir / "pipelines" / "radar_360_decoupled_sector.yl2"
@@ -232,12 +424,15 @@ class MultiStageTemplateRouter:
           target_metric=target_metric,
           entity_type=entity_type,
           min_baseline_days=min_baseline_days,
+          identifier_field=identifier_field,
       )
       pipeline_file = self.template_dir / "pipelines" / "dual_baseline_delta_z_3stage.yl2"
       raw = pipeline_file.read_text().strip()
-      metric_type_arg = "metric: value_sum" if "bytes" in target_metric else "metric: event_count_sum"
-      
-      rendered = raw.replace("{{event_type}}", audit["required_event_type"])
+      metric_type_arg = f"metric: {audit['metric_arg']}"
+
+      rendered = _fill_event_filter(raw, "{{event_filter}}", audit["event_filter"])
+      rendered = rendered.replace("{{entity_field}}", audit["target_field"])
+      rendered = rendered.replace("{{observed_agg}}", audit["observed_agg"])
       rendered = rendered.replace(
           "{{target_metric_func_avg}}",
           f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: avg, {audit['target_field']}: $host)"
@@ -261,12 +456,15 @@ class MultiStageTemplateRouter:
           target_metric=target_metric,
           entity_type=entity_type,
           min_baseline_days=min_baseline_days,
+          identifier_field=identifier_field,
       )
       pipeline_file = self.template_dir / "pipelines" / "hierarchical_empirical_bayes_3stage.yl2"
       raw = pipeline_file.read_text().strip()
-      metric_type_arg = "metric: value_sum" if "bytes" in target_metric else "metric: event_count_sum"
-      
-      rendered = raw.replace("{{event_type}}", audit["required_event_type"])
+      metric_type_arg = f"metric: {audit['metric_arg']}"
+
+      rendered = _fill_event_filter(raw, "{{event_filter}}", audit["event_filter"])
+      rendered = rendered.replace("{{entity_field}}", audit["target_field"])
+      rendered = rendered.replace("{{observed_agg}}", audit["observed_agg"])
       rendered = rendered.replace(
           "{{target_metric_func_avg}}",
           f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: avg, {audit['target_field']}: $host)"
@@ -324,11 +522,12 @@ class MultiStageTemplateRouter:
           target_metric=target_metric,
           entity_type=entity_type,
           min_baseline_days=min_baseline_days,
+          identifier_field=identifier_field,
       )
       pipeline_file = self.template_dir / "pipelines" / "part_of_the_whole_multilevel.yl2"
       raw = pipeline_file.read_text().strip()
-      metric_type_arg = "metric: value_sum" if "bytes" in target_metric else "metric: event_count_sum"
-      obs_agg = "sum(network.sent_bytes)" if "bytes" in target_metric else "count(metadata.id)"
+      metric_type_arg = f"metric: {audit['metric_arg']}"
+      obs_agg = audit["observed_agg"]
 
       entity_var = "$user" if entity_type == EntityType.USER else "$host"
       entity_name = entity_var.lstrip("$")
@@ -351,7 +550,7 @@ class MultiStageTemplateRouter:
       else:
         target_filter = f'{entity_var} != ""'
 
-      rendered = raw.replace("{{event_type}}", audit["required_event_type"])
+      rendered = _fill_event_filter(raw, "{{event_filter}}", audit["event_filter"])
       rendered = rendered.replace("{{entity_field}}", audit["target_field"])
       rendered = rendered.replace("{{entity_var}}", entity_var)
       rendered = rendered.replace("{{entity_name}}", entity_name)
@@ -381,7 +580,9 @@ class MultiStageTemplateRouter:
           target_metrics=target_metrics,
           entity_type=entity_type,
           min_baseline_days=min_baseline_days,
+          identifier_field=identifier_field,
       )
+      triad_filter, triad_obs = self._triad_event_selection(target_metrics[:3])
       pipeline_file = self.template_dir / "pipelines" / "part_of_the_whole_triad_multilevel.yl2"
       raw = pipeline_file.read_text().strip()
 
@@ -406,7 +607,7 @@ class MultiStageTemplateRouter:
       else:
         target_filter = f'{entity_var} != ""'
 
-      rendered = raw.replace("{{event_type}}", triad_audit["required_event_type"])
+      rendered = _fill_event_filter(raw, "{{event_filter}}", triad_filter)
       rendered = rendered.replace("{{entity_field}}", triad_audit["target_field"])
       rendered = rendered.replace("{{entity_var}}", entity_var)
       rendered = rendered.replace("{{entity_name}}", entity_name)
@@ -414,8 +615,8 @@ class MultiStageTemplateRouter:
       rendered = rendered.replace("{{target_entity_filter}}", target_filter)
 
       for idx, m in enumerate(target_metrics[:3], 1):
-        metric_type_arg = "metric: value_sum" if "bytes" in m else "metric: event_count_sum"
-        obs_agg = "sum(network.sent_bytes)" if "bytes" in m else "count(metadata.id)"
+        metric_type_arg = f"metric: {mc.baseline_semantics(m).metric_arg}"
+        obs_agg = triad_obs[m]
         rendered = rendered.replace(f"{{{{m{idx}_observation_agg}}}}", obs_agg)
         rendered = rendered.replace(
             f"{{{{m{idx}_metric_func_avg}}}}",
@@ -437,28 +638,27 @@ class MultiStageTemplateRouter:
           target_metric=target_metric,
           entity_type=entity_type,
           min_baseline_days=min_baseline_days,
+          identifier_field=identifier_field,
       )
       pipeline_file = self.template_dir / "pipelines" / "hybrid_metric_raw_enrichment_2stage.yl2"
       if not pipeline_file.exists():
         raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
       raw = pipeline_file.read_text().strip()
-      metric_type_arg = "metric: value_sum" if "bytes" in target_metric else "metric: event_count_sum"
+      metric_type_arg = f"metric: {audit['metric_arg']}"
 
       macro_entity_field = audit["target_field"]
-      macro_event_type = audit["required_event_type"]
-      macro_observed_agg = "sum(network.sent_bytes)" if "outbound" in target_metric else ("sum(network.received_bytes)" if "inbound" in target_metric else "count(metadata.id)")
-      macro_event_filter = ""
+      macro_observed_agg = audit["observed_agg"]
 
       raw_event_type = "NETWORK_HTTP"
-      raw_entity_field = "principal.asset.hostname" if entity_type == EntityType.ASSET else "principal.user.userid"
+      raw_entity_field = _swap_identifier_leaf(
+          "principal.asset.hostname" if entity_type == EntityType.ASSET else "principal.user.userid", audit["target_field"])
       raw_event_filter = ""
       raw_signature_field = "network.http.user_agent"
       max_signature_diversity = 2
       min_raw_events = 5
 
-      rendered = raw.replace("{{macro_event_type}}", macro_event_type)
-      rendered = rendered.replace("{{macro_entity_field}}", macro_entity_field)
-      rendered = rendered.replace("{{macro_event_filter}}", macro_event_filter)
+      rendered = raw.replace("{{macro_entity_field}}", macro_entity_field)
+      rendered = _fill_event_filter(rendered, "{{macro_event_filter}}", audit["event_filter"])
       rendered = rendered.replace("{{macro_observed_agg}}", macro_observed_agg)
 
       rendered = rendered.replace(
@@ -496,27 +696,26 @@ class MultiStageTemplateRouter:
           target_metric=target_metric,
           entity_type=entity_type,
           min_baseline_days=min_baseline_days,
+          identifier_field=identifier_field,
       )
       pipeline_file = self.template_dir / "pipelines" / "hybrid_metric_entropy_concentration_2stage.yl2"
       if not pipeline_file.exists():
         raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
       raw = pipeline_file.read_text().strip()
-      metric_type_arg = "metric: value_sum" if "bytes" in target_metric else "metric: event_count_sum"
+      metric_type_arg = f"metric: {audit['metric_arg']}"
 
       macro_entity_field = audit["target_field"]
-      macro_event_type = audit["required_event_type"]
-      macro_observed_agg = "sum(network.sent_bytes)" if "outbound" in target_metric else ("sum(network.received_bytes)" if "inbound" in target_metric else "count(metadata.id)")
-      macro_event_filter = ""
+      macro_observed_agg = audit["observed_agg"]
 
       raw_event_type = "NETWORK_HTTP"
-      raw_entity_field = "principal.asset.hostname" if entity_type == EntityType.ASSET else "principal.user.userid"
+      raw_entity_field = _swap_identifier_leaf(
+          "principal.asset.hostname" if entity_type == EntityType.ASSET else "principal.user.userid", audit["target_field"])
       raw_event_filter = ""
       raw_vocab_field = "target.url"
       raw_intensity_field = "network.sent_bytes" if "outbound" in target_metric else "1"
 
-      rendered = raw.replace("{{macro_event_type}}", macro_event_type)
-      rendered = rendered.replace("{{macro_entity_field}}", macro_entity_field)
-      rendered = rendered.replace("{{macro_event_filter}}", macro_event_filter)
+      rendered = raw.replace("{{macro_entity_field}}", macro_entity_field)
+      rendered = _fill_event_filter(rendered, "{{macro_event_filter}}", audit["event_filter"])
       rendered = rendered.replace("{{macro_observed_agg}}", macro_observed_agg)
 
       rendered = rendered.replace(
@@ -556,26 +755,25 @@ class MultiStageTemplateRouter:
           target_metric=target_metric,
           entity_type=entity_type,
           min_baseline_days=min_baseline_days,
+          identifier_field=identifier_field,
       )
       pipeline_file = self.template_dir / "pipelines" / "hybrid_metric_orthogonal_space_2stage.yl2"
       if not pipeline_file.exists():
         raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
       raw = pipeline_file.read_text().strip()
-      metric_type_arg = "metric: value_sum" if "bytes" in target_metric else "metric: event_count_sum"
+      metric_type_arg = f"metric: {audit['metric_arg']}"
 
       macro_entity_field = audit["target_field"]
-      macro_event_type = audit["required_event_type"]
-      macro_observed_agg = "sum(network.sent_bytes)" if "outbound" in target_metric else "count(metadata.id)"
-      macro_event_filter = ""
+      macro_observed_agg = audit["observed_agg"]
 
       raw_event_type = "NETWORK_CONNECTION"
-      raw_entity_field = "principal.asset.hostname" if entity_type == EntityType.ASSET else "principal.user.userid"
+      raw_entity_field = _swap_identifier_leaf(
+          "principal.asset.hostname" if entity_type == EntityType.ASSET else "principal.user.userid", audit["target_field"])
       raw_event_filter = ""
       raw_breadth_field = "target.ip"
 
-      rendered = raw.replace("{{macro_event_type}}", macro_event_type)
-      rendered = rendered.replace("{{macro_entity_field}}", macro_entity_field)
-      rendered = rendered.replace("{{macro_event_filter}}", macro_event_filter)
+      rendered = raw.replace("{{macro_entity_field}}", macro_entity_field)
+      rendered = _fill_event_filter(rendered, "{{macro_event_filter}}", audit["event_filter"])
       rendered = rendered.replace("{{macro_observed_agg}}", macro_observed_agg)
 
       rendered = rendered.replace(
@@ -614,6 +812,7 @@ class MultiStageTemplateRouter:
           target_metric=target_metric,
           entity_type=entity_type,
           min_baseline_days=min_baseline_days,
+          identifier_field=identifier_field,
       )
       pipeline_file = self.template_dir / "pipelines" / "hybrid_metric_fleet_prevalence_2stage.yl2"
       if not pipeline_file.exists():
@@ -622,20 +821,17 @@ class MultiStageTemplateRouter:
       metric_type_arg = "metric: event_count_sum"
 
       macro_entity_field = "principal.asset.hostname" if entity_type == EntityType.ASSET else "principal.user.userid"
-      macro_event_type = audit["required_event_type"]
       macro_token_field = "principal.process.file.sha256"
-      macro_observed_agg = "count(metadata.id)"
-      macro_event_filter = ""
+      macro_observed_agg = audit["observed_agg"]
 
       raw_event_type = "PROCESS_LAUNCH"
       raw_token_field = "principal.process.file.sha256"
       raw_event_filter = ""
       fleet_entity_field = "principal.asset.hostname"
 
-      rendered = raw.replace("{{macro_event_type}}", macro_event_type)
-      rendered = rendered.replace("{{macro_entity_field}}", macro_entity_field)
+      rendered = raw.replace("{{macro_entity_field}}", macro_entity_field)
       rendered = rendered.replace("{{macro_token_field}}", macro_token_field)
-      rendered = rendered.replace("{{macro_event_filter}}", macro_event_filter)
+      rendered = _fill_event_filter(rendered, "{{macro_event_filter}}", audit["event_filter"])
       rendered = rendered.replace("{{macro_observed_agg}}", macro_observed_agg)
 
       rendered = rendered.replace(
@@ -704,6 +900,7 @@ class MultiStageTemplateRouter:
           target_metric=target_metric,
           entity_type=entity_type,
           min_baseline_days=min_baseline_days,
+          identifier_field=identifier_field,
       )
       pipeline_file = self.template_dir / "pipelines" / "hybrid_metric_derived_file_prevalence_2stage.yl2"
       if not pipeline_file.exists():
@@ -723,15 +920,15 @@ class MultiStageTemplateRouter:
           target_metric=target_metric,
           entity_type=entity_type,
           min_baseline_days=min_baseline_days,
+          identifier_field=identifier_field,
       )
       pipeline_file = self.template_dir / "pipelines" / "hybrid_metric_derived_domain_prevalence_2stage.yl2"
       if not pipeline_file.exists():
         raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
       raw = pipeline_file.read_text().strip()
-      event_type = "NETWORK_HTTP" if "http" in target_metric else "NETWORK_DNS"
       domain_field = "network.dns_domain" if "dns" in target_metric else "target.hostname"
-      metric_type_arg = "metric: event_count_sum"
-      rendered = raw.replace("{{event_type}}", event_type)
+      metric_type_arg = f"metric: {audit['metric_arg']}"
+      rendered = _fill_event_filter(raw, "{{event_filter}}", audit["event_filter"])
       rendered = rendered.replace("{{domain_field}}", domain_field)
       rendered = rendered.replace(
           "{{target_metric_func_avg}}",
@@ -759,15 +956,15 @@ class MultiStageTemplateRouter:
           target_metric=target_metric,
           entity_type=entity_type,
           min_baseline_days=min_baseline_days,
+          identifier_field=identifier_field,
       )
       pipeline_file = self.template_dir / "pipelines" / "hybrid_metric_whois_domain_lifecycle_2stage.yl2"
       if not pipeline_file.exists():
         raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
       raw = pipeline_file.read_text().strip()
-      event_type = "NETWORK_HTTP" if "http" in target_metric else ("NETWORK_DNS" if "dns" in target_metric else "NETWORK_CONNECTION")
       domain_field = "network.dns_domain" if "dns" in target_metric else "target.hostname"
-      metric_type_arg = "metric: event_count_sum"
-      rendered = raw.replace("{{event_type}}", event_type)
+      metric_type_arg = f"metric: {audit['metric_arg']}"
+      rendered = _fill_event_filter(raw, "{{event_filter}}", audit["event_filter"])
       rendered = rendered.replace("{{domain_field}}", domain_field)
       rendered = rendered.replace(
           "{{target_metric_func_avg}}",
@@ -794,14 +991,15 @@ class MultiStageTemplateRouter:
           target_metric=target_metric,
           entity_type=entity_type,
           min_baseline_days=min_baseline_days,
+          identifier_field=identifier_field,
       )
       pipeline_file = self.template_dir / "pipelines" / "hybrid_metric_derived_asset_age_2stage.yl2"
       if not pipeline_file.exists():
         raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
       raw = pipeline_file.read_text().strip()
-      metric_type_arg = "metric: value_sum" if "bytes" in target_metric else "metric: event_count_sum"
-      observed_agg = "sum(network.sent_bytes)" if "outbound" in target_metric else "count(metadata.id)"
-      rendered = raw.replace("{{event_type}}", audit["required_event_type"])
+      metric_type_arg = f"metric: {audit['metric_arg']}"
+      observed_agg = audit["observed_agg"]
+      rendered = _fill_event_filter(raw, "{{event_filter}}", audit["event_filter"])
       rendered = rendered.replace("{{observed_agg}}", observed_agg)
       rendered = rendered.replace(
           "{{target_metric_func_avg}}",
@@ -828,17 +1026,16 @@ class MultiStageTemplateRouter:
           target_metric=target_metric,
           entity_type=entity_type,
           min_baseline_days=min_baseline_days,
+          identifier_field=identifier_field,
       )
       pipeline_file = self.template_dir / "pipelines" / "macd_momentum_velocity_2stage.yl2"
       if not pipeline_file.exists():
         raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
       raw = pipeline_file.read_text().strip()
-      metric_type_val = "value_sum" if "bytes" in target_metric else "event_count_sum"
-      observed_agg = "sum(network.sent_bytes)" if "bytes" in target_metric else "count(metadata.id)"
-      val_filter = "network.sent_bytes != 0" if "bytes" in target_metric else ""
-      rendered = raw.replace("{{event_type}}", audit["required_event_type"])
+      metric_type_val = audit["metric_arg"]
+      observed_agg = audit["observed_agg"]
+      rendered = _fill_event_filter(raw, "{{event_filter}}", audit["event_filter"])
       rendered = rendered.replace("{{entity_field}}", audit["target_field"])
-      rendered = rendered.replace("{{value_filter}}", val_filter)
       rendered = rendered.replace("{{observed_aggregation}}", observed_agg)
       rendered = rendered.replace("{{target_metric_name}}", target_metric)
       rendered = rendered.replace("{{metric_type_val}}", metric_type_val)
@@ -855,17 +1052,16 @@ class MultiStageTemplateRouter:
           target_metric=target_metric,
           entity_type=entity_type,
           min_baseline_days=min_baseline_days,
+          identifier_field=identifier_field,
       )
       pipeline_file = self.template_dir / "pipelines" / "circadian_von_mises_2stage.yl2"
       if not pipeline_file.exists():
         raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
       raw = pipeline_file.read_text().strip()
-      metric_type_val = "value_sum" if "bytes" in target_metric else "event_count_sum"
-      observed_agg = "sum(network.sent_bytes)" if "bytes" in target_metric else "count(metadata.id)"
-      val_filter = "network.sent_bytes != 0" if "bytes" in target_metric else ""
-      rendered = raw.replace("{{event_type}}", audit["required_event_type"])
+      metric_type_val = audit["metric_arg"]
+      observed_agg = audit["observed_agg"]
+      rendered = _fill_event_filter(raw, "{{event_filter}}", audit["event_filter"])
       rendered = rendered.replace("{{entity_field}}", audit["target_field"])
-      rendered = rendered.replace("{{value_filter}}", val_filter)
       rendered = rendered.replace("{{observed_aggregation}}", observed_agg)
       rendered = rendered.replace("{{target_metric_name}}", target_metric)
       rendered = rendered.replace("{{metric_type_val}}", metric_type_val)

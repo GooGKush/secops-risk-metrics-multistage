@@ -229,7 +229,8 @@ When the exfiltration protocol is known in advance (e.g. hunting specifically fo
   <!-- yara-fragment: stage 1 of 3; root stage shown in a later block -->
   ```yara
   stage stage1_macro_baseline {
-      metadata.event_type = "NETWORK_CONNECTION"
+      network.sent_bytes > 0
+      network.sent_bytes < 1000000000000000
       principal.asset.hostname = $entity
     match:
       $entity by 1d

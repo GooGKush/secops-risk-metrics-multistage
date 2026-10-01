@@ -1,8 +1,13 @@
 // Stage 1: Successful DNS Resolution Count & 30d Baseline
+// Identifier swap: this extractor keys on `principal.asset.hostname`. Any ONE field below is valid alone for dns_queries_success;
+//   replace it in the event binding AND in every metrics call, keeping the same variable:
+//   - PRINCIPAL_DEVICE (principal.asset.hostname | asset_id | ip | mac | product_object_id)
+//   - PRINCIPAL_USER (principal.user.userid | email_addresses | employee_id | product_object_id | windows_sid)
+//   ip, mac and email_addresses are repeated fields: one event can count toward several entities.
 stage stage1_extract {
-    metadata.event_type = "NETWORK_DNS"
-    $event_type = metadata.event_type
+    (network.dns.questions.name != "" or network.dns.answers.name != "" or network.dns.id != 0)
     network.dns.response_code = 0
+    $event_type = metadata.event_type
     principal.asset.hostname = $entity
     $entity != ""
 

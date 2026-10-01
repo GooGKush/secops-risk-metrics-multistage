@@ -3,6 +3,7 @@
 // Skill: secops-risk-metrics-multistage
 // Purpose: Evaluates hourly telemetry against 24-hour circular clock to penalize off-hours deviations
 // Formula: Circular_Dist = min(Raw_Diff, 24 - Raw_Diff); Score = Hourly_Z * (1.0 + (Dist^2 / 72.0))
+// event_filter slot: the metric's "Observed event filter" lines from references/metric-sector-catalog.md, one per line.
 // Telemetry Metric Mappings:
 //   - Authentication Attempts: metrics.auth_attempts_total (metric: event_count_sum, obs: count(metadata.id))
 //   - Network Bytes (Outbound): metrics.network_bytes_outbound (metric: value_sum, obs: sum(network.sent_bytes))
@@ -11,10 +12,9 @@
 
 // Stage 1: Hourly Standardized Deviation Tracker & Baseline Metric Extraction
 stage stage1_extract {
-    metadata.event_type = "{{event_type}}"
+    {{event_filter}}
     {{entity_field}} = $entity
     $entity != ""
-    {{value_filter}}
 
   match:
     $entity by 1h

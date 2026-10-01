@@ -1,7 +1,12 @@
 // Stage 1: Google Workspace Authentication Attempts & 30d Baseline
+// Identifier swap: this extractor keys on `target.user.userid`. Any ONE field below is valid alone for workspace_auth_attempts_total;
+//   replace it in the event binding AND in every metrics call, keeping the same variable:
+//   - PRINCIPAL_USER (principal.user.userid | email_addresses | employee_id | product_object_id | windows_sid)
+//   - TARGET_USER (target.user.userid | email_addresses | employee_id | product_object_id | windows_sid)
+//   ip, mac and email_addresses are repeated fields: one event can count toward several entities.
 stage stage1_extract {
-    metadata.event_type = "USER_LOGIN"
     metadata.vendor_name = "Google Workspace"
+    (metadata.product_name = "login" or metadata.product_name = "saml" or metadata.product_name = "token")
     target.user.userid = $user
     $user != ""
 

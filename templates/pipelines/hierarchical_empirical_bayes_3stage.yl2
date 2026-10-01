@@ -5,29 +5,31 @@
 // Math: Hyper-Prior Pooling (Fleet Alpha/Beta) + Host Bayesian Updating
 //
 // CONCRETE FIELD BINDING & INSTANTIATION GUIDE:
+// entity_field slot: the entity key (default principal.asset.hostname); observed_agg slot: the metric's "Observed value".
+// Slots event_filter / macro_event_filter: the metric's "Observed event filter" lines from references/metric-sector-catalog.md, one per line.
 // 1. Host Authentication Activity:
-//    - {{event_type}}: "USER_LOGIN"
-//    - {{target_metric_func_avg}}: metrics.auth_attempts_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.asset.hostname: $host)
-//    - {{target_metric_func_stddev}}: metrics.auth_attempts_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.asset.hostname: $host)
-//    - {{target_metric_func_active_days}}: metrics.auth_attempts_total(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.asset.hostname: $host)
+//    - event_filter slot: metadata.event_type = "USER_LOGIN"
+//    - target_metric_func_avg slot: metrics.auth_attempts_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.asset.hostname: $host)
+//    - target_metric_func_stddev slot: metrics.auth_attempts_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.asset.hostname: $host)
+//    - target_metric_func_active_days slot: metrics.auth_attempts_total(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.asset.hostname: $host)
 // 2. Host Network Egress Activity:
-//    - {{event_type}}: "NETWORK_CONNECTION"
-//    - {{target_metric_func_avg}}: metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: avg, principal.asset.hostname: $host)
-//    - {{target_metric_func_stddev}}: metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: stddev, principal.asset.hostname: $host)
-//    - {{target_metric_func_active_days}}: metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: num_metric_periods, principal.asset.hostname: $host)
+//    - event_filter slot: network.sent_bytes > 0 AND network.sent_bytes < 1000000000000000 (network_bytes_outbound)
+//    - target_metric_func_avg slot: metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: avg, principal.asset.hostname: $host)
+//    - target_metric_func_stddev slot: metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: stddev, principal.asset.hostname: $host)
+//    - target_metric_func_active_days slot: metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: num_metric_periods, principal.asset.hostname: $host)
 // ============================================================================
 
 // Stage 1: Individual Host Daily Telemetry + 30d Historical Metric Baselines
 stage host_extract {
-    metadata.event_type = "{{event_type}}"
-    principal.asset.hostname = $host
+    {{event_filter}}
+    {{entity_field}} = $host
     $host != ""
 
   match:
     $host by 1d
 
   outcome:
-    $observed_24h = count(metadata.id)
+    $observed_24h = {{observed_agg}}
     $hist_avg = max({{target_metric_func_avg}})
     $hist_stddev = max({{target_metric_func_stddev}})
     $hist_active_days = max({{target_metric_func_active_days}})

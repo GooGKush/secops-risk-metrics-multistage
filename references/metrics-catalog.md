@@ -1,9 +1,10 @@
-<!-- Generated file. Maintainers: edit scripts/preflight_validator.py (METRIC_CATALOG) and re-run scripts/generate_references.py. Do not hand-edit this file. -->
+<!-- Generated file. Maintainers: edit data/malachite/ (via scripts/sync_malachite_catalog.py), data/metric_baseline_semantics.json, or this generator, then re-run scripts/generate_references.py. Do not hand-edit this file. -->
 <!-- Agents at runtime: this catalog is the authoritative reference for metric names, dimensions, and entity types. It is complete; do not open the generator or the validator. -->
 
 > ⚡ **JETSKI / WORKSPACE & MCP AGENT DIRECTIVE**:
 > Query templates in `templates/pipelines/` and `templates/stage1_extractors/` provide pre-validated AST structures.
 > Do NOT execute local Python scripts during hunting. Inspect templates and assemble queries natively via view_file.
+> For the exact per-metric observed event filter, observed value, `metric:` arg and entity identifier fields, read `references/metric-sector-catalog.md`. The dimension sets below are generated from the compiler config (`config.textproto`); a metric call's filter args must equal ONE valid set exactly.
 
 # Google SecOps Risk Metrics Reference Catalog (38 Metrics)
 
@@ -20,18 +21,18 @@ This catalog details all 38 active pre-computed behavioral risk metrics availabl
 > **Entity Dimension Roles: Principal vs. Target Semantics (`principal.user.userid` vs. `target.user.userid`)**:
 > Chronicle UDM explicitly separates the actor initiating an action (`principal`) from the object being acted upon (`target`):
 > 1. **User as Target (`target.user.userid`)**:
->    - **Authentication (`USER_LOGIN`)**: The user account being accessed is the target of the authentication attempt. In IdP logs (Okta, Azure AD, Windows 4624/4625), the account identity resides in `target.user.userid`. When profiling logins for a user, the event filter is `target.user.userid = "<id>"` and the metric filter is `target.user.userid: "<id>"` (or `$user`).
+>    - **Authentication (`USER_LOGIN`)**: The user account being accessed is the target of the authentication attempt. In IdP logs (Okta, Azure AD, Windows 4624/4625), the account identity resides in `target.user.userid`. When profiling logins for a user, the event filter is `target.user.userid = "<id>"` and the metric filter is `target.user.userid: "<id>"` (or `$user`). Auth also accepts `principal.user.*` alone.
 > 2. **User as Principal (`principal.user.userid`)**:
->    - **Cloud Resource CRUD (`RESOURCE_CREATION` / `DELETION`)**: The IAM identity or service account creating or deleting cloud infrastructure.
->    - **Google Workspace & SaaS (`USER_RESOURCE_ACCESS`)**: The user downloading, sharing, or editing Drive files.
->    - **Network Traffic (`NETWORK_CONNECTION`)**: The user initiating outbound flows.
->    - **Process Executions (`PROCESS_LAUNCH`)**: The user executing binaries or administrative tools.
->    - In all these sectors, the event filter is `principal.user.userid = "<id>"` and the metric filter is `principal.user.userid: "<id>"` (or `$user`). Passing `target.user.userid` to these metrics causes compiler rejection (`unsupported filters for metric`) or zero matches.
+>    - **Cloud Resource CRUD (`RESOURCE_*` / `USER_RESOURCE_*`)**: The IAM identity or service account acting on cloud infrastructure (`target.user.*` + vendor + product is also a valid set).
+>    - **Google Workspace (`metadata.vendor_name = "Google Workspace"`)**: The user downloading, sharing, or editing Drive files.
+>    - **Network Traffic (`network.sent_bytes` / `network.received_bytes` > 0)**: The user initiating flows. No event_type filter.
+>    - **Process Executions (`PROCESS_LAUNCH`)**: The user executing binaries (only together with `metadata.event_type` + `principal.process.file.sha256`).
+>    - In these sectors, the event filter is `principal.user.userid = "<id>"` and the metric filter is `principal.user.userid: "<id>"` (or `$user`). Passing `target.user.userid` to network, DNS, HTTP or process metrics causes compiler rejection (`unsupported filters for metric`).
 > 3. **Assets (`principal.asset.hostname` / `principal.asset.ip`)**:
->    - For asset profiling, host is `principal.asset.hostname` across network, endpoint, DNS, and login events.
+>    - For asset profiling, host is `principal.asset.hostname` across network, endpoint, DNS, HTTP, alert, and login events. Cloud CRUD and Workspace metrics have no host dimension.
 >    - Device IP filtering strictly requires `principal.asset.ip` (mapping to `PRINCIPAL_DEVICE`), whereas `principal.ip` is rejected on network, auth, DNS, and endpoint metrics.
 > 4. **User Display Names vs. Technical User IDs (`user.user_display_name` vs. `user.userid`)**:
->    - **Technical User ID Dimension**: All 38 UEBA pre-computed metric tables (`metrics.*`) are partitioned and indexed strictly by the technical logon account identifier (`sAMAccountName`, UPN, or email prefix, e.g. `jholden`, `james.holden`, `fkolzig`).
+>    - **Technical User ID Dimension**: User-keyed metric baselines are indexed by the technical identifiers of the `PRINCIPAL_USER` / `TARGET_USER` dimensions (`userid`, `email_addresses`, `windows_sid`, `employee_id`, `product_object_id`), e.g. `jholden`, `james.holden@corp.com`. Bind the same identifier field in the event filter and the metric call.
 >    - **Human Display Names**: Human names containing spaces (e.g. `"James Holden"`, `"Frank Kolzig"`) are Display Names (`user.user_display_name`), NOT `user.userid`. Passing a display name directly to `target.user.userid = "James Holden"` or metric filters will match zero events and zero baseline rows in Chronicle.
 >    - **Pre-Flight Identity Spot Check**: When an analyst specifies a human display name, the agent executes a single lightweight spot check query to resolve the corresponding technical `userid`:
 >      ```udm
@@ -45,33 +46,40 @@ This catalog details all 38 active pre-computed behavioral risk metrics availabl
 > 1. `metric: value_sum`: Strictly required for byte/volume telemetry metrics (`metrics.network_bytes_*`, `metrics.dns_bytes_*`, `metrics.workspace_network_bytes_*`). Passing `metric_value_sum` causes fatal compiler failure (`unsupported metric type metric_value_sum`).
 > 2. `metric: event_count_sum`: Required for all count-based telemetry metrics (`metrics.auth_attempts_*`, `metrics.resource_*`, `metrics.http_queries_*`, `metrics.file_executions_*`, `metrics.network_flows_*`, `metrics.dns_queries_*`, `metrics.workspace_total_*`, `metrics.alert_event_name_count`).
 
+> [!NOTE]
+> **Reading the dimension cells**: `Entity alone` lists the user/device dimensions that are a complete valid set by themselves (usable as a fusion sector). `also` lists the other valid sets. `Composite-only` metrics have no entity-alone set. Dimension → UDM field mapping is in `references/metric-sector-catalog.md`.
+
 ---
 
 ## 1. Authentication Attempts
-* **Log Scope:** `metadata.event_type = "USER_LOGIN"`
+* **Log Scope (success):** `metadata.event_type = "USER_LOGIN"` + `security_result.action = "ALLOW"`
+* **Log Scope (fail):** `metadata.event_type = "USER_LOGIN"` + `not security_result.action = "ALLOW"` (logins with no action value count as failures)
+* **Log Scope (total):** `metadata.event_type = "USER_LOGIN"`
 * **Backing Log Types:** `OKTA`, `AZURE_AD`, `WINEVTLOG_SECURITY`, `WORKSPACE`, `PING_IDENTITY`, `DUO`
 * **Device IP Filter Note:** Use `principal.asset.ip` (not `principal.ip`) for source device IP filtering.
 
 | Metric Function | Description | Supported Dimensions (Entity Types) |
 | :--- | :--- | :--- |
-| `metrics.auth_attempts_success` | Successful logins | `target.user.userid`, `principal.asset.hostname`, `principal.asset.ip` |
-| `metrics.auth_attempts_fail` | Failed login attempts | `target.user.userid`, `principal.asset.hostname`, `principal.asset.ip` |
-| `metrics.auth_attempts_total` | All login attempts | `target.user.userid`, `principal.asset.hostname`, `principal.asset.ip` |
+| `metrics.auth_attempts_success` | Successful logins | Entity alone: PRINCIPAL_DEVICE, PRINCIPAL_USER, TARGET_USER; also: TARGET_APPLICATION + TARGET_DEVICE; TARGET_APPLICATION + TARGET_USER; CLIENT_CERTIFICATE_HASH + TARGET_USER; PRINCIPAL_COUNTRY + TARGET_USER; PRINCIPAL_NETWORK_ORGANIZATION_NAME + TARGET_USER; PRINCIPAL_DEVICE + TARGET_USER; PRINCIPAL_USER + TARGET_USER; EVENT_TYPE + PRINCIPAL_DEVICE |
+| `metrics.auth_attempts_fail` | Failed login attempts | Entity alone: PRINCIPAL_DEVICE, PRINCIPAL_USER, TARGET_USER; also: TARGET_APPLICATION + TARGET_DEVICE; TARGET_APPLICATION + TARGET_USER; CLIENT_CERTIFICATE_HASH + TARGET_USER; EVENT_TYPE + PRINCIPAL_DEVICE; PRINCIPAL_DEVICE + TARGET_USER; PRINCIPAL_USER + TARGET_USER; PRINCIPAL_COUNTRY + TARGET_USER; PRINCIPAL_NETWORK_ORGANIZATION_NAME + TARGET_USER |
+| `metrics.auth_attempts_total` | All login attempts | Entity alone: PRINCIPAL_DEVICE, PRINCIPAL_USER, TARGET_USER; also: TARGET_APPLICATION + TARGET_USER; TARGET_APPLICATION + TARGET_DEVICE; CLIENT_CERTIFICATE_HASH + TARGET_USER; EVENT_TYPE + PRINCIPAL_DEVICE; PRINCIPAL_DEVICE + TARGET_USER; PRINCIPAL_USER + TARGET_USER; PRINCIPAL_COUNTRY + TARGET_USER; PRINCIPAL_NETWORK_ORGANIZATION_NAME + TARGET_USER |
 
 ---
 
 ## 2. Network Connections & Firewalls
-* **Log Scope:** `metadata.event_type = "NETWORK_CONNECTION"`
+* **Log Scope (outbound):** `network.sent_bytes > 0` + `network.sent_bytes < 1000000000000000`
+* **Log Scope (inbound):** `network.received_bytes > 0` + `network.received_bytes < 1000000000000000`
+* **Log Scope (total, flows):** `((network.sent_bytes > 0 and network.sent_bytes < 1000000000000000) or (network.received_bytes > 0 and network.received_bytes < 1000000000000000))`. The baseline has NO `metadata.event_type` filter; do not add `NETWORK_CONNECTION` to observed stages.
 * **Backing Log Types:** `ZEEK`, `PALO_ALTO_FIREWALL`, `CISCO_ASA`, `FORTINET_FIREWALL`, `CHECKPOINT`, `AWS_VPC_FLOW`, `GCP_VPC_FLOW`
 
 | Metric Function | Description | Supported Dimensions (Entity Types) |
 | :--- | :--- | :--- |
-| `metrics.network_bytes_inbound` | Inbound traffic volume (requires `metric: value_sum`) | `principal.asset.hostname`, `principal.asset.ip`, `principal.user.userid` |
-| `metrics.network_bytes_outbound` | Outbound traffic volume (requires `metric: value_sum`) | `principal.asset.hostname`, `principal.asset.ip`, `principal.user.userid` |
-| `metrics.network_bytes_total` | Total bidirectional volume (requires `metric: value_sum`) | `principal.asset.hostname`, `principal.asset.ip`, `principal.user.userid` |
-| `metrics.network_flows_inbound` | Inbound flow count (requires `metric: event_count_sum`) | `principal.asset.hostname`, `principal.asset.ip`, `principal.user.userid` |
-| `metrics.network_flows_outbound` | Outbound flow count (requires `metric: event_count_sum`) | `principal.asset.hostname`, `principal.asset.ip`, `principal.user.userid` |
-| `metrics.network_flows_total` | Total connection flows (requires `metric: event_count_sum`) | `principal.asset.hostname`, `principal.asset.ip`, `principal.user.userid` |
+| `metrics.network_bytes_inbound` | Inbound traffic volume (requires `metric: value_sum`) | Entity alone: PRINCIPAL_DEVICE, PRINCIPAL_USER; also: PRINCIPAL_COUNTRY + PRINCIPAL_DEVICE; PRINCIPAL_COUNTRY + PRINCIPAL_USER; PRINCIPAL_DEVICE + SECURITY_CATEGORY; PRINCIPAL_USER + SECURITY_CATEGORY; PRINCIPAL_DEVICE + TARGET_NETWORK_ORGANIZATION_NAME; PRINCIPAL_USER + TARGET_NETWORK_ORGANIZATION_NAME; PRINCIPAL_DEVICE + TARGET_DEVICE; PRINCIPAL_USER + TARGET_DEVICE |
+| `metrics.network_bytes_outbound` | Outbound traffic volume (requires `metric: value_sum`) | Entity alone: PRINCIPAL_DEVICE, PRINCIPAL_USER; also: PRINCIPAL_COUNTRY + PRINCIPAL_DEVICE; PRINCIPAL_COUNTRY + PRINCIPAL_USER; PRINCIPAL_DEVICE + SECURITY_CATEGORY; PRINCIPAL_USER + SECURITY_CATEGORY; PRINCIPAL_DEVICE + TARGET_NETWORK_ORGANIZATION_NAME; PRINCIPAL_USER + TARGET_NETWORK_ORGANIZATION_NAME; PRINCIPAL_DEVICE + TARGET_DEVICE; PRINCIPAL_USER + TARGET_DEVICE |
+| `metrics.network_bytes_total` | Total bidirectional volume (requires `metric: value_sum`) | Entity alone: PRINCIPAL_DEVICE, PRINCIPAL_USER; also: PRINCIPAL_COUNTRY + PRINCIPAL_DEVICE; PRINCIPAL_COUNTRY + PRINCIPAL_USER; PRINCIPAL_DEVICE + SECURITY_CATEGORY; PRINCIPAL_USER + SECURITY_CATEGORY; PRINCIPAL_DEVICE + TARGET_NETWORK_ORGANIZATION_NAME; PRINCIPAL_USER + TARGET_NETWORK_ORGANIZATION_NAME; PRINCIPAL_DEVICE + TARGET_DEVICE; PRINCIPAL_USER + TARGET_DEVICE |
+| `metrics.network_flows_inbound` | Inbound flow count (requires `metric: event_count_sum`) | Entity alone: PRINCIPAL_DEVICE, PRINCIPAL_USER |
+| `metrics.network_flows_outbound` | Outbound flow count (requires `metric: event_count_sum`) | Entity alone: PRINCIPAL_DEVICE, PRINCIPAL_USER |
+| `metrics.network_flows_total` | Total connection flows (requires `metric: event_count_sum`) | Entity alone: PRINCIPAL_DEVICE, PRINCIPAL_USER |
 
 ### 2.1 When to Choose Bytes vs. Flows (Volumetric vs. Session Count)
 
@@ -105,22 +113,25 @@ A common detection blindspot is evaluating all network anomalies through byte vo
 ---
 
 ## 3. DNS Queries
-* **Log Scope:** `metadata.event_type = "NETWORK_DNS"`
+* **Log Scope (queries total):** `(network.dns.questions.name != "" or network.dns.answers.name != "" or network.dns.id != 0)`. No `metadata.event_type` filter in the baseline.
+* **Log Scope (queries success):** `(network.dns.questions.name != "" or network.dns.answers.name != "" or network.dns.id != 0)` + `network.dns.response_code = 0`
+* **Log Scope (queries fail):** `(network.dns.questions.name != "" or network.dns.answers.name != "" or network.dns.id != 0)` + `network.dns.response_code != 0`
+* **Log Scope (bytes outbound):** `network.sent_bytes > 0` + `((network.ip_protocol = "UDP" and target.port = 53) or (network.ip_protocol = "TCP" and (target.port = 53 or target.port = 3000)))`
 * **Backing Log Types:** `INFOBLOX_DNS`, `BIND_DNS`, `WINDOWS_DNS`, `ZEEK_DNS`, `COREDNS`
 
 | Metric Function | Description | Supported Dimensions (Entity Types) |
 | :--- | :--- | :--- |
-| `metrics.dns_bytes_outbound` | Sent outbound DNS byte volume / bandwidth (use `metric: value_sum`) | `principal.asset.hostname`, `principal.user.userid` (companion: `target.ip`) |
-| `metrics.dns_queries_success` | Successful DNS resolution queries | `principal.asset.hostname`, `principal.user.userid` (companion: `network.dns_domain`) |
-| `metrics.dns_queries_fail` | Failed / NXDOMAIN DNS queries | `principal.asset.hostname`, `principal.user.userid` (companion: `network.dns_domain`) |
-| `metrics.dns_queries_total` | Total DNS query volume / query count (use `metric: event_count_sum`) | `principal.asset.hostname`, `principal.user.userid` (companion: `network.dns_domain`) |
+| `metrics.dns_bytes_outbound` | Sent outbound DNS byte volume / bandwidth (use `metric: value_sum`) | Entity alone: PRINCIPAL_DEVICE, PRINCIPAL_USER; also: PRINCIPAL_DEVICE + TARGET_IP; PRINCIPAL_USER + TARGET_IP |
+| `metrics.dns_queries_success` | Successful DNS resolution queries | Entity alone: PRINCIPAL_DEVICE, PRINCIPAL_USER; also: DNS_QUERY_TYPE + PRINCIPAL_DEVICE; DNS_QUERY_TYPE + PRINCIPAL_USER; DNS_DOMAIN + PRINCIPAL_DEVICE; DNS_DOMAIN + PRINCIPAL_USER |
+| `metrics.dns_queries_fail` | Failed / NXDOMAIN DNS queries | Entity alone: PRINCIPAL_DEVICE, PRINCIPAL_USER; also: DNS_QUERY_TYPE + PRINCIPAL_DEVICE; DNS_QUERY_TYPE + PRINCIPAL_USER; DNS_DOMAIN + PRINCIPAL_DEVICE; DNS_DOMAIN + PRINCIPAL_USER |
+| `metrics.dns_queries_total` | Total DNS query volume / query count (use `metric: event_count_sum`) | Entity alone: PRINCIPAL_DEVICE, PRINCIPAL_USER; also: DNS_QUERY_TYPE + PRINCIPAL_DEVICE; DNS_QUERY_TYPE + PRINCIPAL_USER; DNS_DOMAIN + PRINCIPAL_DEVICE; DNS_DOMAIN + PRINCIPAL_USER |
 
 > [!IMPORTANT]
 > **Companion Dimensions and Filter Rules for DNS Queries (`network.dns_domain`)**:
 > In Chronicle Malachite, DNS metric tables have specific indexing constraints:
 > - **Query Metrics (`metrics.dns_queries_total`, `metrics.dns_queries_success`, `metrics.dns_queries_fail`)**:
->   - Primary entity match keys: `principal.asset.hostname`, `principal.user.userid`, `principal.asset.ip`, `principal.asset.asset_id`.
->   - Supported companion dimension: `network.dns_domain: $domain` (and optionally `network.dns.questions.type`).
+>   - Primary entity match keys: any `PRINCIPAL_DEVICE` field (`principal.asset.hostname`, `principal.asset.ip`, `principal.asset.asset_id`, ...) or `PRINCIPAL_USER` field (`principal.user.userid`, `principal.user.email_addresses`, ...).
+>   - Supported companion dimension: `network.dns_domain: $domain` (or `network.dns.questions.type`), each only together with one entity field.
 >   - **Compiler Anti-Pattern Warning**: NEVER use `network.dns.questions.name` or `target.hostname` in `metrics.dns_queries_*`. Chronicle indexes the normalized apex/domain field (`network.dns_domain`) in baseline tables, NOT the raw question name. Passing `network.dns.questions.name: $domain` triggers `compilation error: unsupported filters for metric DNS_QUERIES_TOTAL`.
 > - **Byte Metrics (`metrics.dns_bytes_outbound`)**:
 >   - Supported companion dimension: `target.ip: $ip`. Does NOT support domain or question name filters.
@@ -138,29 +149,30 @@ A common detection blindspot is evaluating all network anomalies through byte vo
 > - **Canonical Dimension Path**: `principal.process.file.sha256: $sha` (or `$token`).
 > - **Compiler Anti-Pattern Warning**: NEVER use `target.process.file.sha256` or `principal.process.sha256`. Chronicle does not index `target.process` in pre-computed metric tables; passing it triggers an immediate compiler error (`Request contains an invalid argument`).
 > - Chronicle does not provide a raw host-level process launch count baseline (`process_launches_total` does not exist). Always profile executions by binary hash or aggregate raw process launches in Stage 1.
+> - Because every valid set needs the hash, `file_executions_*` is composite-only and has no host-total baseline. Process execution + DNS is still a valid fusion as a roll-up sector (`rollup_sector_fusion_4stage.yl2`): per-binary Z, rolled up to the host (see `references/metric-sector-catalog.md`).
 
 | Metric Function | Description | Supported Dimensions (Entity Types) |
 | :--- | :--- | :--- |
-| `metrics.file_executions_total` | Total process executions for binary hash | `principal.asset.hostname`, `principal.user.userid` (requires `principal.process.file.sha256` + `metadata.event_type`) |
-| `metrics.file_executions_success` | Successful process executions | `principal.asset.hostname`, `principal.user.userid` (requires `principal.process.file.sha256` + `metadata.event_type`) |
-| `metrics.file_executions_fail` | Blocked / failed process executions | `principal.asset.hostname`, `principal.user.userid` (requires `principal.process.file.sha256` + `metadata.event_type`) |
+| `metrics.file_executions_total` | Total process executions for binary hash | Composite-only: EVENT_TYPE + PRINCIPAL_PROCESS_FILE_HASH; EVENT_TYPE + PRINCIPAL_DEVICE + PRINCIPAL_PROCESS_FILE_HASH; EVENT_TYPE + PRINCIPAL_PROCESS_FILE_HASH + PRINCIPAL_USER |
+| `metrics.file_executions_success` | Successful process executions | Composite-only: EVENT_TYPE + PRINCIPAL_PROCESS_FILE_HASH; EVENT_TYPE + PRINCIPAL_DEVICE + PRINCIPAL_PROCESS_FILE_HASH; EVENT_TYPE + PRINCIPAL_PROCESS_FILE_HASH + PRINCIPAL_USER |
+| `metrics.file_executions_fail` | Blocked / failed process executions | Composite-only: EVENT_TYPE + PRINCIPAL_PROCESS_FILE_HASH; EVENT_TYPE + PRINCIPAL_DEVICE + PRINCIPAL_PROCESS_FILE_HASH; EVENT_TYPE + PRINCIPAL_PROCESS_FILE_HASH + PRINCIPAL_USER |
 
 ---
 
 ## 5. Security & EDR Rule Alerts
-* **Log Scope:** `metadata.event_type = "SCAN_UNCATEGORIZED"`
+* **Log Scope:** `(metadata.log_type = "CB_EDR" or metadata.log_type = "CS_EDR" or metadata.log_type = "MICROSOFT_GRAPH_ALERT" or metadata.log_type = "SENTINELONE_ALERTS")`. The baseline selects by `metadata.log_type`, not by `metadata.event_type`.
 * **Backing Log Types:** `CB_EDR`, `CS_EDR`, `MICROSOFT_GRAPH_ALERT`, `SENTINELONE_ALERTS`
 
 | Metric Function | Description | Supported Dimensions (Entity Types) |
 | :--- | :--- | :--- |
-| `metrics.alert_event_name_count` | Security rule and EDR alerts fired per entity | `principal.asset.hostname`, `principal.user.userid` (requires `security_result.rule_name`, `metadata.event_type = "SCAN_UNCATEGORIZED"`) |
+| `metrics.alert_event_name_count` | Security rule and EDR alerts fired per host and rule | Composite-only: PRINCIPAL_DEVICE + SECURITY_RESULT_RULE_NAME; PRINCIPAL_DEVICE + PRINCIPAL_PROCESS_FILE_PATH + SECURITY_RESULT_RULE_NAME; PRINCIPAL_DEVICE + PRINCIPAL_PROCESS_FILE_PATH + PRINCIPAL_USER + SECURITY_RESULT_RULE_NAME; PRINCIPAL_DEVICE + PRINCIPAL_PROCESS_FILE_HASH + PRINCIPAL_USER + SECURITY_RESULT_RULE_NAME |
 
 > [!NOTE]
 > **Compound Dimension Scope for `metrics.alert_event_name_count`**:
-> In Chronicle SIEM (Malachite), `metrics.alert_event_name_count` is partitioned as a compound metric measuring alert volume for a specific security rule per entity.
-> Formulate queries by binding both the entity identifier and the rule name (`security_result.rule_name: $rule_name`) in the event filter, match section, and metric call:
+> In Chronicle SIEM (Malachite), `metrics.alert_event_name_count` is partitioned as a compound metric measuring alert volume for a specific security rule per host. Every valid set contains `PRINCIPAL_DEVICE` + `SECURITY_RESULT_RULE_NAME`; `principal.user.*` is valid only together with the process file path or hash. There is no user-only alert baseline.
+> Formulate queries by binding both the host identifier and the rule name (`security_result.rule_name: $rule_name`) in the event filter, match section, and metric call:
 > ```yara
-> metadata.event_type = "SCAN_UNCATEGORIZED"
+> (metadata.log_type = "CB_EDR" or metadata.log_type = "CS_EDR" or metadata.log_type = "MICROSOFT_GRAPH_ALERT" or metadata.log_type = "SENTINELONE_ALERTS")
 > principal.asset.hostname = $host
 > security_result.rule_name = $rule_name
 > match: $host, $rule_name by 1d
@@ -181,12 +193,12 @@ A common detection blindspot is evaluating all network anomalies through byte vo
 ---
 
 ## 6. HTTP & Web Queries
-* **Log Scope:** `metadata.event_type = "NETWORK_HTTP"`
+* **Log Scope:** `(network.http.method != "" or network.http.user_agent != "" or network.http.response_code != 0 or network.http.referral_url != "")` (HTTP message present). No `metadata.event_type` filter in the baseline.
 * **Backing Log Types:** `CHROME_MANAGEMENT`, `ZSCALER`, `SQUID_PROXY`, `PALO_ALTO_FIREWALL`, `BLUECOAT_PROXY`, `NGINX`
 * **Underlying Pre-computed Metric Shards in Malachite:**
-  - `metrics.http_queries_total`: Evaluates `network.http.method != ""` (Shard 9)
-  - `metrics.http_queries_success`: Evaluates `network.http.response_code < 400` and `network.http.method != ""` (Shard 8)
-  - `metrics.http_queries_fail`: Evaluates `(network.http.response_code >= 400 or network.http.response_code is null)` and `network.http.method != ""` (Shard 7)
+  - `metrics.http_queries_total`: network.http message present (http.method is not null); no event_type filter
+  - `metrics.http_queries_success`: network.http message present and response_code < 400 (unset response_code reads as 0 and counts as success)
+  - `metrics.http_queries_fail`: network.http message present and (response_code >= 400 or response_code is null); the null branch cannot fire for a present proto3 message
 
 ### 6.1 The 9 Supported Dimension Configurations
 Chronicle Malachite pre-computes 30-day baseline tables across nine distinct dimension combinations for each HTTP metric function:
@@ -262,9 +274,9 @@ $fail_z = ($fail_obs - $hist_fail_avg) / if($hist_fail_std > 0, $hist_fail_std, 
 
 ### 6.4 Raw UDM Events Alignment & Consultative Pivot to Statistical Hunter
 When constructing multi-stage YARA-L rules or companion raw stages for HTTP metrics:
-* **Raw `events:` Filter Alignment**: Match `metadata.event_type = "NETWORK_HTTP"` and include `network.http.method != ""` to align 1:1 with Malachite's underlying SQL ingestion filter (`WHERE network.http.method IS NOT NULL`).
+* **Raw `events:` Filter Alignment**: Use the HTTP-present line `(network.http.method != "" or network.http.user_agent != "" or network.http.response_code != 0 or network.http.referral_url != "")` to align with Malachite's baseline (`network.http` message present). Do NOT use `metadata.event_type = "NETWORK_HTTP"` alone (it overcounts Zeek rows with no HTTP fields) or `network.http.method != ""` alone (it misses user-agent-only events).
 * **Forensic vs. Baseline Dimension Separation**:
-  - `metrics.http_queries_*` accepts **only** the 9 pre-computed dimensions (`principal.asset.hostname`, `principal.asset.ip`, `principal.user.userid`, `target.hostname`, `network.http.user_agent`).
+  - `metrics.http_queries_*` accepts **only** the 9 pre-computed dimension sets (any `PRINCIPAL_DEVICE` field such as `principal.asset.hostname` / `principal.asset.ip`, any `PRINCIPAL_USER` field such as `principal.user.userid` / `principal.user.email_addresses`, `target.hostname`, `network.http.user_agent`).
   - High-cardinality URI paths (`target.url`), referrers (`network.http.referral_url`), and raw status codes are captured in companion raw stages (`outcome: array_distinct(target.url)`).
 * **When to Pivot to `secops-statistical-hunter`**:
   - When investigating URI path entropy, directory traversal scanning (`../`), query parameter fuzzing, or payload byte distributions, pivot directly to `secops-statistical-hunter` (Risk metrics baselines index target hostnames).
@@ -273,21 +285,21 @@ When constructing multi-stage YARA-L rules or companion raw stages for HTTP metr
 
 ## 7. Cloud Resource Lifecycle & Cloud Audit Telemetry Spectrum
 * **Backing Log Types:** `GCP_CLOUDAUDIT`, `AWS_CLOUDTRAIL`, `AZURE_ACTIVITY`
-* **Pre-Computed Baseline Scope:** `metadata.event_type = "RESOURCE_CREATION" | "RESOURCE_DELETION" | "RESOURCE_READ" | "RESOURCE_WRITTEN"`
+* **Pre-Computed Baseline Scope:** creation `(metadata.event_type = "RESOURCE_CREATION" or metadata.event_type = "USER_RESOURCE_CREATION")`; deletion `(metadata.event_type = "RESOURCE_DELETION" or metadata.event_type = "USER_RESOURCE_DELETION")`; read `(metadata.event_type = "RESOURCE_READ" or metadata.event_type = "USER_RESOURCE_ACCESS")`; written `(metadata.event_type = "RESOURCE_WRITTEN" or metadata.event_type = "USER_RESOURCE_UPDATE_CONTENT")`. `_success` adds `security_result.action = "ALLOW"`; see `references/metric-sector-catalog.md` for `_fail`.
 
 ### 7.1 Pre-Computed UEBA Metric Functions
 Chronicle Malachite maintains 30-day pre-computed baseline tables for 4 core infrastructure CRUD operations:
 
 | Metric Function Family | Operations Covered | Supported Dimensions (Entity Types & Required Attributes) |
 | :--- | :--- | :--- |
-| `metrics.resource_creation_*` | `total`, `success`, `fail` | `principal.user.userid` (or `target.user.userid`) + `metadata.vendor_name` + `metadata.product_name` (+ optional `target.resource.name`) |
-| `metrics.resource_deletion_*` | `total`, `success`, `fail` | `principal.user.userid` (or `target.user.userid`) + `metadata.vendor_name` + `metadata.product_name` (+ optional `target.resource.name`) |
-| `metrics.resource_read_*` | `total`, `success`, `fail` | `principal.user.userid` (or `target.user.userid`) + `metadata.vendor_name` + `metadata.product_name` (+ optional `target.resource.name`) |
-| `metrics.resource_written_*` | `total`, `success`, `fail` | `principal.user.userid` (or `target.user.userid`) + `metadata.vendor_name` + `metadata.product_name` (+ optional `target.resource.name`) |
+| `metrics.resource_creation_*` | `total`, `success`, `fail` | Composite-only: PRODUCT_NAME + TARGET_USER + VENDOR_NAME; PRINCIPAL_USER + PRODUCT_NAME + VENDOR_NAME; PRINCIPAL_IP + PRINCIPAL_USER + PRODUCT_NAME + VENDOR_NAME; PRINCIPAL_USER + PRODUCT_NAME + TARGET_APPLICATION + VENDOR_NAME; PRINCIPAL_USER + PRODUCT_NAME + TARGET_RESOURCE_NAME + VENDOR_NAME; PRINCIPAL_USER + PRODUCT_NAME + TARGET_RESOURCE_NAME + TARGET_RESOURCE_TYPE + VENDOR_NAME; PRINCIPAL_USER + PRODUCT_NAME + TARGET_APPLICATION + TARGET_LOCATION_NAME + VENDOR_NAME |
+| `metrics.resource_deletion_*` | `total`, `success`, `fail` | Composite-only: PRODUCT_NAME + TARGET_USER + VENDOR_NAME; PRINCIPAL_USER + PRODUCT_NAME + VENDOR_NAME; PRINCIPAL_IP + PRINCIPAL_USER + PRODUCT_NAME + VENDOR_NAME; PRINCIPAL_USER + PRODUCT_NAME + TARGET_APPLICATION + VENDOR_NAME; PRINCIPAL_USER + PRODUCT_NAME + TARGET_RESOURCE_NAME + VENDOR_NAME; PRINCIPAL_USER + PRODUCT_NAME + TARGET_RESOURCE_NAME + TARGET_RESOURCE_TYPE + VENDOR_NAME; PRINCIPAL_USER + PRODUCT_NAME + TARGET_APPLICATION + TARGET_LOCATION_NAME + VENDOR_NAME |
+| `metrics.resource_read_*` | `total`, `success`, `fail` | Composite-only: PRODUCT_NAME + TARGET_USER + VENDOR_NAME; PRINCIPAL_USER + PRODUCT_NAME + VENDOR_NAME; PRINCIPAL_IP + PRINCIPAL_USER + PRODUCT_NAME + VENDOR_NAME; PRINCIPAL_USER + PRODUCT_NAME + TARGET_APPLICATION + VENDOR_NAME; PRINCIPAL_USER + PRODUCT_NAME + TARGET_RESOURCE_NAME + VENDOR_NAME; PRINCIPAL_USER + PRODUCT_NAME + TARGET_RESOURCE_NAME + TARGET_RESOURCE_TYPE + VENDOR_NAME; PRINCIPAL_USER + PRODUCT_NAME + TARGET_APPLICATION + TARGET_LOCATION_NAME + VENDOR_NAME |
+| `metrics.resource_written_*` | `total`, `success`, `fail` | Composite-only: PRODUCT_NAME + TARGET_USER + VENDOR_NAME; PRINCIPAL_USER + PRODUCT_NAME + VENDOR_NAME; PRINCIPAL_IP + PRINCIPAL_USER + PRODUCT_NAME + VENDOR_NAME; PRINCIPAL_USER + PRODUCT_NAME + TARGET_APPLICATION + VENDOR_NAME; PRINCIPAL_USER + PRODUCT_NAME + TARGET_RESOURCE_NAME + VENDOR_NAME; PRINCIPAL_USER + PRODUCT_NAME + TARGET_RESOURCE_NAME + TARGET_RESOURCE_TYPE + VENDOR_NAME; PRINCIPAL_USER + PRODUCT_NAME + TARGET_APPLICATION + TARGET_LOCATION_NAME + VENDOR_NAME |
 
 > [!IMPORTANT]
 > **Mandatory Vendor & Product Scoping Invariant for Cloud CRUD (`resource_*`)**:
-> In Google SecOps Chronicle Malachite, all Cloud Resource Lifecycle metrics (`metrics.resource_creation_*`, `metrics.resource_deletion_*`, `metrics.resource_read_*`, `metrics.resource_written_*`) **strictly require** both `metadata.vendor_name` AND `metadata.product_name` when filtering by user (`principal.user.userid`) or device.
+> In Google SecOps Chronicle Malachite, all Cloud Resource Lifecycle metrics (`metrics.resource_creation_*`, `metrics.resource_deletion_*`, `metrics.resource_read_*`, `metrics.resource_written_*`) **strictly require** both `metadata.vendor_name` AND `metadata.product_name` together with a user (`principal.user.*` or `target.user.*`). There is no host/device dimension for these metrics.
 > Calling a Cloud CRUD metric with `principal.user.userid` alone causes a fatal compile-time failure:  
 > `compilation error: validating ueba functions: unsupported filters for metric RESOURCE_*`  
 > Always match `$v = metadata.vendor_name, $p = metadata.product_name` in the event/match section and pass `metadata.vendor_name: $v, metadata.product_name: $p` into the metric function call.
@@ -348,13 +360,21 @@ In multi-stage YARA-L threat hunting:
 ---
 
 ## 8. Google Workspace Telemetry
-* **Log Scope:** `metadata.event_type = "USER_UNCATEGORIZED" | "EMAIL_TRANSACTION"`
+* **Log Scope:** per metric (no `metadata.event_type` filter in any Workspace baseline):
+  - `metrics.workspace_auth_attempts_total`: `metadata.vendor_name = "Google Workspace"` + `(metadata.product_name = "login" or metadata.product_name = "saml" or metadata.product_name = "token")`
+  - `metrics.workspace_emails_sent_total`: `(metadata.product_name = "GMAIL" or metadata.product_name = "gmail")`
+  - `metrics.workspace_network_bytes_outbound`: `(metadata.product_name = "GMAIL" or metadata.product_name = "gmail")`
+  - `metrics.workspace_network_bytes_total`: `(metadata.product_name = "GMAIL" or metadata.product_name = "gmail")`
+  - `metrics.workspace_total_change_actions`: `metadata.vendor_name = "Google Workspace"`
+  - `metrics.workspace_total_download_actions`: `metadata.vendor_name = "Google Workspace"` + `metadata.product_event_type = "download"`
 * **Backing Log Types:** `WORKSPACE_REPORTS`, `GMAIL`
+* **Case note:** the Gmail baselines match `product_name` in (`GMAIL`, `gmail`) case-sensitively; tenants that log `Gmail` have no Gmail baseline rows.
 
 | Metric Function | Description | Supported Dimensions |
 | :--- | :--- | :--- |
-| `metrics.workspace_emails_sent_total` | Outbound emails sent | `principal.user.userid` |
-| `metrics.workspace_network_bytes_outbound` | Google Drive / Docs outbound bytes | `principal.user.userid` |
-| `metrics.workspace_network_bytes_total` | Total Workspace byte volume | `principal.user.userid` |
-| `metrics.workspace_total_change_actions` | File edit / permissions changes | `principal.user.userid` |
-| `metrics.workspace_total_download_actions` | File export / download actions | `principal.user.userid` |
+| `metrics.workspace_auth_attempts_total` | Workspace login / SAML / token events | Entity alone: PRINCIPAL_USER, TARGET_USER; also: PRODUCT_EVENT_TYPE + TARGET_USER; PRINCIPAL_IP + TARGET_USER; PRINCIPAL_IP + PRODUCT_EVENT_TYPE + TARGET_USER; PRINCIPAL_COUNTRY + TARGET_USER; PRINCIPAL_IP + PRODUCT_EVENT_TYPE; PRINCIPAL_USER + SECURITY_ACTION; PRINCIPAL_COUNTRY + PRINCIPAL_USER + TARGET_APPLICATION; PRINCIPAL_COUNTRY + PRINCIPAL_USER; PRINCIPAL_IP + PRINCIPAL_USER; PRINCIPAL_USER + PRODUCT_EVENT_TYPE; PRINCIPAL_USER + PRODUCT_EVENT_TYPE + SECURITY_ACTION |
+| `metrics.workspace_emails_sent_total` | Outbound Gmail messages | Entity alone: PRINCIPAL_USER; also: PRINCIPAL_USER + SECURITY_RULE_ID; PRINCIPAL_APPLICATION + PRINCIPAL_IP + PRINCIPAL_USER; PRINCIPAL_IP + PRINCIPAL_USER; PRINCIPAL_IP + PRINCIPAL_USER + TARGET_IP; PRINCIPAL_USER + TARGET_IP; EMAIL_FROM_ADDRESS + EMAIL_TO_ADDRESS; MAIL_ID + PRINCIPAL_USER; PRINCIPAL_APPLICATION + PRINCIPAL_USER |
+| `metrics.workspace_network_bytes_outbound` | Gmail sent bytes (use `metric: value_sum`) | Entity alone: PRINCIPAL_USER; also: PRINCIPAL_COUNTRY + PRINCIPAL_USER |
+| `metrics.workspace_network_bytes_total` | Gmail sent + received bytes (use `metric: value_sum`) | Entity alone: PRINCIPAL_USER; also: PRINCIPAL_COUNTRY + PRINCIPAL_USER |
+| `metrics.workspace_total_change_actions` | Every Google Workspace event (despite the name, not only change actions) | Entity alone: PRINCIPAL_USER, TARGET_USER; also: PRINCIPAL_USER + PRODUCT_EVENT_TYPE + SECURITY_ACTION; PRINCIPAL_IP + PRODUCT_EVENT_TYPE; PRINCIPAL_USER + PRODUCT_EVENT_TYPE + PRODUCT_NAME; PRINCIPAL_USER + TARGET_RESOURCE_NAME; PRINCIPAL_USER + PRODUCT_EVENT_TYPE + TARGET_RESOURCE_NAME; PRINCIPAL_IP + PRINCIPAL_USER |
+| `metrics.workspace_total_download_actions` | Workspace download actions (`product_event_type = "download"`) | Entity alone: PRINCIPAL_USER; also: PRINCIPAL_USER + TARGET_RESOURCE_NAME; PRINCIPAL_USER + PRODUCT_NAME + TARGET_RESOURCE_NAME |

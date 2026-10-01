@@ -1,6 +1,10 @@
 // Stage 1: Security Rule & EDR Alert Count & 30d Baseline
+// Identifier swap: this extractor keys on `principal.asset.hostname` (PRINCIPAL_DEVICE) plus companion fields that complete one valid set.
+//   You may swap `principal.asset.hostname` for another PRINCIPAL_DEVICE (principal.asset.hostname | asset_id | ip | mac | product_object_id) field, in the event binding
+//   AND in every metrics call; keep every companion field (the set must match exactly). Sets keyed on
+//   other entities: references/metric-sector-catalog.md (this metric's row).
 stage stage1_extract {
-    metadata.event_type = "SCAN_UNCATEGORIZED"
+    (metadata.log_type = "CB_EDR" or metadata.log_type = "CS_EDR" or metadata.log_type = "MICROSOFT_GRAPH_ALERT" or metadata.log_type = "SENTINELONE_ALERTS")
     principal.asset.hostname = $host
     security_result.rule_name = $rule_name
     $host != ""

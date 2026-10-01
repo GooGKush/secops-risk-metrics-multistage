@@ -1,8 +1,12 @@
 // Stage 1: Failed/Blocked Process Executions & 30d Baseline
+// Identifier swap: this extractor keys on `principal.asset.hostname` (PRINCIPAL_DEVICE) plus companion fields that complete one valid set.
+//   You may swap `principal.asset.hostname` for another PRINCIPAL_DEVICE (principal.asset.hostname | asset_id | ip | mac | product_object_id) field, in the event binding
+//   AND in every metrics call; keep every companion field (the set must match exactly). Sets keyed on
+//   other entities: references/metric-sector-catalog.md (this metric's row).
 stage stage1_extract {
     metadata.event_type = "PROCESS_LAUNCH"
+    not security_result.action = "ALLOW"
     $event_type = metadata.event_type
-    security_result.action != "ALLOW"
     principal.asset.hostname = $host
     principal.process.file.sha256 = $sha256
     $host != ""

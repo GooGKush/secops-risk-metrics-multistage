@@ -44,7 +44,7 @@ class EntityRadarCollector:
 // Sector: IAM & Authentication
 stage s1 {
     metadata.event_type = "USER_LOGIN"
-    security_result.action = "BLOCK"
+    not security_result.action = "ALLOW"
     target.user.userid = "%(entity_id)s"
     $user = target.user.userid
   match:
@@ -78,7 +78,7 @@ outcome:
       "Cloud Infrastructure": """
 // Sector: Cloud Infrastructure CRUD
 stage s1 {
-    metadata.event_type = "RESOURCE_CREATION"
+    (metadata.event_type = "RESOURCE_CREATION" or metadata.event_type = "USER_RESOURCE_CREATION")
     principal.user.userid = "%(entity_id)s"
     $user = principal.user.userid
     metadata.vendor_name = $v
@@ -91,7 +91,7 @@ stage s1 {
     $create_std = max(metrics.resource_creation_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: "%(entity_id)s", metadata.vendor_name: $v, metadata.product_name: $p))
 }
 stage s2 {
-    metadata.event_type = "RESOURCE_DELETION"
+    (metadata.event_type = "RESOURCE_DELETION" or metadata.event_type = "USER_RESOURCE_DELETION")
     principal.user.userid = "%(entity_id)s"
     $user = principal.user.userid
     metadata.vendor_name = $v
@@ -115,13 +115,14 @@ outcome:
       "Workspace Data Hoarding": """
 // Sector: Workspace & Drive Data
 stage s1 {
-    metadata.event_type = "USER_RESOURCE_ACCESS"
+    metadata.vendor_name = "Google Workspace"
     principal.user.userid = "%(entity_id)s"
     $user = principal.user.userid
   match:
     $user by 1d
   outcome:
-    $dl_obs = count(metadata.id)
+    $dl_obs = sum(if(metadata.product_event_type = "download", 1, 0))
+    $ch_obs = count(metadata.id)
     $dl_avg = max(metrics.workspace_total_download_actions(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: "%(entity_id)s"))
     $dl_std = max(metrics.workspace_total_download_actions(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: "%(entity_id)s"))
     $ch_avg = max(metrics.workspace_total_change_actions(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: "%(entity_id)s"))
@@ -133,12 +134,13 @@ outcome:
   $dl_std = max($s1.dl_std)
   $ch_std = max($s1.ch_std)
   $z_download = (max($s1.dl_obs) - max($s1.dl_avg)) / if($dl_std > 0, $dl_std, 1.0)
-  $z_change = (max($s1.dl_obs) - max($ch_avg)) / if($ch_std > 0, $ch_std, 1.0)
+  $z_change = (max($s1.ch_obs) - max($s1.ch_avg)) / if($ch_std > 0, $ch_std, 1.0)
 """,
       "Network Egress & Web": """
 // Sector: Network Egress Volume
 stage s1 {
-    metadata.event_type = "NETWORK_CONNECTION"
+    network.sent_bytes > 0
+    network.sent_bytes < 1000000000000000
     principal.user.userid = "%(entity_id)s"
     $user = principal.user.userid
   match:
@@ -157,7 +159,7 @@ outcome:
       "DNS Resolution": """
 // Sector: DNS Failures
 stage s1 {
-    metadata.event_type = "NETWORK_DNS"
+    (network.dns.questions.name != "" or network.dns.answers.name != "" or network.dns.id != 0)
     network.dns.response_code != 0
     principal.user.userid = "%(entity_id)s"
     $user = principal.user.userid
@@ -177,7 +179,7 @@ outcome:
       "Web & Proxy Activity": """
 // Sector: Web & Proxy Activity
 stage s1 {
-    metadata.event_type = "NETWORK_HTTP"
+    (network.http.method != "" or network.http.user_agent != "" or network.http.response_code != 0 or network.http.referral_url != "")
     principal.user.userid = "%(entity_id)s"
     $user = principal.user.userid
   match:
@@ -200,7 +202,7 @@ outcome:
 // Sector: Asset Authentication
 stage s1 {
     metadata.event_type = "USER_LOGIN"
-    security_result.action = "BLOCK"
+    not security_result.action = "ALLOW"
     principal.asset.hostname = "%(entity_id)s"
     $asset = principal.asset.hostname
   match:
@@ -219,7 +221,7 @@ outcome:
       "Network Traffic Volume": """
 // Sector: Network Inbound & Outbound
 stage s1 {
-    metadata.event_type = "NETWORK_CONNECTION"
+    ((network.sent_bytes > 0 and network.sent_bytes < 1000000000000000) or (network.received_bytes > 0 and network.received_bytes < 1000000000000000))
     principal.asset.hostname = "%(entity_id)s"
     $asset = principal.asset.hostname
   match:
@@ -243,7 +245,7 @@ outcome:
       "DNS Resolution": """
 // Sector: DNS Failures
 stage s1 {
-    metadata.event_type = "NETWORK_DNS"
+    (network.dns.questions.name != "" or network.dns.answers.name != "" or network.dns.id != 0)
     network.dns.response_code != 0
     principal.asset.hostname = "%(entity_id)s"
     $asset = principal.asset.hostname
@@ -263,7 +265,7 @@ outcome:
       "Web & Proxy Activity": """
 // Sector: Web & Proxy Activity
 stage s1 {
-    metadata.event_type = "NETWORK_HTTP"
+    (network.http.method != "" or network.http.user_agent != "" or network.http.response_code != 0 or network.http.referral_url != "")
     principal.asset.hostname = "%(entity_id)s"
     $asset = principal.asset.hostname
   match:
@@ -282,7 +284,7 @@ outcome:
       "Security & EDR Alerts": """
 // Sector: Security & EDR Alerts
 stage alerts_risk {
-    metadata.event_type = "SCAN_UNCATEGORIZED"
+    (metadata.log_type = "CB_EDR" or metadata.log_type = "CS_EDR" or metadata.log_type = "MICROSOFT_GRAPH_ALERT" or metadata.log_type = "SENTINELONE_ALERTS")
     principal.asset.hostname = "%(entity_id)s"
     security_result.rule_name = $rule_name
     $asset = principal.asset.hostname

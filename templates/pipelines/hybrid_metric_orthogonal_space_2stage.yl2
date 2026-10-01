@@ -10,22 +10,21 @@
 // Match Topology: Symmetrical entity match ($entity by 1d).
 //
 // CONCRETE FIELD BINDING & INSTANTIATION GUIDE:
+// Slots event_filter / macro_event_filter: the metric's "Observed event filter" lines from references/metric-sector-catalog.md, one per line.
 // Canonical Vector: Network Connection Egress (Intensity) + Target IP Dispersion (Breadth)
-//   - {{macro_event_type}}: "NETWORK_CONNECTION"
-//   - {{macro_entity_field}}: principal.asset.hostname (or principal.user.userid)
-//   - {{macro_event_filter}}: network.sent_bytes != 0
-//   - {{macro_observed_agg}}: sum(network.sent_bytes)
-//   - {{target_metric_func_avg}}: metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: avg, principal.asset.hostname: $entity)
-//   - {{target_metric_func_stddev}}: metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: stddev, principal.asset.hostname: $entity)
-//   - {{target_metric_func_active_days}}: metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: num_metric_periods, principal.asset.hostname: $entity)
-//   - {{raw_event_type}}: "NETWORK_CONNECTION"
-//   - {{raw_entity_field}}: principal.asset.hostname
-//   - {{raw_breadth_field}}: target.ip
+//   - macro_entity_field slot: principal.asset.hostname (or principal.user.userid)
+//   - macro_event_filter slot: network.sent_bytes > 0 AND network.sent_bytes < 1000000000000000 (network_bytes_outbound)
+//   - macro_observed_agg slot: sum(network.sent_bytes)
+//   - target_metric_func_avg slot: metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: avg, principal.asset.hostname: $entity)
+//   - target_metric_func_stddev slot: metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: stddev, principal.asset.hostname: $entity)
+//   - target_metric_func_active_days slot: metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: num_metric_periods, principal.asset.hostname: $entity)
+//   - raw_event_type slot: "NETWORK_CONNECTION"
+//   - raw_entity_field slot: principal.asset.hostname
+//   - raw_breadth_field slot: target.ip
 // ============================================================================
 
 // Stage 1: Macro Baseline (Axis 1: Historical Intensity / Prior State)
 stage stage1_macro_intensity {
-    metadata.event_type = "{{macro_event_type}}"
     {{macro_entity_field}} = $entity
     $entity != ""
     {{macro_event_filter}}

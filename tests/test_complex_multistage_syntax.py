@@ -35,55 +35,79 @@ class ComplexMultiStageSyntaxTest(unittest.TestCase):
     self.skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     self.templates_dir = os.path.join(self.skill_dir, "templates", "pipelines")
 
-  def test_multi_sector_fusion_4stage_template_syntax(self):
-    """Verifies the 4-Stage Multi-Sector Threat Fusion template conforms to Common Compiler DAG grammar."""
-    template_path = os.path.join(self.templates_dir, "multi_sector_fusion_4stage.yl2")
+  def _read_template(self, name: str) -> str:
+    template_path = os.path.join(self.templates_dir, name)
     self.assertTrue(os.path.exists(template_path), f"Missing template: {template_path}")
-
     with open(template_path, "r", encoding="utf-8") as f:
-      content = f.read()
+      return f.read()
 
-    # 1. Must define 4 independent sector stages
-    self.assertIn("stage auth_sector", content)
-    self.assertIn("stage cloud_sector", content)
-    self.assertIn("stage proc_sector", content)
-    self.assertIn("stage net_sector", content)
+  def test_multi_sector_fusion_4stage_template_is_generic(self):
+    """The 4-stage fusion template hardcodes no metric pair: sectors, filters and entity fields are slots."""
+    content = self._read_template("multi_sector_fusion_4stage.yl2")
 
-    # 2. Each sector must have an isolated event type and match clause
-    self.assertIn('metadata.event_type = "USER_LOGIN"', content)
-    self.assertIn('metadata.event_type = "RESOURCE_WRITTEN"', content)
-    self.assertIn('metadata.event_type = "PROCESS_LAUNCH"', content)
-    self.assertIn('metadata.event_type = "NETWORK_CONNECTION"', content)
+    # 1. 2 UDM sector stages + 1 stage-to-stage fleet normalization stage + root = 4 stages
+    self.assertIn("stage sector_a", content)
+    self.assertIn("stage sector_b", content)
+    self.assertIn("stage fleet_sector_norm", content)
+    self.assertIn("4-STAGE", content)
+    self.assertIn("MULTI-SECTOR", content)
 
-    # 3. Must synchronize entity variable in root stage (staying within 4-join compiler limit)
-    self.assertIn("$user = $auth_sector.user", content)
-    self.assertIn("$user = $cloud_sector.user", content)
-    self.assertIn("$user = $proc_sector.user", content)
-    self.assertIn("$user = $net_sector.user", content)
-    self.assertIn("match:\n  $user by 1d", content)
+    # 2. No codified telemetry pair (the old template was always auth + network)
+    code = re.sub(r"//[^\n]*", "", content)
+    for hardcoded in ("USER_LOGIN", "NETWORK_CONNECTION", "auth_attempts", "network_bytes", "auth_sector", "net_sector"):
+      self.assertNotIn(hardcoded, code)
+    for slot in ("{{sector_a_event_filter}}", "{{sector_b_event_filter}}", "{{sector_a_entity_field}}",
+                 "{{sector_b_entity_field}}", "{{sector_a_metric}}", "{{sector_b_metric}}",
+                 "{{sector_a_metric_arg}}", "{{sector_b_metric_arg}}", "{{min_baseline_days}}"):
+      self.assertIn(slot, content)
 
-    # 4. Outcome must compute 4-vector Euclidean threat norm
-    self.assertIn("$composite_threat_norm_sq", content)
-    self.assertIn("$z_auth_sq + $z_cloud_sq + $z_proc_sq + $z_net_sq", content)
+    # 3. Entity and window_start synchronized in the root stage
+    self.assertIn("$entity = $sector_a.entity", content)
+    self.assertIn("$entity = $sector_b.entity", content)
+    self.assertIn("$ws = $fleet_sector_norm.ws", content)
+    self.assertIn("match:\n  $entity, $ws by 1d", content)
 
-    # 5. Must order by composite threat norm
-    self.assertIn("order:", content)
+    # 4. 4-component rectified Euclidean norm (personal Z + fleet Delta-Z), ordered
+    self.assertIn("$composite_threat_norm_sq = $z_a_sq + $z_b_sq + $dz_a_sq + $dz_b_sq", content)
     self.assertIn("$composite_threat_norm_sq desc", content)
 
-  def test_dual_sector_fusion_3stage_template_syntax(self):
-    """Verifies the 3-Stage Dual-Sector Threat Fusion template conforms to the 4-join compiler limit."""
-    template_path = os.path.join(self.templates_dir, "dual_sector_fusion_3stage.yl2")
-    self.assertTrue(os.path.exists(template_path), f"Missing template: {template_path}")
+  def test_dual_sector_fusion_3stage_template_is_generic(self):
+    """The 3-stage fusion template hardcodes no metric pair and joins on $entity."""
+    content = self._read_template("dual_sector_fusion_3stage.yl2")
+    self.assertIn("stage sector_a", content)
+    self.assertIn("stage sector_b", content)
+    self.assertIn("$entity = $sector_a.entity", content)
+    self.assertIn("$entity = $sector_b.entity", content)
+    self.assertIn("match:\n  $entity by 1d", content)
+    self.assertIn("$composite_threat_norm_sq = $z_a_sq + $z_b_sq", content)
+    code = re.sub(r"//[^\n]*", "", content)
+    for hardcoded in ("USER_LOGIN", "NETWORK_CONNECTION", "auth_attempts", "network_bytes"):
+      self.assertNotIn(hardcoded, code)
 
-    with open(template_path, "r", encoding="utf-8") as f:
-      content = f.read()
+  def test_fusion_templates_render_for_arbitrary_pairs(self):
+    """Rendered fusion queries validate for many metric pairs and carry each metric's own event filter."""
+    from scripts.malachite_catalog import SectorSpec, baseline_semantics
+    from scripts.preflight_validator import MalachiteASTValidator
+    from scripts.template_router import MultiStageTemplateRouter
 
-    self.assertIn("stage auth_sector", content)
-    self.assertIn("stage net_sector", content)
-    self.assertIn("$user = $auth_sector.user", content)
-    self.assertIn("$user = $net_sector.user", content)
-    self.assertIn("match:\n  $user by 1d", content)
-    self.assertIn("$composite_threat_norm_sq = $z_auth_sq + $z_net_sq", content)
+    router = MultiStageTemplateRouter()
+    pairs = [
+        (SectorSpec("auth_attempts_fail", "target.user.userid"), SectorSpec("network_bytes_outbound", "principal.user.userid")),
+        (SectorSpec("http_queries_total", "principal.asset.hostname"), SectorSpec("dns_queries_fail", "principal.asset.hostname")),
+        (SectorSpec("http_queries_fail", "principal.user.email_addresses"), SectorSpec("network_bytes_outbound", "principal.user.email_addresses")),
+        (SectorSpec("dns_bytes_outbound", "principal.asset.hostname"), SectorSpec("network_flows_outbound", "principal.asset.hostname")),
+        (SectorSpec("workspace_emails_sent_total", "principal.user.userid"), SectorSpec("auth_attempts_total", "target.user.userid")),
+    ]
+    for four_stage in (False, True):
+      for a, b in pairs:
+        query = router.build_sector_fusion_query(a, b, four_stage=four_stage)
+        self.assertEqual(MalachiteASTValidator.validate_query(query), [], f"{a.metric}+{b.metric}")
+        self.assertNotIn("{{", re.sub(r"//[^\n]*", "", query))
+        for spec in (a, b):
+          for line in baseline_semantics(spec.metric).observed_filter:
+            self.assertIn(line, query)
+          self.assertIn(f"{spec.entity_field} = $entity", query)
+          self.assertIn(f"{spec.entity_field}: $entity", query)
 
   def test_dual_baseline_delta_z_3stage_template_syntax(self):
     """Verifies the 3-Stage Dual-Baseline (Delta-Z) template conforms to Common Compiler grammar."""
@@ -308,26 +332,24 @@ order:
   def test_outcomes_in_outcomes_in_stage_derivations(self):
     """Verifies that multi-stage pipelines leverage Outcomes-in-Outcomes (OIO) within intermediate stages."""
     # 1. multi_sector_fusion_4stage.yl2
-    ms_path = os.path.join(self.templates_dir, "multi_sector_fusion_4stage.yl2")
-    with open(ms_path, "r", encoding="utf-8") as f:
-      ms_content = f.read()
-    self.assertIn("$z_auth = ($auth_obs - $auth_avg) / if($auth_std > 0, $auth_std, 1.0)", ms_content)
-    self.assertIn("$z_cloud = ($cloud_obs - $cloud_avg) / if($cloud_std > 0, $cloud_std, 1.0)", ms_content)
-    self.assertIn("$z_proc = ($proc_obs - $proc_avg) / if($proc_std > 0, $proc_std, 1.0)", ms_content)
-    self.assertIn("$z_net = ($net_bytes_obs - $net_bytes_avg) / if($net_bytes_std > 0, $net_bytes_std, 1.0)", ms_content)
-    self.assertIn("$z_auth = max($auth_sector.z_auth)", ms_content)
-    self.assertIn("$z_cloud = max($cloud_sector.z_cloud)", ms_content)
-    self.assertIn("$z_proc = max($proc_sector.z_proc)", ms_content)
-    self.assertIn("$z_net = max($net_sector.z_net)", ms_content)
+    ms_content = self._read_template("multi_sector_fusion_4stage.yl2")
+    self.assertIn("$z_a_raw = ($a_obs - $a_avg) / if($a_std > 0, $a_std, 1.0)", ms_content)
+    self.assertIn("$z_a_pos = if($z_a_raw > 0, $z_a_raw, 0.0)", ms_content)
+    self.assertIn("$z_a = if($a_days >= {{min_baseline_days}}, $z_a_pos, 0.0)", ms_content)
+    self.assertIn("$z_b_raw = ($b_obs - $b_avg) / if($b_std > 0, $b_std, 1.0)", ms_content)
+    self.assertIn("$z_b = if($b_days >= {{min_baseline_days}}, $z_b_pos, 0.0)", ms_content)
+    self.assertIn("$z_a = max($sector_a.z_a)", ms_content)
+    self.assertIn("$z_b = max($sector_b.z_b)", ms_content)
+    self.assertIn("$fleet_a_mu = max($fleet_sector_norm.fleet_z_a_avg)", ms_content)
+    self.assertIn("$fleet_b_mu = max($fleet_sector_norm.fleet_z_b_avg)", ms_content)
 
     # 2. dual_sector_fusion_3stage.yl2
-    ds_path = os.path.join(self.templates_dir, "dual_sector_fusion_3stage.yl2")
-    with open(ds_path, "r", encoding="utf-8") as f:
-      ds_content = f.read()
-    self.assertIn("$z_auth = ($auth_obs - $auth_avg) / if($auth_std > 0, $auth_std, 1.0)", ds_content)
-    self.assertIn("$z_net = ($net_bytes_obs - $net_bytes_avg) / if($net_bytes_std > 0, $net_bytes_std, 1.0)", ds_content)
-    self.assertIn("$z_auth = max($auth_sector.z_auth)", ds_content)
-    self.assertIn("$z_net = max($net_sector.z_net)", ds_content)
+    ds_content = self._read_template("dual_sector_fusion_3stage.yl2")
+    self.assertIn("$z_a_raw = ($a_obs - $a_avg) / if($a_std > 0, $a_std, 1.0)", ds_content)
+    self.assertIn("$z_b_raw = ($b_obs - $b_avg) / if($b_std > 0, $b_std, 1.0)", ds_content)
+    self.assertIn("$z_a = max($sector_a.z_a)", ds_content)
+    self.assertIn("$z_b = max($sector_b.z_b)", ds_content)
+    self.assertIn("$z_a_gated = if($a_active_days >= {{min_baseline_days}}, $z_a, 0.0)", ds_content)
 
     # 3. cloud_repository_scope_dual_branch.yl2
     cr_path = os.path.join(self.templates_dir, "cloud_repository_scope_dual_branch.yl2")

@@ -1,7 +1,11 @@
 // Stage 1: Failed/Blocked Cloud Resource Deletions with Local-Baseline Isolation
+// Identifier swap: this extractor keys on `principal.user.userid` (PRINCIPAL_USER) plus companion fields that complete one valid set.
+//   You may swap `principal.user.userid` for another PRINCIPAL_USER (principal.user.userid | email_addresses | employee_id | product_object_id | windows_sid) field, in the event binding
+//   AND in every metrics call; keep every companion field (the set must match exactly). Sets keyed on
+//   other entities: references/metric-sector-catalog.md (this metric's row).
 stage stage1_extract {
-    metadata.event_type = "RESOURCE_DELETION"
-    security_result.action != "ALLOW"
+    (metadata.event_type = "RESOURCE_DELETION" or metadata.event_type = "USER_RESOURCE_DELETION")
+    not security_result.action = "ALLOW"
     $sa = principal.user.userid
     $vendor = metadata.vendor_name
     $product = metadata.product_name

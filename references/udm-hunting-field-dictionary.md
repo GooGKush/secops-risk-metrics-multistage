@@ -47,7 +47,7 @@ To guarantee metrics integrity, align the raw event query in `events:` with the 
 | **Target Hostname** | `target.hostname = $target_host` | Dimension: `target.hostname` | **Stage 1 Filter**: Pass directly to `metrics.http_queries_*(target.hostname: $target_host)`. |
 | **HTTP User-Agent** | `network.http.user_agent = $ua` | Dimension: `network.http.user_agent` | **Stage 1 Compound**: Combine with host/user in `metrics.http_queries_*`. |
 | **HTTP Status Code** | `network.http.response_code` | Pre-Partitioned Metric Shards | **Metric Selection**: Query `metrics.http_queries_fail` (for $\ge 400$) or `metrics.http_queries_success` (for $< 400$). |
-| **HTTP Method** | `network.http.method != ""` | Ingest Gate Pre-Filter | **Ingest Gate**: Filter in raw `events:` block; pre-applied by engine across all HTTP metric tables. |
+| **HTTP Message Present** | `(network.http.method != "" or network.http.user_agent != "" or network.http.response_code != 0 or network.http.referral_url != "")` | Ingest Gate (baseline counts events with an HTTP message) | **Ingest Gate**: Use this exact line in the observed `events:` block of every `metrics.http_queries_*` stage. Do NOT substitute `metadata.event_type = "NETWORK_HTTP"` (overcounts Zeek rows with no HTTP fields) or `network.http.method != ""` alone (misses user-agent-only events). |
 | **Target URL / URI** | `target.url = $url` | Forensic Companion Field | **Stage 2 Companion**: Project as forensic proof (`outcome: array_distinct(target.url)`). |
 | **Target IP** | `target.ip = $tip` | Forensic Companion Field | **Stage 2 Companion**: Aggregate destination IPs in companion stage; use `target.hostname` for metric baselines. |
 
@@ -103,16 +103,16 @@ To guarantee metrics integrity, align the raw event query in `events:` with the 
 
 | Telemetry Concept | Raw `events:` Section Path | Metric Table Handling (`metrics.network_*`) | Canonical Multi-Stage Placement & Pattern |
 | :--- | :--- | :--- | :--- |
-| **Outbound Bytes** | `network.sent_bytes != 0` | `metrics.network_bytes_outbound` | **Stage 1 Volumetric**: Pass `metric: value_sum` to measure byte volume. |
-| **Inbound Bytes** | `network.received_bytes != 0` | `metrics.network_bytes_inbound` | **Stage 1 Volumetric**: Pass `metric: value_sum` to measure byte volume. |
-| **Outbound Flows** | `network.sent_bytes != 0` | `metrics.network_flows_outbound` | **Stage 1 Session Count**: Pass `metric: event_count_sum` to measure flow count. |
-| **Inbound Flows** | `network.received_bytes != 0` | `metrics.network_flows_inbound` | **Stage 1 Session Count**: Pass `metric: event_count_sum` to measure flow count. |
+| **Outbound Bytes** | `network.sent_bytes > 0` + `network.sent_bytes < 1000000000000000` | `metrics.network_bytes_outbound` | **Stage 1 Volumetric**: Pass `metric: value_sum` to measure byte volume. |
+| **Inbound Bytes** | `network.received_bytes > 0` + `network.received_bytes < 1000000000000000` | `metrics.network_bytes_inbound` | **Stage 1 Volumetric**: Pass `metric: value_sum` to measure byte volume. |
+| **Outbound Flows** | `network.sent_bytes > 0` + `network.sent_bytes < 1000000000000000` | `metrics.network_flows_outbound` | **Stage 1 Session Count**: Pass `metric: event_count_sum` to measure flow count. |
+| **Inbound Flows** | `network.received_bytes > 0` + `network.received_bytes < 1000000000000000` | `metrics.network_flows_inbound` | **Stage 1 Session Count**: Pass `metric: event_count_sum` to measure flow count. |
 | **Client Host** | `principal.asset.hostname = $host` | Dimension: `principal.asset.hostname` | **Stage 1 Filter**: Pass directly to `metrics.network_*(principal.asset.hostname: $host)`. |
 | **Client Device IP** | `principal.asset.ip = $ip` | Dimension: `principal.asset.ip` | **Stage 1 Filter**: Pass directly to `metrics.network_*(principal.asset.ip: $ip)`. |
 | **User Identity** | `principal.user.userid = $user` | Dimension: `principal.user.userid` | **Stage 1 Filter**: Pass directly to `metrics.network_*(principal.user.userid: $user)`. |
 | **Target Destination IP** | `target.ip = $dst_ip` | Forensic Companion Field | **Stage 2 Companion**: Aggregate destination IPs (`$distinct_dst_ips = count_distinct(target.ip)`). |
 | **Target Destination Port**| `target.port = $dst_port` | Forensic Companion Field | **Stage 2 Companion**: Aggregate target ports (`$distinct_dst_ports = count_distinct(target.port)`). |
-| **Event Type** | `metadata.event_type = "NETWORK_CONNECTION"` | Ingest Gate Pre-Filter | **Ingest Gate**: Filter in raw `events:` block for session correlation. |
+| **Event Type** | `metadata.event_type = "NETWORK_CONNECTION"` | NOT part of the baseline | **Raw companion stages only**. The network baselines have no event_type filter; adding it to an observed `metrics.network_*` stage undercounts against the baseline. |
 
 ### 2.2 Affirmative AST Compiler & Placement Rules:
 * **Rule 5 (Flow Aggregation)**: Always pass `metric: event_count_sum` when evaluating `metrics.network_flows_*`.
@@ -165,8 +165,8 @@ To guarantee metrics integrity, align the raw event query in `events:` with the 
 | Telemetry Concept | Raw `events:` Section Path | Metric Table Handling (`metrics.file_executions_*`) | Canonical Multi-Stage Placement & Pattern |
 | :--- | :--- | :--- | :--- |
 | **Binary SHA256 Hash** | `principal.process.file.sha256 = $sha` | Mandatory Dimension: `principal.process.file.sha256` | **Stage 1 Filter**: Pass directly to `metrics.file_executions_*(..., principal.process.file.sha256: $sha)`. **CRITICAL**: Never pass `target.process.file.sha256` (unindexed, compiler rejection). |
-| **Executing Machine Host** | `principal.asset.hostname = $host` | Dimension: `principal.asset.hostname` | **Stage 1 Filter**: Pass directly to `metrics.file_executions_*(principal.asset.hostname: $host)`. |
-| **Executing User** | `principal.user.userid = $user` | Dimension: `principal.user.userid` | **Stage 1 Filter**: Pass directly to `metrics.file_executions_*(principal.user.userid: $user)`. |
+| **Executing Machine Host** | `principal.asset.hostname = $host` | Optional Dimension: `PRINCIPAL_DEVICE` | **Stage 1 Filter**: Add to the hash + event type call: `metrics.file_executions_*(metadata.event_type: $event_type, principal.process.file.sha256: $sha, principal.asset.hostname: $host)`. Never alone. |
+| **Executing User** | `principal.user.userid = $user` | Optional Dimension: `PRINCIPAL_USER` | **Stage 1 Filter**: Add to the hash + event type call: `metrics.file_executions_*(metadata.event_type: $event_type, principal.process.file.sha256: $sha, principal.user.userid: $user)`. Never alone, and never together with the host. |
 | **Event Type Ingest Gate** | `metadata.event_type = "PROCESS_LAUNCH"` | Mandatory Companion Dimension | **Stage 1 Ingest Gate**: Pass `metadata.event_type: $event_type` where `$event_type = metadata.event_type`. Required by Chronicle SIEM compiler. |
 | **Execution Status Shards** | N/A | Pre-Partitioned Metric Shards | **Metric Selection**: Query `metrics.file_executions_total` (all launches), `metrics.file_executions_fail` (blocked/failed), or `metrics.file_executions_success`. |
 | **Process Command Line** | `principal.process.command_line = $cmd` | Forensic Companion Field | **Stage 1/2 Outcome**: Project as forensic proof (`outcome: array_distinct(principal.process.command_line)`). Unindexed in metrics. |
@@ -201,7 +201,7 @@ To guarantee metrics integrity, align the raw event query in `events:` with the 
 | **Target User Account** | `target.user.userid = $user` | Dimension: `target.user.userid` | **Stage 1 Filter**: Pass directly to `metrics.auth_attempts_*(target.user.userid: $user)`. |
 | **Source Client Host** | `principal.asset.hostname = $host` | Dimension: `principal.asset.hostname` | **Stage 1 Filter**: Pass directly to `metrics.auth_attempts_*(principal.asset.hostname: $host)`. |
 | **Source Client IP** | `principal.asset.ip = $ip` | Dimension: `principal.asset.ip` | **Stage 1 Filter**: Pass directly to `metrics.auth_attempts_*(principal.asset.ip: $ip)`. |
-| **Auth Result Shards** | `security_result.action` | Pre-Partitioned Metric Shards | **Metric Selection**: Query `metrics.auth_attempts_fail` (for failed/brute-force) or `metrics.auth_attempts_total`. |
+| **Auth Result Shards** | `security_result.action` | Pre-Partitioned Metric Shards | **Metric Selection**: Query `metrics.auth_attempts_fail` (for failed/brute-force) or `metrics.auth_attempts_total`. Observed fail filter: `not security_result.action = "ALLOW"` (the baseline counts logins with no action as failures); observed success filter: `security_result.action = "ALLOW"`. |
 
 ### 4.2 Affirmative AST Compiler & Placement Rules:
 * **Rule 12 (Target User Affinity)**: For user authentication baselines, pass `target.user.userid: $user` (the authenticated account).
@@ -233,13 +233,17 @@ To guarantee metrics integrity, align the raw event query in `events:` with the 
 
 ---
 
-## 6. Security & EDR Rule Alerts Telemetry (`metadata.event_type = "SCAN_UNCATEGORIZED"`)
+## 6. Security & EDR Rule Alerts Telemetry (`metadata.log_type` in EDR alert sources)
 
-Rule alerts and EDR detections operate as a compound baseline requiring rule name binding:
+Rule alerts and EDR detections operate as a compound baseline requiring host + rule name binding. The baseline selects events by `metadata.log_type`, not by `metadata.event_type`:
+
+```yara
+(metadata.log_type = "CB_EDR" or metadata.log_type = "CS_EDR" or metadata.log_type = "MICROSOFT_GRAPH_ALERT" or metadata.log_type = "SENTINELONE_ALERTS")
+```
 
 ### 6.1 Malachite Metric Alignment Matrix (`events:` Block vs. `metrics.alert_event_name_count`)
 | Telemetry Concept | Raw `events:` Section Path | Metric Table Handling (`metrics.alert_event_name_count`) | Canonical Multi-Stage Placement & Pattern |
 | :--- | :--- | :--- | :--- |
 | **Rule / Alert Name** | `security_result.rule_name = $rule_name` | Mandatory Companion Dimension | **Stage 1 Filter**: Pass `security_result.rule_name: $rule_name`. Mandatory companion dimension. |
-| **Event Type** | `metadata.event_type = "SCAN_UNCATEGORIZED"` | Mandatory Ingest Gate | **Stage 1 Filter**: Pass `metadata.event_type: "SCAN_UNCATEGORIZED"`. |
-| **Target Entity** | `principal.asset.hostname = $host` or `principal.user.userid = $user` | Dimension: `principal.asset.hostname` or `principal.user.userid` | **Stage 1 Match Key**: Bind entity match key (`$host` or `$user`). |
+| **Log Source Gate** | the `metadata.log_type` OR line above | Event filter only (NOT a metric filter) | **Stage 1 `events:` only**. Do NOT pass `metadata.event_type` or `metadata.log_type` into the metric call: neither is a valid alert dimension and the compiler rejects the call. |
+| **Host Entity** | `principal.asset.hostname = $host` | Mandatory Dimension: `PRINCIPAL_DEVICE` (any `principal.asset.*` identifier) | **Stage 1 Match Key**: `$host, $rule_name`. There is no user-only alert baseline; `principal.user.*` is valid only together with host + rule name + `principal.process.file.full_path` or `principal.process.file.sha256`. |

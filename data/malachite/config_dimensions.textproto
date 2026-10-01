@@ -1,0 +1,1453 @@
+# proto-file: config.proto (vendored copy of googlex/security/malachite/analytics/configs/config.proto)
+# proto-message: googlex.security.malachite.analytics.MetricConfig
+#
+# Reduced copy of googlex/security/malachite/analytics/configs/config.textproto @ CL 966654211.
+# Only metric_name and dimensions are kept. query, filter_string, shard_number and
+# has_sum_measure are removed because they reference or embed baseline SQL.
+# Each query_info block is one valid dimension set for the metric.
+# Regenerate with: python3 -m scripts.sync_malachite_catalog --write --cl <CL>
+
+query_info {
+  metric_name: ALERT_EVENT_NAME_COUNT
+  dimensions: PRINCIPAL_DEVICE
+  dimensions: SECURITY_RESULT_RULE_NAME
+}
+query_info {
+  metric_name: ALERT_EVENT_NAME_COUNT
+  dimensions: PRINCIPAL_DEVICE
+  dimensions: PRINCIPAL_PROCESS_FILE_PATH
+  dimensions: SECURITY_RESULT_RULE_NAME
+}
+query_info {
+  metric_name: ALERT_EVENT_NAME_COUNT
+  dimensions: PRINCIPAL_DEVICE
+  dimensions: PRINCIPAL_USER
+  dimensions: PRINCIPAL_PROCESS_FILE_PATH
+  dimensions: SECURITY_RESULT_RULE_NAME
+}
+query_info {
+  metric_name: ALERT_EVENT_NAME_COUNT
+  dimensions: PRINCIPAL_DEVICE
+  dimensions: PRINCIPAL_USER
+  dimensions: PRINCIPAL_PROCESS_FILE_HASH
+  dimensions: SECURITY_RESULT_RULE_NAME
+}
+query_info {
+  metric_name: AUTH_ATTEMPTS_FAIL
+  dimensions: TARGET_APPLICATION
+  dimensions: TARGET_DEVICE
+}
+query_info {
+  metric_name: AUTH_ATTEMPTS_FAIL
+  dimensions: HTTP_USER_AGENT
+}
+query_info {
+  metric_name: AUTH_ATTEMPTS_FAIL
+  dimensions: TARGET_APPLICATION
+}
+query_info {
+  metric_name: AUTH_ATTEMPTS_FAIL
+  dimensions: TARGET_APPLICATION
+  dimensions: TARGET_USER
+}
+query_info {
+  metric_name: AUTH_ATTEMPTS_FAIL
+  dimensions: TARGET_USER
+  dimensions: CLIENT_CERTIFICATE_HASH
+}
+query_info {
+  metric_name: AUTH_ATTEMPTS_SUCCESS
+  dimensions: TARGET_APPLICATION
+  dimensions: TARGET_DEVICE
+}
+query_info {
+  metric_name: AUTH_ATTEMPTS_SUCCESS
+  dimensions: TARGET_APPLICATION
+}
+query_info {
+  metric_name: AUTH_ATTEMPTS_SUCCESS
+  dimensions: TARGET_APPLICATION
+  dimensions: TARGET_USER
+}
+query_info {
+  metric_name: AUTH_ATTEMPTS_SUCCESS
+  dimensions: TARGET_USER
+  dimensions: CLIENT_CERTIFICATE_HASH
+}
+query_info {
+  metric_name: AUTH_ATTEMPTS_SUCCESS
+  dimensions: HTTP_USER_AGENT
+}
+query_info {
+  metric_name: AUTH_ATTEMPTS_TOTAL
+  dimensions: HTTP_USER_AGENT
+}
+query_info {
+  metric_name: AUTH_ATTEMPTS_TOTAL
+  dimensions: TARGET_APPLICATION
+}
+query_info {
+  metric_name: AUTH_ATTEMPTS_TOTAL
+  dimensions: TARGET_APPLICATION
+  dimensions: TARGET_USER
+}
+query_info {
+  metric_name: AUTH_ATTEMPTS_TOTAL
+  dimensions: TARGET_APPLICATION
+  dimensions: TARGET_DEVICE
+}
+query_info {
+  metric_name: AUTH_ATTEMPTS_TOTAL
+  dimensions: TARGET_USER
+  dimensions: CLIENT_CERTIFICATE_HASH
+}
+query_info {
+  metric_name: AUTH_ATTEMPTS_FAIL
+  dimensions: PRINCIPAL_DEVICE
+  dimensions: EVENT_TYPE
+}
+query_info {
+  metric_name: AUTH_ATTEMPTS_FAIL
+  dimensions: TARGET_USER
+}
+query_info {
+  metric_name: AUTH_ATTEMPTS_FAIL
+  dimensions: PRINCIPAL_DEVICE
+}
+query_info {
+  metric_name: AUTH_ATTEMPTS_FAIL
+  dimensions: PRINCIPAL_USER
+}
+query_info {
+  metric_name: AUTH_ATTEMPTS_FAIL
+  dimensions: PRINCIPAL_DEVICE
+  dimensions: TARGET_USER
+}
+query_info {
+  metric_name: AUTH_ATTEMPTS_FAIL
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_USER
+}
+query_info {
+  metric_name: AUTH_ATTEMPTS_FAIL
+  dimensions: PRINCIPAL_COUNTRY
+  dimensions: TARGET_USER
+}
+query_info {
+  metric_name: AUTH_ATTEMPTS_FAIL
+  dimensions: PRINCIPAL_NETWORK_ORGANIZATION_NAME
+  dimensions: TARGET_USER
+}
+query_info {
+  metric_name: AUTH_ATTEMPTS_SUCCESS
+  dimensions: PRINCIPAL_COUNTRY
+  dimensions: TARGET_USER
+}
+query_info {
+  metric_name: AUTH_ATTEMPTS_SUCCESS
+  dimensions: PRINCIPAL_NETWORK_ORGANIZATION_NAME
+  dimensions: TARGET_USER
+}
+query_info {
+  metric_name: AUTH_ATTEMPTS_SUCCESS
+  dimensions: PRINCIPAL_DEVICE
+  dimensions: TARGET_USER
+}
+query_info {
+  metric_name: AUTH_ATTEMPTS_SUCCESS
+  dimensions: PRINCIPAL_DEVICE
+}
+query_info {
+  metric_name: AUTH_ATTEMPTS_SUCCESS
+  dimensions: PRINCIPAL_USER
+}
+query_info {
+  metric_name: AUTH_ATTEMPTS_SUCCESS
+  dimensions: TARGET_USER
+}
+query_info {
+  metric_name: AUTH_ATTEMPTS_SUCCESS
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_USER
+}
+query_info {
+  metric_name: AUTH_ATTEMPTS_SUCCESS
+  dimensions: PRINCIPAL_DEVICE
+  dimensions: EVENT_TYPE
+}
+query_info {
+  metric_name: AUTH_ATTEMPTS_TOTAL
+  dimensions: PRINCIPAL_DEVICE
+  dimensions: EVENT_TYPE
+}
+query_info {
+  metric_name: AUTH_ATTEMPTS_TOTAL
+  dimensions: TARGET_USER
+}
+query_info {
+  metric_name: AUTH_ATTEMPTS_TOTAL
+  dimensions: PRINCIPAL_DEVICE
+}
+query_info {
+  metric_name: AUTH_ATTEMPTS_TOTAL
+  dimensions: PRINCIPAL_USER
+}
+query_info {
+  metric_name: AUTH_ATTEMPTS_TOTAL
+  dimensions: PRINCIPAL_DEVICE
+  dimensions: TARGET_USER
+}
+query_info {
+  metric_name: AUTH_ATTEMPTS_TOTAL
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_USER
+}
+query_info {
+  metric_name: AUTH_ATTEMPTS_TOTAL
+  dimensions: PRINCIPAL_COUNTRY
+  dimensions: TARGET_USER
+}
+query_info {
+  metric_name: AUTH_ATTEMPTS_TOTAL
+  dimensions: PRINCIPAL_NETWORK_ORGANIZATION_NAME
+  dimensions: TARGET_USER
+}
+query_info {
+  metric_name: DNS_BYTES_OUTBOUND
+  dimensions: PRINCIPAL_DEVICE
+}
+query_info {
+  metric_name: DNS_BYTES_OUTBOUND
+  dimensions: PRINCIPAL_USER
+}
+query_info {
+  metric_name: DNS_BYTES_OUTBOUND
+  dimensions: TARGET_IP
+}
+query_info {
+  metric_name: DNS_BYTES_OUTBOUND
+  dimensions: PRINCIPAL_DEVICE
+  dimensions: TARGET_IP
+}
+query_info {
+  metric_name: DNS_BYTES_OUTBOUND
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_IP
+}
+query_info {
+  metric_name: DNS_QUERIES_FAIL
+  dimensions: PRINCIPAL_DEVICE
+}
+query_info {
+  metric_name: DNS_QUERIES_FAIL
+  dimensions: PRINCIPAL_USER
+}
+query_info {
+  metric_name: DNS_QUERIES_FAIL
+  dimensions: PRINCIPAL_DEVICE
+  dimensions: DNS_QUERY_TYPE
+}
+query_info {
+  metric_name: DNS_QUERIES_FAIL
+  dimensions: PRINCIPAL_USER
+  dimensions: DNS_QUERY_TYPE
+}
+query_info {
+  metric_name: DNS_QUERIES_FAIL
+  dimensions: PRINCIPAL_DEVICE
+  dimensions: DNS_DOMAIN
+}
+query_info {
+  metric_name: DNS_QUERIES_FAIL
+  dimensions: PRINCIPAL_USER
+  dimensions: DNS_DOMAIN
+}
+query_info {
+  metric_name: DNS_QUERIES_SUCCESS
+  dimensions: PRINCIPAL_DEVICE
+}
+query_info {
+  metric_name: DNS_QUERIES_SUCCESS
+  dimensions: PRINCIPAL_USER
+}
+query_info {
+  metric_name: DNS_QUERIES_SUCCESS
+  dimensions: PRINCIPAL_DEVICE
+  dimensions: DNS_QUERY_TYPE
+}
+query_info {
+  metric_name: DNS_QUERIES_SUCCESS
+  dimensions: PRINCIPAL_USER
+  dimensions: DNS_QUERY_TYPE
+}
+query_info {
+  metric_name: DNS_QUERIES_SUCCESS
+  dimensions: PRINCIPAL_DEVICE
+  dimensions: DNS_DOMAIN
+}
+query_info {
+  metric_name: DNS_QUERIES_SUCCESS
+  dimensions: PRINCIPAL_USER
+  dimensions: DNS_DOMAIN
+}
+query_info {
+  metric_name: DNS_QUERIES_TOTAL
+  dimensions: PRINCIPAL_DEVICE
+}
+query_info {
+  metric_name: DNS_QUERIES_TOTAL
+  dimensions: PRINCIPAL_USER
+}
+query_info {
+  metric_name: DNS_QUERIES_TOTAL
+  dimensions: PRINCIPAL_DEVICE
+  dimensions: DNS_QUERY_TYPE
+}
+query_info {
+  metric_name: DNS_QUERIES_TOTAL
+  dimensions: PRINCIPAL_USER
+  dimensions: DNS_QUERY_TYPE
+}
+query_info {
+  metric_name: DNS_QUERIES_TOTAL
+  dimensions: PRINCIPAL_DEVICE
+  dimensions: DNS_DOMAIN
+}
+query_info {
+  metric_name: DNS_QUERIES_TOTAL
+  dimensions: PRINCIPAL_USER
+  dimensions: DNS_DOMAIN
+}
+query_info {
+  metric_name: FILE_EXECUTIONS_FAIL
+  dimensions: PRINCIPAL_PROCESS_FILE_HASH
+  dimensions: EVENT_TYPE
+}
+query_info {
+  metric_name: FILE_EXECUTIONS_FAIL
+  dimensions: PRINCIPAL_DEVICE
+  dimensions: PRINCIPAL_PROCESS_FILE_HASH
+  dimensions: EVENT_TYPE
+}
+query_info {
+  metric_name: FILE_EXECUTIONS_FAIL
+  dimensions: PRINCIPAL_USER
+  dimensions: PRINCIPAL_PROCESS_FILE_HASH
+  dimensions: EVENT_TYPE
+}
+query_info {
+  metric_name: FILE_EXECUTIONS_SUCCESS
+  dimensions: PRINCIPAL_PROCESS_FILE_HASH
+  dimensions: EVENT_TYPE
+}
+query_info {
+  metric_name: FILE_EXECUTIONS_SUCCESS
+  dimensions: PRINCIPAL_DEVICE
+  dimensions: PRINCIPAL_PROCESS_FILE_HASH
+  dimensions: EVENT_TYPE
+}
+query_info {
+  metric_name: FILE_EXECUTIONS_SUCCESS
+  dimensions: PRINCIPAL_USER
+  dimensions: PRINCIPAL_PROCESS_FILE_HASH
+  dimensions: EVENT_TYPE
+}
+query_info {
+  metric_name: FILE_EXECUTIONS_TOTAL
+  dimensions: PRINCIPAL_PROCESS_FILE_HASH
+  dimensions: EVENT_TYPE
+}
+query_info {
+  metric_name: FILE_EXECUTIONS_TOTAL
+  dimensions: PRINCIPAL_DEVICE
+  dimensions: PRINCIPAL_PROCESS_FILE_HASH
+  dimensions: EVENT_TYPE
+}
+query_info {
+  metric_name: FILE_EXECUTIONS_TOTAL
+  dimensions: PRINCIPAL_USER
+  dimensions: PRINCIPAL_PROCESS_FILE_HASH
+  dimensions: EVENT_TYPE
+}
+query_info {
+  metric_name: HTTP_QUERIES_FAIL
+  dimensions: PRINCIPAL_DEVICE
+}
+query_info {
+  metric_name: HTTP_QUERIES_FAIL
+  dimensions: PRINCIPAL_USER
+}
+query_info {
+  metric_name: HTTP_QUERIES_FAIL
+  dimensions: TARGET_HOSTNAME
+}
+query_info {
+  metric_name: HTTP_QUERIES_FAIL
+  dimensions: PRINCIPAL_DEVICE
+  dimensions: HTTP_USER_AGENT
+}
+query_info {
+  metric_name: HTTP_QUERIES_FAIL
+  dimensions: PRINCIPAL_USER
+  dimensions: HTTP_USER_AGENT
+}
+query_info {
+  metric_name: HTTP_QUERIES_FAIL
+  dimensions: PRINCIPAL_DEVICE
+  dimensions: TARGET_HOSTNAME
+}
+query_info {
+  metric_name: HTTP_QUERIES_FAIL
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_HOSTNAME
+}
+query_info {
+  metric_name: HTTP_QUERIES_FAIL
+  dimensions: PRINCIPAL_DEVICE
+  dimensions: HTTP_USER_AGENT
+  dimensions: TARGET_HOSTNAME
+}
+query_info {
+  metric_name: HTTP_QUERIES_FAIL
+  dimensions: PRINCIPAL_USER
+  dimensions: HTTP_USER_AGENT
+  dimensions: TARGET_HOSTNAME
+}
+query_info {
+  metric_name: HTTP_QUERIES_SUCCESS
+  dimensions: PRINCIPAL_DEVICE
+}
+query_info {
+  metric_name: HTTP_QUERIES_SUCCESS
+  dimensions: PRINCIPAL_USER
+}
+query_info {
+  metric_name: HTTP_QUERIES_SUCCESS
+  dimensions: TARGET_HOSTNAME
+}
+query_info {
+  metric_name: HTTP_QUERIES_SUCCESS
+  dimensions: PRINCIPAL_DEVICE
+  dimensions: HTTP_USER_AGENT
+}
+query_info {
+  metric_name: HTTP_QUERIES_SUCCESS
+  dimensions: PRINCIPAL_USER
+  dimensions: HTTP_USER_AGENT
+}
+query_info {
+  metric_name: HTTP_QUERIES_SUCCESS
+  dimensions: PRINCIPAL_DEVICE
+  dimensions: TARGET_HOSTNAME
+}
+query_info {
+  metric_name: HTTP_QUERIES_SUCCESS
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_HOSTNAME
+}
+query_info {
+  metric_name: HTTP_QUERIES_SUCCESS
+  dimensions: PRINCIPAL_DEVICE
+  dimensions: HTTP_USER_AGENT
+  dimensions: TARGET_HOSTNAME
+}
+query_info {
+  metric_name: HTTP_QUERIES_SUCCESS
+  dimensions: PRINCIPAL_USER
+  dimensions: HTTP_USER_AGENT
+  dimensions: TARGET_HOSTNAME
+}
+query_info {
+  metric_name: HTTP_QUERIES_TOTAL
+  dimensions: PRINCIPAL_DEVICE
+}
+query_info {
+  metric_name: HTTP_QUERIES_TOTAL
+  dimensions: PRINCIPAL_USER
+}
+query_info {
+  metric_name: HTTP_QUERIES_TOTAL
+  dimensions: TARGET_HOSTNAME
+}
+query_info {
+  metric_name: HTTP_QUERIES_TOTAL
+  dimensions: PRINCIPAL_DEVICE
+  dimensions: HTTP_USER_AGENT
+}
+query_info {
+  metric_name: HTTP_QUERIES_TOTAL
+  dimensions: PRINCIPAL_USER
+  dimensions: HTTP_USER_AGENT
+}
+query_info {
+  metric_name: HTTP_QUERIES_TOTAL
+  dimensions: PRINCIPAL_DEVICE
+  dimensions: TARGET_HOSTNAME
+}
+query_info {
+  metric_name: HTTP_QUERIES_TOTAL
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_HOSTNAME
+}
+query_info {
+  metric_name: HTTP_QUERIES_TOTAL
+  dimensions: PRINCIPAL_DEVICE
+  dimensions: HTTP_USER_AGENT
+  dimensions: TARGET_HOSTNAME
+}
+query_info {
+  metric_name: HTTP_QUERIES_TOTAL
+  dimensions: PRINCIPAL_USER
+  dimensions: HTTP_USER_AGENT
+  dimensions: TARGET_HOSTNAME
+}
+query_info {
+  metric_name: NETWORK_BYTES_INBOUND
+  dimensions: PRINCIPAL_DEVICE
+}
+query_info {
+  metric_name: NETWORK_BYTES_INBOUND
+  dimensions: PRINCIPAL_USER
+}
+query_info {
+  metric_name: NETWORK_BYTES_INBOUND
+  dimensions: PRINCIPAL_DEVICE
+  dimensions: PRINCIPAL_COUNTRY
+}
+query_info {
+  metric_name: NETWORK_BYTES_INBOUND
+  dimensions: PRINCIPAL_USER
+  dimensions: PRINCIPAL_COUNTRY
+}
+query_info {
+  metric_name: NETWORK_BYTES_INBOUND
+  dimensions: PRINCIPAL_DEVICE
+  dimensions: SECURITY_CATEGORY
+}
+query_info {
+  metric_name: NETWORK_BYTES_INBOUND
+  dimensions: PRINCIPAL_USER
+  dimensions: SECURITY_CATEGORY
+}
+query_info {
+  metric_name: NETWORK_BYTES_INBOUND
+  dimensions: PRINCIPAL_DEVICE
+  dimensions: TARGET_NETWORK_ORGANIZATION_NAME
+}
+query_info {
+  metric_name: NETWORK_BYTES_INBOUND
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_NETWORK_ORGANIZATION_NAME
+}
+query_info {
+  metric_name: NETWORK_BYTES_INBOUND
+  dimensions: PRINCIPAL_DEVICE
+  dimensions: TARGET_DEVICE
+}
+query_info {
+  metric_name: NETWORK_BYTES_INBOUND
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_DEVICE
+}
+query_info {
+  metric_name: NETWORK_FLOWS_INBOUND
+  dimensions: PRINCIPAL_DEVICE
+}
+query_info {
+  metric_name: NETWORK_FLOWS_INBOUND
+  dimensions: PRINCIPAL_USER
+}
+query_info {
+  metric_name: NETWORK_BYTES_OUTBOUND
+  dimensions: PRINCIPAL_DEVICE
+}
+query_info {
+  metric_name: NETWORK_BYTES_OUTBOUND
+  dimensions: PRINCIPAL_USER
+}
+query_info {
+  metric_name: NETWORK_BYTES_OUTBOUND
+  dimensions: PRINCIPAL_DEVICE
+  dimensions: PRINCIPAL_COUNTRY
+}
+query_info {
+  metric_name: NETWORK_BYTES_OUTBOUND
+  dimensions: PRINCIPAL_USER
+  dimensions: PRINCIPAL_COUNTRY
+}
+query_info {
+  metric_name: NETWORK_BYTES_OUTBOUND
+  dimensions: PRINCIPAL_DEVICE
+  dimensions: SECURITY_CATEGORY
+}
+query_info {
+  metric_name: NETWORK_BYTES_OUTBOUND
+  dimensions: PRINCIPAL_USER
+  dimensions: SECURITY_CATEGORY
+}
+query_info {
+  metric_name: NETWORK_BYTES_OUTBOUND
+  dimensions: PRINCIPAL_DEVICE
+  dimensions: TARGET_NETWORK_ORGANIZATION_NAME
+}
+query_info {
+  metric_name: NETWORK_BYTES_OUTBOUND
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_NETWORK_ORGANIZATION_NAME
+}
+query_info {
+  metric_name: NETWORK_BYTES_OUTBOUND
+  dimensions: PRINCIPAL_DEVICE
+  dimensions: TARGET_DEVICE
+}
+query_info {
+  metric_name: NETWORK_BYTES_OUTBOUND
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_DEVICE
+}
+query_info {
+  metric_name: NETWORK_FLOWS_OUTBOUND
+  dimensions: PRINCIPAL_DEVICE
+}
+query_info {
+  metric_name: NETWORK_FLOWS_OUTBOUND
+  dimensions: PRINCIPAL_USER
+}
+query_info {
+  metric_name: NETWORK_BYTES_TOTAL
+  dimensions: PRINCIPAL_DEVICE
+}
+query_info {
+  metric_name: NETWORK_BYTES_TOTAL
+  dimensions: PRINCIPAL_USER
+}
+query_info {
+  metric_name: NETWORK_BYTES_TOTAL
+  dimensions: PRINCIPAL_DEVICE
+  dimensions: PRINCIPAL_COUNTRY
+}
+query_info {
+  metric_name: NETWORK_BYTES_TOTAL
+  dimensions: PRINCIPAL_USER
+  dimensions: PRINCIPAL_COUNTRY
+}
+query_info {
+  metric_name: NETWORK_BYTES_TOTAL
+  dimensions: PRINCIPAL_DEVICE
+  dimensions: SECURITY_CATEGORY
+}
+query_info {
+  metric_name: NETWORK_BYTES_TOTAL
+  dimensions: PRINCIPAL_USER
+  dimensions: SECURITY_CATEGORY
+}
+query_info {
+  metric_name: NETWORK_BYTES_TOTAL
+  dimensions: PRINCIPAL_DEVICE
+  dimensions: TARGET_NETWORK_ORGANIZATION_NAME
+}
+query_info {
+  metric_name: NETWORK_BYTES_TOTAL
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_NETWORK_ORGANIZATION_NAME
+}
+query_info {
+  metric_name: NETWORK_BYTES_TOTAL
+  dimensions: PRINCIPAL_DEVICE
+  dimensions: TARGET_DEVICE
+}
+query_info {
+  metric_name: NETWORK_BYTES_TOTAL
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_DEVICE
+}
+query_info {
+  metric_name: NETWORK_FLOWS_TOTAL
+  dimensions: PRINCIPAL_DEVICE
+}
+query_info {
+  metric_name: NETWORK_FLOWS_TOTAL
+  dimensions: PRINCIPAL_USER
+}
+query_info {
+  metric_name: RESOURCE_CREATION_FAIL
+  dimensions: TARGET_USER
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_CREATION_FAIL
+  dimensions: PRINCIPAL_USER
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_CREATION_FAIL
+  dimensions: PRINCIPAL_USER
+  dimensions: PRINCIPAL_IP
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_CREATION_SUCCESS
+  dimensions: TARGET_USER
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_CREATION_SUCCESS
+  dimensions: PRINCIPAL_USER
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_CREATION_SUCCESS
+  dimensions: PRINCIPAL_USER
+  dimensions: PRINCIPAL_IP
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_CREATION_TOTAL
+  dimensions: TARGET_USER
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_CREATION_TOTAL
+  dimensions: PRINCIPAL_USER
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_CREATION_TOTAL
+  dimensions: PRINCIPAL_USER
+  dimensions: PRINCIPAL_IP
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_CREATION_FAIL
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_APPLICATION
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_CREATION_TOTAL
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_APPLICATION
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_CREATION_FAIL
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_RESOURCE_NAME
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_CREATION_SUCCESS
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_RESOURCE_NAME
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_CREATION_TOTAL
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_RESOURCE_NAME
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_CREATION_FAIL
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_RESOURCE_NAME
+  dimensions: TARGET_RESOURCE_TYPE
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_CREATION_SUCCESS
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_RESOURCE_NAME
+  dimensions: TARGET_RESOURCE_TYPE
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_CREATION_TOTAL
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_RESOURCE_NAME
+  dimensions: TARGET_RESOURCE_TYPE
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_CREATION_FAIL
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_APPLICATION
+  dimensions: TARGET_LOCATION_NAME
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_CREATION_SUCCESS
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_APPLICATION
+  dimensions: TARGET_LOCATION_NAME
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_CREATION_TOTAL
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_APPLICATION
+  dimensions: TARGET_LOCATION_NAME
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_CREATION_SUCCESS
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_APPLICATION
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_DELETION_FAIL
+  dimensions: TARGET_USER
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_DELETION_FAIL
+  dimensions: PRINCIPAL_USER
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_DELETION_FAIL
+  dimensions: PRINCIPAL_USER
+  dimensions: PRINCIPAL_IP
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_DELETION_SUCCESS
+  dimensions: TARGET_USER
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_DELETION_SUCCESS
+  dimensions: PRINCIPAL_USER
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_DELETION_SUCCESS
+  dimensions: PRINCIPAL_USER
+  dimensions: PRINCIPAL_IP
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_DELETION_TOTAL
+  dimensions: TARGET_USER
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_DELETION_TOTAL
+  dimensions: PRINCIPAL_USER
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_DELETION_TOTAL
+  dimensions: PRINCIPAL_USER
+  dimensions: PRINCIPAL_IP
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_DELETION_FAIL
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_APPLICATION
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_DELETION_SUCCESS
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_APPLICATION
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_DELETION_TOTAL
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_APPLICATION
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_DELETION_FAIL
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_RESOURCE_NAME
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_DELETION_SUCCESS
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_RESOURCE_NAME
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_DELETION_TOTAL
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_RESOURCE_NAME
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_DELETION_FAIL
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_RESOURCE_NAME
+  dimensions: TARGET_RESOURCE_TYPE
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_DELETION_SUCCESS
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_RESOURCE_NAME
+  dimensions: TARGET_RESOURCE_TYPE
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_DELETION_TOTAL
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_RESOURCE_NAME
+  dimensions: TARGET_RESOURCE_TYPE
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_DELETION_FAIL
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_APPLICATION
+  dimensions: TARGET_LOCATION_NAME
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_DELETION_SUCCESS
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_APPLICATION
+  dimensions: TARGET_LOCATION_NAME
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_DELETION_TOTAL
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_APPLICATION
+  dimensions: TARGET_LOCATION_NAME
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_READ_FAIL
+  dimensions: TARGET_USER
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_READ_FAIL
+  dimensions: PRINCIPAL_USER
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_READ_FAIL
+  dimensions: PRINCIPAL_USER
+  dimensions: PRINCIPAL_IP
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_READ_SUCCESS
+  dimensions: TARGET_USER
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_READ_SUCCESS
+  dimensions: PRINCIPAL_USER
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_READ_SUCCESS
+  dimensions: PRINCIPAL_USER
+  dimensions: PRINCIPAL_IP
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_READ_TOTAL
+  dimensions: TARGET_USER
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_READ_TOTAL
+  dimensions: PRINCIPAL_USER
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_READ_TOTAL
+  dimensions: PRINCIPAL_USER
+  dimensions: PRINCIPAL_IP
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_READ_FAIL
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_APPLICATION
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_READ_SUCCESS
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_APPLICATION
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_READ_TOTAL
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_APPLICATION
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_READ_FAIL
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_RESOURCE_NAME
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_READ_SUCCESS
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_RESOURCE_NAME
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_READ_TOTAL
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_RESOURCE_NAME
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_READ_FAIL
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_RESOURCE_NAME
+  dimensions: TARGET_RESOURCE_TYPE
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_READ_SUCCESS
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_RESOURCE_NAME
+  dimensions: TARGET_RESOURCE_TYPE
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_READ_TOTAL
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_RESOURCE_NAME
+  dimensions: TARGET_RESOURCE_TYPE
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_READ_FAIL
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_APPLICATION
+  dimensions: TARGET_LOCATION_NAME
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_READ_SUCCESS
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_APPLICATION
+  dimensions: TARGET_LOCATION_NAME
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_READ_TOTAL
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_APPLICATION
+  dimensions: TARGET_LOCATION_NAME
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_WRITTEN_FAIL
+  dimensions: TARGET_USER
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_WRITTEN_FAIL
+  dimensions: PRINCIPAL_USER
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_WRITTEN_FAIL
+  dimensions: PRINCIPAL_USER
+  dimensions: PRINCIPAL_IP
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_WRITTEN_SUCCESS
+  dimensions: TARGET_USER
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_WRITTEN_SUCCESS
+  dimensions: PRINCIPAL_USER
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_WRITTEN_SUCCESS
+  dimensions: PRINCIPAL_USER
+  dimensions: PRINCIPAL_IP
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_WRITTEN_TOTAL
+  dimensions: TARGET_USER
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_WRITTEN_TOTAL
+  dimensions: PRINCIPAL_USER
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_WRITTEN_TOTAL
+  dimensions: PRINCIPAL_USER
+  dimensions: PRINCIPAL_IP
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_WRITTEN_FAIL
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_APPLICATION
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_WRITTEN_SUCCESS
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_APPLICATION
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_WRITTEN_TOTAL
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_APPLICATION
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_WRITTEN_FAIL
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_RESOURCE_NAME
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_WRITTEN_SUCCESS
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_RESOURCE_NAME
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_WRITTEN_TOTAL
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_RESOURCE_NAME
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_WRITTEN_FAIL
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_RESOURCE_NAME
+  dimensions: TARGET_RESOURCE_TYPE
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_WRITTEN_SUCCESS
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_RESOURCE_NAME
+  dimensions: TARGET_RESOURCE_TYPE
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_WRITTEN_TOTAL
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_RESOURCE_NAME
+  dimensions: TARGET_RESOURCE_TYPE
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_WRITTEN_FAIL
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_APPLICATION
+  dimensions: TARGET_LOCATION_NAME
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_WRITTEN_SUCCESS
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_APPLICATION
+  dimensions: TARGET_LOCATION_NAME
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: RESOURCE_WRITTEN_TOTAL
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_APPLICATION
+  dimensions: TARGET_LOCATION_NAME
+  dimensions: VENDOR_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: WORKSPACE_AUTH_ATTEMPTS_TOTAL
+  dimensions: TARGET_USER
+  dimensions: PRODUCT_EVENT_TYPE
+}
+query_info {
+  metric_name: WORKSPACE_AUTH_ATTEMPTS_TOTAL
+  dimensions: TARGET_USER
+  dimensions: PRINCIPAL_IP
+}
+query_info {
+  metric_name: WORKSPACE_AUTH_ATTEMPTS_TOTAL
+  dimensions: TARGET_USER
+  dimensions: PRINCIPAL_IP
+  dimensions: PRODUCT_EVENT_TYPE
+}
+query_info {
+  metric_name: WORKSPACE_AUTH_ATTEMPTS_TOTAL
+  dimensions: TARGET_USER
+}
+query_info {
+  metric_name: WORKSPACE_AUTH_ATTEMPTS_TOTAL
+  dimensions: TARGET_USER
+  dimensions: PRINCIPAL_COUNTRY
+}
+query_info {
+  metric_name: WORKSPACE_AUTH_ATTEMPTS_TOTAL
+  dimensions: PRINCIPAL_IP
+  dimensions: PRODUCT_EVENT_TYPE
+}
+query_info {
+  metric_name: WORKSPACE_AUTH_ATTEMPTS_TOTAL
+  dimensions: PRINCIPAL_USER
+}
+query_info {
+  metric_name: WORKSPACE_AUTH_ATTEMPTS_TOTAL
+  dimensions: PRINCIPAL_USER
+  dimensions: SECURITY_ACTION
+}
+query_info {
+  metric_name: WORKSPACE_AUTH_ATTEMPTS_TOTAL
+  dimensions: PRINCIPAL_USER
+  dimensions: PRINCIPAL_COUNTRY
+  dimensions: TARGET_APPLICATION
+}
+query_info {
+  metric_name: WORKSPACE_AUTH_ATTEMPTS_TOTAL
+  dimensions: PRINCIPAL_USER
+  dimensions: PRINCIPAL_COUNTRY
+}
+query_info {
+  metric_name: WORKSPACE_AUTH_ATTEMPTS_TOTAL
+  dimensions: PRINCIPAL_USER
+  dimensions: PRINCIPAL_IP
+}
+query_info {
+  metric_name: WORKSPACE_AUTH_ATTEMPTS_TOTAL
+  dimensions: PRINCIPAL_USER
+  dimensions: PRODUCT_EVENT_TYPE
+}
+query_info {
+  metric_name: WORKSPACE_AUTH_ATTEMPTS_TOTAL
+  dimensions: PRINCIPAL_USER
+  dimensions: PRODUCT_EVENT_TYPE
+  dimensions: SECURITY_ACTION
+}
+query_info {
+  metric_name: WORKSPACE_EMAILS_SENT_TOTAL
+  dimensions: PRINCIPAL_USER
+}
+query_info {
+  metric_name: WORKSPACE_EMAILS_SENT_TOTAL
+  dimensions: PRINCIPAL_USER
+  dimensions: SECURITY_RULE_ID
+}
+query_info {
+  metric_name: WORKSPACE_EMAILS_SENT_TOTAL
+  dimensions: PRINCIPAL_USER
+  dimensions: PRINCIPAL_IP
+  dimensions: PRINCIPAL_APPLICATION
+}
+query_info {
+  metric_name: WORKSPACE_EMAILS_SENT_TOTAL
+  dimensions: PRINCIPAL_USER
+  dimensions: PRINCIPAL_IP
+}
+query_info {
+  metric_name: WORKSPACE_EMAILS_SENT_TOTAL
+  dimensions: PRINCIPAL_USER
+  dimensions: PRINCIPAL_IP
+  dimensions: TARGET_IP
+}
+query_info {
+  metric_name: WORKSPACE_EMAILS_SENT_TOTAL
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_IP
+}
+query_info {
+  metric_name: WORKSPACE_EMAILS_SENT_TOTAL
+  dimensions: EMAIL_TO_ADDRESS
+  dimensions: EMAIL_FROM_ADDRESS
+}
+query_info {
+  metric_name: WORKSPACE_EMAILS_SENT_TOTAL
+  dimensions: PRINCIPAL_USER
+  dimensions: MAIL_ID
+}
+query_info {
+  metric_name: WORKSPACE_EMAILS_SENT_TOTAL
+  dimensions: PRINCIPAL_USER
+  dimensions: PRINCIPAL_APPLICATION
+}
+query_info {
+  metric_name: WORKSPACE_NETWORK_BYTES_OUTBOUND
+  dimensions: PRINCIPAL_USER
+}
+query_info {
+  metric_name: WORKSPACE_NETWORK_BYTES_OUTBOUND
+  dimensions: PRINCIPAL_USER
+  dimensions: PRINCIPAL_COUNTRY
+}
+query_info {
+  metric_name: WORKSPACE_NETWORK_BYTES_TOTAL
+  dimensions: PRINCIPAL_USER
+}
+query_info {
+  metric_name: WORKSPACE_NETWORK_BYTES_TOTAL
+  dimensions: PRINCIPAL_USER
+  dimensions: PRINCIPAL_COUNTRY
+}
+query_info {
+  metric_name: WORKSPACE_TOTAL_CHANGE_ACTIONS
+  dimensions: TARGET_USER
+}
+query_info {
+  metric_name: WORKSPACE_TOTAL_CHANGE_ACTIONS
+  dimensions: PRINCIPAL_USER
+}
+query_info {
+  metric_name: WORKSPACE_TOTAL_CHANGE_ACTIONS
+  dimensions: PRINCIPAL_USER
+  dimensions: PRODUCT_EVENT_TYPE
+  dimensions: SECURITY_ACTION
+}
+query_info {
+  metric_name: WORKSPACE_TOTAL_CHANGE_ACTIONS
+  dimensions: PRINCIPAL_IP
+  dimensions: PRODUCT_EVENT_TYPE
+}
+query_info {
+  metric_name: WORKSPACE_TOTAL_CHANGE_ACTIONS
+  dimensions: PRINCIPAL_USER
+  dimensions: PRODUCT_NAME
+  dimensions: PRODUCT_EVENT_TYPE
+}
+query_info {
+  metric_name: WORKSPACE_TOTAL_CHANGE_ACTIONS
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_RESOURCE_NAME
+}
+query_info {
+  metric_name: WORKSPACE_TOTAL_CHANGE_ACTIONS
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_RESOURCE_NAME
+  dimensions: PRODUCT_EVENT_TYPE
+}
+query_info {
+  metric_name: WORKSPACE_TOTAL_CHANGE_ACTIONS
+  dimensions: PRINCIPAL_USER
+  dimensions: PRINCIPAL_IP
+}
+query_info {
+  metric_name: WORKSPACE_TOTAL_CHANGE_ACTIONS
+  dimensions: PRINCIPAL_IP
+}
+query_info {
+  metric_name: WORKSPACE_TOTAL_DOWNLOAD_ACTIONS
+  dimensions: PRINCIPAL_USER
+}
+query_info {
+  metric_name: WORKSPACE_TOTAL_DOWNLOAD_ACTIONS
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_RESOURCE_NAME
+}
+query_info {
+  metric_name: WORKSPACE_TOTAL_DOWNLOAD_ACTIONS
+  dimensions: PRINCIPAL_USER
+  dimensions: TARGET_RESOURCE_NAME
+  dimensions: PRODUCT_NAME
+}
+query_info {
+  metric_name: WORKSPACE_TOTAL_DOWNLOAD_ACTIONS
+  dimensions: PRINCIPAL_IP
+}

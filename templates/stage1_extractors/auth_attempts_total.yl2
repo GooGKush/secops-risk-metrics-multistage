@@ -1,4 +1,10 @@
 // Stage 1: Total Authentication Attempts & 30d Baseline
+// Identifier swap: this extractor keys on `target.user.userid`. Any ONE field below is valid alone for auth_attempts_total;
+//   replace it in the event binding AND in every metrics call, keeping the same variable:
+//   - PRINCIPAL_DEVICE (principal.asset.hostname | asset_id | ip | mac | product_object_id)
+//   - PRINCIPAL_USER (principal.user.userid | email_addresses | employee_id | product_object_id | windows_sid)
+//   - TARGET_USER (target.user.userid | email_addresses | employee_id | product_object_id | windows_sid)
+//   ip, mac and email_addresses are repeated fields: one event can count toward several entities.
 stage stage1_extract {
     metadata.event_type = "USER_LOGIN"
     $event_type = metadata.event_type

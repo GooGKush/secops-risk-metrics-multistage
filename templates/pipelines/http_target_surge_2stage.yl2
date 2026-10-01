@@ -10,7 +10,7 @@
 
 // Stage 1: Host-to-Target HTTP Request Surge (metrics.http_queries_total)
 stage stage1_target_surge {
-    metadata.event_type = "NETWORK_HTTP"
+    (network.http.method != "" or network.http.user_agent != "" or network.http.response_code != 0 or network.http.referral_url != "")
     principal.asset.hostname = $host
     $host != ""
     target.hostname = $target_host
@@ -45,7 +45,7 @@ stage stage1_target_surge {
 
 // Stage 2: Enterprise Fleet Breadth for the Target Hostname
 stage stage2_fleet_target_breadth {
-    metadata.event_type = "NETWORK_HTTP"
+    (network.http.method != "" or network.http.user_agent != "" or network.http.response_code != 0 or network.http.referral_url != "")
     target.hostname = $target_host
     $target_host != ""
 

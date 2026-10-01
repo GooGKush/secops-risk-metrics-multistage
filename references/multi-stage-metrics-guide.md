@@ -521,7 +521,10 @@ To prevent runtime syntactic improvisation and avoid streaming rule syntax confu
 | **`hierarchical_empirical_bayes_3stage.yl2`** | 3 Stages | Hierarchical Empirical Bayes | Peer group shrinkage, regularizing inactive accounts. |
 | **`part_of_the_whole_multilevel.yl2`** | 4 Stages / 3 Wholes | Multilevel Hierarchical Z ($Z_{\text{personal}}, Z_{\text{vs\_team}}, Z_{\text{vs\_enterprise}}$) | Part-of-the-whole baselining against personal, peer cohort, and enterprise whole. |
 | **`part_of_the_whole_triad_multilevel.yl2`** | 4 Stages / 3 Wholes | Multilevel Triad Breakdown (3 Sibling Metrics + Composite $D$) | Sibling metric ratio analysis (e.g. Total + Fail + Success) against team and enterprise. |
-| **`multi_sector_fusion_4stage.yl2`** | 4 Stages | Multi-Sector Fusion (rectified $D$, $K = 4$) | Full-killchain cross-vector correlation (IAM + Cloud + Proc + Net). |
+| **`dual_sector_fusion_3stage.yl2`** | 3 Stages | Dual-Sector Fusion (rectified $D$, any 2 catalog sectors) | Cross-vector correlation of any two metrics for the same entity (sector slots from `references/metric-sector-catalog.md`). |
+| **`multi_sector_fusion_4stage.yl2`** | 4 Stages | Multi-Sector Fusion (rectified $D$, any 2 catalog sectors + Fleet Norm) | Same as dual-sector plus cross-sectional fleet $\Delta Z$, within the 2-UDM-stage Search limit. |
+| **`rollup_sector_fusion_4stage.yl2`** | 4 Stages | Roll-up Sector Fusion (composite-only metric rolled up per entity + 1 catalog sector) | Process execution / cloud resource / alert metric fused with another sector (e.g. process + DNS by host). |
+| **`rollup_sector_fusion_5stage.yl2`** | 5 Stages | Roll-up Sector Fusion + Fleet Norm | As above plus fleet $\Delta Z$. 4 named stages + root: supported but does not always work; prefer the 4-stage variant. |
 | **`hybrid_metric_derived_file_prevalence_2stage.yl2`** | 2 Stages | Derived Context File Prevalence ($Z \times M_{\text{rare}}$) | Living-off-the-land surges, rare binary isolation, Patch Tuesday rollout pruning. |
 | **`hybrid_metric_derived_domain_prevalence_2stage.yl2`** | 2 Stages | Derived Context Domain Prevalence ($Z \times M_{\text{rare}}$) | External destination queries, novel SaaS/C2 hostnames, corporate CDN pruning. |
 | **`hybrid_metric_whois_domain_lifecycle_2stage.yl2`** | 2 Stages | WHOIS Domain Lifecycle (NRD & Expiration Fusion) | Acute web/DNS/network egress to Newly Registered Domains (<= 30d) or expired domains. |
@@ -552,14 +555,12 @@ This produces 4 diagnostic states: **Individual Rogue** (high $Z_{\text{team}}$ 
 
 ### 4. Intra-Event Metric Triad Breakouts (`part_of_the_whole_triad_multilevel.yl2`)
 When hunting within a single telemetry vector, single-metric evaluations can obscure behavioral context:
-* **The Sibling Metric Advantage**: Evaluating 3 sibling metrics simultaneously (e.g. `auth_attempts_total`, `auth_attempts_fail`, `auth_attempts_success`) within the same UDM `event_type` (`USER_LOGIN`) allows full 3-tier baselining without consuming additional joins.
-* **Math Formulation**: For each metric $m \in \{1, 2, 3\}$, calculates $Z_{\text{vs\_team}, m}$ and $Z_{\text{vs\_enterprise}, m}$. Then fuses the team-level deviations into an intra-event composite threat norm:
-  $$D_{\text{vs\_team}}^2 = \sum_{m=1}^3 \max(0, Z_{\text{vs\_team}, m})^2$$
-* **Canonical Triads**:
-  - **Auth Triad (`USER`, `ASSET`)**: `auth_attempts_total`, `auth_attempts_fail`, `auth_attempts_success`
-  - **Network Triad (`USER`, `ASSET`)**: `network_bytes_outbound`, `network_bytes_inbound`, `network_bytes_total`
-  - **DNS Triad (`USER`, `ASSET`)**: `dns_queries_total`, `dns_queries_fail`, `dns_bytes_outbound`
-  - **Endpoint Process Triad (`ASSET`)**: `file_executions_total`, `file_executions_fail`, `file_executions_success`
+* **The Sibling Metric Advantage**: One stage observes 3 sibling metrics of the same family (e.g. `auth_attempts_total`, `auth_attempts_fail`, `auth_attempts_success`) for one entity, so all three get personal, team and enterprise baselines without extra UDM stages.
+* **Math (as the template computes it)**: For each metric $m \in \{1, 2, 3\}$: $Z_{\text{personal}, m}$, $Z_{\text{vs\_team}, m}$ and $Z_{\text{vs\_enterprise}, m}$, fused into
+  $$D_{\text{vs\_team}}^2 = \sum_{m=1}^3 Z_{\text{vs\_team}, m}^2$$
+  The terms are two-sided: a collapse (success drops while fail rises) also raises $D$.
+* **Valid triads and every slot value**: `references/metric-sector-catalog.md` § *Sibling triads* (Auth, DNS, HTTP, Network bytes, Network flows). It gives the shared stage filter, the conditional-sum observed values and the entity fields valid for all three metrics. Do not build a triad from the individual metric rows: pasting one metric's own filter line into the shared stage zeroes its siblings.
+* **No process or cloud-resource triads**: `file_executions_*` and `resource_*` are composite-only (no entity-only baseline), so the single-entity triad stage cannot carry them.
 
 ### 2. The 6 Operational Behavioral Vector Families:
 1. ☁️ **Cloud Infrastructure & Data Store CRUD**: `metrics.resource_read_*`, `metrics.resource_written_*`, `metrics.resource_creation_*`, `metrics.resource_deletion_*` (GCP CloudAudit, AWS CloudTrail, Azure Activity). Supports baselining service accounts (`principal.user.userid`) and caller origin IPs (`principal.ip`) against cloud data repositories (`target.resource.name`).
@@ -601,18 +602,21 @@ When hunting within a single telemetry vector, single-metric evaluations can obs
 3. **Daily Match Window Syntax**: Daily match windows MUST use `by 1d` (e.g. `match: $entity by 1d`). Using `by 24h` is **INVALID SYNTAX**.
 4. **Linear Outcome Arithmetic & Square Root Invariants**: YARA-L outcome expressions do not support nested `max(0, ...)` or bare `sqrt(...)` inside arithmetic. To derive square roots in outcome expressions, use the namespaced factory function `math.sqrt(...)` on a single variable or expression (e.g. `$sqrt_lambda = math.sqrt($safe_lambda)`). For Euclidean vector norms, compute squared terms `$z_sq = $z * $z`, sum them `$d_sq = $z1_sq + $z2_sq`, and order by `$d_sq desc` (or take `$d = math.sqrt($d_sq)`). Bare `sqrt(...)` without the `math.` namespace is invalid syntax.
 5. **The Chronicle 4-Join Limit & UEBA Join Accounting Formula**:
-   In Chronicle Common Compiler (`compiler.go`), queries are strictly limited to `maxJoinCount = 4`.
+   In Chronicle Common Compiler (`compiler.go`) and Malachite Search (`get_structured_query_view_utils.cc:3040-3064`), multi-stage search queries are governed by two hard ceilings:
+   - **Data Source Ceiling (`ValidateDataSourcesUsed`)**: Total UDM event stages across a multi-stage query are capped at **`SourceCount["udm"] <= 2`** (`FLAGS_malachite_search_join_query_max_event_tables_joined = 2`; exceeding 2 UDM stages fails with `Number of UDM events exceeded max limit: 3 > 2`), and Entity Context Graph stages are capped at **`SourceCount["entity"] <= 1`** (`Number of ECG events exceeded max limit: 2 > 1`). Stage-to-stage references (`$stage.var`) do not consume UDM or ECG source slots.
+   - **Join Ceiling (`maxJoinCount = 4`)**:
    $$\text{Total Joins} = \sum_{\text{stages}} \text{UEBA Joins} + (\text{Named Stages} - 1) \le 4$$
    - Each `metrics.*` function inside a named stage is an internal JOIN with the pre-computed UEBA table ($1\text{ join}$).
    - The Root Stage joining $K$ named stages consumes $K - 1$ joins.
-   - **Maximum Supported UEBA Multi-Stage DAG**: **2 Named UEBA Stages + Root Stage** (Total joins = $1 + 1 + 1 = \mathbf{3\text{ joins}} \le 4$, e.g. `dual_sector_fusion_3stage.yl2`).
+   - **Maximum Supported UEBA Multi-Stage DAG**: **2 Named UDM UEBA Stages + Root Stage** (`dual_sector_fusion_3stage.yl2`), or **2 Named UDM UEBA Stages + 1 Stage-to-Stage Fleet Normalization Stage + Root Stage** (`multi_sector_fusion_4stage.yl2`, which stays at `SourceCount["udm"] = 2`). Roll-up fusions add one stage-to-stage roll-up stage: `rollup_sector_fusion_4stage.yl2` (3 named + root) and `rollup_sector_fusion_5stage.yl2` (4 named + root), both at 2 UDM stages. **4 named stages + root is supported but does not always work**; the conditions under which it fails are not yet characterized, so prefer the 3-named-stage variant and fall back to it if the 5-stage query fails.
    - **Multi-Sector Threat Fusion Affirmative Template Selection**:
-     When hunting for coordinated multi-sector threats across authentication failures and network outbound bytes using Euclidean threat distance, directly deploy `templates/pipelines/dual_sector_fusion_3stage.yl2`:
-     * Stage 1 (`auth_sector`): `metadata.event_type = "USER_LOGIN"`, `security_result.action != "ALLOW"`, `metrics.auth_attempts_fail(period: 1d, window: 30d, metric: event_count_sum, agg: avg/stddev, target.user.userid: $user)`
-     * Stage 2 (`net_sector`): `metadata.event_type = "NETWORK_CONNECTION"`, `metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: avg/stddev, principal.user.userid: $user)`
-     * Root Stage: Fuses `$z_auth` and `$z_net` into `$composite_threat_norm_sq = $z_auth_sq + $z_net_sq` (and `$threat_distance_d = math.sqrt($composite_threat_norm_sq)`). When evaluating across workstations or hosts instead of users, substitute `principal.asset.hostname = $host` in both stages and match `$host by 1d`.
-   - Attempting to chain 3 or 4 independent named stages with UEBA metrics in a single search query yields 5 to 7 joins and triggers `compilation error maximum number of joins exceeded. limit query to at most 4 joins`.
-   - For 4-sector cross-vector profiling (e.g. Auth + Cloud + Workspace + Network + Endpoint), execute decoupled parallel 2-stage micro-queries (the 360° behavioral radar pattern) or route raw non-metrics correlation to `secops-statistical-hunter`. Do NOT abandon search mode to improvise continuous detection rules.
+     When hunting for coordinated anomalies across ANY two metric sectors for the same entity (e.g. DNS failures + HTTP requests, HTTP requests + outbound bytes, auth failures + outbound bytes, process execution + DNS) using Euclidean threat distance:
+     * Both sectors have an entity-only baseline: `templates/pipelines/dual_sector_fusion_3stage.yl2` (or `multi_sector_fusion_4stage.yl2` for cross-sectional fleet $\Delta Z$).
+     * One sector is composite-only (`file_executions_*`, `resource_*`, `alert_event_name_count`): `templates/pipelines/rollup_sector_fusion_4stage.yl2` (or `_5stage.yl2`). A detail stage scores each (entity, companion key) against its own baseline; a stage-to-stage roll-up keeps the max per-key Z per entity.
+     * Fill every `{{sector_a_*}}` / `{{sector_b_*}}` slot from the metric's row in `references/metric-sector-catalog.md`, and apply the **Fusion pairing rules** at the top of that file (entity kind, identifier, roll-up limits, `// ADVISORY:` lines). Those rules are authoritative; they are not restated here.
+     * Root Stage: joins on `$entity` and fuses the rectified, baseline-gated `$z_a` and `$z_b` into `$composite_threat_norm_sq = $z_a_sq + $z_b_sq` (take `math.sqrt($composite_threat_norm_sq)` for $D$).
+   - Attempting to chain 3 or 4 independent named UDM stages in a single search query violates `SourceCount["udm"] <= 2` (`Number of UDM events exceeded max limit: 3 > 2`) and `maxJoinCount = 4` (`compilation error maximum number of joins exceeded. limit query to at most 4 joins`).
+   - For 3+ sector cross-vector profiling (e.g. Auth + Cloud + Workspace + Network + DNS + Web), execute decoupled parallel 2-stage micro-queries (the 360° behavioral radar pattern) or route raw non-metrics correlation to `secops-statistical-hunter`. Do NOT abandon search mode to improvise continuous detection rules.
 6. **Regular Expression Pattern Matching Syntax**: Regular expression pattern evaluation in YARA-L 2.0 event predicates uses direct regex assignment `$var = /pattern/ nocase` or `re.regex($var, /pattern/)`. Alternation between multiple regex patterns on a single variable uses internal regex alternation within a single regex literal: `$var = /pattern1|pattern2/ nocase` (e.g. `$sa = /@.*gserviceaccount\.com$|^arn:aws:(iam|sts)::|sa-storage-sync/ nocase`). Placing the pipe operator `|` between separate regex literals is invalid syntax. Avoid inner forward slashes inside `/.../` literals.
 7. **No `variance()` Aggregate**: YARA-L 2.0 does **not** support `variance(...)`. The compiler accepts only `avg()`, `stddev()`, `min()`, `max()`, `sum()`, `count()`, and `count_distinct()`. To obtain variance, export `stddev(...)` from the intermediate stage and square it in the root outcome (`$sigma_sq = $sigma * $sigma`).
 8. **Strict Math Namespacing**: Bare numeric functions are illegal. Use `math.round(...)`, never `round(...)`.
@@ -800,22 +804,25 @@ When the analyst asks questions, requests methodological explanations, or adjust
 When an analyst proposes a hunting hypothesis that spans multiple architectural domains (such as correlating endpoint process executions with cloud API activity), the skill must respect Chronicle's physical metric schemas and guide the analyst toward viable detection strategies.
 
 ### A. The Metric Entity Affinity Matrix
-In Google SecOps Malachite, pre-computed UEBA metric tables are indexed by immutable entity keys. Passing an unsupported entity dimension causes a fatal compile-time failure (`compilation error: validating predicates: validating ueba functions: unsupported filters for metric ...`):
+In Google SecOps Malachite, pre-computed UEBA metric tables are indexed by the dimension sets listed in the compiler's `config.textproto`. The filter arguments of one `metrics.*()` call must map to exactly one valid set; anything else fails at compile time (`compilation error: validating predicates: validating ueba functions: unsupported filters for metric ...`). The authoritative per-metric list, including every identifier field, is `references/metric-sector-catalog.md`. Summary:
 
-| Metric Family | Canonical Metric Table | Supported Entity Keys (Match Dimensions) | Mandatory Companion Dimensions | Unsupported Entity Filters |
+| Metric Family | Canonical Metric Table | Entity Keys Valid Alone | Mandatory Companion Dimensions | Not Valid |
 | :--- | :--- | :--- | :--- | :--- |
-| **File & Process Execution** | `metrics.file_executions_*` | `principal.asset.hostname`, `principal.asset.ip` | `metadata.event_type = "PROCESS_LAUNCH"`, `principal.process.file.sha256` | **`principal.user.userid`** (Chronicle does not baseline process counts per user) |
-| **Cloud Resource CRUD** | `metrics.resource_*` | `principal.user.userid`, `target.user.userid` | `metadata.vendor_name`, `metadata.product_name` | Hostname without vendor/product scoping |
-| **Authentication & IAM** | `metrics.auth_attempts_*` | `target.user.userid`, `principal.user.userid` | `target.user.userid` (Logins) | Generic unindexed IP keys |
-| **Workspace & SaaS** | `metrics.workspace_*` | `principal.user.userid` | `metadata.product_name = "Google Workspace"` | Machine hostname |
-| **DNS Queries** | `metrics.dns_queries_*` | `principal.user.userid`, `principal.asset.hostname`, `principal.asset.ip`, `principal.asset.asset_id` | Optional: `network.dns_domain`, `network.dns.questions.type` | **`network.dns.questions.name`**, `target.hostname`, `target.ip` |
-| **DNS Bytes Outbound** | `metrics.dns_bytes_outbound` | `principal.user.userid`, `principal.asset.hostname`, `principal.asset.ip`, `principal.asset.asset_id` | Optional: `target.ip` | `network.dns_domain`, `network.dns.questions.name` |
-| **HTTP & Web Proxy** | `metrics.http_queries_*` | `principal.user.userid`, `principal.asset.hostname`, `target.hostname` | Optional: `network.http.user_agent`, `target.hostname` | `target.url`, `target.ip`, `network.http.response_code` |
+| **File & Process Execution** | `metrics.file_executions_*` | None (composite-only) | `metadata.event_type` + `principal.process.file.sha256`, optionally plus ONE of `principal.asset.*` or `principal.user.*` | Any entity key without event type + hash; `target.*` keys |
+| **Cloud Resource CRUD** | `metrics.resource_*` | None (composite-only) | `principal.user.*` or `target.user.*` + `metadata.vendor_name` + `metadata.product_name` | Any `*.asset.*` (host) key |
+| **Authentication & IAM** | `metrics.auth_attempts_*` | `target.user.*`, `principal.user.*`, `principal.asset.*` | None | `target.asset.*` alone or with `principal.asset.*` |
+| **Workspace & SaaS** | `metrics.workspace_*` | `principal.user.*` (auth also `target.user.*`) | None | Any `*.asset.*` (host) key |
+| **DNS Queries / DNS Bytes** | `metrics.dns_queries_*`, `metrics.dns_bytes_outbound` | `principal.user.*`, `principal.asset.*` | Optional: `network.dns_domain`, `network.dns.questions.type` (queries); `target.ip` (bytes) | `network.dns.questions.name`, `target.hostname`, `target.user.*` |
+| **HTTP & Web Proxy** | `metrics.http_queries_*` | `principal.user.*`, `principal.asset.*`, `target.hostname` | Optional: `network.http.user_agent`, `target.hostname` | `target.url`, `target.ip`, `network.http.response_code` |
+| **Network Bytes / Flows** | `metrics.network_bytes_*`, `metrics.network_flows_*` | `principal.user.*`, `principal.asset.*` | Optional (bytes): `target.asset.*`, principal country, security category, target network org | `target.user.*` |
+| **Security & EDR Alerts** | `metrics.alert_event_name_count` | None (composite-only) | `principal.asset.*` + `security_result.rule_name` | Any key without both |
+
+`*.user.*` means any of `userid`, `email_addresses`, `windows_sid`, `employee_id`, `product_object_id`; `*.asset.*` means any of `hostname`, `ip`, `mac`, `asset_id`, `product_object_id`.
 
 ### B. The Cross-Entity Boundary & The Anti-Forced-Join Invariant
 In YARA-L multi-stage DAGs, stages that join in the root must share the exact same match variable (`match: $key by 1d`). 
-* Because `metrics.file_executions_*` tracks **workstations and binary hashes** (`$host, $sha256`), while `metrics.resource_*` tracks **user identities** (`$user`), they **CANNOT** be joined on `$user` inside a single multi-stage YARA-L rule.
-* **Strict Anti-Hallucination Invariant**: An agent is strictly prohibited from stripping `$sha256` or inventing `principal.user.userid: $user` on `file_executions_total` to force a join.
+* `metrics.file_executions_*` baselines are keyed per **binary hash** (optionally narrowed to a host or user), never per entity alone, while `metrics.resource_*` baselines are keyed per **user + vendor + product**. Their Z-scores describe different units, so they **CANNOT** be fused on `$user` inside a single multi-stage YARA-L query.
+* **Strict Anti-Hallucination Invariant**: An agent is strictly prohibited from stripping `$sha256` or `metadata.event_type` from `file_executions_*` calls, or dropping `metadata.vendor_name` / `metadata.product_name` from `resource_*` calls, to force a join.
 
 ### C. The 3 Canonical Consultative Pivot Paths
 When an analyst requests a cross-entity scenario (such as an endpoint workstation pivoting into Google Cloud), the agent must clearly explain the dimensional boundary and guide the analyst using one of three canonical paths:
@@ -931,7 +938,8 @@ To provide maximum analytical value without compromising mathematical integrity,
    ```yara
    // Stage 1: Measure outbound network connection activity and 30-day baseline per host and external IP
    stage host_egress {
-       $net.metadata.event_type = "NETWORK_CONNECTION"
+       $net.network.sent_bytes > 0
+       $net.network.sent_bytes < 1000000000000000
        $net.principal.asset.hostname = $host
        $net.target.ip = $dst_ip
 
@@ -1123,7 +1131,8 @@ To operationalize advanced statistical models without tripping Chronicle's join 
   ```yara
   // Stage 1: Macro Baseline (Axis 1: Historical Intensity)
   stage stage1_macro_intensity {
-      metadata.event_type = "NETWORK_CONNECTION"
+      network.sent_bytes > 0
+      network.sent_bytes < 1000000000000000
       principal.asset.hostname = $host
       $host != ""
 
