@@ -5,8 +5,9 @@
 //          or metrics.dns_queries_total) with Chronicle Entity Context Graph
 //          (DERIVED_CONTEXT) domain prevalence to isolate rare/unseen external
 //          destinations and prune routine corporate SaaS/CDN traffic.
-// SCOPE: request counts per (host, domain) only. If the analyst asks about bytes or any other
-//          measure, use rare_destination_ecg_3stage.yl2 (that metric's sector + rare destinations).
+// SCOPE: HTTP request counts per (host, domain). For DNS volume use rare_destination_ecg_3stage.yl2
+//          keyed on network.dns.questions.name (network.dns_domain can be empty; see option 2). For
+//          bytes or any other measure, use rare_destination_ecg_3stage.yl2 with that metric's sector.
 // Join Budget: 1 metric lookup (Stage 1) + 1 stage join (Root) = 2 joins total (<= 4).
 // Invariant: Stage 1 evaluates universal volume; Stage 2 isolates graph lookup (ECG_LIMIT = 1).
 //
