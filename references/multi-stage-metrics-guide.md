@@ -1044,7 +1044,7 @@ To provide maximum analytical value without compromising mathematical integrity,
 ### B. Answer 2: Consultative Bridge for High-Prevalence / Living-Off-The-Cloud Targets
 1. **The Consultative Gate**:
    In Pillar 6 (or Next Steps), the agent proactively asks the hunter:
-   > *"Would you also like to evaluate automated exfiltration targeting **high-prevalence public cloud infrastructure** (e.g., AWS S3, Google Cloud Storage, Cloudflare Workers, GitHub, Box, Dropbox) where destination prevalence filtering cannot be used?"*
+   > *"Would you also like to evaluate automated exfiltration targeting **high-prevalence public cloud infrastructure** (e.g., AWS S3, Google Cloud Storage, Cloudflare Workers, GitHub, Box, Dropbox) where destination prevalence filtering cannot be used? That analysis runs in `secops-statistical-hunter`, which tests cron timing regularity on raw event timestamps."*
 2. **The Structured Skill Handoff Card (Zero-Code Handoff Invariant)**:
    When the hunter requests cloud exfiltration coverage, the agent emits a **Skill Handoff Card** steering to `secops-statistical-hunter`:
    ```markdown
