@@ -162,7 +162,7 @@ Measured on GUS-SDL at 2026-10-01T11:50Z with the Playbook 1 shape (`day_count =
 ```yara
 stage stage1_process_baseline {
     metadata.event_type = "PROCESS_LAUNCH"
-    timestamp.get_date(metadata.event_timestamp.seconds) = "2026-10-01"   // today (UTC); window starts D-2 00:00Z
+    timestamp.get_date(metadata.event_timestamp.seconds) = "<today UTC, YYYY-MM-DD>"   // window starts D-2 00:00Z
     principal.asset.hostname = $host
     principal.process.file.sha256 = $sha256
 
