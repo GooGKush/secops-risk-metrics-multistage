@@ -1,6 +1,6 @@
 # Google SecOps Multi-Stage Risk Metrics Threat Hunter (`secops-risk-metrics-multistage`)
 
-[![Version](https://img.shields.io/badge/version-v1.8.0-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-334%2F334%20passing%20(100%25)-brightgreen.svg)](tests/) [![Submission Tests](https://img.shields.io/badge/submission%20tests-32%2F32%20passing%20(100%25)-brightgreen.svg)](scripts/submission_tests.py)
+[![Version](https://img.shields.io/badge/version-v1.8.1-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-334%2F334%20passing%20(100%25)-brightgreen.svg)](tests/) [![Submission Tests](https://img.shields.io/badge/submission%20tests-32%2F32%20passing%20(100%25)-brightgreen.svg)](scripts/submission_tests.py)
 
 A specialized, production-grade AI agent skill package for **Google Security Operations (SecOps / Chronicle SIEM & SOAR)** that constructs, validates, and executes **Multi-Stage YARA-L 2.0 Directed Acyclic Graph (DAG) statistical threat hunting pipelines**, **360° Entity Behavioral Risk Radars**, and **Progressively Disclosed Consultative Threat Hunting**.
 
@@ -340,6 +340,12 @@ python3 scripts/submission_tests.py --dump-dir <OUTPUT_DIR>
 ---
 
 ## 📦 Recent Releases
+
+### v1.8.1 (October 2026) — Date-Based Entity Graph Freshness Filter & Derived Prevalence Scope
+* **Entity Graph Freshness**: In Mode A, every event stage of a graph-joined query filters on today's date (`timestamp.get_date(metadata.event_timestamp.seconds) = "<today UTC>"`) instead of a hand-computed epoch, across the 7 graph templates, SKILL.md and the guides' inline examples.
+* **Derived Prevalence Scope**: The derived domain template counts HTTP requests only; DNS volume, outbound bytes and other measures against rare domains use `rare_destination_ecg_3stage.yl2`.
+* **Skill Handoff**: The scheduled-exfiltration offer for high-prevalence cloud destinations names `secops-statistical-hunter`.
+* **Submission Harness**: `--live` no longer reports live results it never ran.
 
 ### v1.8.0 (October 2026) — Config-Driven Metric Sectors, Cross-Vector Fusion, Rare-Destination Filtering & Peer Group Path
 * **Config-Driven Metric Sectors**: Every `metrics.*` stage now takes its observed filter, observed value, `metric:` argument and identifier field from the generated `references/metric-sector-catalog.md`, built from the Chronicle compiler's metric configuration (vendored in `data/malachite/`). Observed filters in all 38 Stage 1 extractors were aligned to what each baseline counts.

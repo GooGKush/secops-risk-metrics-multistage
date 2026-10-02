@@ -1,10 +1,39 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.8.0)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.8.1)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v1.8.0 (Major Dot Release) — October 2026  
+**Latest Version**: v1.8.1 (Point Release) — October 2026  
+
+---
+
+## 📢 What's New in v1.8.1 (Point Release) — Date-Based Entity Graph Freshness Filter and Derived Prevalence Template Scope
+
+v1.8.0 kept Mode A queries that join the Entity Graph on today's events with an epoch comparison (`metadata.event_timestamp.seconds >= <today 00:00Z>`). An agent writing that number by hand can get it wrong, for example tomorrow's midnight or now minus 48 hours. A wrong epoch empties the event stage without an error, and the hunt is reported as clean. v1.8.1 compares dates instead, so no arithmetic is needed.
+
+### 1. Entity Graph Freshness: Date Filter Instead of Epoch
+* In Mode A, every event stage of a query with a graph stage uses `timestamp.get_date(metadata.event_timestamp.seconds) = "<today UTC, YYYY-MM-DD>"`. The search window still starts at D-2 00:00Z, the graph stage stays time-free, and Mode B is unchanged.
+* The 7 graph templates take a `{{today_date}}` slot in place of `{{today_start_epoch}}`. The router fills it (`_today_date()` replaces `_today_start_epoch()`).
+* Updated to match: the Mode A rule in SKILL.md, Rule 5 in `entity-context-graph-guide.md` (its example now uses a placeholder instead of a literal date), the metric sector catalog and its generator, and the README.
+* `multi-stage-metrics-guide.md`: three inline examples that joined the graph without the freshness step now include it: section 12 (new rule 4 for prevalence joins), the section 29 PIPE-09 example, and the Archetype 3 Stage 2 fragment.
+
+### 2. Derived Prevalence Templates Scoped to Their Measure
+* `hybrid_metric_derived_domain_prevalence_2stage.yl2` counts HTTP requests per host and domain. DNS volume against rare domains uses `rare_destination_ecg_3stage.yl2` keyed on `network.dns.questions.name` (`network.dns_domain` can be empty). Outbound bytes or any other measure use the same template with that metric's sector.
+* `hybrid_metric_derived_file_prevalence_2stage.yl2` drops rollout binaries. To normalize a surge against a rollout, use `hybrid_metric_fleet_prevalence_2stage.yl2`.
+* The template headers, the metrics guide (Fleet Rarity bullet and library rows), `statistical-models-taxonomy.md`, Playbook 1 in the Entity Graph guide, the consultative worksheet (Domain 6 option 5 now points outbound bytes to Domain 1 option 8) and the README all say the same. Wording only; no query text changed.
+
+### 3. Scheduled-Exfiltration Handoff Names the Skill
+* The section 29 consultative question about high-prevalence cloud destinations now names `secops-statistical-hunter`, which tests cron timing regularity on raw event timestamps.
+
+### 4. Submission Harness
+* `scripts/submission_tests.py --live` never contacted Chronicle but reported every statically clean case as a live pass. It no longer reports a live result; `--live` still parses and prints a notice. The README's testing section shows how to export the queries with `--dump-dir` and run them against your own tenant.
+
+### 5. SKILL.md and Tests
+* The Modular References bullet in SKILL.md names only the SOAR playbook guide; the five other references it listed are already linked where SKILL.md uses them. SKILL.md is 20,412 bytes (limit 20,480).
+* Router and rare-destination tests require the date filter and reject an epoch filter in event stages.
+* **334 / 334 automated unit tests passing** (`python3 -m pytest tests`).
+* **32 / 32 submission test cases passing** (`python3 scripts/submission_tests.py`).
 
 ---
 
