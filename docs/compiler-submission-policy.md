@@ -43,7 +43,7 @@ Extensive live compilation testing against Google SecOps customer instances has 
     ```
 * **Strict Math Function Namespacing**:
   * Bare functions like `round(...)` are illegal. Must strictly use `math.round(...)`.
-  * Transcendental functions like `math.exp(...)` are unsupported in the native query compiler. Non-linear conversions (such as sigmoid Calibrated Risk Index $\text{CRI}$) must be computed in client post-processing (`scripts/triage_formatter.py`).
+  * The function name `math.exp(...)` does not exist in the native query compiler; express exponential calculations ($e^x$ or $b^x$) using `math.pow(2.718281828, $x)` or `math.pow($base, $exp)`. Sigmoid presentation conversions (such as Calibrated Risk Index $\text{CRI}$) are standardly computed in client post-processing (`scripts/triage_formatter.py`).
 
 ### 2.3 Universal Dispersion Floor & Outcome Nested Logic Model
 * In all $Z$-score, Delta-$Z$, and ratio denominators, safe division MUST be enforced without distorting non-zero variance. The **Outcome Nested Logic Model** is mandatory:
@@ -139,7 +139,7 @@ The submission test harness automates compiler verification across 32 canonical 
 Before committing changes, contributors must execute the following test commands:
 
 ```bash
-# 1. Run canonical submission test suite (Static verification of 20 test cases)
+# 1. Run canonical submission test suite (Static verification of 32 test cases)
 python3 scripts/submission_tests.py
 
 # 2. Run all unit tests (including compiler policy assertions)

@@ -37,8 +37,8 @@ Always adhere to the **Progressive-Load First Directive**:
    * Must preserve 100% of fleet population without premature threat filtering.
 
 2. **Stage 2+ Mathematical Models (`templates/stage2_math_models/*.yl2`)**:
-   * Must apply the **Universal Dispersion Floor ($\sigma_{\text{floor}} = 1.0$)** in all $Z$-score denominators to prevent division-by-zero on quiet accounts:
-     `$z_score = $diff / ($stddev + 1.0)`
+   * Must apply the **Outcome Nested Logic Dispersion Floor ($\sigma_{\text{floor}} = 1.0$)** in all $Z$-score denominators to prevent division-by-zero on quiet accounts without blunting active variance:
+     `$z_score = $diff / if($stddev > 0, $stddev, 1.0)`
    * Must maintain clean mathematical bounds and support Calibrated Risk Index ($\text{CRI} \in [0, 100]$) mapping.
 
 3. **Multi-Stage DAG Pipelines (`templates/pipelines/*.yl2`)**:
@@ -54,7 +54,7 @@ Always adhere to the **Progressive-Load First Directive**:
 Every contribution must strictly adhere to the **[Pre-Submission Compiler Policy](docs/compiler-submission-policy.md)** and pass all automated verification suites before code submission or pull requests:
 
 ```bash
-# 1. Run canonical submission test suite (19 pipeline, router, and radar cases)
+# 1. Run canonical submission test suite (32 pipeline, router, and radar cases)
 python3 scripts/submission_tests.py
 
 # 2. Run all unit tests (including compiler policy assertions)
@@ -68,7 +68,7 @@ wc -c SKILL.md
 ### Mandatory Quality & Compiler Gates:
 * **Zero-Compiler-Error Policy**: All generated queries across pipeline templates, radar spokes, and dynamic router permutations must achieve a 100% pass rate against Malachite YARA-L 2.0 compiler invariants (`scripts/submission_tests.py`).
 * **Unit Test Assertions**: Add corresponding syntax and parameter binding assertions in `tests/test_submission_compiler_policy.py`, `tests/test_complex_multistage_syntax.py`, or `tests/test_guardrail_contracts.py`.
-* **Universal Dispersion Floor**: All $Z$-score denominators must enforce `($stddev + 1.0)`.
+* **Universal Dispersion Floor**: All $Z$-score denominators must enforce `if($stddev > 0, $stddev, 1.0)`.
 * **Universal 6-Point Contract**: All Stage 1 extractors must export the standard 6 outcome metrics.
 * **Skill Budget Compliance**: `SKILL.md` must strictly remain within its budget of $\le 250$ lines and $\le 20,480$ bytes.
 * **Progressive-Load Compliance**: New specifications and guidelines must be placed in `references/` or enforced via `scripts/` before touching `SKILL.md`.

@@ -510,7 +510,7 @@ For automated threat hunting and headless pipeline execution, the agent and quer
 
 ## 18. Pre-Composed Multi-Stage Pipeline Library
 
-To prevent runtime syntactic improvisation and avoid streaming rule syntax confusion, the skill maintains complete composite pipeline templates in `templates/pipelines/`:
+To prevent runtime syntactic improvisation and avoid streaming rule syntax confusion, the skill maintains 32 complete composite pipeline templates in `templates/pipelines/`:
 
 | Pipeline Template File | Stages | Analytical Model | Primary Use Case |
 | :--- | :--- | :--- | :--- |
@@ -518,6 +518,12 @@ To prevent runtime syntactic improvisation and avoid streaming rule syntax confu
 | **`standard_z_score_2stage.yl2`** | 2 Stages | Parametric Standard $Z$-Score ($Z$) | Volumetric bursts, auth attempts, process counts. |
 | **`poisson_rarity_2stage.yl2`** | 2 Stages | Discrete Poisson Rarity ($Z_P$) | Rare administrative binary launches, low $\lambda$. |
 | **`longitudinal_cusum_2stage.yl2`** | 2 Stages | Longitudinal CUSUM Drift ($S^+$) | Multi-day low-and-slow exfiltration and behavioral drift. |
+| **`macd_momentum_velocity_2stage.yl2`** | 2 Stages | MACD Dual-Spine Momentum ($\Delta Z = Z_{\text{fast}} - Z_{\text{slow}}$) | Kinetic acceleration breakouts past 30-day ceiling and historical max. |
+| **`circadian_von_mises_2stage.yl2`** | 2 Stages | Circadian von Mises Temporal Distance ($D_{\text{circ}}^2 / 72.0$) | Cyclic 24-hour clock-face departures, off-hours authentication & bandwidth. |
+| **`c2_beacon_flow_frequency_2stage.yl2`** | 2 Stages | Outbound Flow Frequency Baseline ($Z_{\text{flows}}$) | High-frequency micro-session C2 beaconing and keep-alive heartbeats. |
+| **`http_error_ratio_surge_2stage.yl2`** | 2 Stages | HTTP Failure Baseline + Error Ratio Surge | Web application/proxy $4xx/5xx$ fuzzing, API enumeration, broken C2 loops. |
+| **`http_target_surge_2stage.yl2`** | 2 Stages | Target-Centric HTTP Surge (`target.hostname`) | Web server hammering, automated scraping, cloud API gateway abuse. |
+| **`cloud_repository_scope_dual_branch.yl2`** | 3 Stages | Dual-Branch Cloud Repository & Origin IP Isolation | 5-tuple service account resource CRUD isolation + unseen source IP pivot. |
 | **`dual_baseline_delta_z_3stage.yl2`** | 3 Stages | Dual-Baseline Delta-$Z$ ($\Delta Z$) | Patch Tuesday fleet suppression, enterprise-wide spikes. |
 | **`hierarchical_empirical_bayes_3stage.yl2`** | 3 Stages | Hierarchical Empirical Bayes | Peer group shrinkage, regularizing inactive accounts. |
 | **`part_of_the_whole_multilevel.yl2`** | 3 Stages (4 with a peer group) | Multilevel Hierarchical Z ($Z_{\text{personal}}, Z_{\text{vs\_enterprise}}$; with a peer group $Z_{\text{vs\_team}}, Z_{\text{team\_vs\_enterprise}}$) | Personal + fleet by default; user → named group → enterprise when a roster is given. |
@@ -526,10 +532,18 @@ To prevent runtime syntactic improvisation and avoid streaming rule syntax confu
 | **`multi_sector_fusion_4stage.yl2`** | 4 Stages | Multi-Sector Fusion (rectified $D$, any 2 catalog sectors + Fleet Norm) | Same as dual-sector plus cross-sectional fleet $\Delta Z$, within the 2-UDM-stage Search limit. |
 | **`rollup_sector_fusion_4stage.yl2`** | 4 Stages | Roll-up Sector Fusion (composite-only metric rolled up per entity + 1 catalog sector) | Process execution / cloud resource / alert metric fused with another sector (e.g. process + DNS by host). |
 | **`rollup_sector_fusion_5stage.yl2`** | 5 Stages | Roll-up Sector Fusion + Fleet Norm | As above plus fleet $\Delta Z$. 4 named stages + root: supported but does not always work; prefer the 4-stage variant. |
+| **`radar_360_decoupled_sector.yl2`** | 2 Stages | Decoupled 360° Radar Sector Micro-Query | Parallel per-sector evaluation feeding Euclidean Threat Distance $D$. |
+| **`radar_360_sector_web_http.yl2`** | 2 Stages | 360° Radar Spoke 6 (Web & Proxy HTTP) | Dedicated Web & Proxy HTTP baseline spoke for 6-sector 360° Risk Radar. |
+| **`radar_360_sector_alert.yl2`** | 2 Stages | 360° Radar Alert Spoke (`alert_event_name_count`) | Host + rule alert frequency baseline spoke for endpoint/EDR triage. |
 | **`hybrid_metric_derived_file_prevalence_2stage.yl2`** | 2 Stages | Derived Context File Prevalence ($Z \times M_{\text{rare}}$) | Living-off-the-land surges, rare binary isolation (drops rollout binaries; to normalize a surge against a rollout use `hybrid_metric_fleet_prevalence_2stage.yl2`). |
 | **`hybrid_metric_derived_domain_prevalence_2stage.yl2`** | 2 Stages | Derived Context Domain Prevalence ($Z \times M_{\text{rare}}$) | HTTP request counts to novel SaaS/C2 hostnames, corporate CDN pruning. DNS volume (keyed on `network.dns.questions.name`), bytes, or any other measure: `rare_destination_ecg_3stage.yl2`. |
 | **`hybrid_metric_whois_domain_lifecycle_2stage.yl2`** | 2 Stages | WHOIS Domain Lifecycle (NRD & Expiration Fusion) | Acute web/DNS/network egress to Newly Registered Domains (<= 30d) or expired domains. |
 | **`hybrid_metric_derived_asset_age_2stage.yl2`** | 2 Stages | Derived Context Infant Asset Age ($Z \times M_{\text{infant}}$) | Rogue machine onboarding, infant endpoints (<= 7d) undergoing auth storms or egress. |
+| **`hybrid_metric_http_ua_prevalence_2stage.yl2`** | 2 Stages | HTTP User-Agent Token Fleet Prevalence Shield | Hyperbolic fleet adopter dampening ($1 / (k_{\text{fleet}} + 1)$) for custom/rare user-agent strings. |
+| **`hybrid_metric_fleet_prevalence_2stage.yl2`** | 2 Stages | Cross-Sectional Token Fleet Prevalence Shield | Normalizes host/user surges against concurrent enterprise token adoption. |
+| **`hybrid_metric_entropy_concentration_2stage.yl2`** | 2 Stages | Metric Baseline + Target Concentration / Diversity Deficit | Fuses 30-day volume surge with single-destination elephant flow concentration. |
+| **`hybrid_metric_orthogonal_space_2stage.yl2`** | 2 Stages | Metric Baseline + Orthogonal Companion Dimension | Fuses 30-day metric baseline with unindexed raw UDM companion dimensions. |
+| **`hybrid_metric_raw_enrichment_2stage.yl2`** | 2 Stages | Metric Baseline + Raw Forensic Enrichment | Projects distinct command lines, URIs, and IPs onto 30-day metric outliers. |
 | **`rare_destination_ecg_3stage.yl2`** | 3 Stages + Root (2 UDM + graph) | Sector $Z$ filtered to Entity Graph-rare destinations | "Unusual outbound bytes / DNS / HTTP to low-prevalence domains or IPs" (domain via `target.hostname` or `network.dns.questions.name`; IP via `target.ip`). |
 | **`fusion_rare_destination_3stage.yl2`** | 3 Stages + Root (2 UDM + graph) | Dual-sector rectified $D$ through rare destinations | Two sectors on one host where the second is per (host, destination) and the destination is rare (e.g. DNS volume + HTTP to rare domains). |
 
@@ -883,7 +897,7 @@ Before outputting any candidate multi-stage YARA-L query in the Phase 1B Pre-Fli
 ### A. Template-First Assembly (template selection rule)
 To eliminate runtime syntax failures and semantic distortions, assemble every multi-stage query from the canonical templates below rather than authoring one from scratch. Open the chosen `.yl2` with `view_file` and fill in its placeholders — the template files are the authoritative source, and no script needs to be read or run to select one:
 1. **Stage 1 Extractors (`templates/stage1_extractors/`)**: Provide guaranteed 6-point outcome tuples (`$observed_val`, `$historical_avg`, `$historical_stddev`, `$historical_active_days`, `$historical_max`, `$historical_sum`) with immutable entity bindings.
-2. **Stage 2 Math Models (`templates/stage2_math_models/`)**: Provide clean AST implementations of all 14 models: Standard $Z$, Robust MAD, Discrete Poisson Rarity, Fano Factor Dispersion, Coefficient of Variation, Hourly Temporal $Z$, Bayesian Gamma & Beta-Binomial, Longitudinal CUSUM, Two-Part Hurdle, Asymmetric Directional ReLU, Piecewise Winsorized CRI, Fleet Prevalence Shield, and Adaptive Context Sensitivity.
+2. **Stage 2 Math Models (`templates/stage2_math_models/`)**: Provide clean AST implementations of all 16 models: Standard $Z$, Robust MAD, Discrete Poisson Rarity, Fano Factor Dispersion, Coefficient of Variation, Hourly Temporal $Z$, Bayesian Gamma & Beta-Binomial, Longitudinal CUSUM, Two-Part Hurdle, Asymmetric Directional ReLU, Piecewise Winsorized CRI, Fleet Prevalence Shield, Adaptive Context Sensitivity, MACD Momentum Velocity, and Circadian von Mises Temporal Distance.
 3. **Pre-Composed Pipelines (`templates/pipelines/`)**: End-to-end validated pipelines for complex multi-stage hunts (e.g. `cloud_repository_scope_dual_branch.yl2`, `mad_modified_z_2stage.yl2`).
 
 ### B. The `RAW_LOG_DUMP_DETECTED` Post-Flight Inspection Rule

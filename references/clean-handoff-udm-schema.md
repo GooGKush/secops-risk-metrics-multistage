@@ -770,17 +770,17 @@ When an analyst requests an alert, notification, case, or event submission for h
 
 ### 📦 Phase 2: Payload Construction & Multi-Event Batching
 * **1:1 Finding Cardinality**: Exactly one UDM event is constructed per outlier entity ($Z \ge 3.0\sigma$, $\text{CRI} \ge 50$).
-* **Severity Is Derived, Never Asserted**: `security_result.severity` is a pure function of the finding's CRI. It is never chosen per model, per threat name, or by judgement. `security_result.risk_score` always carries the same CRI integer.
+* **Severity Is Derived, Never Asserted**: `security_result.severity` is a pure function of the finding's CRI aligned to the 5 canonical CRI triage bands in `references/calibrated-risk-index-guide.md`. It is never chosen per model, per threat name, or by judgement. `security_result.risk_score` always carries the same CRI integer.
 
-  | CRI | `severity` |
-  |---|---|
-  | 80–100 | `CRITICAL` |
-  | 60–79 | `HIGH` |
-  | 40–59 | `MEDIUM` |
-  | 20–39 | `LOW` |
-  | 0–19 | `INFORMATIONAL` |
+  | CRI | Triage Band | `severity` |
+  |---|---|---|
+  | 90–100 | 🚨 Critical Outlier | `CRITICAL` |
+  | 70–89 | 🔴 High Threat | `HIGH` |
+  | 46–69 | 🟠 Medium Outlier | `MEDIUM` |
+  | 26–45 | 🟡 Low Drift | `LOW` |
+  | 0–25 | 🟢 Nominal | `INFORMATIONAL` |
 
-  Because the ingestion floor is $\text{CRI} \ge 50$, an emitted event is never below `MEDIUM`. Note that the $3.0\sigma$ significance boundary ($\text{CRI} = 50$) falls inside the `MEDIUM` band rather than on a band edge; the two scales answer different questions and are not expected to coincide.
+  Because the ingestion floor is $\text{CRI} \ge 50$ ($Z \ge 3.0\sigma$), an emitted event is never below `MEDIUM`.
 * **Correlated Batch Structure**: When multiple findings are flagged in a hunt, all events are bound with a shared `Hunt Campaign ID` UUID and combined into a JSON array:
   ```json
   [

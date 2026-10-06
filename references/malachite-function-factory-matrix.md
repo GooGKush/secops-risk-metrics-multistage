@@ -16,7 +16,7 @@ The Chronicle Malachite Common Compiler features a rich standard library ("Funct
 | Function Namespace | Function Signature | Valid in `events:` | Valid in `outcome:` | Notes / Invariants |
 | :--- | :--- | :---: | :---: | :--- |
 | **`math.sqrt`** | `math.sqrt(number)` | ❌ | ✅ | Computes $\sqrt{x}$. Bare `sqrt()` is strictly rejected. |
-| **`math.pow`** | `math.pow(base, exp)` | ❌ | ✅ | Native exponentiation ($x^y$). Replaces manual `$stddev * $stddev`. `^` operator is invalid. |
+| **`math.pow`** | `math.pow(base, exp)` | ❌ | ✅ | Native exponentiation ($x^y$), including base-$e$ exponentials via `math.pow(2.718281828, $x)` (use instead of `math.exp()`, which is not a valid function name). Replaces manual `$stddev * $stddev`. `^` operator is invalid. |
 | **`math.abs`** | `math.abs(number)` | ❌ | ✅ | Computes absolute value $\|x\|$. Useful for symmetric distance and deviations. |
 | **`math.log`** | `math.log(number)` | ❌ | ✅ | Computes natural logarithm $\ln(x)$. Requires $x > 0$. |
 | **`math.floor`** | `math.floor(number)` | ❌ | ✅ | Floor function $\lfloor x \rfloor$. |

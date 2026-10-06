@@ -31,7 +31,7 @@ secops-risk-metrics-multistage/
 │   ├── 360-behavioral-radar-guide.md     # Canonical 360° radar execution playbook & visual architecture
 │   ├── calibrated-risk-index-guide.md    # CRI [0–100] sigmoid score translation guide
 │   ├── chart-specifications-guide.md     # Vega-Lite & Chart.js declarative visual contracts
-│   ├── clean-handoff-udm-schema.md       # 9 UDM event schemas, CRI severity ladder & ingestion vectors
+│   ├── clean-handoff-udm-schema.md       # 10 UDM event schemas, CRI severity ladder & ingestion vectors
 │   ├── consultative-worksheet.md         # Master consultative guidance worksheet & attack vector taxonomy
 │   ├── consultative/                     # Specialized domain consultative deep-dives
 │   │   ├── cloud-infrastructure.md       # Cloud CRUD, service account abuse, & privilege escalation
@@ -44,11 +44,11 @@ secops-risk-metrics-multistage/
 │   ├── malachite-function-factory-matrix.md # Chronicle Function Factory built-in functions & AST grammar contracts
 │   ├── metric-sector-catalog.md          # GENERATED: per-metric observed filter, value, metric arg, entity fields, fusion rules
 │   ├── metrics-catalog.md                # GENERATED: catalog of 38 pre-computed behavioral risk metrics
-│   ├── model-concordance-guide.md        # AST concordance contracts, outcome variables & prohibited fallbacks across all 14 models
+│   ├── model-concordance-guide.md        # AST concordance contracts, outcome variables & prohibited fallbacks across all 16 models
 │   ├── multi-stage-metrics-guide.md      # Multi-stage YARA-L DAG contracts, condition gating, & Entity Graph rules
 │   ├── soar-playbook-radar-integration.md# Chronicle SOAR playbook integration for 360° radar
 │   ├── statistical-hunting-cooperative-framework.md # Federated bilateral handoff protocol
-│   ├── statistical-models-taxonomy.md    # Mathematical taxonomy of all 14 statistical models
+│   ├── statistical-models-taxonomy.md    # Mathematical taxonomy of all 16 statistical models
 │   ├── turn-execution-lifecycle.md       # Codified turn lifecycle, transition invariants, & quiet baseline protocol
 │   └── udm-hunting-field-dictionary.md   # Field-level dictionary mapping UDM protobuf fields to hunter dimensions
 ├── templates/                            # Composable YARA-L 2.0 template library
@@ -172,7 +172,7 @@ secops-risk-metrics-multistage/
      $$D = \sqrt{\sum_{i=1}^{6} \max(0, Z_i)^2}$$
    * Integrates natively with Chronicle SOAR playbooks (`references/soar-playbook-radar-integration.md`) and generates standalone visual SVG/HTML radar artifacts via `scripts/radar_collector.py`.
 5. **Chronicle Malachite Function Factory Modernization (`math.*`) & OIO Inlining**:
-   * Natively leverages Chronicle SIEM's namespaced mathematical built-ins (`math.abs`, `math.sqrt`, `math.log`, `math.exp`, `math.min`, `math.max`, `math.round`, `math.pow`).
+   * Natively leverages Chronicle SIEM's namespaced mathematical built-ins (`math.abs`, `math.sqrt`, `math.log`, `math.pow`, `math.floor`, `math.ceil`, `math.round`), expressing general and base-$e$ exponentiation via `math.pow($base, $exp)` / `math.pow(2.718281828, $x)` rather than the unsupported `math.exp()` function identifier.
    * Employs **Outcomes-in-Outcomes (OIO)** in-stage inlining, allowing intermediate outcome variables to directly feed subsequent formulas within the same stage (e.g., `$diff = $obs - $avg`, `$z = $diff / $safe_sd`).
    * Enforces safe non-zero dispersion floor guards (`if($sigma > 0, $sigma, 1.0)`) across all models, eliminating divide-by-zero crashes on quiet baselines without artificial variance blunting.
 6. **Entity Context Graph (ECG) Hybrid Correlation**:
@@ -188,13 +188,13 @@ secops-risk-metrics-multistage/
    * Inquiries involving sub-second C2 timing jitter, packet-level regularity, raw UDM log spikes, or non-metrics telemetry automatically emit the Markdown Skill Handoff Card and yield the turn (0 tools called).
    * Strictly enforces the **Zero-Code Handoff Invariant**: handoff cards provide conceptual architectural guidance and parameters, leaving YARA-L code generation strictly to the destination skill.
 8. **Standardized 6-Section CommonMark Triage Reporting**:
-   * Synthesizes hunt findings into a rigorous 6-section forensic triage report:
-     1. *Executive Summary*: Primary findings, entity scope, and risk classification.
-     2. *Calibrated Risk Index (CRI [0–100])*: Sigmoid-normalized score with operational severity badge.
-     3. *Forensic Evidence Pillars*: Quantitative tabular breakdown with normalized Unicode ASCII visual bars (`████░░░░░░`).
-     4. *Statistical Baseline Distribution Context*: Historical $\mu, \sigma, N$, and deviation ratios.
-     5. *Actionable SOC Recommendations*: Concrete investigative steps and containment pivots.
-     6. *1-Click Drill-Down Queries*: Ready-to-run raw UDM filter queries for instant event-level pivot.
+   * Synthesizes hunt findings into a rigorous 6-pillar forensic triage report:
+     1. *Statistical Outlier Report*: Executive headline, active/baseline window summary, and single-surface visual chart (`<agent-embed>` in Jetski, inline `<svg>` in generic MCP, or Unicode `▰▰▰▰▱▱▱▱` bars in CLI).
+     2. *Executed Multi-Stage YARA-L Query*: Literal multi-stage YARA-L 2.0 query executed via `udm_search`.
+     3. *Ranked Outlier Summary & Provenance Stamp*: Quantitative tabular breakdown with 24h observed counts, 30-day baseline $\mu, \sigma$, statistical deviation score, Calibrated Risk Index (`CRI [0–100]`) badge, and Unicode magnitude bars (`▰▰▰▰▱▱▱▱`).
+     4. *Forensic Vector Breakdown*: Threat translation, attack scenarios, legitimate confounders, and actionable SOC playbook steps.
+     5. *Chronicle UI Manual Pivot (Triage Reference Only)*: Copy-and-paste raw UDM filter expression for manual Chronicle UI timeline inspection.
+     6. *Statistical & Mathematical Appendix*: Collapsible `<details>` derivation of model parameters, degrees of freedom ($N$), and CRI normalization.
 9. **Noise Level Tuning & Root-Stage `condition:` Gating**:
    * Employs native Chronicle compiler support for root-stage `condition:` post-aggregation filtering (`HAVING` semantics) placed directly before `order:`.
    * Enables precision sensitivity steering across high-confidence alerting (`$z_score >= 3.0`), investigative drift bands (`$z_score >= 2.0 and $z_score < 3.0`), directional silencing (`$z_score <= -3.0`), and baseline maturity hurdles (`$active_days >= 7`).
@@ -208,11 +208,11 @@ secops-risk-metrics-multistage/
     * Every Stage 1 extractor's observed event filter matches what its pre-computed baseline counts, and each carries a note listing the identifier fields valid for that metric.
     * Pre-composed in 32 pipeline templates in `templates/pipelines/`.
 13. **Calibrated Risk Index (CRI [0–100])**:
-    * Standardizes multi-dimensional statistics onto a unified, logistic sigmoid 0–100 scale anchoring $3.0\sigma$ at CRI 50 across 4 operational severity tiers: 🟢 Nominal (0–29), 🟡 Elevated (30–49), 🟠 High (50–84), and 🔴 Critical (85–100).
+    * Standardizes multi-dimensional statistics onto a unified, logistic sigmoid 0–100 scale anchoring $3.0\sigma$ at CRI 50 across 5 operational triage bands: 🟢 Nominal (0–25), 🟡 Low Drift (26–45), 🟠 Medium Outlier (46–69), 🔴 High Threat (70–89), and 🚨 Critical Outlier (90–100).
 14. **Adaptive Multi-Surface Single-Surface Visualizations**:
     * Renders client-optimized visual surfaces: `<agent-embed>` standalone HTML widgets for Jetski Web / Antigravity, inline `<svg>` for headless MCP webviews, and ASCII progress bars for CommonMark tables, strictly maintaining the Single-Surface Guarantee to eliminate redundant visual clutter.
 15. **Lossless Clean Hand-Off Protocol & Direct API Ingestion**:
-    * Ingests validated synthetic UDM security analytics events (`CUSTOM_SECURITY_DATA_ANALYTICS`) across 9 specialized `product_event_type` schemas directly into Chronicle Event Store or attaches findings to designated SOAR case walls, gated strictly behind explicit analyst request (zero unsolicited escalation).
+    * Ingests validated synthetic UDM security analytics events (`CUSTOM_SECURITY_DATA_ANALYTICS`) across 10 specialized `product_event_type` schemas directly into Chronicle Event Store or attaches findings to designated SOAR case walls, gated strictly behind explicit analyst request (zero unsolicited escalation).
 16. **Config-Driven Cross-Vector Fusion**:
     * Any two metrics that share an identifier can be fused, not just a fixed set of combinations. The agent fills each sector from `references/metric-sector-catalog.md`, which is generated from the Chronicle compiler's own metric configuration (vendored in `data/malachite/`) and lists, per metric: the observed event filter, observed value, `metric:` argument, valid identifier fields and valid dimension sets.
     * The catalog's pairing rules let the agent judge a requested pair before building it: pairs with the same entity kind and identifier proceed (e.g. network bytes + HTTP on `principal.asset.ip`), user ↔ host pairs are refused with the reason, and a query may hold at most 2 UDM event stages.
@@ -239,16 +239,17 @@ git clone https://github.com/GooGKush/secops-risk-metrics-multistage.git ~/.gemi
 
 The skill flexibly handles everything from open-ended consultative inquiries to highly specific mathematical models. Operational threat hunting is organized around four core pillars:
 
-### 1. First Principles: The 5 Behavioral Telemetry Deformations
-Every threat physically deforms telemetry in one of five distinct ways. The skill classifies analyst inquiries into these deformations to select the optimal mathematical model:
+### 1. First Principles: The 6 Behavioral Telemetry Deformations
+Every threat physically deforms telemetry in one of six distinct ways. The skill classifies analyst inquiries into these deformations to select the optimal mathematical model:
 
 | Telemetry Deformation | Physical Telemetry Signature | Recommended Mathematical Model | Primary Metric Dimension |
 | :--- | :--- | :--- | :--- |
 | **1. Persistent Accumulation**<br>*(The Slow Creep)* | Low-and-slow volume creep staying below static threshold alerts | Longitudinal CUSUM Drift (`longitudinal_cusum_2stage.yl2`) or Poisson Rarity | `metrics.network_bytes_outbound`, `metrics.dns_bytes_outbound` |
 | **2. State Transition**<br>*(The Dormancy Break)* | Transition from zero historical activity to positive volume | Two-Part Hurdle Model (`two_part_hurdle.yl2`) (Zero-Inflation Logistic Gate) | `metrics.resource_read_total`, `metrics.workspace_total_download_actions` |
 | **3. Volumetric Shock**<br>*(The Spiky Rupture)* | Sudden explosive surge over individual or peer baseline | Piecewise CRI (Shock Absorber) or Asymmetric Directional $Z$ (ReLU) | `metrics.auth_attempts_fail`, `metrics.resource_deletion_total` |
-| **4. Volatility Regularity**<br>*(The Machine Pulse)* | Unnatural clockwork intervals or collapsed timing entropy | Hourly Temporal $Z$-Score (`hourly_temporal_zscore.yl2`) or Fano Factor | `metrics.dns_queries_total`, `metrics.http_queries_total` |
+| **4. Volatility Regularity**<br>*(The Machine Pulse)* | Unnatural clockwork intervals or cyclic 24-hour clock shifts | Circadian von Mises Temporal Distance (`circadian_von_mises_2stage.yl2`), Hourly Temporal $Z$-Score (`hourly_temporal_zscore.yl2`), or Fano Factor | `metrics.auth_attempts_total`, `metrics.dns_queries_total`, `metrics.http_queries_total` |
 | **5. Orthogonal Dispersion**<br>*(The Multi-Vector Fog)* | Mild elevations across 3–6 unrelated telemetry sectors | 360° Decoupled Behavioral Radar (`radar_360_decoupled_sector.yl2`, $D \ge 3.5\sigma$) | All 6 Canonical Risk Sectors Coupled |
+| **6. Kinetic Acceleration**<br>*(The Runaway Train)* | Runaway velocity departure breaking historical ceilings | MACD Dual-Spine Momentum Indicator (`macd_momentum_velocity_2stage.yl2`) | `metrics.network_bytes_outbound`, `metrics.auth_attempts_total` |
 
 ### 2. Common-Sense Analytical Rigor: The 4 Investigative Inquiries
 To ensure actionable findings and eliminate false alarms, the consultative workflow grounds every hunt in four practical SOC questions:

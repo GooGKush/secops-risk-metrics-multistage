@@ -7,9 +7,9 @@
 
 ---
 
-## 🧭 First Principles: The 5 Behavioral Telemetry Deformations
+## 🧭 First Principles: The 6 Behavioral Telemetry Deformations
 
-Every threat—known, emerging, or zero-day—physically deforms telemetry in one of five distinct ways. When an analyst describes a scenario, classify the underlying deformation to select the optimal statistical model:
+Every threat—known, emerging, or zero-day—physically deforms telemetry in one of six distinct ways. When an analyst describes a scenario, classify the underlying deformation to select the optimal statistical model:
 
 ```
 ┌─────────────────────────────┬───────────────────────────────┬──────────────────────────────────────┐

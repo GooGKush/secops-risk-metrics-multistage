@@ -1,12 +1,12 @@
 # Statistical Models Taxonomy & Mathematical Foundations
 
-This reference defines the mathematical formulations, operational threat translations, **"Down-to-Earth" pre-flight consultative explanations**, and **post-hunt plain-English cyber impact statements** across all 14 Stage 2 mathematical models and Multi-Stage DAG Pipeline architectures (2-Stage, 3-Stage, and 4-Stage).
+This reference defines the mathematical formulations, operational threat translations, **"Down-to-Earth" pre-flight consultative explanations**, and **post-hunt plain-English cyber impact statements** across all 16 Stage 2 mathematical models and Multi-Stage DAG Pipeline architectures (2-Stage, 3-Stage, and 4-Stage).
 
 ---
 
 ## 🗺️ Execution Framework Summary: Built-in Anomaly Models & Security Outcomes
 
-The Google SecOps Multi-Stage Risk Analytics Engine provides 10 distinct categories of behavioral anomaly models designed to detect malicious patterns without generating false positives on legitimate baseline shifts:
+The Google SecOps Multi-Stage Risk Analytics Engine provides 12 distinct categories of behavioral anomaly models designed to detect malicious patterns without generating false positives on legitimate baseline shifts:
 
 | Anomaly Archetype | Built-In Mathematical Models | Target Telemetry Vectors | Primary Security Outcome & Use Case |
 | :--- | :--- | :--- | :--- |
@@ -392,7 +392,7 @@ Beyond 2-stage models, the engine provides pre-composed multi-stage DAG pipeline
 
 ---
 
-## 16. Operational & Statistical Assumptions Guide
+## 18. Operational & Statistical Assumptions Guide
 
 When communicating with analysts, SOC managers, or threat hunters, use this guide to clarify foundational assumptions:
 

@@ -4,7 +4,7 @@ Agentic skill for Google SecOps UEBA multi-stage statistical outlier hunting usi
 
 Key instructions for agents:
 1. PHASE 1A/1B CONVERSATIONAL STAGING & PRE-FLIGHT CLEARANCE (ZERO EXECUTION ON TURN 1):
-   - Phase 1A (Broad Inquiries): For open-ended inquiries (e.g. "privilege abuse", "insider threat"), execute 0 tools, do NOT emit a Pre-Flight Card or YARA-L preview, and NEVER default to `auth_attempts_*`. Present the 3 cohort scope options and 6 behavioral vector families, and YIELD THE TURN (Conversational Break).
+   - Phase 1A (Broad Inquiries): For open-ended inquiries (e.g. "privilege abuse", "insider threat"), execute 0 tools, do NOT emit a Pre-Flight Card or YARA-L preview, and NEVER default to `auth_attempts_*`. Present the 3 cohort scope options and 7 behavioral metric families (6 canonical radar sectors), and YIELD THE TURN (Conversational Break).
    - Phase 1B (Specific Inquiries / Turn 2): Once scope and vectors are known, deliver a 1-2 sentence cyber analogy, render the ASCII Pre-Flight Specification Card, render the complete literal multi-stage YARA-L preview, and ask Mode A vs Mode B clearance prompt.
 
 2. UNIVERSAL 6-POINT STAGE 1 OUTCOME CONTRACT:
@@ -33,17 +33,17 @@ Key instructions for agents:
 
 8. MANDATORY 6-SECTION REPORT PRESENTATION:
    - When clearance is granted, the report MUST contain all 6 numbered pillars:
-     1. Plain-English Strategic Overview & Cyber Impact
+     1. Statistical Outlier Report (Executive Headline, Provenance Stamp & Visual Chart)
      2. Executed Multi-Stage YARA-L Query (Literal executed code)
-     3. Ranked Outlier Summary Table (with Z-Scores and Calibrated Risk Index CRI [0-100])
+     3. Ranked Outlier Summary & Provenance Stamp (with Z-Scores and Calibrated Risk Index CRI [0-100] across 5 triage bands: 0-25 Nominal, 26-45 Low Drift, 46-69 Medium Outlier, 70-89 High Threat, 90-100 Critical Outlier)
      4. Forensic Vector Breakdown & Action Plan
      5. Chronicle UI Manual Pivot (Triage Reference Only)
-     6. Collapsible Technical Appendix (<details open><summary>🔬 ...</summary></details>)
+     6. Statistical & Mathematical Appendix (<details open><summary>🔬 ...</summary></details>)
 
 9. LOSSLESS CLEAN HAND-OFF & 1:1 SYNTHETIC UDM INGESTION:
    - Ingestion Cardinality: Exactly 1 synthetic UDM event per outlier entity ($Z \ge 3.0\sigma$, $\text{CRI} \ge 50$), sharing a common `Hunt Campaign ID`.
-   - 9 Canonical Schemas: Select from `VOLUMETRIC_BASELINE_ANOMALY`, `BURST_CLUSTER_ANOMALY`, `DISCRETE_RARITY_ANOMALY`, `BAYESIAN_SHRINKAGE_ANOMALY`, `PEER_COHORT_BREAKOUT_ANOMALY`, `FLEET_NORMALIZED_DELTA_Z`, `MULTI_SECTOR_THREAT_FUSION`, `LONGITUDINAL_CUSUM_DRIFT`, `ENTITY_GRAPH_RARITY_OUTLIER`.
-   - Zero Silent Ingestion: NEVER call `import_logs` without explicit analyst authorization.
+   - 10 Canonical Schemas: Select from `VOLUMETRIC_BASELINE_ANOMALY`, `BURST_CLUSTER_ANOMALY`, `DISCRETE_RARITY_ANOMALY`, `BAYESIAN_SHRINKAGE_ANOMALY`, `PEER_COHORT_BREAKOUT_ANOMALY`, `FLEET_NORMALIZED_DELTA_Z`, `MULTI_SECTOR_THREAT_FUSION`, `LONGITUDINAL_CUSUM_DRIFT`, `ENTITY_GRAPH_RARITY_OUTLIER`, `BEHAVIORAL_RISK_RADAR_360`.
+   - Zero Silent Ingestion: NEVER call `import_events` or `import_logs` without explicit analyst authorization.
 
 10. HARD STOP ON API ERROR & ZERO PYTHON SIMULATION:
     - If `udm_search` returns an API error or unsupported format, immediately halt and report the exact query and error message.
