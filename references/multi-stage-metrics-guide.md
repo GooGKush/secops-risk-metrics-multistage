@@ -107,13 +107,18 @@ Multi-stage DAG queries support two distinct temporal evaluation modes:
 | `graph.entity.metrics.*` in predicates | Use `metrics.*()` in `outcome:` | `metrics` is a built-in function, not an Entity Graph protobuf field. |
 | Direct literal filter without match variable (`target.user.userid = "name"` with `match: $user`) | `target.user.userid = "name"`<br>`$user = target.user.userid` | Any placeholder variable in `match:` must be explicitly assigned to a UDM field in that stage's event predicates (`$user = target.user.userid`). |
 | Assigning literal string to match variable (`$sa = "ola.burch"`) | Direct UDM field filter with field-to-variable binding:<br>`principal.user.userid = "ola.burch"`<br>`$sa = principal.user.userid` | In YARA-L, match variables (`$var`) represent event fields or upstream stage outcomes; they cannot be assigned string literals directly (`$var = "literal"`). Entity filters must always be declared directly on canonical UDM attributes in the event predicates, then bound to variables. |
-| Direct string literal in metric dimension argument (`principal.user.userid: "sa-storage-sync"`) | Bind to a stage match variable:<br>`principal.user.userid = "sa-storage-sync"`<br>`$sa = principal.user.userid`<br>`metrics.resource_read_total(..., principal.user.userid: $sa)` | Dimension arguments in `metrics.*` accept only bound match variables (`$sa`, `$host`, `$vendor`), never string literals. Literal strings cause live Chronicle compiler rejection (`Request contains an invalid argument`). |
+| Direct string literal in metric dimension argument (`principal.user.userid: "sa-storage-sync"`) | Bind to a stage match variable:<br>`principal.user.userid = "sa-storage-sync"`<br>`$sa = principal.user.userid`<br>`metrics.resource_read_total(..., principal.user.userid: $sa)` | Dimension arguments in `metrics.*` accept only bound match variables (`$sa`, `$host`, `$vendor`) or direct UDM `EventField` paths, never string literals. Literal strings cause live Chronicle compiler rejection (`Request contains an invalid argument`). |
+| Passing lowered stage placeholders (`metadata.vendor_name: $vendor, metadata.product_name: $product`) inside `metrics.resource_*(...)` when running in SecOps Search UI | Pass direct UDM `EventField` paths inside the metric call:<br>`metadata.vendor_name: metadata.vendor_name,`<br>`metadata.product_name: metadata.product_name`<br>(and enable **Case Sensitivity On** when running in the SecOps Search UI) | When a query is pasted into the SecOps Search UI with the default **Case Sensitivity Off** toggle (`case_insensitive_query: true`), the YARA-L parser rewrites stage string placeholder bindings (`$vendor = metadata.vendor_name`) to `strings.to_lower(metadata.vendor_name)`. Because pre-computed `metrics.*` tables store Title Case values (`"Google"`, `"Security Command Center"`, `"Google Cloud Platform"`) and join via case-sensitive `=`, passing `$vendor`/`$product` placeholders silently zeroes out 30-day baselines (`$historical_active_days = 0`) and triggers false-positive dormant hits. Direct `EventField` arguments (`metadata.vendor_name: metadata.vendor_name`) bypass placeholder lowering. |
 
 ---
 
 ## 5. Mandatory Non-Entity Dimension Filters
 
 Certain pre-computed Risk Metrics require specific auxiliary UDM fields as dimension filters in addition to entity identifiers and values:
+
+### Cloud Resource Lifecycle (`metrics.resource_*`) & SecOps UI Case Sensitivity
+* **Mandatory Arguments:** `metadata.vendor_name` and `metadata.product_name` **must** be passed in every `metrics.resource_*(...)` call alongside the user identity (`principal.user.userid` or `target.user.userid`).
+* **SecOps Search UI Case-Sensitivity Protection:** Pass `metadata.vendor_name: metadata.vendor_name` and `metadata.product_name: metadata.product_name` as direct UDM `EventField` paths inside `metrics.resource_*(...)` rather than `$vendor` / `$product` placeholders, and instruct analysts to enable **Case Sensitivity On** when pasting multi-stage `metrics.*` queries into the SecOps Search UI so pre-computed Title Case dimensions are never lowered to `0` baseline rows.
 
 ### File Executions (`metrics.file_executions_*`)
 * **Mandatory Argument:** `metadata.event_type` **must** be passed as a filter in every `metrics.file_executions_*` call.
@@ -711,18 +716,19 @@ If an analyst inquiry targets ad-hoc telemetry without pre-computed baselines, r
 
 ## 22. Service Account Cloud Repository Scope, Origin IP Outliers & Local-Baseline Isolation
 
-When investigating service accounts accessing data repositories out of their normal behavioral scope or unexpected host origins, analysts face two critical failure modes:
-1. **The Narrowing Antipattern**: Hardcoding a query to a single product (e.g. `BigQuery` or `Storage`) when asked about broad cloud data repositories.
-2. **The "Elephant and Mouse" Dynamic Range Masking Problem**: High-volume routine background activity (e.g., 1,000,000 GCS telemetry sync reads) completely masks an acute targeted exfiltration dump from a sensitive repository (e.g., 2,500 reads against a quiet Spanner database or S3 bucket) if the service account's activity is evaluated against an account-level aggregate baseline.
+When investigating service accounts accessing data repositories out of their normal behavioral scope, dormant service accounts going active, or unexpected host origins, analysts face three critical failure modes:
+1. **The Product Narrowing Antipattern**: Hardcoding a query to a single product (e.g. `BigQuery` or `Storage`) when asked about broad cloud data repositories.
+2. **The Single-CRUD Narrowing Antipattern (Dormant Service Account Blindspot)**: Narrowing a general service account or dormant service account awakening hunt exclusively to `RESOURCE_READ` / `USER_RESOURCE_ACCESS` (`metrics.resource_read_total`) misses dormant accounts that wake up to provision (`RESOURCE_CREATION` / `USER_RESOURCE_CREATION`), modify (`RESOURCE_WRITTEN` / `USER_RESOURCE_UPDATE_CONTENT`), or delete (`RESOURCE_DELETION` / `USER_RESOURCE_DELETION`) cloud resources.
+3. **The "Elephant and Mouse" Dynamic Range Masking Problem**: High-volume routine background activity (e.g., 1,000,000 GCS telemetry sync reads) completely masks an acute targeted exfiltration dump from a sensitive repository (e.g., 2,500 reads against a quiet Spanner database or S3 bucket) if the service account's activity is evaluated against an account-level aggregate baseline.
 
 ### 1. Architectural Solution: Local-Baseline Isolation
 To preserve sensitivity across disparate repositories, the query MUST slice dynamically by:
 $$\text{Match Key} = (\$sa, \$vendor, \$product, \$resource, \$ip \text{ by } 1d)$$
-By matching each destination resource individually against `metrics.resource_read_total`, each repository is evaluated strictly against its own local historical parameters $(\mu_r, \sigma_r, N_r)$.
+By matching each destination resource individually against `metrics.resource_read_total`, `metrics.resource_written_total`, `metrics.resource_deletion_total`, and `metrics.resource_creation_total` (passing `metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name`), each repository is evaluated strictly against its own local historical parameters $(\mu_r, \sigma_r, N_r)$ across all 4 Cloud CRUD families.
 
 ### 2. Dual-Branch Mathematical Outlier Formulation
 The pipeline computes two orthogonal anomaly scores:
-- **Branch 1: Destination Depth & Novelty Anomaly ($Z_{\text{dest}}$)**:
+- **Branch 1: Destination Depth & Novelty Anomaly ($Z_{\text{dest}}, Z_{\text{write}}, Z_{\text{del}}, Z_{\text{create}}$)**:
   - *Established Destinations ($\mu_r > 0, \text{active days} \ge 3$)*: Evaluates depth volumetric surges via standard $Z$-score:
     $$Z_{\text{depth}} = \frac{\text{Obs} - \mu_r}{\sigma_r + 1.0}$$
   - *Novel / Unobserved Destinations ($\mu_r = 0, \text{active days} = 0$)*: Under the universal dispersion floor ($+ 1.0$), when $\mu_r = 0$ and $\sigma_r = 0$:
@@ -733,16 +739,16 @@ The pipeline computes two orthogonal anomaly scores:
   - For unobserved or foreign host origins ($\mu_{\text{origin}} = 0$):
     $$Z_{\text{origin}} = \frac{\text{Obs} - 0}{0 + 1.0} = \text{Obs}$$
 - **Composite Outlier Score**:
-  $$Z_{\text{composite}} = Z_{\text{dest}} + Z_{\text{origin}}$$
-  Surfaces entities that simultaneously hit novel/surging repositories from novel caller IPs.
+  $$Z_{\text{composite}} = \max(0, Z_{\text{dest}}) + \max(0, Z_{\text{write}}) + \max(0, Z_{\text{del}}) + \max(0, Z_{\text{create}}) + \max(0, Z_{\text{origin}})$$
+  Surfaces entities that hit novel/surging repositories across any CRUD operation or from novel caller IPs.
 
 ### 3. Canonical Compiler-Verified Pipeline
-This architecture is codified in `templates/pipelines/cloud_repository_scope_dual_branch.yl2` and verified by `PIPE-08-CLOUD-SCOPE`. It consumes only 1 internal UEBA join ($\le 4$ join limit) and enforces mandatory companion dimensions (`metadata.vendor_name`, `metadata.product_name`).
+This architecture is codified in `templates/pipelines/cloud_repository_scope_dual_branch.yl2` and verified by `PIPE-08-CLOUD-SCOPE`. It consumes only 1 internal UEBA join ($\le 4$ join limit) and enforces mandatory companion dimensions (`metadata.vendor_name: metadata.vendor_name`, `metadata.product_name: metadata.product_name`).
 
 ### 4. Multi-Database Account Binding Contract
-When hunting compromised accounts (e.g. Scattered Spider, OAuth token theft) across multiple databases or cloud object stores:
+When hunting compromised or dormant service accounts (e.g. Scattered Spider, OAuth token theft, dormant SA awakening) across multiple databases or cloud resources:
 1. **Mandatory Dimension Binding**: Bind `target.resource.name: $resource` in both the Stage 1 match key (`$sa, $vendor, $product, $resource, $ip by 1d`) and the Root stage match key (`$sa, $product, $resource, $ip, $ws by 1d`).
-2. **Routing Rule**: For cloud storage access on an account entity, use `templates/pipelines/cloud_repository_scope_dual_branch.yl2` to concurrently baseline destination reads (`resource_read_total`) and writes (`resource_written_total`) against target resources.
+2. **Routing Rule**: For cloud infrastructure or repository activity on a service account entity (unless the analyst explicitly requests a single CRUD verb), use `templates/pipelines/cloud_repository_scope_dual_branch.yl2` to concurrently baseline destination reads (`resource_read_total`), writes (`resource_written_total`), deletions (`resource_deletion_total`), and creations (`resource_creation_total`) against target resources.
 3. **Linter Enforcement**: `StatisticalAntipatternAuditor` flags `STAT_ANTIPATTERN_DYNAMIC_RANGE_MASKING` on any query using cloud resource store metrics under an account entity if `target.resource.name` is omitted from the match key, preventing account-level aggregation.
 
 ### 5. Multi-Tier Cloud Telemetry Spectrum & UDM Enum Taxonomy (`GCP_CLOUDAUDIT`)

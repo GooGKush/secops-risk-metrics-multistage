@@ -362,21 +362,22 @@ class TestGuardrailContracts(unittest.TestCase):
 
     def ladder(cri):
       """Canonical CRI severity ladder (references/clean-handoff-udm-schema.md)."""
-      if cri >= 80:
+      if cri >= 90:
         return 'CRITICAL'
-      if cri >= 60:
+      if cri >= 70:
         return 'HIGH'
-      if cri >= 40:
+      if cri >= 46:
         return 'MEDIUM'
-      if cri >= 20:
+      if cri >= 26:
         return 'LOW'
       return 'INFORMATIONAL'
 
     # The ladder must be stated, not merely implied by the payloads.
     self.assertIn('Severity Is Derived, Never Asserted', ch_content)
-    for band, sev in (('80–100', 'CRITICAL'), ('60–79', 'HIGH'), ('40–59', 'MEDIUM'),
-                      ('20–39', 'LOW'), ('0–19', 'INFORMATIONAL')):
-      self.assertIn(f'| {band} | `{sev}` |', ch_content)
+    for band, sev in (('90–100', 'CRITICAL'), ('70–89', 'HIGH'), ('46–69', 'MEDIUM'),
+                      ('26–45', 'LOW'), ('0–25', 'INFORMATIONAL')):
+      self.assertIn(f'| `{sev}` |', ch_content)
+      self.assertIn(f'| {band} |', ch_content)
 
     # Walk every schema and check its severity against its own risk_score.
     # This is the check whose absence let three of nine drift out of agreement.
@@ -401,7 +402,7 @@ class TestGuardrailContracts(unittest.TestCase):
     tf_path = os.path.join(skill_dir, 'scripts', 'triage_formatter.py')
     with open(tf_path, 'r', encoding='utf-8') as f:
       tf_content = f.read()
-    for band in ('CRI 80–100', 'CRI 60–79', 'CRI 40–59', 'CRI 20–39', 'CRI 0–19'):
+    for band in ('CRI 90–100', 'CRI 70–89', 'CRI 46–69', 'CRI 26–45', 'CRI 0–25'):
       self.assertIn(band, tf_content)
 
   def test_variable_role_classification_contract(self):

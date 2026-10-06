@@ -355,12 +355,13 @@ order:
     cr_path = os.path.join(self.templates_dir, "cloud_repository_scope_dual_branch.yl2")
     with open(cr_path, "r", encoding="utf-8") as f:
       cr_content = f.read()
-    self.assertIn("$dest_z = ($observed_reads - $dest_avg) / $safe_dest_std", cr_content)
-    self.assertIn("$origin_z = ($observed_reads - $origin_avg) / $safe_origin_std", cr_content)
-    self.assertIn("$composite_risk = $dest_z + $origin_z", cr_content)
+    self.assertIn("$dest_z = ($observed_reads - $dest_avg) / if($dest_stddev > 0, $dest_stddev, 1.0)", cr_content)
+    self.assertIn("$create_z = ($observed_creates - $dest_create_avg) / if($dest_create_stddev > 0, $dest_create_stddev, 1.0)", cr_content)
+    self.assertIn("$origin_z = ($observed_reads - $origin_avg) / if($origin_stddev > 0, $origin_stddev, 1.0)", cr_content)
     self.assertIn("$dest_z = max($stage1_extract.dest_z)", cr_content)
+    self.assertIn("$create_z = max($stage1_extract.create_z)", cr_content)
     self.assertIn("$origin_z = max($stage1_extract.origin_z)", cr_content)
-    self.assertIn("$composite_risk = max($stage1_extract.composite_risk)", cr_content)
+    self.assertIn("$composite_risk = if($dest_z > 0, $dest_z, 0.0)", cr_content)
 
     # 4. dual_baseline_delta_z_3stage.yl2
     dz_path = os.path.join(self.templates_dir, "dual_baseline_delta_z_3stage.yl2")

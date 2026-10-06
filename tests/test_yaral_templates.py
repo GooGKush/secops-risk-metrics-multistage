@@ -238,8 +238,8 @@ class TestYaraLTemplates(unittest.TestCase):
           f"[{metric_name}] Cloud CRUD extractor must enforce 5-tuple Local-Baseline Isolation match clause",
       )
       self.assertIn("principal.user.userid: $sa", content)
-      self.assertIn("metadata.vendor_name: $vendor", content)
-      self.assertIn("metadata.product_name: $product", content)
+      self.assertIn("metadata.vendor_name: metadata.vendor_name", content)
+      self.assertIn("metadata.product_name: metadata.product_name", content)
       self.assertIn("target.resource.name: $resource", content)
 
 

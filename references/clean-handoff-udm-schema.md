@@ -189,7 +189,7 @@ rule secops_risk_metrics_synthetic_alert_catchall {
             { "key": "Fano Factor F", "value": "12.4" },
             { "key": "Failed Login Count", "value": "1420" },
             { "key": "Target User Accounts", "value": "85" },
-            { "key": "CRI Score", "value": "88" }
+            { "key": "CRI Score", "value": "92" }
           ]
         }
       }
@@ -201,7 +201,7 @@ rule secops_risk_metrics_synthetic_alert_catchall {
         "category": ["AUTH_VIOLATION", "CREDENTIAL_ACCESS"],
         "category_details": ["CREDENTIAL_SPRAY", "BRUTE_FORCE"],
         "action": ["UNKNOWN_ACTION"],
-        "risk_score": 88,
+        "risk_score": 92,
         "severity": "CRITICAL",
         "summary": "Source IP 198.51.100.45 generated 1,420 authentication failures across 85 distinct user accounts with super-Poisson clustering.",
         "description": "Dispersion analysis revealed synchronized wave patterns (Fano Factor F=12.4 >> 1.0) indicating automated distributed credential attack.",
@@ -269,7 +269,7 @@ rule secops_risk_metrics_synthetic_alert_catchall {
         "category_details": ["SHADOW_COPY_DELETION", "INHIBIT_SYSTEM_RECOVERY"],
         "action": ["UNKNOWN_ACTION"],
         "risk_score": 82,
-        "severity": "CRITICAL",
+        "severity": "HIGH",
         "summary": "Volume shadow copy deletion tool executed 4 times on database server with zero historical baseline.",
         "description": "Poisson rarity calculation identified an arrival probability P(X >= 4) < 1e-6 indicating deliberate recovery inhibition.",
         "detection_fields": [
@@ -335,7 +335,7 @@ rule secops_risk_metrics_synthetic_alert_catchall {
         "category_details": ["BAYESIAN_SHRINKAGE_ANOMALY"],
         "action": ["UNKNOWN_ACTION"],
         "risk_score": 68,
-        "severity": "HIGH",
+        "severity": "MEDIUM",
         "summary": "User frank.kolzig exhibited a confirmed 4.3× Bayesian posterior rate surge above stable 30-day baseline.",
         "description": "Hierarchical empirical Bayesian updating demonstrated a statistically significant shift from prior distribution toward high-frequency failure state.",
         "detection_fields": [
@@ -402,7 +402,7 @@ rule secops_risk_metrics_synthetic_alert_catchall {
         "category_details": ["PEER_COHORT_BREAKOUT_ANOMALY"],
         "action": ["UNKNOWN_ACTION"],
         "risk_score": 67,
-        "severity": "HIGH",
+        "severity": "MEDIUM",
         "summary": "User frank.kolzig performed 103 authentication operations, exceeding IT Department peer norm by +4.16σ.",
         "description": "Cross-sectional comparison against organizational department roster identified isolated outlier behavior relative to peer group baseline.",
         "detection_fields": [
@@ -744,7 +744,7 @@ rule secops_risk_metrics_synthetic_alert_catchall {
         "category_details": ["MULTI_SECTOR_BREACH", "CROSS_VECTOR_ANOMALY"],
         "action": ["UNKNOWN_ACTION"],
         "risk_score": 84,
-        "severity": "CRITICAL",
+        "severity": "HIGH",
         "summary": "Entity jdoe exhibited coordinated behavioral anomalies across 4 of 6 risk sectors (Web/Proxy +4.25σ, Network +3.80σ, Auth +3.45σ, Cloud +2.10σ; Euclidean Distance D=6.68σ).",
         "description": "Decoupled 6-sector behavioral risk radar revealed an extreme cross-vector statistical outlier breaching the Euclidean significance threshold (D >= 3.0σ, CRI >= 50).",
         "detection_fields": [
