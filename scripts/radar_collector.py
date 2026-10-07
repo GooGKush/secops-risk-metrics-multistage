@@ -51,8 +51,8 @@ stage s1 {
     $user by 1d
   outcome:
     $fail_obs = count(metadata.id)
-    $fail_avg = max(metrics.auth_attempts_fail(period: 1d, window: 30d, metric: event_count_sum, agg: avg, target.user.userid: "%(entity_id)s"))
-    $fail_std = max(metrics.auth_attempts_fail(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, target.user.userid: "%(entity_id)s"))
+    $fail_avg = max(metrics.auth_attempts_fail(period: 1d, window: 30d, metric: event_count_sum, agg: avg, target.user.userid: target.user.userid))
+    $fail_std = max(metrics.auth_attempts_fail(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, target.user.userid: target.user.userid))
 }
 stage s2 {
     metadata.event_type = "USER_LOGIN"
@@ -63,8 +63,8 @@ stage s2 {
     $user by 1d
   outcome:
     $succ_obs = count(metadata.id)
-    $succ_avg = max(metrics.auth_attempts_success(period: 1d, window: 30d, metric: event_count_sum, agg: avg, target.user.userid: "%(entity_id)s"))
-    $succ_std = max(metrics.auth_attempts_success(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, target.user.userid: "%(entity_id)s"))
+    $succ_avg = max(metrics.auth_attempts_success(period: 1d, window: 30d, metric: event_count_sum, agg: avg, target.user.userid: target.user.userid))
+    $succ_std = max(metrics.auth_attempts_success(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, target.user.userid: target.user.userid))
 }
 $user = $s1.user
 $user = $s2.user
@@ -87,8 +87,8 @@ stage s1 {
     $user, $v, $p by 1d
   outcome:
     $create_obs = count(metadata.id)
-    $create_avg = max(metrics.resource_creation_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: "%(entity_id)s", metadata.vendor_name: $v, metadata.product_name: $p))
-    $create_std = max(metrics.resource_creation_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: "%(entity_id)s", metadata.vendor_name: $v, metadata.product_name: $p))
+    $create_avg = max(metrics.resource_creation_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
+    $create_std = max(metrics.resource_creation_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
 }
 stage s2 {
     (metadata.event_type = "RESOURCE_DELETION" or metadata.event_type = "USER_RESOURCE_DELETION")
@@ -100,8 +100,8 @@ stage s2 {
     $user, $v, $p by 1d
   outcome:
     $delete_obs = count(metadata.id)
-    $delete_avg = max(metrics.resource_deletion_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: "%(entity_id)s", metadata.vendor_name: $v, metadata.product_name: $p))
-    $delete_std = max(metrics.resource_deletion_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: "%(entity_id)s", metadata.vendor_name: $v, metadata.product_name: $p))
+    $delete_avg = max(metrics.resource_deletion_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
+    $delete_std = max(metrics.resource_deletion_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
 }
 $user = $s1.user
 $user = $s2.user
@@ -123,10 +123,10 @@ stage s1 {
   outcome:
     $dl_obs = sum(if(metadata.product_event_type = "download", 1, 0))
     $ch_obs = count(metadata.id)
-    $dl_avg = max(metrics.workspace_total_download_actions(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: "%(entity_id)s"))
-    $dl_std = max(metrics.workspace_total_download_actions(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: "%(entity_id)s"))
-    $ch_avg = max(metrics.workspace_total_change_actions(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: "%(entity_id)s"))
-    $ch_std = max(metrics.workspace_total_change_actions(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: "%(entity_id)s"))
+    $dl_avg = max(metrics.workspace_total_download_actions(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: principal.user.userid))
+    $dl_std = max(metrics.workspace_total_download_actions(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: principal.user.userid))
+    $ch_avg = max(metrics.workspace_total_change_actions(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: principal.user.userid))
+    $ch_std = max(metrics.workspace_total_change_actions(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: principal.user.userid))
 }
 $user = $s1.user
 match: $user by 1d
@@ -147,8 +147,8 @@ stage s1 {
     $user by 1d
   outcome:
     $bytes_obs = sum(network.sent_bytes)
-    $bytes_avg = max(metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: avg, principal.user.userid: "%(entity_id)s"))
-    $bytes_std = max(metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: stddev, principal.user.userid: "%(entity_id)s"))
+    $bytes_avg = max(metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: avg, principal.user.userid: principal.user.userid))
+    $bytes_std = max(metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: stddev, principal.user.userid: principal.user.userid))
 }
 $user = $s1.user
 match: $user by 1d
@@ -167,8 +167,8 @@ stage s1 {
     $user by 1d
   outcome:
     $dns_obs = count(metadata.id)
-    $dns_avg = max(metrics.dns_queries_fail(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: "%(entity_id)s"))
-    $dns_std = max(metrics.dns_queries_fail(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: "%(entity_id)s"))
+    $dns_avg = max(metrics.dns_queries_fail(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: principal.user.userid))
+    $dns_std = max(metrics.dns_queries_fail(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: principal.user.userid))
 }
 $user = $s1.user
 match: $user by 1d
@@ -186,8 +186,8 @@ stage s1 {
     $user by 1d
   outcome:
     $http_obs = count(metadata.id)
-    $http_avg = max(metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: "%(entity_id)s"))
-    $http_std = max(metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: "%(entity_id)s"))
+    $http_avg = max(metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: principal.user.userid))
+    $http_std = max(metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: principal.user.userid))
 }
 $user = $s1.user
 match: $user by 1d
@@ -209,8 +209,8 @@ stage s1 {
     $asset by 1d
   outcome:
     $fail_obs = count(metadata.id)
-    $fail_avg = max(metrics.auth_attempts_fail(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.asset.hostname: "%(entity_id)s"))
-    $fail_std = max(metrics.auth_attempts_fail(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.asset.hostname: "%(entity_id)s"))
+    $fail_avg = max(metrics.auth_attempts_fail(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.asset.hostname: principal.asset.hostname))
+    $fail_std = max(metrics.auth_attempts_fail(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.asset.hostname: principal.asset.hostname))
 }
 $asset = $s1.asset
 match: $asset by 1d
@@ -228,11 +228,11 @@ stage s1 {
     $asset by 1d
   outcome:
     $out_obs = sum(network.sent_bytes)
-    $out_avg = max(metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: avg, principal.asset.hostname: "%(entity_id)s"))
-    $out_std = max(metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: stddev, principal.asset.hostname: "%(entity_id)s"))
+    $out_avg = max(metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: avg, principal.asset.hostname: principal.asset.hostname))
+    $out_std = max(metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: stddev, principal.asset.hostname: principal.asset.hostname))
     $in_obs = sum(network.received_bytes)
-    $in_avg = max(metrics.network_bytes_inbound(period: 1d, window: 30d, metric: value_sum, agg: avg, principal.asset.hostname: "%(entity_id)s"))
-    $in_std = max(metrics.network_bytes_inbound(period: 1d, window: 30d, metric: value_sum, agg: stddev, principal.asset.hostname: "%(entity_id)s"))
+    $in_avg = max(metrics.network_bytes_inbound(period: 1d, window: 30d, metric: value_sum, agg: avg, principal.asset.hostname: principal.asset.hostname))
+    $in_std = max(metrics.network_bytes_inbound(period: 1d, window: 30d, metric: value_sum, agg: stddev, principal.asset.hostname: principal.asset.hostname))
 }
 $asset = $s1.asset
 match: $asset by 1d
@@ -253,8 +253,8 @@ stage s1 {
     $asset by 1d
   outcome:
     $dns_obs = count(metadata.id)
-    $dns_avg = max(metrics.dns_queries_fail(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.asset.hostname: "%(entity_id)s"))
-    $dns_std = max(metrics.dns_queries_fail(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.asset.hostname: "%(entity_id)s"))
+    $dns_avg = max(metrics.dns_queries_fail(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.asset.hostname: principal.asset.hostname))
+    $dns_std = max(metrics.dns_queries_fail(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.asset.hostname: principal.asset.hostname))
 }
 $asset = $s1.asset
 match: $asset by 1d
@@ -272,8 +272,8 @@ stage s1 {
     $asset by 1d
   outcome:
     $http_obs = count(metadata.id)
-    $http_avg = max(metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.asset.hostname: "%(entity_id)s"))
-    $http_std = max(metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.asset.hostname: "%(entity_id)s"))
+    $http_avg = max(metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.asset.hostname: principal.asset.hostname))
+    $http_std = max(metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.asset.hostname: principal.asset.hostname))
 }
 $asset = $s1.asset
 match: $asset by 1d
@@ -293,8 +293,8 @@ stage alerts_risk {
     $asset, $rule_name by 1d
   outcome:
     $obs = count(metadata.id)
-    $avg = max(metrics.alert_event_name_count(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.asset.hostname: "%(entity_id)s", security_result.rule_name: $rule_name))
-    $std = max(metrics.alert_event_name_count(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.asset.hostname: "%(entity_id)s", security_result.rule_name: $rule_name))
+    $avg = max(metrics.alert_event_name_count(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.asset.hostname: principal.asset.hostname, security_result.rule_name: security_result.rule_name))
+    $std = max(metrics.alert_event_name_count(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.asset.hostname: principal.asset.hostname, security_result.rule_name: security_result.rule_name))
     $z = ($obs - $avg) / if($std > 0, $std, 1.0)
 }
 $asset = $alerts_risk.asset

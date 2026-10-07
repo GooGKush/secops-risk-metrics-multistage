@@ -31,23 +31,23 @@ stage stage1_extract {
 
     $historical_avg = max(metrics.{{target_metric_name}}(
         period: 1d, window: 30d, metric: {{metric_type_val}}, agg: avg,
-        {{dimension_key}}: $entity {{extra_dimensions}}
+        {{dimension_key}}: {{dimension_key}} {{extra_dimensions}}
     ))
     $historical_stddev = max(metrics.{{target_metric_name}}(
         period: 1d, window: 30d, metric: {{metric_type_val}}, agg: stddev,
-        {{dimension_key}}: $entity {{extra_dimensions}}
+        {{dimension_key}}: {{dimension_key}} {{extra_dimensions}}
     ))
     $historical_active_days = max(metrics.{{target_metric_name}}(
         period: 1d, window: 30d, metric: {{metric_type_val}}, agg: num_metric_periods,
-        {{dimension_key}}: $entity {{extra_dimensions}}
+        {{dimension_key}}: {{dimension_key}} {{extra_dimensions}}
     ))
     $historical_max = max(metrics.{{target_metric_name}}(
         period: 1d, window: 30d, metric: {{metric_type_val}}, agg: max,
-        {{dimension_key}}: $entity {{extra_dimensions}}
+        {{dimension_key}}: {{dimension_key}} {{extra_dimensions}}
     ))
     $historical_sum = max(metrics.{{target_metric_name}}(
         period: 1d, window: 30d, metric: {{metric_type_val}}, agg: sum,
-        {{dimension_key}}: $entity {{extra_dimensions}}
+        {{dimension_key}}: {{dimension_key}} {{extra_dimensions}}
     ))
 }
 

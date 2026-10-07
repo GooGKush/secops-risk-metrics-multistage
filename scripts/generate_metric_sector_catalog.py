@@ -48,14 +48,15 @@ the compiler's own `config.textproto` (valid dimension sets) and `dimension_fiel
 * **Observed value**: the stage outcome expression for today's value (`$obs = <value>`).
 * **Metric arg**: the `metric:` argument of the `metrics.<name>(...)` call.
 * **Entity identifier fields**: fields that may appear *alone* as the metric's filter (one valid
-  single-dimension set). Bind the same field in the event section (`<field> = $entity`) and in the
-  metric call (`<field>: $entity`). Defaults: `userid` for users, `hostname` for devices.
+  single-dimension set). Bind the same field in the event section (`<field> = $entity`) and pass the
+  direct UDM field path in the metric call (`<field>: <field>`) so SecOps UI **Case Sensitivity Off**
+  never lowers the baseline join key. Defaults: `userid` for users, `hostname` for devices.
 * **Composite-only** metrics have no single-field set. Every call must supply one complete valid
   dimension set (listed in the row). They become fusion sectors only as a **roll-up sector** (below).
 * **Roll-up sector sets** (composite-only rows): each block is one valid set with exactly one entity
   dimension. Fill `rollup_sector_fusion_4stage.yl2` / `_5stage.yl2` sector A from it: the detail stage
   binds the entity plus every companion (*Detail bindings*), matches on *Match keys*, and passes
-  *Metric filters* to every `metrics.<name>(...)` call; the roll-up stage counts distinct *Distinct key*.
+  *Metric filters* (`<field>: <field>`) to every `metrics.<name>(...)` call; the roll-up stage counts distinct *Distinct key*.
 
 ## The exact-set rule (compiler)
 
@@ -162,7 +163,7 @@ def _rollup_lines(metric: str) -> list[str]:
       out.append(f"    * Entity field: any {dim} field (see *Dimension → UDM fields*); default `{_default_field(dim)}`")
       out.append("    * Detail bindings: " + "; ".join(f"`{b}`" for b in plan.companion_bindings()))
       out.append(f"    * Match keys: `{plan.match_keys()}`")
-      out.append(f"    * Metric filters: `{plan.metric_filters().replace(fields[dim][0], '<entity field>', 1)}`")
+      out.append(f"    * Metric filters: `{plan.metric_filters().replace(fields[dim][0], '<entity field>')}`")
       out.append(f"    * Distinct key: `{mc.companion_var(plan.detail_key_dimension).lstrip('$')}`")
   if not found:
     out.append("  * none (no valid set has exactly one user/device dimension)")
@@ -221,7 +222,7 @@ peer group the template also scores the group as a whole against the fleet (`$z*
 `$d_team_vs_fleet_sq`). Because one stage carries all three metrics:
 
 1. **One entity field for all three.** It must be valid alone for every metric (listed per triad).
-   Bind it once: `<entity field> = $user` (or `$host`) in the stage and `<entity field>: $user` in all
+   Bind it once: `<entity field> = $user` (or `$host`) in the stage and `<entity field>: <entity field>` in all
    six `metrics.*()` calls.
 2. **Stage filter = the union, not any one metric's filter.** Paste the triad's *Stage event filter*
    lines into the `event_filter` slot. Never add one metric's own extra line (e.g.

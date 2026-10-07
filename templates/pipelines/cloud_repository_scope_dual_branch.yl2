@@ -46,73 +46,73 @@ stage stage1_extract {
     // 1. Destination Resource Read Baseline (Local-Baseline Isolation)
     $dest_avg = max(metrics.resource_read_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: avg,
-        principal.user.userid: $sa,
+        principal.user.userid: principal.user.userid,
         metadata.vendor_name: metadata.vendor_name,
         metadata.product_name: metadata.product_name,
-        target.resource.name: $resource
+        target.resource.name: target.resource.name
     ))
     $dest_stddev = max(metrics.resource_read_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
-        principal.user.userid: $sa,
+        principal.user.userid: principal.user.userid,
         metadata.vendor_name: metadata.vendor_name,
         metadata.product_name: metadata.product_name,
-        target.resource.name: $resource
+        target.resource.name: target.resource.name
     ))
     // 1b. Destination Resource Write, Deletion & Creation Baselines (4-Family Cloud CRUD Isolation)
     $dest_write_avg = max(metrics.resource_written_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: avg,
-        principal.user.userid: $sa,
+        principal.user.userid: principal.user.userid,
         metadata.vendor_name: metadata.vendor_name,
         metadata.product_name: metadata.product_name,
-        target.resource.name: $resource
+        target.resource.name: target.resource.name
     ))
     $dest_write_stddev = max(metrics.resource_written_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
-        principal.user.userid: $sa,
+        principal.user.userid: principal.user.userid,
         metadata.vendor_name: metadata.vendor_name,
         metadata.product_name: metadata.product_name,
-        target.resource.name: $resource
+        target.resource.name: target.resource.name
     ))
     $dest_del_avg = max(metrics.resource_deletion_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: avg,
-        principal.user.userid: $sa,
+        principal.user.userid: principal.user.userid,
         metadata.vendor_name: metadata.vendor_name,
         metadata.product_name: metadata.product_name,
-        target.resource.name: $resource
+        target.resource.name: target.resource.name
     ))
     $dest_del_stddev = max(metrics.resource_deletion_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
-        principal.user.userid: $sa,
+        principal.user.userid: principal.user.userid,
         metadata.vendor_name: metadata.vendor_name,
         metadata.product_name: metadata.product_name,
-        target.resource.name: $resource
+        target.resource.name: target.resource.name
     ))
     $dest_create_avg = max(metrics.resource_creation_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: avg,
-        principal.user.userid: $sa,
+        principal.user.userid: principal.user.userid,
         metadata.vendor_name: metadata.vendor_name,
         metadata.product_name: metadata.product_name,
-        target.resource.name: $resource
+        target.resource.name: target.resource.name
     ))
     $dest_create_stddev = max(metrics.resource_creation_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
-        principal.user.userid: $sa,
+        principal.user.userid: principal.user.userid,
         metadata.vendor_name: metadata.vendor_name,
         metadata.product_name: metadata.product_name,
-        target.resource.name: $resource
+        target.resource.name: target.resource.name
     ))
     // 2. Caller Origin IP Baseline
     $origin_avg = max(metrics.resource_read_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: avg,
-        principal.user.userid: $sa,
-        principal.ip: $ip,
+        principal.user.userid: principal.user.userid,
+        principal.ip: principal.ip,
         metadata.vendor_name: metadata.vendor_name,
         metadata.product_name: metadata.product_name
     ))
     $origin_stddev = max(metrics.resource_read_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
-        principal.user.userid: $sa,
-        principal.ip: $ip,
+        principal.user.userid: principal.user.userid,
+        principal.ip: principal.ip,
         metadata.vendor_name: metadata.vendor_name,
         metadata.product_name: metadata.product_name
     ))
@@ -121,10 +121,10 @@ stage stage1_extract {
     // 1. Destination Resource Outlier Scores (Read, Write, Deletion, Creation)
     $dest_active_days = max(metrics.resource_read_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
-        principal.user.userid: $sa,
+        principal.user.userid: principal.user.userid,
         metadata.vendor_name: metadata.vendor_name,
         metadata.product_name: metadata.product_name,
-        target.resource.name: $resource
+        target.resource.name: target.resource.name
     ))
     $dest_z = ($observed_reads - $dest_avg) / if($dest_stddev > 0, $dest_stddev, 1.0)
     $write_z = ($observed_writes - $dest_write_avg) / if($dest_write_stddev > 0, $dest_write_stddev, 1.0)

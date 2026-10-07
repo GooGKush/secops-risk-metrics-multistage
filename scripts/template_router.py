@@ -119,7 +119,7 @@ class MultiStageTemplateRouter:
     f = re.escape(old_field)
     out = re.sub(r"^(\s*)" + f + r"(\s*=\s*" + v + r"\s*)$", r"\g<1>" + target_field + r"\g<2>", stage1_content, flags=re.M)
     out = re.sub(r"^(\s*" + v + r"\s*=\s*)" + f + r"(\s*)$", r"\g<1>" + target_field + r"\g<2>", out, flags=re.M)
-    out = re.sub(r"\b" + f + r"(\s*:\s*" + v + r"\b)", target_field + r"\g<1>", out)
+    out = re.sub(r"\b" + f + r"\s*:\s*(?:" + f + r"|" + v + r")\b", f"{target_field}: {target_field}", out)
     for metric, body in re.findall(r"metrics\.([a-zA-Z0-9_]+)\s*\(([^)]*)\)", out, re.S):
       fields = [x for x in re.findall(r"([a-zA-Z0-9_.]+)\s*:", body) if x not in ("period", "window", "metric", "agg")]
       err = mc.validate_filter_fields(metric, fields)
@@ -455,15 +455,15 @@ class MultiStageTemplateRouter:
       rendered = rendered.replace("{{observed_agg}}", audit["observed_agg"])
       rendered = rendered.replace(
           "{{target_metric_func_avg}}",
-          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: avg, {audit['target_field']}: $host)"
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: avg, {audit['target_field']}: {audit['target_field']})"
       )
       rendered = rendered.replace(
           "{{target_metric_func_stddev}}",
-          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: stddev, {audit['target_field']}: $host)"
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: stddev, {audit['target_field']}: {audit['target_field']})"
       )
       rendered = rendered.replace(
           "{{target_metric_func_active_days}}",
-          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: num_metric_periods, {audit['target_field']}: $host)"
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: num_metric_periods, {audit['target_field']}: {audit['target_field']})"
       )
       rendered = rendered.replace("{{anomaly_threshold}}", str(anomaly_threshold))
       rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
@@ -487,15 +487,15 @@ class MultiStageTemplateRouter:
       rendered = rendered.replace("{{observed_agg}}", audit["observed_agg"])
       rendered = rendered.replace(
           "{{target_metric_func_avg}}",
-          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: avg, {audit['target_field']}: $host)"
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: avg, {audit['target_field']}: {audit['target_field']})"
       )
       rendered = rendered.replace(
           "{{target_metric_func_stddev}}",
-          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: stddev, {audit['target_field']}: $host)"
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: stddev, {audit['target_field']}: {audit['target_field']})"
       )
       rendered = rendered.replace(
           "{{target_metric_func_active_days}}",
-          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: num_metric_periods, {audit['target_field']}: $host)"
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: num_metric_periods, {audit['target_field']}: {audit['target_field']})"
       )
       return rendered + "\n"
 
@@ -581,11 +581,11 @@ class MultiStageTemplateRouter:
       rendered = rendered.replace("{{target_entity_filter}}", target_filter)
       rendered = rendered.replace(
           "{{target_metric_func_avg}}",
-          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: avg, {audit['target_field']}: {entity_var})"
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: avg, {audit['target_field']}: {audit['target_field']})"
       )
       rendered = rendered.replace(
           "{{target_metric_func_stddev}}",
-          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: stddev, {audit['target_field']}: {entity_var})"
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: stddev, {audit['target_field']}: {audit['target_field']})"
       )
       if hypothesis_goal:
         rendered = f"// Goal: {hypothesis_goal}\n" + rendered
@@ -644,11 +644,11 @@ class MultiStageTemplateRouter:
         rendered = rendered.replace(f"{{{{m{idx}_observation_agg}}}}", obs_agg)
         rendered = rendered.replace(
             f"{{{{m{idx}_metric_func_avg}}}}",
-            f"metrics.{m}(period: 1d, window: 30d, {metric_type_arg}, agg: avg, {triad_audit['target_field']}: {entity_var})"
+            f"metrics.{m}(period: 1d, window: 30d, {metric_type_arg}, agg: avg, {triad_audit['target_field']}: {triad_audit['target_field']})"
         )
         rendered = rendered.replace(
             f"{{{{m{idx}_metric_func_stddev}}}}",
-            f"metrics.{m}(period: 1d, window: 30d, {metric_type_arg}, agg: stddev, {triad_audit['target_field']}: {entity_var})"
+            f"metrics.{m}(period: 1d, window: 30d, {metric_type_arg}, agg: stddev, {triad_audit['target_field']}: {triad_audit['target_field']})"
         )
 
       if hypothesis_goal:
@@ -687,15 +687,15 @@ class MultiStageTemplateRouter:
 
       rendered = rendered.replace(
           "{{target_metric_func_avg}}",
-          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: avg, {audit['target_field']}: $entity)"
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: avg, {audit['target_field']}: {audit['target_field']})"
       )
       rendered = rendered.replace(
           "{{target_metric_func_stddev}}",
-          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: stddev, {audit['target_field']}: $entity)"
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: stddev, {audit['target_field']}: {audit['target_field']})"
       )
       rendered = rendered.replace(
           "{{target_metric_func_active_days}}",
-          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: num_metric_periods, {audit['target_field']}: $entity)"
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: num_metric_periods, {audit['target_field']}: {audit['target_field']})"
       )
 
       rendered = rendered.replace("{{raw_event_type}}", raw_event_type)
@@ -744,15 +744,15 @@ class MultiStageTemplateRouter:
 
       rendered = rendered.replace(
           "{{target_metric_func_avg}}",
-          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: avg, {audit['target_field']}: $entity)"
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: avg, {audit['target_field']}: {audit['target_field']})"
       )
       rendered = rendered.replace(
           "{{target_metric_func_stddev}}",
-          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: stddev, {audit['target_field']}: $entity)"
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: stddev, {audit['target_field']}: {audit['target_field']})"
       )
       rendered = rendered.replace(
           "{{target_metric_func_active_days}}",
-          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: num_metric_periods, {audit['target_field']}: $entity)"
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: num_metric_periods, {audit['target_field']}: {audit['target_field']})"
       )
 
       rendered = rendered.replace("{{raw_event_type}}", raw_event_type)
@@ -802,15 +802,15 @@ class MultiStageTemplateRouter:
 
       rendered = rendered.replace(
           "{{target_metric_func_avg}}",
-          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: avg, {audit['target_field']}: $entity)"
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: avg, {audit['target_field']}: {audit['target_field']})"
       )
       rendered = rendered.replace(
           "{{target_metric_func_stddev}}",
-          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: stddev, {audit['target_field']}: $entity)"
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: stddev, {audit['target_field']}: {audit['target_field']})"
       )
       rendered = rendered.replace(
           "{{target_metric_func_active_days}}",
-          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: num_metric_periods, {audit['target_field']}: $entity)"
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: num_metric_periods, {audit['target_field']}: {audit['target_field']})"
       )
 
       rendered = rendered.replace("{{raw_event_type}}", raw_event_type)
@@ -860,15 +860,15 @@ class MultiStageTemplateRouter:
 
       rendered = rendered.replace(
           "{{target_metric_func_avg}}",
-          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: avg, metadata.event_type: \"PROCESS_LAUNCH\", {macro_entity_field}: $entity, principal.process.file.sha256: $token)"
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: avg, metadata.event_type: metadata.event_type, {macro_entity_field}: {macro_entity_field}, principal.process.file.sha256: principal.process.file.sha256)"
       )
       rendered = rendered.replace(
           "{{target_metric_func_stddev}}",
-          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: stddev, metadata.event_type: \"PROCESS_LAUNCH\", {macro_entity_field}: $entity, principal.process.file.sha256: $token)"
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: stddev, metadata.event_type: metadata.event_type, {macro_entity_field}: {macro_entity_field}, principal.process.file.sha256: principal.process.file.sha256)"
       )
       rendered = rendered.replace(
           "{{target_metric_func_active_days}}",
-          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: num_metric_periods, metadata.event_type: \"PROCESS_LAUNCH\", {macro_entity_field}: $entity, principal.process.file.sha256: $token)"
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: num_metric_periods, metadata.event_type: metadata.event_type, {macro_entity_field}: {macro_entity_field}, principal.process.file.sha256: principal.process.file.sha256)"
       )
 
       rendered = rendered.replace("{{raw_event_type}}", raw_event_type)
@@ -958,15 +958,15 @@ class MultiStageTemplateRouter:
       rendered = rendered.replace("{{domain_field}}", domain_field)
       rendered = rendered.replace(
           "{{target_metric_func_avg}}",
-          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: avg, principal.asset.hostname: $host, {domain_field}: $domain)"
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: avg, principal.asset.hostname: principal.asset.hostname, {domain_field}: {domain_field})"
       )
       rendered = rendered.replace(
           "{{target_metric_func_stddev}}",
-          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: stddev, principal.asset.hostname: $host, {domain_field}: $domain)"
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: stddev, principal.asset.hostname: principal.asset.hostname, {domain_field}: {domain_field})"
       )
       rendered = rendered.replace(
           "{{target_metric_func_active_days}}",
-          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: num_metric_periods, principal.asset.hostname: $host, {domain_field}: $domain)"
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: num_metric_periods, principal.asset.hostname: principal.asset.hostname, {domain_field}: {domain_field})"
       )
       rendered = rendered.replace("{{anomaly_threshold}}", str(anomaly_threshold))
       rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
@@ -995,15 +995,15 @@ class MultiStageTemplateRouter:
       rendered = rendered.replace("{{domain_field}}", domain_field)
       rendered = rendered.replace(
           "{{target_metric_func_avg}}",
-          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: avg, principal.asset.hostname: $host, {domain_field}: $domain)"
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: avg, principal.asset.hostname: principal.asset.hostname, {domain_field}: {domain_field})"
       )
       rendered = rendered.replace(
           "{{target_metric_func_stddev}}",
-          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: stddev, principal.asset.hostname: $host, {domain_field}: $domain)"
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: stddev, principal.asset.hostname: principal.asset.hostname, {domain_field}: {domain_field})"
       )
       rendered = rendered.replace(
           "{{target_metric_func_active_days}}",
-          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: num_metric_periods, principal.asset.hostname: $host, {domain_field}: $domain)"
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: num_metric_periods, principal.asset.hostname: principal.asset.hostname, {domain_field}: {domain_field})"
       )
       rendered = rendered.replace("{{anomaly_threshold}}", str(anomaly_threshold))
       rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
@@ -1031,15 +1031,15 @@ class MultiStageTemplateRouter:
       rendered = rendered.replace("{{observed_agg}}", observed_agg)
       rendered = rendered.replace(
           "{{target_metric_func_avg}}",
-          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: avg, principal.asset.hostname: $host)"
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: avg, principal.asset.hostname: principal.asset.hostname)"
       )
       rendered = rendered.replace(
           "{{target_metric_func_stddev}}",
-          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: stddev, principal.asset.hostname: $host)"
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: stddev, principal.asset.hostname: principal.asset.hostname)"
       )
       rendered = rendered.replace(
           "{{target_metric_func_active_days}}",
-          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: num_metric_periods, principal.asset.hostname: $host)"
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: num_metric_periods, principal.asset.hostname: principal.asset.hostname)"
       )
       rendered = rendered.replace("{{anomaly_threshold}}", str(anomaly_threshold))
       rendered = rendered.replace("{{max_asset_age_days}}", "7.0")
@@ -1308,13 +1308,13 @@ class ChainedHuntRouter:
         "    $obs = count($proc.metadata.id)\n"
         "    $mu = max(metrics.file_executions_total(\n"
         "      period: 1d, window: 30d, metric: event_count_sum, agg: avg,\n"
-        "      metadata.event_type: \"PROCESS_LAUNCH\",\n"
-        "      principal.asset.hostname: $host, principal.process.file.sha256: $sha256\n"
+        "      metadata.event_type: metadata.event_type,\n"
+        "      principal.asset.hostname: principal.asset.hostname, principal.process.file.sha256: principal.process.file.sha256\n"
         "    ))\n"
         "    $sigma = max(metrics.file_executions_total(\n"
         "      period: 1d, window: 30d, metric: event_count_sum, agg: stddev,\n"
-        "      metadata.event_type: \"PROCESS_LAUNCH\",\n"
-        "      principal.asset.hostname: $host, principal.process.file.sha256: $sha256\n"
+        "      metadata.event_type: metadata.event_type,\n"
+        "      principal.asset.hostname: principal.asset.hostname, principal.process.file.sha256: principal.process.file.sha256\n"
         "    ))\n"
         "    $z_score = ($obs - $mu) / if($sigma > 0, $sigma, 1.0)\n"
         "}\n"

@@ -24,19 +24,19 @@ stage stage1_outbound_flow_frequency {
 
     $hist_flow_avg = max(metrics.network_flows_outbound(
         period: 1d, window: 30d, metric: event_count_sum, agg: avg,
-        principal.asset.hostname: $host
+        principal.asset.hostname: principal.asset.hostname
     ))
     $hist_flow_stddev = max(metrics.network_flows_outbound(
         period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
-        principal.asset.hostname: $host
+        principal.asset.hostname: principal.asset.hostname
     ))
     $hist_flow_active_days = max(metrics.network_flows_outbound(
         period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
-        principal.asset.hostname: $host
+        principal.asset.hostname: principal.asset.hostname
     ))
     $hist_flow_max = max(metrics.network_flows_outbound(
         period: 1d, window: 30d, metric: event_count_sum, agg: max,
-        principal.asset.hostname: $host
+        principal.asset.hostname: principal.asset.hostname
     ))
 
     $flow_z = ($observed_flows - $hist_flow_avg) / if($hist_flow_stddev > 0, $hist_flow_stddev, 1.0)

@@ -9,14 +9,14 @@
 // Slots event_filter / macro_event_filter: the metric's "Observed event filter" lines from references/metric-sector-catalog.md, one per line.
 // 1. Host Authentication Activity:
 //    - event_filter slot: metadata.event_type = "USER_LOGIN"
-//    - target_metric_func_avg slot: metrics.auth_attempts_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.asset.hostname: $host)
-//    - target_metric_func_stddev slot: metrics.auth_attempts_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.asset.hostname: $host)
-//    - target_metric_func_active_days slot: metrics.auth_attempts_total(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.asset.hostname: $host)
+//    - target_metric_func_avg slot: metrics.auth_attempts_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.asset.hostname: principal.asset.hostname)
+//    - target_metric_func_stddev slot: metrics.auth_attempts_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.asset.hostname: principal.asset.hostname)
+//    - target_metric_func_active_days slot: metrics.auth_attempts_total(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.asset.hostname: principal.asset.hostname)
 // 2. Host Network Egress Activity:
 //    - event_filter slot: network.sent_bytes > 0 AND network.sent_bytes < 1000000000000000 (network_bytes_outbound)
-//    - target_metric_func_avg slot: metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: avg, principal.asset.hostname: $host)
-//    - target_metric_func_stddev slot: metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: stddev, principal.asset.hostname: $host)
-//    - target_metric_func_active_days slot: metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: num_metric_periods, principal.asset.hostname: $host)
+//    - target_metric_func_avg slot: metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: avg, principal.asset.hostname: principal.asset.hostname)
+//    - target_metric_func_stddev slot: metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: stddev, principal.asset.hostname: principal.asset.hostname)
+//    - target_metric_func_active_days slot: metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: num_metric_periods, principal.asset.hostname: principal.asset.hostname)
 // ============================================================================
 
 // Stage 1: Individual Host Daily Telemetry + 30d Historical Metric Baselines

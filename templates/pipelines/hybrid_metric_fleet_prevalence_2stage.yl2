@@ -22,9 +22,9 @@
 //    - macro_entity_field slot: principal.asset.hostname (or principal.user.userid)
 //    - macro_token_field slot: principal.process.file.sha256 (CRITICAL: NEVER target.process.file.sha256)
 //    - macro_observed_agg slot: count(metadata.id)
-//    - target_metric_func_avg slot: metrics.file_executions_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, metadata.event_type: $event_type, principal.asset.hostname: $entity, principal.process.file.sha256: $token)
-//    - target_metric_func_stddev slot: metrics.file_executions_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, metadata.event_type: $event_type, principal.asset.hostname: $entity, principal.process.file.sha256: $token)
-//    - target_metric_func_active_days slot: metrics.file_executions_total(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, metadata.event_type: $event_type, principal.asset.hostname: $entity, principal.process.file.sha256: $token)
+//    - target_metric_func_avg slot: metrics.file_executions_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, metadata.event_type: metadata.event_type, principal.asset.hostname: principal.asset.hostname, principal.process.file.sha256: principal.process.file.sha256)
+//    - target_metric_func_stddev slot: metrics.file_executions_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, metadata.event_type: metadata.event_type, principal.asset.hostname: principal.asset.hostname, principal.process.file.sha256: principal.process.file.sha256)
+//    - target_metric_func_active_days slot: metrics.file_executions_total(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, metadata.event_type: metadata.event_type, principal.asset.hostname: principal.asset.hostname, principal.process.file.sha256: principal.process.file.sha256)
 //    - raw_event_type slot: "PROCESS_LAUNCH"
 //    - raw_token_field slot: principal.process.file.sha256
 //    - fleet_entity_field slot: principal.asset.hostname
@@ -33,9 +33,9 @@
 //    - macro_entity_field slot: principal.asset.hostname (or principal.user.userid)
 //    - macro_token_field slot: network.http.user_agent
 //    - macro_observed_agg slot: count(metadata.id)
-//    - target_metric_func_avg slot: metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.asset.hostname: $entity, network.http.user_agent: $token)
-//    - target_metric_func_stddev slot: metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.asset.hostname: $entity, network.http.user_agent: $token)
-//    - target_metric_func_active_days slot: metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.asset.hostname: $entity, network.http.user_agent: $token)
+//    - target_metric_func_avg slot: metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.asset.hostname: principal.asset.hostname, network.http.user_agent: network.http.user_agent)
+//    - target_metric_func_stddev slot: metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.asset.hostname: principal.asset.hostname, network.http.user_agent: network.http.user_agent)
+//    - target_metric_func_active_days slot: metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.asset.hostname: principal.asset.hostname, network.http.user_agent: network.http.user_agent)
 //    - raw_event_type slot: "NETWORK_HTTP"
 //    - raw_token_field slot: network.http.user_agent
 //    - fleet_entity_field slot: principal.asset.hostname

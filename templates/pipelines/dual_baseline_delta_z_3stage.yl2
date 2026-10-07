@@ -9,14 +9,14 @@
 // Slots event_filter / macro_event_filter: the metric's "Observed event filter" lines from references/metric-sector-catalog.md, one per line.
 // 1. Process Launch Volumetric Delta-Z:
 //    - event_filter slot: metadata.event_type = "PROCESS_LAUNCH"
-//    - target_metric_func_avg slot: metrics.file_executions_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, metadata.event_type: "PROCESS_LAUNCH", principal.asset.hostname: $host, principal.process.file.sha256: $sha)
-//    - target_metric_func_stddev slot: metrics.file_executions_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, metadata.event_type: "PROCESS_LAUNCH", principal.asset.hostname: $host, principal.process.file.sha256: $sha)
-//    - target_metric_func_active_days slot: metrics.file_executions_total(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, metadata.event_type: "PROCESS_LAUNCH", principal.asset.hostname: $host, principal.process.file.sha256: $sha)
+//    - target_metric_func_avg slot: metrics.file_executions_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, metadata.event_type: "PROCESS_LAUNCH", principal.asset.hostname: principal.asset.hostname, principal.process.file.sha256: principal.process.file.sha256)
+//    - target_metric_func_stddev slot: metrics.file_executions_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, metadata.event_type: "PROCESS_LAUNCH", principal.asset.hostname: principal.asset.hostname, principal.process.file.sha256: principal.process.file.sha256)
+//    - target_metric_func_active_days slot: metrics.file_executions_total(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, metadata.event_type: "PROCESS_LAUNCH", principal.asset.hostname: principal.asset.hostname, principal.process.file.sha256: principal.process.file.sha256)
 // 2. Network Outbound Bytes Delta-Z:
 //    - event_filter slot: network.sent_bytes > 0 AND network.sent_bytes < 1000000000000000 (network_bytes_outbound)
-//    - target_metric_func_avg slot: metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: avg, principal.asset.hostname: $host)
-//    - target_metric_func_stddev slot: metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: stddev, principal.asset.hostname: $host)
-//    - target_metric_func_active_days slot: metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: num_metric_periods, principal.asset.hostname: $host)
+//    - target_metric_func_avg slot: metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: avg, principal.asset.hostname: principal.asset.hostname)
+//    - target_metric_func_stddev slot: metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: stddev, principal.asset.hostname: principal.asset.hostname)
+//    - target_metric_func_active_days slot: metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: num_metric_periods, principal.asset.hostname: principal.asset.hostname)
 // ============================================================================
 
 // Stage 1: Individual Host Daily Metric Extraction + 30-Day Historical Baseline

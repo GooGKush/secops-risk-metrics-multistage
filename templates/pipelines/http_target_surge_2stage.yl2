@@ -25,18 +25,18 @@ stage stage1_target_surge {
 
     $hist_mean = max(metrics.http_queries_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: avg,
-        principal.asset.hostname: $host,
-        target.hostname: $target_host
+        principal.asset.hostname: principal.asset.hostname,
+        target.hostname: target.hostname
     ))
     $hist_stddev = max(metrics.http_queries_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
-        principal.asset.hostname: $host,
-        target.hostname: $target_host
+        principal.asset.hostname: principal.asset.hostname,
+        target.hostname: target.hostname
     ))
     $hist_active_days = max(metrics.http_queries_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
-        principal.asset.hostname: $host,
-        target.hostname: $target_host
+        principal.asset.hostname: principal.asset.hostname,
+        target.hostname: target.hostname
     ))
 
     $target_z = ($observed_val - $hist_mean) / if($hist_stddev > 0, $hist_stddev, 1.0)

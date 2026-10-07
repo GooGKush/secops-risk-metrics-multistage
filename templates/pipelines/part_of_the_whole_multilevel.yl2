@@ -24,13 +24,13 @@
 // 1. User Authentication Attempts:
 //    - event_filter slot: metadata.event_type = "USER_LOGIN", entity_field slot: target.user.userid, entity_var slot: $user
 //    - observation_agg slot: count(metadata.id)
-//    - target_metric_func_avg slot: metrics.auth_attempts_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, target.user.userid: $user)
-//    - target_metric_func_stddev slot: metrics.auth_attempts_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, target.user.userid: $user)
+//    - target_metric_func_avg slot: metrics.auth_attempts_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, target.user.userid: target.user.userid)
+//    - target_metric_func_stddev slot: metrics.auth_attempts_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, target.user.userid: target.user.userid)
 // 2. Host Network Egress Outbound Bytes:
 //    - event_filter slot: network.sent_bytes > 0 AND network.sent_bytes < 1000000000000000 (network_bytes_outbound), entity_field slot: principal.asset.hostname, entity_var slot: $host
 //    - observation_agg slot: sum(network.sent_bytes)
-//    - target_metric_func_avg slot: metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: avg, principal.asset.hostname: $host)
-//    - target_metric_func_stddev slot: metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: stddev, principal.asset.hostname: $host)
+//    - target_metric_func_avg slot: metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: avg, principal.asset.hostname: principal.asset.hostname)
+//    - target_metric_func_stddev slot: metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: stddev, principal.asset.hostname: principal.asset.hostname)
 // ============================================================================
 
 // Stage 1: Enterprise Population Telemetry + 30-Day Historical Baselines

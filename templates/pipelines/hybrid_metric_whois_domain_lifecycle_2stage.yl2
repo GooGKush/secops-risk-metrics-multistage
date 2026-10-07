@@ -22,15 +22,15 @@
 // 1. Web / HTTP Newly Registered Domain Query Surge:
 //    - event_filter slot: (network.http.method != "" or network.http.user_agent != "" or network.http.response_code != 0 or network.http.referral_url != "")
 //    - domain_field slot: target.hostname
-//    - target_metric_func_avg slot: metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.asset.hostname: $host, target.hostname: $domain)
-//    - target_metric_func_stddev slot: metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.asset.hostname: $host, target.hostname: $domain)
-//    - target_metric_func_active_days slot: metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.asset.hostname: $host, target.hostname: $domain)
+//    - target_metric_func_avg slot: metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.asset.hostname: principal.asset.hostname, target.hostname: target.hostname)
+//    - target_metric_func_stddev slot: metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.asset.hostname: principal.asset.hostname, target.hostname: target.hostname)
+//    - target_metric_func_active_days slot: metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.asset.hostname: principal.asset.hostname, target.hostname: target.hostname)
 // 2. DNS Query Newly Registered Domain Surge:
 //    - event_filter slot: (network.dns.questions.name != "" or network.dns.answers.name != "" or network.dns.id != 0)
 //    - domain_field slot: network.dns_domain
-//    - target_metric_func_avg slot: metrics.dns_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.asset.hostname: $host, network.dns_domain: $domain)
-//    - target_metric_func_stddev slot: metrics.dns_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.asset.hostname: $host, network.dns_domain: $domain)
-//    - target_metric_func_active_days slot: metrics.dns_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.asset.hostname: $host, network.dns_domain: $domain)
+//    - target_metric_func_avg slot: metrics.dns_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.asset.hostname: principal.asset.hostname, network.dns_domain: network.dns_domain)
+//    - target_metric_func_stddev slot: metrics.dns_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.asset.hostname: principal.asset.hostname, network.dns_domain: network.dns_domain)
+//    - target_metric_func_active_days slot: metrics.dns_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.asset.hostname: principal.asset.hostname, network.dns_domain: network.dns_domain)
 // ============================================================================
 
 // Stage 1: Macro 30-Day Query Baseline (metrics.*)

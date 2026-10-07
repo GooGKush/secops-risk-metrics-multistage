@@ -37,15 +37,15 @@ stage sector_a {
     $a_obs = {{sector_a_observed_agg}}
     $a_avg = max(metrics.{{sector_a_metric}}(
         period: 1d, window: 30d, metric: {{sector_a_metric_arg}}, agg: avg,
-        {{sector_a_entity_field}}: $entity
+        {{sector_a_entity_field}}: {{sector_a_entity_field}}
     ))
     $a_std = max(metrics.{{sector_a_metric}}(
         period: 1d, window: 30d, metric: {{sector_a_metric_arg}}, agg: stddev,
-        {{sector_a_entity_field}}: $entity
+        {{sector_a_entity_field}}: {{sector_a_entity_field}}
     ))
     $a_days = max(metrics.{{sector_a_metric}}(
         period: 1d, window: 30d, metric: {{sector_a_metric_arg}}, agg: num_metric_periods,
-        {{sector_a_entity_field}}: $entity
+        {{sector_a_entity_field}}: {{sector_a_entity_field}}
     ))
     $z_a_raw = ($a_obs - $a_avg) / if($a_std > 0, $a_std, 1.0)
     $z_a_pos = if($z_a_raw > 0, $z_a_raw, 0.0)
@@ -65,15 +65,15 @@ stage sector_b {
     $b_obs = {{sector_b_observed_agg}}
     $b_avg = max(metrics.{{sector_b_metric}}(
         period: 1d, window: 30d, metric: {{sector_b_metric_arg}}, agg: avg,
-        {{sector_b_entity_field}}: $entity
+        {{sector_b_entity_field}}: {{sector_b_entity_field}}
     ))
     $b_std = max(metrics.{{sector_b_metric}}(
         period: 1d, window: 30d, metric: {{sector_b_metric_arg}}, agg: stddev,
-        {{sector_b_entity_field}}: $entity
+        {{sector_b_entity_field}}: {{sector_b_entity_field}}
     ))
     $b_days = max(metrics.{{sector_b_metric}}(
         period: 1d, window: 30d, metric: {{sector_b_metric_arg}}, agg: num_metric_periods,
-        {{sector_b_entity_field}}: $entity
+        {{sector_b_entity_field}}: {{sector_b_entity_field}}
     ))
     $z_b_raw = ($b_obs - $b_avg) / if($b_std > 0, $b_std, 1.0)
     $z_b_pos = if($z_b_raw > 0, $z_b_raw, 0.0)

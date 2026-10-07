@@ -23,7 +23,7 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
     )
     self.assertIn("stage stage1_extract", query)
     self.assertIn("match:\n    $sa, $vendor, $product, $resource, $ip by 1d", query)
-    self.assertIn("target.resource.name: $resource", query)
+    self.assertIn("target.resource.name: target.resource.name", query)
     self.assertIn("order:\n  $composite_risk desc", query)
 
   def test_resource_written_total_auto_routes_to_cloud_repository_scope(self):
@@ -35,15 +35,15 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
         anomaly_threshold=3.0,
     )
     self.assertIn("match:\n    $sa, $vendor, $product, $resource, $ip by 1d", query)
-    self.assertIn("target.resource.name: $resource", query)
+    self.assertIn("target.resource.name: target.resource.name", query)
 
   def test_build_cloud_repository_scope_query_fleet_mode(self):
     """build_cloud_repository_scope_query without SA must enforce cloud SA regex construction."""
     query = self.router.build_cloud_repository_scope_query()
     self.assertIn("@.*gserviceaccount\\.com", query)
     self.assertIn("arn:aws:(iam|sts)", query)
-    self.assertIn("target.resource.name: $resource", query)
-    self.assertIn("principal.ip: $ip", query)
+    self.assertIn("target.resource.name: target.resource.name", query)
+    self.assertIn("principal.ip: principal.ip", query)
 
   def test_build_cloud_repository_scope_query_specific_service_account(self):
     """build_cloud_repository_scope_query with specific SA must bind the exact SA ID."""
@@ -51,7 +51,7 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
     query = self.router.build_cloud_repository_scope_query(service_account=sa_id)
     self.assertIn(f'$sa = "{sa_id}"', query)
     self.assertNotIn("@.*gserviceaccount\\.com", query)
-    self.assertIn("target.resource.name: $resource", query)
+    self.assertIn("target.resource.name: target.resource.name", query)
 
   def test_cloud_repository_query_has_zero_statistical_antipatterns(self):
     """Generated cloud repository query must pass StatisticalAntipatternAuditor with 0 violations."""
@@ -319,7 +319,7 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
     self.assertNotIn("SCAN_UNCATEGORIZED", query)
     self.assertIn("metrics.alert_event_name_count", query)
     self.assertIn("security_result.rule_name = $rule_name", query)
-    self.assertIn("security_result.rule_name: $rule_name", query)
+    self.assertIn("security_result.rule_name: security_result.rule_name", query)
     self.assertIn("$host = $alerts_risk.host", query)
     self.assertIn("$z = max($alerts_risk.z)", query)
     self.assertIn("order:\n  $z desc", query)

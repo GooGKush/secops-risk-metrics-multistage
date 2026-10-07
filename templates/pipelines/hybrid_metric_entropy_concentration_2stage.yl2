@@ -14,9 +14,9 @@
 //   - macro_entity_field slot: principal.asset.hostname (or principal.user.userid)
 //   - macro_event_filter slot: network.sent_bytes > 0 AND network.sent_bytes < 1000000000000000 (network_bytes_outbound)
 //   - macro_observed_agg slot: sum(network.sent_bytes)
-//   - target_metric_func_avg slot: metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: avg, principal.asset.hostname: $entity)
-//   - target_metric_func_stddev slot: metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: stddev, principal.asset.hostname: $entity)
-//   - target_metric_func_active_days slot: metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: num_metric_periods, principal.asset.hostname: $entity)
+//   - target_metric_func_avg slot: metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: avg, principal.asset.hostname: principal.asset.hostname)
+//   - target_metric_func_stddev slot: metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: stddev, principal.asset.hostname: principal.asset.hostname)
+//   - target_metric_func_active_days slot: metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: num_metric_periods, principal.asset.hostname: principal.asset.hostname)
 //   - raw_event_type slot: "NETWORK_CONNECTION"
 //   - raw_entity_field slot: principal.asset.hostname
 //   - raw_cardinality_field slot: target.ip

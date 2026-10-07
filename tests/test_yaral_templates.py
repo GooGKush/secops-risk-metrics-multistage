@@ -237,13 +237,68 @@ class TestYaraLTemplates(unittest.TestCase):
           content,
           f"[{metric_name}] Cloud CRUD extractor must enforce 5-tuple Local-Baseline Isolation match clause",
       )
-      self.assertIn("principal.user.userid: $sa", content)
+      self.assertIn("principal.user.userid: principal.user.userid", content)
       self.assertIn("metadata.vendor_name: metadata.vendor_name", content)
       self.assertIn("metadata.product_name: metadata.product_name", content)
-      self.assertIn("target.resource.name: $resource", content)
+      self.assertIn("target.resource.name: target.resource.name", content)
+
+  def test_no_placeholder_args_inside_metrics_calls(self):
+    """Ensures every metrics.*(...) call across all templates and router/radar outputs uses direct EventField paths (field: field), never lowered $placeholders."""
+    import os, sys
+    repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if repo_dir not in sys.path:
+      sys.path.insert(0, repo_dir)
+    from scripts.preflight_validator import EntityType, METRIC_CATALOG, PipelineArchitecture, StatisticalModel
+    from scripts.radar_collector import EntityRadarCollector
+    from scripts.template_router import ChainedHuntRouter, MultiStageTemplateRouter
+
+    # 1. All .yl2 files under templates/
+    templates_root = os.path.join(repo_dir, "templates")
+    for root, _, files in os.walk(templates_root):
+      for fname in sorted(files):
+        if not fname.endswith(".yl2"):
+          continue
+        fpath = os.path.join(root, fname)
+        with open(fpath, "r", encoding="utf-8") as f:
+          code = re.sub(r"//[^\n]*", "", f.read())
+        for m_name, m_args in re.findall(r"metrics\.([a-zA-Z0-9_{}]+)\s*\(([^)]+)\)", code, re.DOTALL):
+          self.assertIsNone(
+              re.search(r":\s*\$[a-zA-Z0-9_]+", m_args),
+              f"[{fname}] metrics.{m_name} must pass direct UDM EventField paths (field: field), found $placeholder in:\n{m_args}",
+          )
+
+    # 2. All router-generated queries and radar collector queries
+    router = MultiStageTemplateRouter()
+    for m_name, m_def in METRIC_CATALOG.items():
+      for et in m_def.supported_entity_types:
+        q = router.build_query(m_name, et, StatisticalModel.STANDARD_Z_SCORE)
+        for call_name, m_args in re.findall(r"metrics\.([a-zA-Z0-9_]+)\s*\(([^)]+)\)", q, re.DOTALL):
+          self.assertIsNone(
+              re.search(r":\s*\$[a-zA-Z0-9_]+", m_args),
+              f"[build_query:{m_name}:{et.value}] metrics.{call_name} passed $placeholder:\n{m_args}",
+          )
+    for pt in PipelineArchitecture:
+      if pt == PipelineArchitecture.LOCAL_2STAGE:
+        continue
+      for et in (EntityType.ASSET, EntityType.USER):
+        q = router.build_pipeline_query(pt, entity_type=et)
+        for call_name, m_args in re.findall(r"metrics\.([a-zA-Z0-9_]+)\s*\(([^)]+)\)", q, re.DOTALL):
+          self.assertIsNone(
+              re.search(r":\s*\$[a-zA-Z0-9_]+", m_args),
+              f"[build_pipeline_query:{pt.value}:{et.value}] metrics.{call_name} passed $placeholder:\n{m_args}",
+          )
+    q_chained = ChainedHuntRouter().build_phase1_endpoint_query()
+    for call_name, m_args in re.findall(r"metrics\.([a-zA-Z0-9_]+)\s*\(([^)]+)\)", q_chained, re.DOTALL):
+      self.assertIsNone(re.search(r":\s*\$[a-zA-Z0-9_]+", m_args), m_args)
+    for queries in (EntityRadarCollector.USER_SECTOR_QUERIES, EntityRadarCollector.ASSET_SECTOR_QUERIES):
+      for sector, tpl in queries.items():
+        q = tpl % {"entity_id": "x"}
+        for call_name, m_args in re.findall(r"metrics\.([a-zA-Z0-9_]+)\s*\(([^)]+)\)", q, re.DOTALL):
+          self.assertIsNone(
+              re.search(r":\s*\$[a-zA-Z0-9_]+", m_args),
+              f"[radar:{sector}] metrics.{call_name} passed $placeholder:\n{m_args}",
+          )
 
 
 if __name__ == '__main__':
   unittest.main()
-
-

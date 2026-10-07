@@ -19,11 +19,11 @@ stage auth_risk {
     $obs = count(metadata.id)
     $avg = max(metrics.auth_attempts_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: avg,
-        target.user.userid: $user
+        target.user.userid: target.user.userid
     ))
     $std = max(metrics.auth_attempts_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
-        target.user.userid: $user
+        target.user.userid: target.user.userid
     ))
     $z = ($obs - $avg) / if($std > 0, $std, 1.0)
 }

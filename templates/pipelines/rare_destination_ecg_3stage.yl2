@@ -24,7 +24,7 @@
 //     from references/metric-sector-catalog.md (e.g. network_bytes_outbound: sent_bytes filter,
 //     sum(network.sent_bytes), metrics.network_bytes_outbound(..., metric: value_sum, ...)).
 //   METRIC CALL FORM (copy exactly; only the metric name, metric: and dimensions change):
-//     metrics.<name>(period: 1d, window: 30d, metric: <value_sum|event_count_sum>, agg: avg, <dim>: $host)
+//     metrics.<name>(period: 1d, window: 30d, metric: <value_sum|event_count_sum>, agg: avg, <dim>: <dim>)
 //     The stddev slot is the same call with agg: stddev. period: and agg: are required; there is
 //     no function: argument and no value_stddev / event_count_stddev metric.
 //   host_field: an identifier POPULATED in both event stages (probe first). Network sensors

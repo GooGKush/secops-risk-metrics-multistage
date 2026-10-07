@@ -21,22 +21,22 @@ stage stage1_extract {
 
     $historical_avg = max(metrics.http_queries_success(
         period: 1d, window: 30d, metric: event_count_sum, agg: avg,
-        principal.asset.hostname: $entity
+        principal.asset.hostname: principal.asset.hostname
     ))
     $historical_stddev = max(metrics.http_queries_success(
         period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
-        principal.asset.hostname: $entity
+        principal.asset.hostname: principal.asset.hostname
     ))
     $historical_active_days = max(metrics.http_queries_success(
         period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
-        principal.asset.hostname: $entity
+        principal.asset.hostname: principal.asset.hostname
     ))
     $historical_max = max(metrics.http_queries_success(
         period: 1d, window: 30d, metric: event_count_sum, agg: max,
-        principal.asset.hostname: $entity
+        principal.asset.hostname: principal.asset.hostname
     ))
     $historical_sum = max(metrics.http_queries_success(
         period: 1d, window: 30d, metric: event_count_sum, agg: sum,
-        principal.asset.hostname: $entity
+        principal.asset.hostname: principal.asset.hostname
     ))
 }

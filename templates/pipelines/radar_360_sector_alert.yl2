@@ -21,13 +21,13 @@ stage alerts_risk {
     $obs = count(metadata.id)
     $avg = max(metrics.alert_event_name_count(
         period: 1d, window: 30d, metric: event_count_sum, agg: avg,
-        principal.asset.hostname: $host,
-        security_result.rule_name: $rule_name
+        principal.asset.hostname: principal.asset.hostname,
+        security_result.rule_name: security_result.rule_name
     ))
     $std = max(metrics.alert_event_name_count(
         period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
-        principal.asset.hostname: $host,
-        security_result.rule_name: $rule_name
+        principal.asset.hostname: principal.asset.hostname,
+        security_result.rule_name: security_result.rule_name
     ))
     $z = ($obs - $avg) / if($std > 0, $std, 1.0)
 }

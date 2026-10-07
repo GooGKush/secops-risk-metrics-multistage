@@ -19,11 +19,11 @@ stage web_http_risk {
     $obs = count(metadata.id)
     $avg = max(metrics.http_queries_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: avg,
-        principal.user.userid: $user
+        principal.user.userid: principal.user.userid
     ))
     $std = max(metrics.http_queries_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
-        principal.user.userid: $user
+        principal.user.userid: principal.user.userid
     ))
     $z = ($obs - $avg) / if($std > 0, $std, 1.0)
 }

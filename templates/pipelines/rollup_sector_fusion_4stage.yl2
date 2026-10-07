@@ -17,7 +17,7 @@
 //     sector_a_entity_field        an identifier field of the set's entity dimension (e.g. principal.asset.hostname)
 //     sector_a_companion_bindings  "Detail bindings" lines of the set, one per line, indented 4 spaces
 //     sector_a_match_keys          $entity followed by every companion placeholder, comma-separated
-//     sector_a_metric_filters      entity field: $entity, then every companion "field: $placeholder", comma-separated
+//     sector_a_metric_filters      entity field: entity field, then every companion "field: field", comma-separated
 //     sector_a_detail_key          the set's "Distinct key" placeholder name without the leading $
 //     sector_a_observed_agg / sector_a_metric / sector_a_metric_arg  as for any sector
 //   Sector B: an entity-keyed metric, filled exactly as in dual_sector_fusion_3stage.yl2
@@ -84,15 +84,15 @@ stage sector_b {
     $b_obs = {{sector_b_observed_agg}}
     $b_avg = max(metrics.{{sector_b_metric}}(
         period: 1d, window: 30d, metric: {{sector_b_metric_arg}}, agg: avg,
-        {{sector_b_entity_field}}: $entity
+        {{sector_b_entity_field}}: {{sector_b_entity_field}}
     ))
     $b_std = max(metrics.{{sector_b_metric}}(
         period: 1d, window: 30d, metric: {{sector_b_metric_arg}}, agg: stddev,
-        {{sector_b_entity_field}}: $entity
+        {{sector_b_entity_field}}: {{sector_b_entity_field}}
     ))
     $b_days = max(metrics.{{sector_b_metric}}(
         period: 1d, window: 30d, metric: {{sector_b_metric_arg}}, agg: num_metric_periods,
-        {{sector_b_entity_field}}: $entity
+        {{sector_b_entity_field}}: {{sector_b_entity_field}}
     ))
     $z_b_raw = ($b_obs - $b_avg) / if($b_std > 0, $b_std, 1.0)
     $z_b_pos = if($z_b_raw > 0, $z_b_raw, 0.0)

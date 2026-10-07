@@ -17,22 +17,22 @@ stage stage1_extract {
 
     $historical_avg = max(metrics.workspace_network_bytes_total(
         period: 1d, window: 30d, metric: value_sum, agg: avg,
-        principal.user.userid: $user
+        principal.user.userid: principal.user.userid
     ))
     $historical_stddev = max(metrics.workspace_network_bytes_total(
         period: 1d, window: 30d, metric: value_sum, agg: stddev,
-        principal.user.userid: $user
+        principal.user.userid: principal.user.userid
     ))
     $historical_active_days = max(metrics.workspace_network_bytes_total(
         period: 1d, window: 30d, metric: value_sum, agg: num_metric_periods,
-        principal.user.userid: $user
+        principal.user.userid: principal.user.userid
     ))
     $historical_max = max(metrics.workspace_network_bytes_total(
         period: 1d, window: 30d, metric: value_sum, agg: max,
-        principal.user.userid: $user
+        principal.user.userid: principal.user.userid
     ))
     $historical_sum = max(metrics.workspace_network_bytes_total(
         period: 1d, window: 30d, metric: value_sum, agg: sum,
-        principal.user.userid: $user
+        principal.user.userid: principal.user.userid
     ))
 }

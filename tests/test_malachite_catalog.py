@@ -256,8 +256,8 @@ class TestRollupSectors(unittest.TestCase):
     q = self.router.build_sector_fusion_query(
         mc.SectorSpec("file_executions_total", "principal.asset.hostname"),
         mc.SectorSpec("dns_queries_fail", "principal.asset.hostname"))
-    self.assertIn("principal.asset.hostname: $entity, metadata.event_type: $event_type, "
-                  "principal.process.file.sha256: $principal_process_file_hash", q)
+    self.assertIn("principal.asset.hostname: principal.asset.hostname, metadata.event_type: metadata.event_type, "
+                  "principal.process.file.sha256: principal.process.file.sha256", q)
     self.assertIn("$a_keys = count_distinct($sector_a_detail.principal_process_file_hash)", q)
     self.assertIn("$z_a = max($sector_a_detail.d_z)", q)
     self.assertIn("$a_novel_keys = sum($sector_a_detail.d_novel)", q)

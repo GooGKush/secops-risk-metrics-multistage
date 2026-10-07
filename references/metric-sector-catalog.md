@@ -19,14 +19,15 @@ the compiler's own `config.textproto` (valid dimension sets) and `dimension_fiel
 * **Observed value**: the stage outcome expression for today's value (`$obs = <value>`).
 * **Metric arg**: the `metric:` argument of the `metrics.<name>(...)` call.
 * **Entity identifier fields**: fields that may appear *alone* as the metric's filter (one valid
-  single-dimension set). Bind the same field in the event section (`<field> = $entity`) and in the
-  metric call (`<field>: $entity`). Defaults: `userid` for users, `hostname` for devices.
+  single-dimension set). Bind the same field in the event section (`<field> = $entity`) and pass the
+  direct UDM field path in the metric call (`<field>: <field>`) so SecOps UI **Case Sensitivity Off**
+  never lowers the baseline join key. Defaults: `userid` for users, `hostname` for devices.
 * **Composite-only** metrics have no single-field set. Every call must supply one complete valid
   dimension set (listed in the row). They become fusion sectors only as a **roll-up sector** (below).
 * **Roll-up sector sets** (composite-only rows): each block is one valid set with exactly one entity
   dimension. Fill `rollup_sector_fusion_4stage.yl2` / `_5stage.yl2` sector A from it: the detail stage
   binds the entity plus every companion (*Detail bindings*), matches on *Match keys*, and passes
-  *Metric filters* to every `metrics.<name>(...)` call; the roll-up stage counts distinct *Distinct key*.
+  *Metric filters* (`<field>: <field>`) to every `metrics.<name>(...)` call; the roll-up stage counts distinct *Distinct key*.
 
 ## The exact-set rule (compiler)
 
@@ -107,7 +108,7 @@ elsewhere still fails if the combined set is not listed. Example: `auth_attempts
     * Entity field: any PRINCIPAL_DEVICE field (see *Dimension → UDM fields*); default `principal.asset.hostname`
     * Detail bindings: `security_result.rule_name = $security_result_rule_name`; `$security_result_rule_name != ""`
     * Match keys: `$entity, $security_result_rule_name`
-    * Metric filters: `<entity field>: $entity, security_result.rule_name: $security_result_rule_name`
+    * Metric filters: `<entity field>: <entity field>, security_result.rule_name: security_result.rule_name`
     * Distinct key: `security_result_rule_name`
 
 ### `metrics.auth_attempts_fail`
@@ -246,13 +247,13 @@ elsewhere still fails if the combined set is not listed. Example: `auth_attempts
     * Entity field: any PRINCIPAL_DEVICE field (see *Dimension → UDM fields*); default `principal.asset.hostname`
     * Detail bindings: `metadata.event_type = $event_type`; `principal.process.file.sha256 = $principal_process_file_hash`; `$principal_process_file_hash != ""`
     * Match keys: `$entity, $event_type, $principal_process_file_hash`
-    * Metric filters: `<entity field>: $entity, metadata.event_type: $event_type, principal.process.file.sha256: $principal_process_file_hash`
+    * Metric filters: `<entity field>: <entity field>, metadata.event_type: metadata.event_type, principal.process.file.sha256: principal.process.file.sha256`
     * Distinct key: `principal_process_file_hash`
   * **PRINCIPAL_USER** (user) + EVENT_TYPE + PRINCIPAL_PROCESS_FILE_HASH
     * Entity field: any PRINCIPAL_USER field (see *Dimension → UDM fields*); default `principal.user.userid`
     * Detail bindings: `metadata.event_type = $event_type`; `principal.process.file.sha256 = $principal_process_file_hash`; `$principal_process_file_hash != ""`
     * Match keys: `$entity, $event_type, $principal_process_file_hash`
-    * Metric filters: `<entity field>: $entity, metadata.event_type: $event_type, principal.process.file.sha256: $principal_process_file_hash`
+    * Metric filters: `<entity field>: <entity field>, metadata.event_type: metadata.event_type, principal.process.file.sha256: principal.process.file.sha256`
     * Distinct key: `principal_process_file_hash`
 
 ### `metrics.file_executions_success`
@@ -275,13 +276,13 @@ elsewhere still fails if the combined set is not listed. Example: `auth_attempts
     * Entity field: any PRINCIPAL_DEVICE field (see *Dimension → UDM fields*); default `principal.asset.hostname`
     * Detail bindings: `metadata.event_type = $event_type`; `principal.process.file.sha256 = $principal_process_file_hash`; `$principal_process_file_hash != ""`
     * Match keys: `$entity, $event_type, $principal_process_file_hash`
-    * Metric filters: `<entity field>: $entity, metadata.event_type: $event_type, principal.process.file.sha256: $principal_process_file_hash`
+    * Metric filters: `<entity field>: <entity field>, metadata.event_type: metadata.event_type, principal.process.file.sha256: principal.process.file.sha256`
     * Distinct key: `principal_process_file_hash`
   * **PRINCIPAL_USER** (user) + EVENT_TYPE + PRINCIPAL_PROCESS_FILE_HASH
     * Entity field: any PRINCIPAL_USER field (see *Dimension → UDM fields*); default `principal.user.userid`
     * Detail bindings: `metadata.event_type = $event_type`; `principal.process.file.sha256 = $principal_process_file_hash`; `$principal_process_file_hash != ""`
     * Match keys: `$entity, $event_type, $principal_process_file_hash`
-    * Metric filters: `<entity field>: $entity, metadata.event_type: $event_type, principal.process.file.sha256: $principal_process_file_hash`
+    * Metric filters: `<entity field>: <entity field>, metadata.event_type: metadata.event_type, principal.process.file.sha256: principal.process.file.sha256`
     * Distinct key: `principal_process_file_hash`
 
 ### `metrics.file_executions_total`
@@ -303,13 +304,13 @@ elsewhere still fails if the combined set is not listed. Example: `auth_attempts
     * Entity field: any PRINCIPAL_DEVICE field (see *Dimension → UDM fields*); default `principal.asset.hostname`
     * Detail bindings: `metadata.event_type = $event_type`; `principal.process.file.sha256 = $principal_process_file_hash`; `$principal_process_file_hash != ""`
     * Match keys: `$entity, $event_type, $principal_process_file_hash`
-    * Metric filters: `<entity field>: $entity, metadata.event_type: $event_type, principal.process.file.sha256: $principal_process_file_hash`
+    * Metric filters: `<entity field>: <entity field>, metadata.event_type: metadata.event_type, principal.process.file.sha256: principal.process.file.sha256`
     * Distinct key: `principal_process_file_hash`
   * **PRINCIPAL_USER** (user) + EVENT_TYPE + PRINCIPAL_PROCESS_FILE_HASH
     * Entity field: any PRINCIPAL_USER field (see *Dimension → UDM fields*); default `principal.user.userid`
     * Detail bindings: `metadata.event_type = $event_type`; `principal.process.file.sha256 = $principal_process_file_hash`; `$principal_process_file_hash != ""`
     * Match keys: `$entity, $event_type, $principal_process_file_hash`
-    * Metric filters: `<entity field>: $entity, metadata.event_type: $event_type, principal.process.file.sha256: $principal_process_file_hash`
+    * Metric filters: `<entity field>: <entity field>, metadata.event_type: metadata.event_type, principal.process.file.sha256: principal.process.file.sha256`
     * Distinct key: `principal_process_file_hash`
 
 ### `metrics.http_queries_fail`
@@ -476,13 +477,13 @@ elsewhere still fails if the combined set is not listed. Example: `auth_attempts
     * Entity field: any PRINCIPAL_USER field (see *Dimension → UDM fields*); default `principal.user.userid`
     * Detail bindings: `metadata.product_name = $product_name`; `$product_name != ""`; `metadata.vendor_name = $vendor_name`; `$vendor_name != ""`
     * Match keys: `$entity, $product_name, $vendor_name`
-    * Metric filters: `<entity field>: $entity, metadata.product_name: $product_name, metadata.vendor_name: $vendor_name`
+    * Metric filters: `<entity field>: <entity field>, metadata.product_name: metadata.product_name, metadata.vendor_name: metadata.vendor_name`
     * Distinct key: `product_name`
   * **TARGET_USER** (user) + PRODUCT_NAME + VENDOR_NAME
     * Entity field: any TARGET_USER field (see *Dimension → UDM fields*); default `target.user.userid`
     * Detail bindings: `metadata.product_name = $product_name`; `$product_name != ""`; `metadata.vendor_name = $vendor_name`; `$vendor_name != ""`
     * Match keys: `$entity, $product_name, $vendor_name`
-    * Metric filters: `<entity field>: $entity, metadata.product_name: $product_name, metadata.vendor_name: $vendor_name`
+    * Metric filters: `<entity field>: <entity field>, metadata.product_name: metadata.product_name, metadata.vendor_name: metadata.vendor_name`
     * Distinct key: `product_name`
 
 ### `metrics.resource_creation_success`
@@ -509,13 +510,13 @@ elsewhere still fails if the combined set is not listed. Example: `auth_attempts
     * Entity field: any PRINCIPAL_USER field (see *Dimension → UDM fields*); default `principal.user.userid`
     * Detail bindings: `metadata.product_name = $product_name`; `$product_name != ""`; `metadata.vendor_name = $vendor_name`; `$vendor_name != ""`
     * Match keys: `$entity, $product_name, $vendor_name`
-    * Metric filters: `<entity field>: $entity, metadata.product_name: $product_name, metadata.vendor_name: $vendor_name`
+    * Metric filters: `<entity field>: <entity field>, metadata.product_name: metadata.product_name, metadata.vendor_name: metadata.vendor_name`
     * Distinct key: `product_name`
   * **TARGET_USER** (user) + PRODUCT_NAME + VENDOR_NAME
     * Entity field: any TARGET_USER field (see *Dimension → UDM fields*); default `target.user.userid`
     * Detail bindings: `metadata.product_name = $product_name`; `$product_name != ""`; `metadata.vendor_name = $vendor_name`; `$vendor_name != ""`
     * Match keys: `$entity, $product_name, $vendor_name`
-    * Metric filters: `<entity field>: $entity, metadata.product_name: $product_name, metadata.vendor_name: $vendor_name`
+    * Metric filters: `<entity field>: <entity field>, metadata.product_name: metadata.product_name, metadata.vendor_name: metadata.vendor_name`
     * Distinct key: `product_name`
 
 ### `metrics.resource_creation_total`
@@ -541,13 +542,13 @@ elsewhere still fails if the combined set is not listed. Example: `auth_attempts
     * Entity field: any PRINCIPAL_USER field (see *Dimension → UDM fields*); default `principal.user.userid`
     * Detail bindings: `metadata.product_name = $product_name`; `$product_name != ""`; `metadata.vendor_name = $vendor_name`; `$vendor_name != ""`
     * Match keys: `$entity, $product_name, $vendor_name`
-    * Metric filters: `<entity field>: $entity, metadata.product_name: $product_name, metadata.vendor_name: $vendor_name`
+    * Metric filters: `<entity field>: <entity field>, metadata.product_name: metadata.product_name, metadata.vendor_name: metadata.vendor_name`
     * Distinct key: `product_name`
   * **TARGET_USER** (user) + PRODUCT_NAME + VENDOR_NAME
     * Entity field: any TARGET_USER field (see *Dimension → UDM fields*); default `target.user.userid`
     * Detail bindings: `metadata.product_name = $product_name`; `$product_name != ""`; `metadata.vendor_name = $vendor_name`; `$vendor_name != ""`
     * Match keys: `$entity, $product_name, $vendor_name`
-    * Metric filters: `<entity field>: $entity, metadata.product_name: $product_name, metadata.vendor_name: $vendor_name`
+    * Metric filters: `<entity field>: <entity field>, metadata.product_name: metadata.product_name, metadata.vendor_name: metadata.vendor_name`
     * Distinct key: `product_name`
 
 ### `metrics.resource_deletion_fail`
@@ -574,13 +575,13 @@ elsewhere still fails if the combined set is not listed. Example: `auth_attempts
     * Entity field: any PRINCIPAL_USER field (see *Dimension → UDM fields*); default `principal.user.userid`
     * Detail bindings: `metadata.product_name = $product_name`; `$product_name != ""`; `metadata.vendor_name = $vendor_name`; `$vendor_name != ""`
     * Match keys: `$entity, $product_name, $vendor_name`
-    * Metric filters: `<entity field>: $entity, metadata.product_name: $product_name, metadata.vendor_name: $vendor_name`
+    * Metric filters: `<entity field>: <entity field>, metadata.product_name: metadata.product_name, metadata.vendor_name: metadata.vendor_name`
     * Distinct key: `product_name`
   * **TARGET_USER** (user) + PRODUCT_NAME + VENDOR_NAME
     * Entity field: any TARGET_USER field (see *Dimension → UDM fields*); default `target.user.userid`
     * Detail bindings: `metadata.product_name = $product_name`; `$product_name != ""`; `metadata.vendor_name = $vendor_name`; `$vendor_name != ""`
     * Match keys: `$entity, $product_name, $vendor_name`
-    * Metric filters: `<entity field>: $entity, metadata.product_name: $product_name, metadata.vendor_name: $vendor_name`
+    * Metric filters: `<entity field>: <entity field>, metadata.product_name: metadata.product_name, metadata.vendor_name: metadata.vendor_name`
     * Distinct key: `product_name`
 
 ### `metrics.resource_deletion_success`
@@ -607,13 +608,13 @@ elsewhere still fails if the combined set is not listed. Example: `auth_attempts
     * Entity field: any PRINCIPAL_USER field (see *Dimension → UDM fields*); default `principal.user.userid`
     * Detail bindings: `metadata.product_name = $product_name`; `$product_name != ""`; `metadata.vendor_name = $vendor_name`; `$vendor_name != ""`
     * Match keys: `$entity, $product_name, $vendor_name`
-    * Metric filters: `<entity field>: $entity, metadata.product_name: $product_name, metadata.vendor_name: $vendor_name`
+    * Metric filters: `<entity field>: <entity field>, metadata.product_name: metadata.product_name, metadata.vendor_name: metadata.vendor_name`
     * Distinct key: `product_name`
   * **TARGET_USER** (user) + PRODUCT_NAME + VENDOR_NAME
     * Entity field: any TARGET_USER field (see *Dimension → UDM fields*); default `target.user.userid`
     * Detail bindings: `metadata.product_name = $product_name`; `$product_name != ""`; `metadata.vendor_name = $vendor_name`; `$vendor_name != ""`
     * Match keys: `$entity, $product_name, $vendor_name`
-    * Metric filters: `<entity field>: $entity, metadata.product_name: $product_name, metadata.vendor_name: $vendor_name`
+    * Metric filters: `<entity field>: <entity field>, metadata.product_name: metadata.product_name, metadata.vendor_name: metadata.vendor_name`
     * Distinct key: `product_name`
 
 ### `metrics.resource_deletion_total`
@@ -639,13 +640,13 @@ elsewhere still fails if the combined set is not listed. Example: `auth_attempts
     * Entity field: any PRINCIPAL_USER field (see *Dimension → UDM fields*); default `principal.user.userid`
     * Detail bindings: `metadata.product_name = $product_name`; `$product_name != ""`; `metadata.vendor_name = $vendor_name`; `$vendor_name != ""`
     * Match keys: `$entity, $product_name, $vendor_name`
-    * Metric filters: `<entity field>: $entity, metadata.product_name: $product_name, metadata.vendor_name: $vendor_name`
+    * Metric filters: `<entity field>: <entity field>, metadata.product_name: metadata.product_name, metadata.vendor_name: metadata.vendor_name`
     * Distinct key: `product_name`
   * **TARGET_USER** (user) + PRODUCT_NAME + VENDOR_NAME
     * Entity field: any TARGET_USER field (see *Dimension → UDM fields*); default `target.user.userid`
     * Detail bindings: `metadata.product_name = $product_name`; `$product_name != ""`; `metadata.vendor_name = $vendor_name`; `$vendor_name != ""`
     * Match keys: `$entity, $product_name, $vendor_name`
-    * Metric filters: `<entity field>: $entity, metadata.product_name: $product_name, metadata.vendor_name: $vendor_name`
+    * Metric filters: `<entity field>: <entity field>, metadata.product_name: metadata.product_name, metadata.vendor_name: metadata.vendor_name`
     * Distinct key: `product_name`
 
 ### `metrics.resource_read_fail`
@@ -672,13 +673,13 @@ elsewhere still fails if the combined set is not listed. Example: `auth_attempts
     * Entity field: any PRINCIPAL_USER field (see *Dimension → UDM fields*); default `principal.user.userid`
     * Detail bindings: `metadata.product_name = $product_name`; `$product_name != ""`; `metadata.vendor_name = $vendor_name`; `$vendor_name != ""`
     * Match keys: `$entity, $product_name, $vendor_name`
-    * Metric filters: `<entity field>: $entity, metadata.product_name: $product_name, metadata.vendor_name: $vendor_name`
+    * Metric filters: `<entity field>: <entity field>, metadata.product_name: metadata.product_name, metadata.vendor_name: metadata.vendor_name`
     * Distinct key: `product_name`
   * **TARGET_USER** (user) + PRODUCT_NAME + VENDOR_NAME
     * Entity field: any TARGET_USER field (see *Dimension → UDM fields*); default `target.user.userid`
     * Detail bindings: `metadata.product_name = $product_name`; `$product_name != ""`; `metadata.vendor_name = $vendor_name`; `$vendor_name != ""`
     * Match keys: `$entity, $product_name, $vendor_name`
-    * Metric filters: `<entity field>: $entity, metadata.product_name: $product_name, metadata.vendor_name: $vendor_name`
+    * Metric filters: `<entity field>: <entity field>, metadata.product_name: metadata.product_name, metadata.vendor_name: metadata.vendor_name`
     * Distinct key: `product_name`
 
 ### `metrics.resource_read_success`
@@ -705,13 +706,13 @@ elsewhere still fails if the combined set is not listed. Example: `auth_attempts
     * Entity field: any PRINCIPAL_USER field (see *Dimension → UDM fields*); default `principal.user.userid`
     * Detail bindings: `metadata.product_name = $product_name`; `$product_name != ""`; `metadata.vendor_name = $vendor_name`; `$vendor_name != ""`
     * Match keys: `$entity, $product_name, $vendor_name`
-    * Metric filters: `<entity field>: $entity, metadata.product_name: $product_name, metadata.vendor_name: $vendor_name`
+    * Metric filters: `<entity field>: <entity field>, metadata.product_name: metadata.product_name, metadata.vendor_name: metadata.vendor_name`
     * Distinct key: `product_name`
   * **TARGET_USER** (user) + PRODUCT_NAME + VENDOR_NAME
     * Entity field: any TARGET_USER field (see *Dimension → UDM fields*); default `target.user.userid`
     * Detail bindings: `metadata.product_name = $product_name`; `$product_name != ""`; `metadata.vendor_name = $vendor_name`; `$vendor_name != ""`
     * Match keys: `$entity, $product_name, $vendor_name`
-    * Metric filters: `<entity field>: $entity, metadata.product_name: $product_name, metadata.vendor_name: $vendor_name`
+    * Metric filters: `<entity field>: <entity field>, metadata.product_name: metadata.product_name, metadata.vendor_name: metadata.vendor_name`
     * Distinct key: `product_name`
 
 ### `metrics.resource_read_total`
@@ -737,13 +738,13 @@ elsewhere still fails if the combined set is not listed. Example: `auth_attempts
     * Entity field: any PRINCIPAL_USER field (see *Dimension → UDM fields*); default `principal.user.userid`
     * Detail bindings: `metadata.product_name = $product_name`; `$product_name != ""`; `metadata.vendor_name = $vendor_name`; `$vendor_name != ""`
     * Match keys: `$entity, $product_name, $vendor_name`
-    * Metric filters: `<entity field>: $entity, metadata.product_name: $product_name, metadata.vendor_name: $vendor_name`
+    * Metric filters: `<entity field>: <entity field>, metadata.product_name: metadata.product_name, metadata.vendor_name: metadata.vendor_name`
     * Distinct key: `product_name`
   * **TARGET_USER** (user) + PRODUCT_NAME + VENDOR_NAME
     * Entity field: any TARGET_USER field (see *Dimension → UDM fields*); default `target.user.userid`
     * Detail bindings: `metadata.product_name = $product_name`; `$product_name != ""`; `metadata.vendor_name = $vendor_name`; `$vendor_name != ""`
     * Match keys: `$entity, $product_name, $vendor_name`
-    * Metric filters: `<entity field>: $entity, metadata.product_name: $product_name, metadata.vendor_name: $vendor_name`
+    * Metric filters: `<entity field>: <entity field>, metadata.product_name: metadata.product_name, metadata.vendor_name: metadata.vendor_name`
     * Distinct key: `product_name`
 
 ### `metrics.resource_written_fail`
@@ -770,13 +771,13 @@ elsewhere still fails if the combined set is not listed. Example: `auth_attempts
     * Entity field: any PRINCIPAL_USER field (see *Dimension → UDM fields*); default `principal.user.userid`
     * Detail bindings: `metadata.product_name = $product_name`; `$product_name != ""`; `metadata.vendor_name = $vendor_name`; `$vendor_name != ""`
     * Match keys: `$entity, $product_name, $vendor_name`
-    * Metric filters: `<entity field>: $entity, metadata.product_name: $product_name, metadata.vendor_name: $vendor_name`
+    * Metric filters: `<entity field>: <entity field>, metadata.product_name: metadata.product_name, metadata.vendor_name: metadata.vendor_name`
     * Distinct key: `product_name`
   * **TARGET_USER** (user) + PRODUCT_NAME + VENDOR_NAME
     * Entity field: any TARGET_USER field (see *Dimension → UDM fields*); default `target.user.userid`
     * Detail bindings: `metadata.product_name = $product_name`; `$product_name != ""`; `metadata.vendor_name = $vendor_name`; `$vendor_name != ""`
     * Match keys: `$entity, $product_name, $vendor_name`
-    * Metric filters: `<entity field>: $entity, metadata.product_name: $product_name, metadata.vendor_name: $vendor_name`
+    * Metric filters: `<entity field>: <entity field>, metadata.product_name: metadata.product_name, metadata.vendor_name: metadata.vendor_name`
     * Distinct key: `product_name`
 
 ### `metrics.resource_written_success`
@@ -803,13 +804,13 @@ elsewhere still fails if the combined set is not listed. Example: `auth_attempts
     * Entity field: any PRINCIPAL_USER field (see *Dimension → UDM fields*); default `principal.user.userid`
     * Detail bindings: `metadata.product_name = $product_name`; `$product_name != ""`; `metadata.vendor_name = $vendor_name`; `$vendor_name != ""`
     * Match keys: `$entity, $product_name, $vendor_name`
-    * Metric filters: `<entity field>: $entity, metadata.product_name: $product_name, metadata.vendor_name: $vendor_name`
+    * Metric filters: `<entity field>: <entity field>, metadata.product_name: metadata.product_name, metadata.vendor_name: metadata.vendor_name`
     * Distinct key: `product_name`
   * **TARGET_USER** (user) + PRODUCT_NAME + VENDOR_NAME
     * Entity field: any TARGET_USER field (see *Dimension → UDM fields*); default `target.user.userid`
     * Detail bindings: `metadata.product_name = $product_name`; `$product_name != ""`; `metadata.vendor_name = $vendor_name`; `$vendor_name != ""`
     * Match keys: `$entity, $product_name, $vendor_name`
-    * Metric filters: `<entity field>: $entity, metadata.product_name: $product_name, metadata.vendor_name: $vendor_name`
+    * Metric filters: `<entity field>: <entity field>, metadata.product_name: metadata.product_name, metadata.vendor_name: metadata.vendor_name`
     * Distinct key: `product_name`
 
 ### `metrics.resource_written_total`
@@ -835,13 +836,13 @@ elsewhere still fails if the combined set is not listed. Example: `auth_attempts
     * Entity field: any PRINCIPAL_USER field (see *Dimension → UDM fields*); default `principal.user.userid`
     * Detail bindings: `metadata.product_name = $product_name`; `$product_name != ""`; `metadata.vendor_name = $vendor_name`; `$vendor_name != ""`
     * Match keys: `$entity, $product_name, $vendor_name`
-    * Metric filters: `<entity field>: $entity, metadata.product_name: $product_name, metadata.vendor_name: $vendor_name`
+    * Metric filters: `<entity field>: <entity field>, metadata.product_name: metadata.product_name, metadata.vendor_name: metadata.vendor_name`
     * Distinct key: `product_name`
   * **TARGET_USER** (user) + PRODUCT_NAME + VENDOR_NAME
     * Entity field: any TARGET_USER field (see *Dimension → UDM fields*); default `target.user.userid`
     * Detail bindings: `metadata.product_name = $product_name`; `$product_name != ""`; `metadata.vendor_name = $vendor_name`; `$vendor_name != ""`
     * Match keys: `$entity, $product_name, $vendor_name`
-    * Metric filters: `<entity field>: $entity, metadata.product_name: $product_name, metadata.vendor_name: $vendor_name`
+    * Metric filters: `<entity field>: <entity field>, metadata.product_name: metadata.product_name, metadata.vendor_name: metadata.vendor_name`
     * Distinct key: `product_name`
 
 ### `metrics.workspace_auth_attempts_total`
@@ -948,7 +949,7 @@ peer group the template also scores the group as a whole against the fleet (`$z*
 `$d_team_vs_fleet_sq`). Because one stage carries all three metrics:
 
 1. **One entity field for all three.** It must be valid alone for every metric (listed per triad).
-   Bind it once: `<entity field> = $user` (or `$host`) in the stage and `<entity field>: $user` in all
+   Bind it once: `<entity field> = $user` (or `$host`) in the stage and `<entity field>: <entity field>` in all
    six `metrics.*()` calls.
 2. **Stage filter = the union, not any one metric's filter.** Paste the triad's *Stage event filter*
    lines into the `event_filter` slot. Never add one metric's own extra line (e.g.

@@ -341,7 +341,7 @@ class TestHybridPipelines(unittest.TestCase):
     )
     self.assertIn("stage stage1_query_baseline {", query)
     self.assertIn("metrics.dns_queries_total(", query)
-    self.assertIn("network.dns_domain: $domain", query)
+    self.assertIn("network.dns_domain: network.dns_domain", query)
     self.assertIn("network.dns_domain = $domain", query)
     # The DNS-present observed filter reads network.dns.questions.name (baseline alignment), but the
     # field must never be a metric filter arg or the domain binding.
@@ -368,7 +368,7 @@ class TestHybridPipelines(unittest.TestCase):
     )
     self.assertIn("stage stage1_egress_baseline {", query)
     self.assertIn("metrics.dns_queries_total(", query)
-    self.assertIn("network.dns_domain: $domain", query)
+    self.assertIn("network.dns_domain: network.dns_domain", query)
     self.assertIn("network.dns_domain = $domain", query)
     self.assertIn(mc.baseline_semantics("dns_queries_total").observed_filter[0], query)
     self.assertNotIn("network.dns.questions.name:", query)

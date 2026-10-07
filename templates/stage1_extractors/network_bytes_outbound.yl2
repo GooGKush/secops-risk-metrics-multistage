@@ -23,22 +23,22 @@ stage stage1_extract {
 
     $historical_avg = max(metrics.network_bytes_outbound(
         period: 1d, window: 30d, metric: value_sum, agg: avg,
-        principal.asset.hostname: $entity
+        principal.asset.hostname: principal.asset.hostname
     ))
     $historical_stddev = max(metrics.network_bytes_outbound(
         period: 1d, window: 30d, metric: value_sum, agg: stddev,
-        principal.asset.hostname: $entity
+        principal.asset.hostname: principal.asset.hostname
     ))
     $historical_active_days = max(metrics.network_bytes_outbound(
         period: 1d, window: 30d, metric: value_sum, agg: num_metric_periods,
-        principal.asset.hostname: $entity
+        principal.asset.hostname: principal.asset.hostname
     ))
     $historical_max = max(metrics.network_bytes_outbound(
         period: 1d, window: 30d, metric: value_sum, agg: max,
-        principal.asset.hostname: $entity
+        principal.asset.hostname: principal.asset.hostname
     ))
     $historical_sum = max(metrics.network_bytes_outbound(
         period: 1d, window: 30d, metric: value_sum, agg: sum,
-        principal.asset.hostname: $entity
+        principal.asset.hostname: principal.asset.hostname
     ))
 }

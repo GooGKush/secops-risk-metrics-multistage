@@ -107,7 +107,7 @@ class ComplexMultiStageSyntaxTest(unittest.TestCase):
           for line in baseline_semantics(spec.metric).observed_filter:
             self.assertIn(line, query)
           self.assertIn(f"{spec.entity_field} = $entity", query)
-          self.assertIn(f"{spec.entity_field}: $entity", query)
+          self.assertIn(f"{spec.entity_field}: {spec.entity_field}", query)
 
   def test_dual_baseline_delta_z_3stage_template_syntax(self):
     """Verifies the 3-Stage Dual-Baseline (Delta-Z) template conforms to Common Compiler grammar."""

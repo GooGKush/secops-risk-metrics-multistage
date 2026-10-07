@@ -29,7 +29,7 @@
 //     baseline is per (host, destination). Verified: http_queries_total with principal.asset.ip +
 //     target.hostname. DNS (network.dns_domain) is config-valid but can be empty; probe first.
 //   METRIC CALL FORM (copy exactly; only the metric name, metric: and dimensions change):
-//     metrics.<name>(period: 1d, window: 30d, metric: <value_sum|event_count_sum>, agg: avg, <dim>: $host)
+//     metrics.<name>(period: 1d, window: 30d, metric: <value_sum|event_count_sum>, agg: avg, <dim>: <dim>)
 //     The stddev slot is the same call with agg: stddev. period: and agg: are required; there is
 //     no function: argument and no value_stddev / event_count_stddev metric.
 //   ECG block (pick one):

@@ -492,8 +492,8 @@ class RollupPlan:
     return ", ".join(["$entity"] + [companion_var(d) for d in self.companions])
 
   def metric_filters(self) -> str:
-    return ", ".join([f"{self.entity_field}: $entity"] + [
-        f"{fld}: {companion_var(dim)}" for dim, fld in zip(self.companions, self.companion_fields)
+    return ", ".join([f"{self.entity_field}: {self.entity_field}"] + [
+        f"{fld}: {fld}" for fld in self.companion_fields
     ])
 
 

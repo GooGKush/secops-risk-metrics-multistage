@@ -27,15 +27,15 @@ stage stage1_http_failure_surge {
 
     $hist_fail_avg = max(metrics.http_queries_fail(
         period: 1d, window: 30d, metric: event_count_sum, agg: avg,
-        principal.asset.hostname: $host
+        principal.asset.hostname: principal.asset.hostname
     ))
     $hist_fail_stddev = max(metrics.http_queries_fail(
         period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
-        principal.asset.hostname: $host
+        principal.asset.hostname: principal.asset.hostname
     ))
     $hist_fail_active_days = max(metrics.http_queries_fail(
         period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
-        principal.asset.hostname: $host
+        principal.asset.hostname: principal.asset.hostname
     ))
 
     $fail_z = ($failed_obs - $hist_fail_avg) / if($hist_fail_stddev > 0, $hist_fail_stddev, 1.0)

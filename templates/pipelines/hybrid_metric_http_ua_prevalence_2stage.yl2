@@ -23,18 +23,18 @@ stage stage1_personal_surge {
     $observed_val = count(metadata.id)
     $hist_mean = max(metrics.http_queries_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: avg,
-        principal.asset.hostname: $entity,
-        network.http.user_agent: $token
+        principal.asset.hostname: principal.asset.hostname,
+        network.http.user_agent: network.http.user_agent
     ))
     $hist_stddev = max(metrics.http_queries_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
-        principal.asset.hostname: $entity,
-        network.http.user_agent: $token
+        principal.asset.hostname: principal.asset.hostname,
+        network.http.user_agent: network.http.user_agent
     ))
     $hist_active_days = max(metrics.http_queries_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
-        principal.asset.hostname: $entity,
-        network.http.user_agent: $token
+        principal.asset.hostname: principal.asset.hostname,
+        network.http.user_agent: network.http.user_agent
     ))
 
     $personal_z = ($observed_val - $hist_mean) / if($hist_stddev > 0, $hist_stddev, 1.0)
