@@ -1,6 +1,6 @@
 # Google SecOps Multi-Stage Risk Metrics Threat Hunter (`secops-risk-metrics-multistage`)
 
-[![Version](https://img.shields.io/badge/version-v1.8.1-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-334%2F334%20passing%20(100%25)-brightgreen.svg)](tests/) [![Submission Tests](https://img.shields.io/badge/submission%20tests-32%2F32%20passing%20(100%25)-brightgreen.svg)](scripts/submission_tests.py)
+[![Version](https://img.shields.io/badge/version-v1.8.2-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-335%2F335%20passing%20(100%25)-brightgreen.svg)](tests/) [![Submission Tests](https://img.shields.io/badge/submission%20tests-32%2F32%20passing%20(100%25)-brightgreen.svg)](scripts/submission_tests.py)
 
 A specialized, production-grade AI agent skill package for **Google Security Operations (SecOps / Chronicle SIEM & SOAR)** that constructs, validates, and executes **Multi-Stage YARA-L 2.0 Directed Acyclic Graph (DAG) statistical threat hunting pipelines**, **360° Entity Behavioral Risk Radars**, and **Progressively Disclosed Consultative Threat Hunting**.
 
@@ -124,7 +124,7 @@ secops-risk-metrics-multistage/
 │   ├── sync_malachite_catalog.py         # Re-syncs / drift-checks data/malachite against google3
 │   ├── template_router.py                # Maps natural language intent to .yl2 templates with condition filtering
 │   └── triage_formatter.py               # Generates 6-section triage reports & CRI scores
-└── tests/                                # Automated unit test suite (334 tests across 21 test modules)
+└── tests/                                # Automated unit test suite (335 tests across 21 test modules)
     ├── test_chart_specifications.py
     ├── test_chronicle_ingest.py
     ├── test_complex_multistage_syntax.py
@@ -323,7 +323,7 @@ The skill package ships with two test tiers that anyone can run from a clone:
 pytest tests/
 # or: python3 -m unittest discover tests
 ```
-* **Status**: **334 / 334 passing unit tests** across 21 test modules (100% pass rate).
+* **Status**: **335 / 335 passing unit tests** across 21 test modules (100% pass rate).
 * **Scope**: Enforces Chronicle AST grammar rules, KaTeX formatting compliance, prompt guardrail contracts, 20,480-byte budget ceilings, template router permutations across all 38 metrics and the Stage 2 models, metric-sector catalog drift against `data/`, and Entity Graph freshness filters in every graph template.
 
 ### 2. Google SecOps Malachite Compiler Submission Harness
@@ -341,6 +341,11 @@ python3 scripts/submission_tests.py --dump-dir <OUTPUT_DIR>
 ---
 
 ## 📦 Recent Releases
+
+### v1.8.2 (October 2026) — Case-Insensitive Search Protection for `metrics.*` & Full Cloud CRUD Coverage
+* **Field Paths in `metrics.*` Calls**: Every `metrics.*(...)` filter argument is written `<field>: <field>` instead of a `$placeholder`, across all templates, the router, the radar collector and the guides. Queries now return the same baselines in the SecOps Search UI with **Case Sensitivity Off** as they do through `udm_search`; Pillar 5 tells analysts to turn **Case Sensitivity On** for `metrics.*` queries.
+* **Cloud CRUD Coverage**: `cloud_repository_scope_dual_branch.yl2` baselines all four resource families (read, write, delete, create) per resource plus caller IP, so dormant service accounts that wake up to create or delete resources are no longer missed.
+* **Test Suite**: 335/335 unit tests (new `test_no_placeholder_args_inside_metrics_calls`); 32/32 submission tests.
 
 ### v1.8.1 (October 2026) — Date-Based Entity Graph Freshness Filter & Derived Prevalence Scope
 * **Entity Graph Freshness**: In Mode A, every event stage of a graph-joined query filters on today's date (`timestamp.get_date(metadata.event_timestamp.seconds) = "<today UTC>"`) instead of a hand-computed epoch, across the 7 graph templates, SKILL.md and the guides' inline examples.
