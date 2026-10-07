@@ -17,7 +17,7 @@ Operational execution: `references/turn-execution-lifecycle.md`.
 * **Jitter & Raw UDM**: Sub-second jitter requires raw logs; emit Skill Handoff Card to `secops-statistical-hunter` and yield turn (0 tools called).
 * **Scheduled Exfiltration**: Offer Mode B Longitudinal CUSUM Drift (`longitudinal_cusum.yl2`) or emit Skill Handoff Card to `secops-statistical-hunter` for sub-day cron cadence.
 * **Rollouts & Rare Binaries**: Deploy Fleet Prevalence Normalization with Entity Graph (`rolling_max <= 3`).
-* **Non-Metrics Telemetry Steering Mandate** (Git, raw UDM): Emit **Skill Handoff Card** and steer to `secops-statistical-hunter`.
+* **Non-Metrics Telemetry Steering Mandate** (Git, raw UDM, raw-field MAD): Handoff Card → `secops-statistical-hunter`. Metrics-vector MAD (any mode): `stage2_math_models/mad.yl2`.
 * **Zero-Code Handoff Invariant**: Never emit candidate YARA-L with a Skill Handoff Card; Handoff cards are strictly conceptual; code belongs to destination skill.
 
 ---

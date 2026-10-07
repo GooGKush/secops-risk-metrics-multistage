@@ -73,7 +73,7 @@ secops-risk-metrics-multistage/
 │   │   ├── hybrid_metric_whois_domain_lifecycle_2stage.yl2
 │   │   ├── longitudinal_cusum_2stage.yl2
 │   │   ├── macd_momentum_velocity_2stage.yl2
-│   │   ├── mad_modified_z_2stage.yl2
+│   │   ├── mad_robust_z_4stage.yl2               # True median/MAD over the raw window + 30d metrics Z cross-check
 │   │   ├── multi_sector_fusion_4stage.yl2          # Generic 2-sector fusion plus each sector's deviation from the fleet
 │   │   ├── part_of_the_whole_multilevel.yl2        # User vs. self, vs. peer group, vs. enterprise
 │   │   ├── part_of_the_whole_triad_multilevel.yl2
@@ -103,10 +103,11 @@ secops-risk-metrics-multistage/
 │       ├── hourly_temporal_zscore.yl2
 │       ├── longitudinal_cusum.yl2
 │       ├── macd_momentum_velocity.yl2
-│       ├── mad.yl2
+│       ├── mad.yl2                               # True MAD module (mad_center -> mad_spread -> root)
 │       ├── piecewise_cri.yl2
 │       ├── poisson_gamma_bayesian.yl2
 │       ├── poisson_rarity.yl2
+│       ├── relative_deviation.yl2                # Fold change vs 30d mean (formerly mislabelled MAD)
 │       ├── standard_z_score.yl2
 │       ├── two_part_hurdle.yl2
 │       └── variance_fano.yl2
@@ -204,7 +205,7 @@ secops-risk-metrics-multistage/
     * Strictly bans heuristic username synthesis. Scopes technical ID disambiguation spot-checks strictly to ambiguous human display names (e.g. "Frank"), while hostnames, technical identifiers (`user_id`), and fleet-wide scopes proceed directly with pre-flight vector formulation.
     * Uses a 14-day UDM lookback window (`startTime: 14d ago, maxEvents: 5`) across `principal.user` and `target.user`. Halts immediately and prompts the analyst if an ambiguous human identity cannot be resolved from telemetry.
 12. **Comprehensive 38-Metric Extractor Matrix & Stage 2 Math Models**:
-    * 100% coverage across 38 Stage 1 extractors (Authentication, Cloud CRUD, File Execution, Network Egress/Flows, DNS Activity, HTTP, Google Workspace) and 16 Stage 2 model templates (Standard $Z$, Robust MAD, Poisson Rarity, Hourly Temporal $Z$, $CV$, Fano Factor, Asymmetric $Z$, CUSUM, Two-Part Hurdle, Piecewise CRI, Empirical Bayes Gamma, Beta-Binomial, Fleet Shield, Adaptive Thresholds, MACD Momentum Velocity, Circadian von Mises).
+    * 100% coverage across 38 Stage 1 extractors (Authentication, Cloud CRUD, File Execution, Network Egress/Flows, DNS Activity, HTTP, Google Workspace) and 17 Stage 2 model templates (Standard $Z$, True MAD / Modified $Z$, Relative Deviation, Poisson Rarity, Hourly Temporal $Z$, $CV$, Fano Factor, Asymmetric $Z$, CUSUM, Two-Part Hurdle, Piecewise CRI, Empirical Bayes Gamma, Beta-Binomial, Fleet Shield, Adaptive Thresholds, MACD Momentum Velocity, Circadian von Mises).
     * Every Stage 1 extractor's observed event filter matches what its pre-computed baseline counts, and each carries a note listing the identifier fields valid for that metric.
     * Pre-composed in 32 pipeline templates in `templates/pipelines/`.
 13. **Calibrated Risk Index (CRI [0–100])**:
@@ -309,7 +310,8 @@ During the Pre-Flight Clearance gate, analysts choose between two temporal evalu
 #### 🔀 Bilateral Handoff Triggers (Routing to `secops-statistical-hunter`)
 Inquiries requiring sub-second packet timing, raw log volume parsing, or non-metrics telemetry automatically yield the turn and emit the Markdown Skill Handoff Card:
 * *"Hunt for C2 beaconing with random timing jitter in outbound proxy traffic."*
-* *"Calculate Median Absolute Deviation (MAD) directly on raw DNS request logs."*
+* *"Calculate Median Absolute Deviation (MAD) on raw DNS query names / URI paths (no `metrics.*` baseline)."*
+  *(MAD on a metric-catalog vector, e.g. "Run MAD on outbound bytes for the fleet", stays in this skill: `stage2_math_models/mad.yl2`.)*
 * *"Find impossible travel velocity anomalies across raw cloud login events."*
 
 ---

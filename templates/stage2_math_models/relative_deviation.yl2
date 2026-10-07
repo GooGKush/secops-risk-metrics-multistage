@@ -1,0 +1,23 @@
+// Root Stage: Relative Deviation / Fold Change vs 30-Day Mean (Preserving Daily Timeline)
+// Formula: ratio = (observed - 30d mean) / safe 30d mean   (e.g. 2.2 = "3.2x the usual volume")
+// NOTE: This is NOT a Median Absolute Deviation. It is a scale-free fold-change readout built on the
+//       30-day mean, so one historic burst still inflates the denominator. For a true robust
+//       (median-anchored) score use the MAD model (stage2_math_models/mad.yl2).
+$entity = $stage1_extract.entity
+$ws = $stage1_extract.window_start
+
+match:
+  $entity, $ws by 1d
+
+outcome:
+  $observed = max($stage1_extract.observed_val)
+  $hist_avg = max($stage1_extract.historical_avg)
+  $hist_stddev = max($stage1_extract.historical_stddev)
+  $active_days = max($stage1_extract.historical_active_days)
+
+  $dev = $observed - $hist_avg
+  $safe_hist_avg = if($hist_avg > 0, $hist_avg, 1.0)
+  $ratio = $dev / $safe_hist_avg
+
+order:
+  $ratio desc

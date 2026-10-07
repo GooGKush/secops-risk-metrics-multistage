@@ -22,6 +22,7 @@ or invariant violations.
 """
 
 import argparse
+import datetime
 from dataclasses import dataclass
 import json
 import os
@@ -46,6 +47,48 @@ from scripts.preflight_validator import (
 )
 from scripts.statistical_validator import StatisticalAntipatternAuditor
 from scripts.template_router import MultiStageTemplateRouter
+
+
+def iter_if_calls(query: str):
+  """Yields (call_text, [condition, then, else]) for every if(...) call, honoring nested parentheses.
+
+  A naive `if\s*\(([^)]+)\)` regex truncates at the first ')' and misreads conditions that contain
+  function calls, e.g. if(timestamp.get_date(metadata.event_timestamp.seconds) >= "2026-10-01", 1, 0).
+  """
+  query = re.sub(r"(^|\s)//[^\n]*", r"\1", query)  # ignore // comments (prose may mention if())
+  for m in re.finditer(r"\bif\s*\(", query):
+    depth, start, args, buf = 1, m.end(), [], []
+    i = start
+    in_str = False
+    while i < len(query) and depth > 0:
+      ch = query[i]
+      if ch == '"' and (i == 0 or query[i - 1] != "\\"):
+        in_str = not in_str
+      if not in_str:
+        if ch == "(":
+          depth += 1
+        elif ch == ")":
+          depth -= 1
+          if depth == 0:
+            break
+        elif ch == "," and depth == 1:
+          args.append("".join(buf).strip())
+          buf = []
+          i += 1
+          continue
+      buf.append(ch)
+      i += 1
+    args.append("".join(buf).strip())
+    yield query[m.start():i + 1], args
+
+
+def if_branch_has_compound_arithmetic(branch: str) -> bool:
+  """True when an if() branch is an arithmetic expression rather than a variable or literal.
+
+  Verified live (gus-sdl, 2026-10-07): if($mad > 0, $mad / 0.6745, $m * 1.25) is rejected with
+  'invalid argument'; precomputing each branch into its own outcome variable compiles.
+  """
+  return bool(re.search(r"[\+\-\*\/]", re.sub(r"^\s*[-+]\s*", "", branch)))
 
 
 @dataclass
@@ -120,6 +163,8 @@ class SubmissionTestSuite:
     rendered = rendered.replace("{{dispersion_floor}}", dispersion_floor)
     rendered = rendered.replace("{{anomaly_threshold}}", anomaly_threshold)
     rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
+    rendered = rendered.replace(
+        "{{first_scored_date}}", datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d"))
 
     return rendered
 
@@ -162,12 +207,12 @@ class SubmissionTestSuite:
         TestCase(
             test_id="PIPE-03-MAD",
             category="Pipeline Template",
-            name="2-Stage Robust MAD Modified Z-Score",
-            description="Evaluates heavy-tail outbound network bytes with 0.6745 MAD scaling factor.",
+            name="4-Stage True MAD Modified Z-Score",
+            description="Median/MAD over raw daily outbound bytes (window.median) with Iglewicz-Hoaglin MAD=0 fallback, next to the 30d metrics Z.",
             generator=lambda: self._render_pipeline(
-                "mad_modified_z_2stage.yl2", "network_bytes_outbound", EntityType.ASSET
+                "mad_robust_z_4stage.yl2", "network_bytes_outbound", EntityType.ASSET
             ),
-            expected_stages=["stage1_extract"],
+            expected_stages=["stage1_extract", "mad_center", "mad_spread"],
         )
     )
 
@@ -469,14 +514,13 @@ order:
     if re.search(r'\border:\s*.*?\bcondition:\s*', query, re.DOTALL):
       errors.append("Illegal section ordering: 'condition:' must precede 'order:' in YARA-L grammar")
     # Validate that outcome blocks do not contain illegal 'if(...)' with compound expressions or missing else.
-    for m in re.finditer(r"\bif\s*\(([^)]+)\)", query):
-      args = [a.strip() for a in m.group(1).split(",")]
+    for call_text, args in iter_if_calls(query):
       if len(args) < 3:
-        errors.append(f"Illegal 'if(...)' expression in query: missing required 'else' clause: {m.group(0)}")
+        errors.append(f"Illegal 'if(...)' expression in query: missing required 'else' clause: {call_text}")
       else:
-        then_clause = re.sub(r"^\s*[-+]\s*", "", args[1])
-        if re.search(r"[\+\-\*\/]", then_clause):
-          errors.append(f"Illegal 'if(...)' expression in query: compound arithmetic in 'then' clause: {m.group(0)}")
+        for label, branch in (("then", args[1]), ("else", args[2])):
+          if if_branch_has_compound_arithmetic(branch):
+            errors.append(f"Illegal 'if(...)' expression in query: compound arithmetic in '{label}' clause: {call_text}")
 
     # 1b. Zero illegal metric_value_sum parameter
     if "metric_value_sum" in query:

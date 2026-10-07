@@ -86,17 +86,20 @@ Before running a multi-stage statistical hunt, explain the approach to the secur
 
 ## 2. Median Absolute Deviation (`MAD` / Modified Z-Score)
 * **Security Problem Solved**: Detects volumetric surges on heavily skewed or heavy-tailed telemetry (network egress bytes, DNS volumes) where a few historic massive bulk transfers distort and inflate the standard arithmetic mean.
-* **Mathematical Formulation**:
-  $$\text{MAD} \approx \text{historical dispersion}, \quad \text{Dev} = |x - \mu|, \quad \text{Ratio} = \frac{\text{Dev}}{\mu_{\text{safe}}}$$
+* **Mathematical Formulation** (Iglewicz & Hoaglin):
+  $$\tilde{x} = \text{median}(x_d), \quad \text{MAD} = \text{median}(|x_d - \tilde{x}|), \quad M_z = \frac{x - \tilde{x}}{\text{MAD}/0.6745}$$
 * **Where**:
-  * $\mu_{\text{safe}} = \text{if}(\mu > 0, \mu, 1.0)$
-* **Threat Meaning**: Robust outlier detection resilient to historic masking.
+  * $x_d$ = the entity's daily values over the raw search window (~30d); computed natively with `window.median(..., false)` in stages `mad_center` → `mad_spread` (`stage2_math_models/mad.yl2`).
+  * MAD $= 0$ → scale $= 1.253314 \cdot \text{meanAD}$; both $0$ → $0.05\,\tilde{x} + 1$.
+  * Significance: $M_z \ge 3.5$. Reported next to the 30d metrics $Z$; `$z_gap` $= M_z - Z$.
+* **Threat Meaning**: Robust outlier detection resilient to historic masking (50% breakdown point). A large positive `$z_gap` means past bursts inflated the 30d mean/stddev and the classical $Z$ was hiding the anomaly.
+* **Related, NOT MAD**: `RELATIVE_DEVIATION` (`relative_deviation.yl2`) reports the fold change $(x-\mu)/\mu$ against the 30d mean.
 * **Post-Hunt Plain-English Cyber Impact Statement Template**:
 ```markdown
 > [!IMPORTANT]
 > **Robust Non-Parametric Surge Verdict: MAD (`[target_metric]`)**
 > * **Observed Transfer**: Entity `[entity]` transferred **[observed] bytes/events** today.
-> * **Deviation Ratio**: Absolute deviation is **[ratio]×** the central baseline tendency without arithmetic distortion.
+> * **Robust Deviation**: **[modified_z]** robust σ above the 30-day median of **[median_val]** (MAD = **[mad]**), versus a classical **[personal_z]σ** against the 30-day mean (gap **[z_gap]**).
 > * **Investigative Meaning**: High-confidence volume breakout on heavy-tailed telemetry that evades parametric Gaussian averaging traps.
 ```
 

@@ -20,12 +20,12 @@ In multi-stage hunting workflows:
 
 ---
 
-## 2. 📊 The 16-Model AST Contract Matrix
+## 2. 📊 The 17-Model AST Contract Matrix
 
 | # | `StatisticalModel` Enum | Declared Prose Name | Mandatory `outcome:` Variables | Key Mathematical Operations | Primary `order:` Clause | Prohibited Fallback Anti-Pattern |
 |---|---|---|---|---|---|---|
 | 1 | `STANDARD_Z_SCORE` | Parametric Historical Z-Score | `$personal_diff`, `$safe_stddev`, `$personal_z` | Linear deviation, positive stddev guard | `order: $personal_z desc` | Missing safe stddev guard (`> 0`) |
-| 2 | `MAD` | Non-Parametric Median / Anomaly Ratio | `$dev`, `$safe_hist_avg`, `$ratio` | Relative fold deviation | `order: $ratio desc` | Pure standard deviation normalization |
+| 2 | `MAD` | True Median Absolute Deviation / Modified $Z$ (with 30d $Z$ cross-check) | `$median_val`, `$mad`, `$mean_abs_dev`, `$robust_scale`, `$safe_robust_scale`, `$modified_z`, `$personal_z`, `$z_gap`, `$raw_active_days`, `$in_scoring_window` | `window.median` over stage1 daily rows (`mad_center` → `mad_spread`), $\text{MAD}/0.6745$, Iglewicz-Hoaglin $1.253314\cdot\text{meanAD}$ fallback | `order: $modified_z desc` | `0.6745 * (x - mean) / stddev` (a rescaled classical $Z$, not MAD) |
 | 3 | `VARIANCE` | Fano Factor / Index of Dispersion | `$variance`, `$safe_lambda`, `$fano_factor` | Variance calculation ($\sigma^2$), ratio to mean | `order: $fano_factor desc` | Omitting variance calculation |
 | 4 | `POISSON` | Discrete Poisson Rarity Z-Score | `$diff`, `$safe_lambda`, `$sqrt_lambda`, `$poisson_z` | `math.sqrt($safe_lambda)` | `order: $poisson_z desc` | Linear stddev denominator instead of square-root mean |
 | 5 | `COEFFICIENT_OF_VARIATION` | CV Predictability & Surge Ratio | `$safe_hist_avg`, `$cv`, `$surge_ratio` | Relative dispersion ($\sigma / \mu$) | `order: $surge_ratio desc` | Standard Gaussian $Z$ without CV stability factor |
@@ -40,6 +40,7 @@ In multi-stage hunting workflows:
 | 14 | `ADAPTIVE_CONTEXT_THRESHOLD` | Context-Modulated Adaptive Sensitivity | `$diff`, `$safe_stddev`, `$personal_z`, `$is_off_hours`, `$dynamic_threshold`, `$sensitivity_excess` | Off-hours sensitivity tightening ($1.75\sigma$ vs $3.00\sigma$) | `order: $sensitivity_excess desc` | Static uniform threshold across all operating contexts |
 | 15 | `MACD_MOMENTUM_VELOCITY` | MACD Dual-Spine Momentum Indicator | `$fast_diff`, `$safe_stddev`, `$fast_z`, `$slow_diff`, `$slow_z`, `$macd_diff`, `$safe_max`, `$velocity_ratio`, `$scaled_diff`, `$macd_momentum_score` | Fast spine deviation, slow reference anchor, velocity ratio amplification | `order: $macd_momentum_score desc` | Univariate standard Z fallback |
 | 16 | `CIRCADIAN_VON_MISES` | Circadian von Mises Temporal Distance | `$hourly_diff`, `$safe_stddev_hourly`, `$hourly_z`, `$event_hour`, `$raw_diff`, `$inverted_dist`, `$circ_dist`, `$von_mises_arc`, `$temporal_penalty`, `$temporal_multiplier`, `$circadian_threat_score` | Circular distance on 24h clock, quadratic von Mises penalty ($d^2 / 72.0$) | `order: $circadian_threat_score desc` | Linear Euclidean hour subtraction |
+| 17 | `RELATIVE_DEVIATION` | Relative Deviation / Fold Change vs 30d Mean | `$dev`, `$safe_hist_avg`, `$ratio` | $(x-\mu)/\mu$ fold change | `order: $ratio desc` | Labelling it MAD (it is mean-anchored, 0% breakdown point) |
 
 ---
 
@@ -65,22 +66,59 @@ order:
 ```
 
 ### 2. `MAD` (`mad.yl2`)
-* **Hypothesis**: Non-parametric departure robust against baseline historical outliers and skewed distributions.
-* **Mandatory AST Contract**:
+* **Hypothesis**: Robust, median-anchored departure that historic bursts cannot mask (breakdown point 50% vs 0% for mean/stddev). Available on request on top of ANY stage1 extractor, in Mode A or Mode B.
+* **Topology**: stage1 extractor (event stage) → `mad_center` (median of daily `$observed_val`) → `mad_spread` (MAD and mean absolute deviation) → root. Only one event stage, so the 2-event-stage ceiling is untouched.
+* **Search Window Contract**: the raw search window IS the robust baseline (~30d ending at the scoring end date). The scored days are gated by `$in_scoring_window`, a date-string flag injected into stage1 (`timestamp.get_date(...) >= "<first scored date>"`); never wall-clock time, never an epoch literal. Mode A scores 1 day, Mode B 2-14.
+* **Mandatory AST Contract** (verified live on gus-sdl, 2026-10-07):
 ```yara
-outcome:
-  $observed = max($stage1_extract.observed_val)
-  $hist_avg = max($stage1_extract.historical_avg)
-  $hist_stddev = max($stage1_extract.historical_stddev)
-  $active_days = max($stage1_extract.historical_active_days)
+stage mad_center {
+    $entity = $stage1_extract.entity
+  match:
+    $entity
+  outcome:
+    $median_val = window.median($stage1_extract.observed_val, false)
+    $raw_active_days = count_distinct($stage1_extract.window_start)
+}
 
-  $dev = $observed - $hist_avg
-  $safe_hist_avg = if($hist_avg > 0, $hist_avg, 1.0)
-  $ratio = $dev / $safe_hist_avg
+stage mad_spread {
+    $entity = $stage1_extract.entity
+    $entity = $mad_center.entity
+  match:
+    $entity
+  outcome:
+    $mad = window.median(math.abs($stage1_extract.observed_val - $mad_center.median_val), false)
+    $mean_abs_dev = avg(math.abs($stage1_extract.observed_val - $mad_center.median_val))
+    $median_val = max($mad_center.median_val)
+    $raw_active_days = max($mad_center.raw_active_days)
+}
+
+$entity = $stage1_extract.entity
+$entity = $mad_spread.entity
+$ws = $stage1_extract.window_start
+
+match:
+  $entity, $ws by 1d
+
+outcome:
+  // ... $observed, $hist_avg, $hist_stddev, $median_val, $mad, $mean_abs_dev, $in_scoring_window ...
+  $safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)
+  $personal_z = ($observed - $hist_avg) / $safe_stddev
+  $scale_from_mad = $mad / 0.6745
+  $scale_from_meanad = $mean_abs_dev * 1.253314
+  $robust_scale = if($mad > 0, $scale_from_mad, $scale_from_meanad)
+  $median_floor = $median_val * 0.05 + 1.0
+  $safe_robust_scale = if($robust_scale > 0, $robust_scale, $median_floor)
+  $modified_z = ($observed - $median_val) / $safe_robust_scale
+  $z_gap = $modified_z - $personal_z
+
+condition:
+  $in_scoring_window = 1 and $raw_active_days >= 7
 
 order:
-  $ratio desc
+  $modified_z desc
 ```
+* **Reading the output**: default significance $M_z \ge 3.5$ (Iglewicz-Hoaglin). `$z_gap` $\gg 0$ means the 30d mean/stddev were inflated by historic bursts and the classical $Z$ is masking an anomaly the robust score sees.
+* **Caveats**: zero-activity days produce no stage1 row (median over ACTIVE days, biased upward for sparse entities; `$raw_active_days` is the sample size); the scored day sits inside its own baseline (tolerated by the 50% breakdown point).
 
 ### 3. `VARIANCE` (`variance_fano.yl2`)
 * **Hypothesis**: Overdispersed behavioral burstiness indicating automated batching or scripting ($Var / \mu > 1.0$).
@@ -440,12 +478,30 @@ order:
   $circadian_threat_score desc
 ```
 
+### 17. `RELATIVE_DEVIATION` (`relative_deviation.yl2`)
+* **Hypothesis**: Scale-free fold change against the 30d mean ("3.2x the usual volume"). Easy to read, but mean-anchored: one historic burst inflates the denominator. This was formerly (mis)labelled `MAD`.
+* **Mandatory AST Contract**:
+```yara
+outcome:
+  $observed = max($stage1_extract.observed_val)
+  $hist_avg = max($stage1_extract.historical_avg)
+  $hist_stddev = max($stage1_extract.historical_stddev)
+  $active_days = max($stage1_extract.historical_active_days)
+
+  $dev = $observed - $hist_avg
+  $safe_hist_avg = if($hist_avg > 0, $hist_avg, 1.0)
+  $ratio = $dev / $safe_hist_avg
+
+order:
+  $ratio desc
+```
+
 ---
 
 ## 4. ✅ Pre-Display Self-Concordance Checklist
 
 Before emitting any query preview under a Pre-Flight Card in Phase 1B, verify:
-1. **Model Identification**: Does the declared `• Statistical Model:` in the card correspond to one of the 16 defined models?
+1. **Model Identification**: Does the declared `• Statistical Model:` in the card correspond to one of the 17 defined models?
 2. **Outcome Variable Audit**: Does the emitted query's `outcome:` block contain all mandatory variables specified in the matrix above?
 3. **Primary Ranking Target**: Does the `order:` clause sort by the primary model output variable (e.g. `$cusum_drift_score desc`, `$hurdle_threat_score desc`, `$bayes_shift_ratio desc`)?
 4. **No Univariate Fallback**: If an advanced model (e.g. Bayesian, CUSUM, Hurdle, Piecewise CRI) was declared, ensure it is NOT replaced by a bare standard $Z$-score.

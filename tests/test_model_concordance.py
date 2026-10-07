@@ -21,6 +21,20 @@ MODEL_AST_CONTRACTS = {
     },
     StatisticalModel.MAD: {
         "template": "mad.yl2",
+        "mandatory_vars": ["$median_val", "$mad", "$mean_abs_dev", "$robust_scale", "$safe_robust_scale",
+                           "$modified_z", "$personal_z", "$z_gap", "$raw_active_days", "$in_scoring_window"],
+        "order_var": "$modified_z",
+        "required_ops": [
+            "window.median($stage1_extract.observed_val, false)",
+            "window.median(math.abs($stage1_extract.observed_val - $mad_center.median_val), false)",
+            "$scale_from_mad = $mad / 0.6745",
+            "$scale_from_meanad = $mean_abs_dev * 1.253314",
+            "$modified_z = ($observed - $median_val) / $safe_robust_scale",
+        ],
+        "prohibited_substitutions": ["$personal_z", "$ratio"],
+    },
+    StatisticalModel.RELATIVE_DEVIATION: {
+        "template": "relative_deviation.yl2",
         "mandatory_vars": ["$dev", "$safe_hist_avg", "$ratio"],
         "order_var": "$ratio",
         "required_ops": ["$dev = $observed - $hist_avg", "$ratio = $dev / $safe_hist_avg"],
@@ -183,6 +197,40 @@ class TestModelConcordance(unittest.TestCase):
       for prohibited in contract["prohibited_substitutions"]:
         prohibited_order = "order:\n  " + prohibited + " desc"
         self.assertNotIn(prohibited_order, query, f"Emitted query for {model.value} degraded to standard {prohibited} ordering")
+
+  def test_mad_rebinds_every_stage_member_to_the_stage1_match_variable(self):
+    """MAD's sibling stages must use .user/.host when stage1 matches on $user/$host (no stray .entity)."""
+    router = MultiStageTemplateRouter()
+    query = router.build_query("auth_attempts_total", EntityType.USER, StatisticalModel.MAD,
+                               match_mode=MatchMode.FLEET_ROLLUP, scoring_end_date="2026-10-07")
+    self.assertNotIn(".entity", query)
+    self.assertIn("$user = $mad_center.user", query)
+    self.assertIn("$user = $mad_spread.user", query)
+    # Mode A keeps the daily root (median needs the daily series) and scores only the end date.
+    self.assertIn("$user, $ws by 1d", query)
+    self.assertIn('>= "2026-10-07", 1, 0))', query)
+    self.assertIn("$in_scoring_window = 1", query)
+
+  def test_mad_mode_b_scoring_window_and_condition_merge(self):
+    router = MultiStageTemplateRouter()
+    query = router.build_query("network_bytes_outbound", EntityType.ASSET, StatisticalModel.MAD,
+                               match_mode=MatchMode.TIMELINE_BREAKDOWN, scoring_days=3,
+                               scoring_end_date="2026-10-07", min_threshold=3.5)
+    self.assertIn('>= "2026-10-05", 1, 0))', query)
+    self.assertEqual(query.count("condition:"), 1, "threshold must be AND-ed into the module's own condition")
+    self.assertIn("$in_scoring_window = 1 and $raw_active_days >= 7 and $modified_z >= 3.5", query)
+    self.assertNotIn("timestamp.current_seconds()", query)
+
+  def test_mad_never_ignores_zero_values(self):
+    """window.median's 2nd arg is should_ignore_zero_values; `true` drops zero deviations and inflates MAD."""
+    root = Path(__file__).resolve().parent.parent
+    for rel in ("templates/stage2_math_models/mad.yl2", "templates/pipelines/mad_robust_z_4stage.yl2"):
+      text = (root / rel).read_text()
+      code = "\n".join(l for l in text.splitlines() if not l.lstrip().startswith("//"))
+      calls = re.findall(r"window\.median\((.*)\)", code)
+      self.assertEqual(len(calls), 2, rel)
+      for call in calls:
+        self.assertTrue(call.rstrip().endswith("false"), f"{rel}: window.median must pass false: {call}")
 
   def test_guide_documents_all_14_models(self):
     """The references/model-concordance-guide.md must document all 14 models."""

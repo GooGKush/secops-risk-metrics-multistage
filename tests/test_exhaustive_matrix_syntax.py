@@ -28,6 +28,7 @@ from scripts.preflight_validator import (
     StatisticalModel,
 )
 from scripts.template_router import MultiStageTemplateRouter
+from scripts.submission_tests import iter_if_calls, if_branch_has_compound_arithmetic
 
 
 class ExhaustiveMatrixSyntaxTest(unittest.TestCase):
@@ -39,11 +40,10 @@ class ExhaustiveMatrixSyntaxTest(unittest.TestCase):
 
   def _assert_query_grammar_invariants(self, query: str, context: str):
     # 1. Compiler-compliant if(...) in outcome expressions (no compound then-clause, required else-clause)
-    for m in re.finditer(r"\bif\s*\(([^)]+)\)", query):
-      args = [a.strip() for a in m.group(1).split(",")]
-      self.assertGreaterEqual(len(args), 3, f"[{context}] if(...) missing required else-clause: {m.group(0)}")
-      then_clause = re.sub(r"^\s*[-+]\s*", "", args[1])
-      self.assertFalse(re.search(r"[\+\-\*\/]", then_clause), f"[{context}] if(...) has compound arithmetic in then-clause: {m.group(0)}")
+    for call_text, args in iter_if_calls(query):
+      self.assertGreaterEqual(len(args), 3, f"[{context}] if(...) missing required else-clause: {call_text}")
+      self.assertFalse(if_branch_has_compound_arithmetic(args[1]), f"[{context}] if(...) has compound arithmetic in then-clause: {call_text}")
+      self.assertFalse(if_branch_has_compound_arithmetic(args[2]), f"[{context}] if(...) has compound arithmetic in else-clause: {call_text}")
 
     # 2. Zero dummy placeholders ($day_bucket, $hour_bucket) before 'by'
     self.assertNotIn("$day_bucket", query, f"[{context}] Must not contain $day_bucket dummy variable")

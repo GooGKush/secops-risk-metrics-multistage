@@ -519,7 +519,7 @@ To prevent runtime syntactic improvisation and avoid streaming rule syntax confu
 
 | Pipeline Template File | Stages | Analytical Model | Primary Use Case |
 | :--- | :--- | :--- | :--- |
-| **`mad_modified_z_2stage.yl2`** | 2 Stages | Robust MAD / Modified $Z$-Score ($M_Z$) | Heavy-tailed egress network bytes, skewed volume. |
+| **`mad_robust_z_4stage.yl2`** | 4 Stages (1 event stage) | True Median Absolute Deviation / Modified $Z$ ($M_Z$) next to the 30d metrics $Z$ | Heavy-tailed or burst-contaminated baselines (egress bytes, DNS volume); exposes $Z$ masking via `$z_gap`. Search window ~30d = robust baseline. |
 | **`standard_z_score_2stage.yl2`** | 2 Stages | Parametric Standard $Z$-Score ($Z$) | Volumetric bursts, auth attempts, process counts. |
 | **`poisson_rarity_2stage.yl2`** | 2 Stages | Discrete Poisson Rarity ($Z_P$) | Rare administrative binary launches, low $\lambda$. |
 | **`longitudinal_cusum_2stage.yl2`** | 2 Stages | Longitudinal CUSUM Drift ($S^+$) | Multi-day low-and-slow exfiltration and behavioral drift. |
@@ -883,7 +883,7 @@ When an analyst requests a cross-entity scenario (such as an endpoint workstatio
 2. **Path 2: Workstation-Centric Baseline (within Risk Metrics)**:
    * Baseline known developer workstations or jump boxes using `metrics.file_executions_total` (`$host, $sha256 by 1d`). Flag acute execution spikes ($Z \ge 3.0\sigma$) and cross-reference with outbound cloud network connections.
 3. **Path 3: Raw Log Statistical Outlier Handoff (`secops-statistical-hunter`)**:
-   * If the analyst needs ad-hoc statistical outlier hunting directly across raw `PROCESS_LAUNCH` logs (e.g. inline MAD, CV, Poisson rarity, or Tukey fences on user-process pairs without pre-computed table limits), seamlessly transition to `secops-statistical-hunter`.
+   * If the analyst needs ad-hoc statistical outlier hunting directly across raw `PROCESS_LAUNCH` logs (e.g. CV, Poisson rarity, or Tukey fences on user-process pairs without pre-computed table limits, or standalone MAD on a raw field with no `metrics.*` baseline), seamlessly transition to `secops-statistical-hunter`. MAD on a metric-catalog vector stays here (`stage2_math_models/mad.yl2`).
 
 ### D. The Web & HTTP URI Granularity Boundary (When to Pivot to Statistical Hunter)
 Chronicle Malachite maintains 30-day historical baselines for `metrics.http_queries_*` across exactly 9 pre-computed dimensions: host, user, target hostname, and user-agent token. It does **not** maintain baseline tables for full URL paths (`target.url`), URI query parameters, or payload transfer bytes.
@@ -903,8 +903,8 @@ Before outputting any candidate multi-stage YARA-L query in the Phase 1B Pre-Fli
 ### A. Template-First Assembly (template selection rule)
 To eliminate runtime syntax failures and semantic distortions, assemble every multi-stage query from the canonical templates below rather than authoring one from scratch. Open the chosen `.yl2` with `view_file` and fill in its placeholders — the template files are the authoritative source, and no script needs to be read or run to select one:
 1. **Stage 1 Extractors (`templates/stage1_extractors/`)**: Provide guaranteed 6-point outcome tuples (`$observed_val`, `$historical_avg`, `$historical_stddev`, `$historical_active_days`, `$historical_max`, `$historical_sum`) with immutable entity bindings.
-2. **Stage 2 Math Models (`templates/stage2_math_models/`)**: Provide clean AST implementations of all 16 models: Standard $Z$, Robust MAD, Discrete Poisson Rarity, Fano Factor Dispersion, Coefficient of Variation, Hourly Temporal $Z$, Bayesian Gamma & Beta-Binomial, Longitudinal CUSUM, Two-Part Hurdle, Asymmetric Directional ReLU, Piecewise Winsorized CRI, Fleet Prevalence Shield, Adaptive Context Sensitivity, MACD Momentum Velocity, and Circadian von Mises Temporal Distance.
-3. **Pre-Composed Pipelines (`templates/pipelines/`)**: End-to-end validated pipelines for complex multi-stage hunts (e.g. `cloud_repository_scope_dual_branch.yl2`, `mad_modified_z_2stage.yl2`).
+2. **Stage 2 Math Models (`templates/stage2_math_models/`)**: Provide clean AST implementations of all 17 models: Standard $Z$, True MAD / Modified $Z$ (attachable to any extractor, `references/model-concordance-guide.md` §2), Relative Deviation (fold change), Discrete Poisson Rarity, Fano Factor Dispersion, Coefficient of Variation, Hourly Temporal $Z$, Bayesian Gamma & Beta-Binomial, Longitudinal CUSUM, Two-Part Hurdle, Asymmetric Directional ReLU, Piecewise Winsorized CRI, Fleet Prevalence Shield, Adaptive Context Sensitivity, MACD Momentum Velocity, and Circadian von Mises Temporal Distance.
+3. **Pre-Composed Pipelines (`templates/pipelines/`)**: End-to-end validated pipelines for complex multi-stage hunts (e.g. `cloud_repository_scope_dual_branch.yl2`, `mad_robust_z_4stage.yl2`).
 
 ### B. The `RAW_LOG_DUMP_DETECTED` Post-Flight Inspection Rule
 Before generating any report, audit which responses the analysis rests on. Two things separate a legitimate call from a violation: its position in the hunt lifecycle, and whether it carries its own aggregation.

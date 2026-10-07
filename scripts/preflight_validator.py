@@ -30,6 +30,7 @@ class MatchMode(str, Enum):
 class StatisticalModel(str, Enum):
   STANDARD_Z_SCORE = "STANDARD_Z_SCORE"
   MAD = "MAD"
+  RELATIVE_DEVIATION = "RELATIVE_DEVIATION"
   VARIANCE = "VARIANCE"
   POISSON = "POISSON"
   COEFFICIENT_OF_VARIATION = "COEFFICIENT_OF_VARIATION"
@@ -1257,7 +1258,12 @@ class MalachiteASTValidator:
     named_stages = [s for s in stage_blocks if s]
 
     # Stage count & topology validation
-    if model in [StatisticalModel.STANDARD_Z_SCORE, StatisticalModel.MAD, StatisticalModel.POISSON,
+    if model == StatisticalModel.MAD:
+      # True MAD: stage1 extractor + mad_center (median) + mad_spread (MAD) + root.
+      for required in ("mad_center", "mad_spread"):
+        if required not in named_stages:
+          errors.append(f"STAGE_TOPOLOGY_MISMATCH: Model MAD requires named stage '{required}' (median -> MAD chain). Found {named_stages}.")
+    elif model in [StatisticalModel.STANDARD_Z_SCORE, StatisticalModel.RELATIVE_DEVIATION, StatisticalModel.POISSON,
                  StatisticalModel.VARIANCE, StatisticalModel.COEFFICIENT_OF_VARIATION,
                  StatisticalModel.HOURLY_TEMPORAL_ZSCORE, StatisticalModel.LONGITUDINAL_CUSUM,
                  StatisticalModel.TWO_PART_HURDLE, StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z,
@@ -1271,8 +1277,13 @@ class MalachiteASTValidator:
 
     # Mathematical formulation signature validation
     if model == StatisticalModel.MAD:
-      if "0.6745" not in query_text and "mad" not in query_text.lower():
-        errors.append("MODEL_FORMULA_MISMATCH: MAD model must include the 0.6745 median scaling factor and robust dispersion floor.")
+      if "window.median(" not in query_text or "0.6745" not in query_text:
+        errors.append("MODEL_FORMULA_MISMATCH: MAD model must compute a true median and MAD via window.median(...) and scale by 0.6745 (MAD/0.6745 robust sigma).")
+      if "$historical_stddev" in query_text and re.search(r"0\.6745\s*\*\s*\([^)]*\)\s*/\s*[^\n]*stddev", query_text):
+        errors.append("MODEL_FORMULA_MISMATCH: 0.6745 * (x - mean) / stddev is a rescaled classical Z, not MAD.")
+    elif model == StatisticalModel.RELATIVE_DEVIATION:
+      if "$ratio" not in query_text:
+        errors.append("MODEL_FORMULA_MISMATCH: Relative deviation model must compute $ratio = $dev / $safe_hist_avg.")
     elif model == StatisticalModel.POISSON:
       if "sqrt" not in query_text.lower() and "poisson" not in query_text.lower():
         errors.append("MODEL_FORMULA_MISMATCH: Discrete Poisson model must calculate standard Poisson residual using sqrt(lambda).")

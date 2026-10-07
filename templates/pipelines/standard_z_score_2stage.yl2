@@ -2,7 +2,8 @@
 // ARCHITECTURE: 2-STAGE PARAMETRIC STANDARD Z-SCORE OUTLIER PIPELINE
 // Skill: secops-risk-metrics-multistage
 // Purpose: Standard volumetric anomaly detection against personal 30-day baseline
-// Formula: Z = (Observed - Baseline_Mean) / if(Baseline_StdDev > 0, Baseline_StdDev, 1.0)
+// Formula: Z = (Observed - Baseline_Mean) / if(Baseline_StdDev > 0, Baseline_StdDev, {{dispersion_floor}})
+// dispersion_floor slot: 1.0 for event counts; for byte metrics use a unit-appropriate floor (e.g. 1024).
 //
 // CONCRETE FIELD BINDING & INSTANTIATION GUIDE:
 // Slots event_filter / macro_event_filter: the metric's "Observed event filter" lines from references/metric-sector-catalog.md, one per line.
@@ -70,7 +71,7 @@ outcome:
   $events_count = max($stage1_extract.observed_events)
 
   // 1. Parametric Standard Z-Score with Conditional Zero-Dispersion Safeguard
-  $personal_z = ($observed_val - $baseline_mean) / if($baseline_stddev > 0, $baseline_stddev, 1.0)
+  $personal_z = ($observed_val - $baseline_mean) / if($baseline_stddev > 0, $baseline_stddev, {{dispersion_floor}})
 
 order:
   $personal_z desc

@@ -216,6 +216,20 @@ class MultiStageTemplateRouter:
       raise ValueError("Rendered fusion query failed validation: " + " | ".join(errors))
     return rendered + "\n"
 
+  @staticmethod
+  def _merge_root_condition(rendered: str, expression: str) -> str:
+    """Adds `expression` to the root condition, AND-ing it into an existing condition block if present.
+
+    Templates such as stage2_math_models/mad.yl2 ship their own root `condition:` (scoring-day and
+    sample-size gates); inserting a second `condition:` block would not compile.
+    """
+    existing = re.search(r'(\bcondition:\s*\n)(.*?)(\n\s*\n\s*order:)', rendered, re.S)
+    if existing:
+      merged = f"{existing.group(2).rstrip()} and {expression}"
+      return rendered[:existing.start(2)] + merged + rendered[existing.end(2):]
+    cond_block = f"condition:\n  {expression}\n\n"
+    return re.sub(r'(\border:\s*)', f"{cond_block}\\1", rendered, count=1)
+
   def build_query(
       self,
       target_metric: str,
@@ -230,7 +244,16 @@ class MultiStageTemplateRouter:
       condition_expression: Optional[str] = None,
       apply_threshold_condition: bool = False,
       identifier_field: Optional[str] = None,
+      scoring_days: Optional[int] = None,
+      scoring_end_date: Optional[str] = None,
   ) -> str:
+    """Renders stage1 extractor + stage2 math model.
+
+    scoring_days applies to StatisticalModel.MAD only: the raw search window is the robust baseline
+    (~30d), so the number of most-recent days actually scored is set explicitly (Mode A: 1, Mode B
+    default: 7), ending at scoring_end_date (UTC YYYY-MM-DD; default today). The gate is a date
+    string rendered into stage1 ($in_scoring_window), never wall-clock time or an epoch literal.
+    """
     audit = PreFlightValidator.audit(
         target_metric=target_metric,
         entity_type=entity_type,
@@ -264,6 +287,7 @@ class MultiStageTemplateRouter:
     stage2_file_map = {
         StatisticalModel.STANDARD_Z_SCORE: "standard_z_score.yl2",
         StatisticalModel.MAD: "mad.yl2",
+        StatisticalModel.RELATIVE_DEVIATION: "relative_deviation.yl2",
         StatisticalModel.VARIANCE: "variance_fano.yl2",
         StatisticalModel.POISSON: "poisson_rarity.yl2",
         StatisticalModel.COEFFICIENT_OF_VARIATION: "coefficient_of_variation.yl2",
@@ -292,6 +316,8 @@ class MultiStageTemplateRouter:
     if primary_var != "$entity":
       stage2_raw = stage2_raw.replace("$entity = $stage1_extract.entity", f"{primary_var} = $stage1_extract.{entity_name}")
       stage2_raw = stage2_raw.replace("$entity", primary_var)
+      # Multi-stage modules (e.g. MAD's mad_center / mad_spread) reference sibling stages' match field too.
+      stage2_raw = re.sub(r'(\$[a-zA-Z0-9_]+)\.entity\b', rf'\1.{entity_name}', stage2_raw)
 
     if statistical_model == StatisticalModel.CIRCADIAN_VON_MISES:
       if "$event_hour" not in stage1_content:
@@ -303,7 +329,30 @@ class MultiStageTemplateRouter:
         )
       stage1_content = re.sub(r'(\bmatch:\s*\n\s*[$][a-zA-Z0-9_]+\s+by)\s+1d', r'\1 1h', stage1_content)
 
-    if match_mode == MatchMode.FLEET_ROLLUP:
+    if statistical_model == StatisticalModel.MAD:
+      # MAD needs the daily rows of the raw search window as its empirical series, so the root keeps
+      # `$entity, $ws by 1d` in every mode; Mode A / Mode B differ only in how many recent days are scored.
+      if scoring_days is None:
+        scoring_days = 1 if match_mode == MatchMode.FLEET_ROLLUP else 7
+      if scoring_days < 1:
+        raise ValueError(f"scoring_days must be >= 1, got {scoring_days}")
+      end = datetime.datetime.strptime(scoring_end_date, "%Y-%m-%d") if scoring_end_date else \
+          datetime.datetime.now(datetime.timezone.utc)
+      first_scored_date = (end - datetime.timedelta(days=scoring_days - 1)).strftime("%Y-%m-%d")
+      if "$in_scoring_window" not in stage1_content:
+        stage1_content = re.sub(
+            r'(outcome:\s*\n)',
+            r'\1    $in_scoring_window = max(if(timestamp.get_date(metadata.event_timestamp.seconds) >= "{{first_scored_date}}", 1, 0))\n',
+            stage1_content,
+            count=1,
+        )
+      stage1_content = stage1_content.replace("{{first_scored_date}}", first_scored_date)
+      # Keep the module's one-line title; its long design notes stay in the template, not in every query.
+      head, sep, tail = stage2_raw.partition("stage mad_center")
+      head_lines = head.splitlines()
+      stage2_raw = "\n".join(head_lines[:1]) + "\n" + sep + tail
+      stage2_raw = stage2_raw.replace("{{first_scored_date}}", first_scored_date)
+    elif match_mode == MatchMode.FLEET_ROLLUP:
       stage2_raw = stage2_raw.replace(f"match:\n  {primary_var}, $ws by 1d", f"match:\n  {primary_var}")
       stage2_raw = stage2_raw.replace(f"match:\n  {primary_var}, $ws by 1h", f"match:\n  {primary_var}")
       stage2_raw = stage2_raw.replace("$ws = $stage1_extract.window_start\n", "")
@@ -319,17 +368,14 @@ class MultiStageTemplateRouter:
     score_var = order_match.group(1) if order_match else "$personal_z"
 
     if condition_expression:
-      cond_block = f"condition:\n  {condition_expression}\n\n"
-      stage2_rendered = re.sub(r'(\border:\s*)', f"{cond_block}\\1", stage2_rendered, count=1)
+      stage2_rendered = self._merge_root_condition(stage2_rendered, condition_expression)
     elif min_threshold is not None and max_threshold is not None:
-      cond_block = f"condition:\n  {score_var} >= {min_threshold} and {score_var} < {max_threshold}\n\n"
-      stage2_rendered = re.sub(r'(\border:\s*)', f"{cond_block}\\1", stage2_rendered, count=1)
+      stage2_rendered = self._merge_root_condition(
+          stage2_rendered, f"{score_var} >= {min_threshold} and {score_var} < {max_threshold}")
     elif min_threshold is not None:
-      cond_block = f"condition:\n  {score_var} >= {min_threshold}\n\n"
-      stage2_rendered = re.sub(r'(\border:\s*)', f"{cond_block}\\1", stage2_rendered, count=1)
+      stage2_rendered = self._merge_root_condition(stage2_rendered, f"{score_var} >= {min_threshold}")
     elif max_threshold is not None:
-      cond_block = f"condition:\n  {score_var} <= {max_threshold}\n\n"
-      stage2_rendered = re.sub(r'(\border:\s*)', f"{cond_block}\\1", stage2_rendered, count=1)
+      stage2_rendered = self._merge_root_condition(stage2_rendered, f"{score_var} <= {max_threshold}")
 
     header = (
         "// ============================================================================\n"

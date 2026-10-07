@@ -463,7 +463,7 @@ class TestGuardrailContracts(unittest.TestCase):
         'hybrid_metric_raw_enrichment_2stage.yl2',
         'hybrid_metric_whois_domain_lifecycle_2stage.yl2',
         'longitudinal_cusum_2stage.yl2',
-        'mad_modified_z_2stage.yl2',
+        'mad_robust_z_4stage.yl2',
         'multi_sector_fusion_4stage.yl2',
         'part_of_the_whole_multilevel.yl2',
         'part_of_the_whole_triad_multilevel.yl2',
