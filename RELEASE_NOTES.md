@@ -1,14 +1,14 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.8.2)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.8.3)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v1.8.2 (Point Release) — October 2026  
+**Latest Version**: v1.8.3 (Point Release) — October 2026  
 
 ---
 
-## 🧪 Unreleased (branch `feat/real-mad-technique`) — True Median Absolute Deviation
+## 📢 What's New in v1.8.3 (Point Release) — True Median Absolute Deviation (MAD) on Any Metric Vector
 
 The template called `mad_modified_z_2stage.yl2` computed `0.6745 * (x - mean) / stddev`, which is the standard Z-score multiplied by a constant: it ranked results exactly like `standard_z_score_2stage.yl2` and gave no protection against historic bursts. `stage2_math_models/mad.yl2` computed a third thing, `(x - mean) / mean`. Neither used a median. MAD is now real and can be attached to any analysis.
 
@@ -36,6 +36,8 @@ The template called `mad_modified_z_2stage.yl2` computed `0.6745 * (x - mean) / 
 * SKILL.md now states that MAD on a metrics vector stays in this skill in any mode, while raw-field MAD goes to `secops-statistical-hunter`. Guide §18, §26.C and §27.A, the concordance guide (17 models) and the taxonomy are updated to match.
 * Router fixes: the MAD root keeps daily rows in Mode A; condition merging no longer emits two `condition:` blocks; references to sibling stages are rebound to `.user`/`.host`.
 * New tests: MAD concordance and rebinding, Mode A/B scoring windows, the `window.median(..., false)` guard, and `test_mad_cross_skill_sync.py`, which fails if the MAD math in this skill and in `secops-statistical-hunter` drift apart.
+* The skill description now states the MAD split: 30d-baseline MAD on metric-catalog vectors stays here; raw-field or custom-window MAD goes to `secops-statistical-hunter`. The cross-skill sync test checks both descriptions.
+* **Test Suite**: 346/346 unit tests across 22 modules; 32/32 submission tests. Regression: the new MAD tests REG-P1-45 (fleet MAD on a metrics vector) and REG-P1-46 (raw-field MAD handoff) pass on both engines.
 
 ---
 
