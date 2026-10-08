@@ -18,6 +18,7 @@ The template called `mad_modified_z_2stage.yl2` computed `0.6745 * (x - mean) / 
 * Each row also carries the 30d metrics Z (`$personal_z`) and `$z_gap = modified_z - personal_z`. A large positive gap means past bursts inflated the 30d mean and stddev, so the classical Z was hiding the anomaly.
 * The raw search window (~30d) is the robust baseline. The days that get scored are selected by a date-string flag that the router injects into stage1 (`$in_scoring_window`), never wall-clock time or an epoch literal. Mode A scores 1 day; Mode B scores `scoring_days` (default 7) ending on `scoring_end_date`.
 * New pipeline `mad_robust_z_4stage.yl2` replaces `mad_modified_z_2stage.yl2`.
+* Fewer metrics lookups: MAD itself never reads `metrics.*`. For MAD queries the router drops every stage1 `metrics.*` lookup that nothing downstream reads, keeping only avg, stddev and active days (the Z cross-check). That is 3 lookups per entity-day instead of 5. Other models are unchanged.
 
 ### 2. Honest names
 * The old fold-change math is kept as `StatisticalModel.RELATIVE_DEVIATION` (`relative_deviation.yl2`).

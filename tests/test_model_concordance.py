@@ -10,6 +10,9 @@ import unittest
 from scripts.preflight_validator import EntityType, MatchMode, StatisticalModel
 from scripts.template_router import MultiStageTemplateRouter
 
+CLOUD_REPOSITORY_OVERRIDE = {"resource_read_total", "resource_written_total", "resource_written_success",
+                             "resource_written_fail"}
+
 # Authoritative Contract Specification matching references/model-concordance-guide.md
 MODEL_AST_CONTRACTS = {
     StatisticalModel.STANDARD_Z_SCORE: {
@@ -220,6 +223,43 @@ class TestModelConcordance(unittest.TestCase):
     self.assertEqual(query.count("condition:"), 1, "threshold must be AND-ed into the module's own condition")
     self.assertIn("$in_scoring_window = 1 and $raw_active_days >= 7 and $modified_z >= 3.5", query)
     self.assertNotIn("timestamp.current_seconds()", query)
+
+  def test_mad_renders_only_the_metrics_lookups_its_root_reads(self):
+    """MAD scores from raw daily values; metrics.* only feeds the Z cross-check (avg, stddev, active days)."""
+    router = MultiStageTemplateRouter()
+    extractors = sorted((self.repo_root / "templates" / "stage1_extractors").glob("*.yl2"))
+    self.assertTrue(extractors)
+    rendered = 0
+    for path in extractors:
+      for mode in (MatchMode.FLEET_ROLLUP, MatchMode.TIMELINE_BREAKDOWN):
+        query = None
+        for entity in (EntityType.ASSET, EntityType.USER):
+          try:
+            query = router.build_query(path.stem, entity, StatisticalModel.MAD, match_mode=mode,
+                                       scoring_end_date="2026-10-07")
+            break
+          except ValueError:
+            continue
+        self.assertIsNotNone(query, f"{path.stem}: no valid entity type")
+        if path.stem in CLOUD_REPOSITORY_OVERRIDE:
+          # Pre-existing router override: these USER metrics always render the cloud-repository
+          # dual-branch pipeline, whatever model was requested (MAD is not applied). Known gap.
+          self.assertNotIn("mad_center", query)
+          continue
+        rendered += 1
+        self.assertEqual(query.count("metrics."), 3, f"{path.stem}/{mode.value}")
+        for kept in ("$historical_avg =", "$historical_stddev =", "$historical_active_days ="):
+          self.assertIn(kept, query, f"{path.stem}/{mode.value}")
+        for dropped in ("$historical_max =", "$historical_sum ="):
+          self.assertNotIn(dropped, query, f"{path.stem}/{mode.value}")
+    self.assertEqual(rendered, 2 * (len(extractors) - len(CLOUD_REPOSITORY_OVERRIDE)))
+    pipeline = (self.repo_root / "templates" / "pipelines" / "mad_robust_z_4stage.yl2").read_text()
+    self.assertEqual(pipeline.count("metrics.{{target_metric_name}}("), 3)
+
+  def test_non_mad_models_keep_all_five_metrics_lookups(self):
+    router = MultiStageTemplateRouter()
+    query = router.build_query("network_bytes_outbound", EntityType.ASSET, StatisticalModel.STANDARD_Z_SCORE)
+    self.assertEqual(query.count("metrics."), 5)
 
   def test_mad_never_ignores_zero_values(self):
     """window.median's 2nd arg is should_ignore_zero_values; `true` drops zero deviations and inflates MAD."""

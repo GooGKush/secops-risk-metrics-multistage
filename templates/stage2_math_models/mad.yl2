@@ -17,6 +17,8 @@
 // CROSS-CHECK: $personal_z uses the precomputed 30d metrics.* mean/stddev. $z_gap = modified_z - personal_z.
 //   Large positive gap => the 30d mean/stddev were inflated by historic bursts (masking) and the
 //   robust score sees an anomaly the classical Z hides.
+//   MAD itself never reads metrics.*. The router drops stage1 lookups this root does not read
+//   (historical_max / historical_sum), so a MAD query makes 3 metrics lookups per entity-day, not 5.
 //
 // CAVEATS
 //   - Zero-activity days produce no stage1 row: median/MAD are over ACTIVE days only (biased upward

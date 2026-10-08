@@ -68,6 +68,8 @@ order:
 ### 2. `MAD` (`mad.yl2`)
 * **Hypothesis**: Robust, median-anchored departure that historic bursts cannot mask (breakdown point 50% vs 0% for mean/stddev). Available on request on top of ANY stage1 extractor, in Mode A or Mode B.
 * **Topology**: stage1 extractor (event stage) → `mad_center` (median of daily `$observed_val`) → `mad_spread` (MAD and mean absolute deviation) → root. Only one event stage, so the 2-event-stage ceiling is untouched.
+* **Data sources**: MAD and `$modified_z` come only from the raw daily `$observed_val`. `metrics.*` feeds only the `$personal_z` / `$z_gap` cross-check, so the router keeps just the avg, stddev and num_metric_periods lookups for MAD (3 per entity-day; `historical_max` / `historical_sum` are pruned).
+* **Known gap**: for `resource_read_total`, `resource_written_total`, `resource_written_success` and `resource_written_fail` with a USER entity, the router always renders `cloud_repository_scope_dual_branch.yl2`, whatever model was requested. MAD is not applied to those four.
 * **Search Window Contract**: the raw search window IS the robust baseline (~30d ending at the scoring end date). The scored days are gated by `$in_scoring_window`, a date-string flag injected into stage1 (`timestamp.get_date(...) >= "<first scored date>"`); never wall-clock time, never an epoch literal. Mode A scores 1 day, Mode B 2-14.
 * **Mandatory AST Contract** (verified live on gus-sdl, 2026-10-07):
 ```yara

@@ -230,6 +230,26 @@ class MultiStageTemplateRouter:
     cond_block = f"condition:\n  {expression}\n\n"
     return re.sub(r'(\border:\s*)', f"{cond_block}\\1", rendered, count=1)
 
+  _METRICS_OUTCOME_RE = re.compile(
+      r'^[ \t]*\$([A-Za-z0-9_]+)[ \t]*=[ \t]*max\(metrics\.[A-Za-z0-9_]+\([^()]*\)\)[ \t]*\n', re.M)
+
+  @classmethod
+  def _prune_unused_metrics_lookups(cls, stage1_content: str, downstream: str) -> str:
+    """Removes stage1 `$var = max(metrics.*(...))` outcomes that nothing downstream reads.
+
+    Each metrics.* outcome is a per-entity, per-day lookup. A lookup is kept if the downstream stages
+    reference `$stage1_extract.<var>` or another stage1 line references `$<var>`.
+    """
+    def _keep(m: "re.Match[str]") -> str:
+      var = m.group(1)
+      if re.search(r'\bstage1_extract\.' + re.escape(var) + r'\b', downstream):
+        return m.group(0)
+      rest = stage1_content[:m.start()] + stage1_content[m.end():]
+      if re.search(r'\$' + re.escape(var) + r'\b', rest):
+        return m.group(0)
+      return ""
+    return cls._METRICS_OUTCOME_RE.sub(_keep, stage1_content)
+
   def build_query(
       self,
       target_metric: str,
@@ -352,6 +372,8 @@ class MultiStageTemplateRouter:
       head_lines = head.splitlines()
       stage2_raw = "\n".join(head_lines[:1]) + "\n" + sep + tail
       stage2_raw = stage2_raw.replace("{{first_scored_date}}", first_scored_date)
+      # MAD itself never reads metrics.*; keep only the lookups the root consumes (Z cross-check).
+      stage1_content = self._prune_unused_metrics_lookups(stage1_content, stage2_raw)
     elif match_mode == MatchMode.FLEET_ROLLUP:
       stage2_raw = stage2_raw.replace(f"match:\n  {primary_var}, $ws by 1d", f"match:\n  {primary_var}")
       stage2_raw = stage2_raw.replace(f"match:\n  {primary_var}, $ws by 1h", f"match:\n  {primary_var}")

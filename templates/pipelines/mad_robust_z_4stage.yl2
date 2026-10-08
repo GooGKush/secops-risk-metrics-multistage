@@ -29,7 +29,7 @@
 // Caveats (zero-activity days, scored day in baseline, historical end dates): see stage2_math_models/mad.yl2.
 // ============================================================================
 
-// Stage 1: Telemetry Extraction & Pre-Computed 30-Day Behavioral Baseline Lookup
+// Stage 1: Telemetry Extraction & Pre-Computed 30-Day Baseline Lookup (only the 3 lookups the Z cross-check reads)
 stage stage1_extract {
     {{event_filter}}
     {{entity_field}} = $entity
@@ -53,14 +53,6 @@ stage stage1_extract {
     ))
     $historical_active_days = max(metrics.{{target_metric_name}}(
         period: 1d, window: 30d, metric: {{metric_type_val}}, agg: num_metric_periods,
-        {{dimension_key}}: {{dimension_key}} {{extra_dimensions}}
-    ))
-    $historical_max = max(metrics.{{target_metric_name}}(
-        period: 1d, window: 30d, metric: {{metric_type_val}}, agg: max,
-        {{dimension_key}}: {{dimension_key}} {{extra_dimensions}}
-    ))
-    $historical_sum = max(metrics.{{target_metric_name}}(
-        period: 1d, window: 30d, metric: {{metric_type_val}}, agg: sum,
         {{dimension_key}}: {{dimension_key}} {{extra_dimensions}}
     ))
 }
