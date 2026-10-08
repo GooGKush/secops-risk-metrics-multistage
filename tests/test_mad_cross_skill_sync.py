@@ -54,5 +54,31 @@ class TestMadCrossSkillSync(unittest.TestCase):
     self.assertEqual(a, b, "MAD math drifted between skills")
 
 
+class MadRoutingInDescriptions(unittest.TestCase):
+  """The skill-selection surface (frontmatter description) must state the MAD split for every user.
+
+  risk-metrics: 30d-baseline MAD on metric-catalog vectors. statistical-hunter: standalone MAD over raw
+  fields or custom windows. Each description names the other skill for the other half.
+  """
+
+  def _description(self, skill: str) -> str:
+    path = PROJECTS / skill / "SKILL.md"
+    if not path.exists():
+      self.skipTest(f"{skill} not checked out next to this repo")
+    import yaml  # pylint: disable=g-import-not-at-top
+    front = path.read_text(encoding="utf-8").split("---")[1]
+    return " ".join(str(yaml.safe_load(front)["description"]).split())
+
+  def test_risk_metrics_description_claims_metrics_vector_mad(self):
+    d = self._description("secops-risk-metrics-multistage")
+    self.assertIn("MAD on metric-catalog vectors", d)
+    self.assertIn("secops-statistical-hunter", d)
+
+  def test_hunter_description_scopes_mad_to_raw_fields(self):
+    d = self._description("secops-statistical-hunter")
+    self.assertIn("standalone Median Absolute Deviation (MAD) over raw fields or custom windows", d)
+    self.assertIn("secops-risk-metrics-multistage", d)
+
+
 if __name__ == "__main__":
   unittest.main()
