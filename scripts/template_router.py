@@ -250,6 +250,57 @@ class MultiStageTemplateRouter:
       return ""
     return cls._METRICS_OUTCOME_RE.sub(_keep, stage1_content)
 
+  @staticmethod
+  def _mad_group_keys(stage1_content: str):
+    """Splits stage1's match variables into MAD grouping keys and keys to drop.
+
+    A match variable is a MAD key when the UDM field it binds is a dimension argument of the stage1
+    metrics.* calls (the baseline's identity). Other match variables (e.g. `$ip` on resource_*) would
+    split one baseline tuple into several thin series, so they are dropped. Returns (keys, dropped);
+    the first key is always the primary match variable.
+    """
+    m = re.search(r'\bmatch:\s*\n\s*(.*?)\s+by\s+\d+[dh]', stage1_content)
+    if not m:
+      return [], []
+    match_vars = [v.strip() for v in m.group(1).split(",") if v.strip()]
+    dims = set(re.findall(r'^\s*([a-z][a-zA-Z0-9_.]*)\s*:\s*\1\s*,?\s*$', stage1_content, re.M))
+    keys, dropped = [], []
+    for i, var in enumerate(match_vars):
+      v = re.escape(var)
+      b = re.search(r'^\s*([a-z][a-zA-Z0-9_.]*)\s*=\s*' + v + r'\s*$', stage1_content, re.M) or re.search(
+          r'^\s*' + v + r'\s*=\s*([a-z][a-zA-Z0-9_.]*)\s*$', stage1_content, re.M)
+      if i == 0 or (b and b.group(1) in dims):
+        keys.append(var)
+      else:
+        dropped.append(var)
+    return keys, dropped
+
+  @staticmethod
+  def _drop_stage1_match_keys(stage1_content: str, dropped: Sequence[str]) -> str:
+    """Removes `dropped` match variables from stage1's match list and deletes their bindings/filters."""
+    for var in dropped:
+      v = re.escape(var)
+      stage1_content = re.sub(r',\s*' + v + r'\b(?=[^\n]*\bby\b)', '', stage1_content)
+      stage1_content = re.sub(r'^[^\n]*' + v + r'\b[^\n]*\n', '', stage1_content, flags=re.M)
+    return stage1_content
+
+  @staticmethod
+  def _expand_mad_keys(stage2_raw: str, primary_var: str, extra_keys: Sequence[str]) -> str:
+    """Adds the extra MAD grouping keys next to the primary key in every MAD stage's bindings and match."""
+    if not extra_keys:
+      return stage2_raw
+    p = re.escape(primary_var)
+    p_name = re.escape(primary_var.lstrip("$"))
+
+    def _bind(m: "re.Match[str]") -> str:
+      indent, stage = m.group(1), m.group(2)
+      extra = "".join(f"\n{indent}{k} = ${stage}.{k.lstrip('$')}" for k in extra_keys)
+      return m.group(0) + extra
+    stage2_raw = re.sub(r'^([ \t]*)' + p + r' = \$([a-zA-Z0-9_]+)\.' + p_name + r'[ \t]*$', _bind, stage2_raw, flags=re.M)
+    stage2_raw = re.sub(r'(\bmatch:\s*\n\s*)' + p + r'(?![\w])', lambda m: m.group(1) + ", ".join([primary_var, *extra_keys]),
+                        stage2_raw)
+    return stage2_raw
+
   def build_query(
       self,
       target_metric: str,
@@ -282,13 +333,15 @@ class MultiStageTemplateRouter:
         identifier_field=identifier_field,
     )
 
-    # Enforce Local-Baseline Isolation: multi-database account queries must route to CLOUD_REPOSITORY_SCOPE_DUAL_BRANCH
+    # Enforce Local-Baseline Isolation: multi-database account queries must route to CLOUD_REPOSITORY_SCOPE_DUAL_BRANCH.
+    # An explicit MAD request is exempt: MAD groups by the full (user, vendor, product, resource) baseline tuple,
+    # which already isolates each repository's baseline.
     if target_metric in [
         "resource_read_total",
         "resource_written_total",
         "resource_written_success",
         "resource_written_fail",
-    ] and entity_type == EntityType.USER:
+    ] and entity_type == EntityType.USER and statistical_model != StatisticalModel.MAD:
       return self.build_pipeline_query(
           PipelineArchitecture.CLOUD_REPOSITORY_SCOPE_DUAL_BRANCH,
           target_metric=target_metric,
@@ -372,6 +425,10 @@ class MultiStageTemplateRouter:
       head_lines = head.splitlines()
       stage2_raw = "\n".join(head_lines[:1]) + "\n" + sep + tail
       stage2_raw = stage2_raw.replace("{{first_scored_date}}", first_scored_date)
+      # Multi-key extractors: group every MAD stage by the metric's full baseline tuple.
+      mad_keys, dropped_keys = self._mad_group_keys(stage1_content)
+      stage1_content = self._drop_stage1_match_keys(stage1_content, dropped_keys)
+      stage2_raw = self._expand_mad_keys(stage2_raw, primary_var, mad_keys[1:])
       # MAD itself never reads metrics.*; keep only the lookups the root consumes (Z cross-check).
       stage1_content = self._prune_unused_metrics_lookups(stage1_content, stage2_raw)
     elif match_mode == MatchMode.FLEET_ROLLUP:

@@ -10,9 +10,6 @@ import unittest
 from scripts.preflight_validator import EntityType, MatchMode, StatisticalModel
 from scripts.template_router import MultiStageTemplateRouter
 
-CLOUD_REPOSITORY_OVERRIDE = {"resource_read_total", "resource_written_total", "resource_written_success",
-                             "resource_written_fail"}
-
 # Authoritative Contract Specification matching references/model-concordance-guide.md
 MODEL_AST_CONTRACTS = {
     StatisticalModel.STANDARD_Z_SCORE: {
@@ -241,20 +238,59 @@ class TestModelConcordance(unittest.TestCase):
           except ValueError:
             continue
         self.assertIsNotNone(query, f"{path.stem}: no valid entity type")
-        if path.stem in CLOUD_REPOSITORY_OVERRIDE:
-          # Pre-existing router override: these USER metrics always render the cloud-repository
-          # dual-branch pipeline, whatever model was requested (MAD is not applied). Known gap.
-          self.assertNotIn("mad_center", query)
-          continue
+        self.assertIn("stage mad_center", query, f"{path.stem}/{mode.value}")
         rendered += 1
         self.assertEqual(query.count("metrics."), 3, f"{path.stem}/{mode.value}")
         for kept in ("$historical_avg =", "$historical_stddev =", "$historical_active_days ="):
           self.assertIn(kept, query, f"{path.stem}/{mode.value}")
         for dropped in ("$historical_max =", "$historical_sum ="):
           self.assertNotIn(dropped, query, f"{path.stem}/{mode.value}")
-    self.assertEqual(rendered, 2 * (len(extractors) - len(CLOUD_REPOSITORY_OVERRIDE)))
+    self.assertEqual(rendered, 2 * len(extractors))
     pipeline = (self.repo_root / "templates" / "pipelines" / "mad_robust_z_4stage.yl2").read_text()
     self.assertEqual(pipeline.count("metrics.{{target_metric_name}}("), 3)
+
+  def test_mad_groups_every_stage_by_the_same_baseline_tuple(self):
+    """stage1, mad_center, mad_spread and root must share one key list (root adds only $ws)."""
+    router = MultiStageTemplateRouter()
+    for path in sorted((self.repo_root / "templates" / "stage1_extractors").glob("*.yl2")):
+      query = None
+      for entity in (EntityType.ASSET, EntityType.USER):
+        try:
+          query = router.build_query(path.stem, entity, StatisticalModel.MAD, scoring_end_date="2026-10-07")
+          break
+        except ValueError:
+          continue
+      matches = [m.strip() for m in re.findall(r"\bmatch:\s*\n\s*([^\n]+)", query)]
+      self.assertEqual(len(matches), 4, path.stem)
+      stage1_keys = re.sub(r"\s+by\s+1d$", "", matches[0])
+      self.assertEqual(matches[1], stage1_keys, path.stem)
+      self.assertEqual(matches[2], stage1_keys, path.stem)
+      self.assertEqual(matches[3], f"{stage1_keys}, $ws by 1d", path.stem)
+      for key in stage1_keys.split(", "):
+        name = key.lstrip("$")
+        for stage in ("stage1_extract", "mad_center", "mad_spread"):
+          self.assertIn(f"{key} = ${stage}.{name}", query, f"{path.stem}: {key} not joined to {stage}")
+
+  def test_mad_multi_key_extractors_use_metric_dimensions_only(self):
+    router = MultiStageTemplateRouter()
+    expected = {
+        ("resource_read_total", EntityType.USER): "$sa, $vendor, $product, $resource",
+        ("resource_written_fail", EntityType.USER): "$sa, $vendor, $product, $resource",
+        ("file_executions_total", EntityType.ASSET): "$host, $sha256",
+        ("alert_event_name_count", EntityType.ASSET): "$host, $rule_name",
+    }
+    for (metric, entity), keys in expected.items():
+      query = router.build_query(metric, entity, StatisticalModel.MAD, scoring_end_date="2026-10-07")
+      self.assertIn(f"match:\n    {keys} by 1d", query, metric)
+      self.assertIn(f"match:\n  {keys}, $ws by 1d", query, metric)
+      # $ip is not a baseline dimension: it would split one baseline tuple into per-IP series.
+      self.assertNotIn("$ip", query, metric)
+
+  def test_cloud_repository_redirect_still_applies_to_non_mad_models(self):
+    router = MultiStageTemplateRouter()
+    query = router.build_query("resource_read_total", EntityType.USER, StatisticalModel.STANDARD_Z_SCORE)
+    self.assertNotIn("mad_center", query)
+    self.assertIn("DUAL-BRANCH CLOUD REPOSITORY SCOPE", query)
 
   def test_non_mad_models_keep_all_five_metrics_lookups(self):
     router = MultiStageTemplateRouter()

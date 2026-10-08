@@ -1,5 +1,7 @@
 // Stage 2 Module: TRUE Median Absolute Deviation (MAD) / Modified Z-Score + 30d Metrics Z Cross-Check
 // Attaches to ANY stage1 extractor (stage1_extract emitting $observed_val per $entity per 1d bucket).
+// Multi-key extractors: the router adds every baseline-dimension match key next to $entity in each
+// stage's bindings and match (e.g. $sa, $vendor, $product, $resource) and drops non-dimension keys.
 //
 // HOW IT WORKS
 //   stage1_extract already yields one row per entity per day. When the SEARCH WINDOW spans the

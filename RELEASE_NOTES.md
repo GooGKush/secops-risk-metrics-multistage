@@ -19,6 +19,8 @@ The template called `mad_modified_z_2stage.yl2` computed `0.6745 * (x - mean) / 
 * The raw search window (~30d) is the robust baseline. The days that get scored are selected by a date-string flag that the router injects into stage1 (`$in_scoring_window`), never wall-clock time or an epoch literal. Mode A scores 1 day; Mode B scores `scoring_days` (default 7) ending on `scoring_end_date`.
 * New pipeline `mad_robust_z_4stage.yl2` replaces `mad_modified_z_2stage.yl2`.
 * Fewer metrics lookups: MAD itself never reads `metrics.*`. For MAD queries the router drops every stage1 `metrics.*` lookup that nothing downstream reads, keeping only avg, stddev and active days (the Z cross-check). That is 3 lookups per entity-day instead of 5. Other models are unchanged.
+* Multi-key extractors: MAD now groups every stage by the metric's full baseline tuple (e.g. `$sa, $vendor, $product, $resource` for `resource_*`; `$host, $sha256` for `file_executions_*`; `$host, $rule_name` for `alert_event_name_count`). Previously the MAD stages joined on the first key only, mixing several baselines into one median. Non-dimension match keys (`$ip` on `resource_*`) are dropped for MAD.
+* MAD works for the four cloud-repository USER metrics (`resource_read_total`, `resource_written_*`). An explicit MAD request no longer gets redirected to `cloud_repository_scope_dual_branch.yl2`; every other model still is.
 
 ### 2. Honest names
 * The old fold-change math is kept as `StatisticalModel.RELATIVE_DEVIATION` (`relative_deviation.yl2`).
