@@ -1,7 +1,7 @@
 ---
 name: secops-risk-metrics-multistage
 author: Greg Kushmerek
-description: UEBA threat hunting via 30d SecOps metrics DAGs, incl. 30d-baseline MAD on metric-catalog vectors (outbound bytes, auth attempts). Raw/custom-window MAD → secops-statistical-hunter.
+description: UEBA threat hunting via 30d SecOps metrics DAGs, incl. 30d-baseline MAD on metric-catalog vectors. Raw/custom-window MAD → secops-statistical-hunter.
 compatibility: Requires Google SecOps with Risk Analytics and SecOps MCP.
 ---
 
@@ -48,20 +48,20 @@ Phase 1B is **ONLY UNLOCKED** when **BOTH** are explicitly defined:
 
 > **Anti-Auth-Defaulting Guardrail & Conversational Break (CONVERSATIONAL BREAK)**:
 > When telemetry vector is unspecified, **THE AGENT MUST NOT DEFAULT TO `metrics.auth_attempts_*` OR `USER_LOGIN`**. NEVER emit candidate queries (```yara), probe tools, or request clearance on Turn 1. Consult `references/consultative-worksheet.md` and yield turn (0 tools called), asking: *"Across which behavioral vector(s) would you like to evaluate [Target Entities]?"* Upon analyst vector selection on Turn 2, enter Phase 1B immediately in that same turn: probe the selected vector via `udm_search` (maxEvents: 1), emit formal `PRE-FLIGHT HUNTING SPECIFICATION` card preceding candidate query preview, concluding with the Mode A vs Mode B clearance question.
-> *(Expert / Defined Vector Bypass: When both Entity Scope and Telemetry Vector are specified upfront, e.g. "Can you check Frank's authentication activity for anomalies?", proceed directly to Phase 1B, resolving identity and formulating pre-flight card. The Expert Exemption permits bypassing Phase 1A questioning, never the Turn 1 Clearance Gate).*
+> *(Expert / Defined Vector Bypass: When both Entity Scope and Telemetry Vector are specified upfront, e.g. "Can you check Frank's authentication activity for anomalies?" or "Run CUSUM on Frank's DNS", proceed directly to Phase 1B, resolving identity and formulating pre-flight card. The Expert Exemption permits bypassing Phase 1A questioning, never the Turn 1 Clearance Gate).*
 
 ### 🕸️ 360° Entity Behavioral Risk Radar & Multi-Sector Threat Fusion
-* **360° Radar**: 6-sector health check (`references/360-behavioral-radar-guide.md`) via decoupled micro-queries (`templates/pipelines/radar_360_decoupled_sector.yl2`) across all 6 canonical sectors (Auth, Cloud, Workspace, Network, DNS, Web). 6-spoke radial radar for individuals; Ranked Outlier Bars or Heatmap Matrix (Mode B) for fleet sweeps.
+* **360° Radar**: 6-sector health check (`references/360-behavioral-radar-guide.md`) via decoupled micro-queries (`templates/pipelines/radar_360_decoupled_sector.yl2`) across all 6 canonical sectors (Auth, Cloud, Workspace, Network, DNS, Web; all 6 must be reported). 6-spoke radial radar for individuals; Ranked Outlier Bars or Heatmap Matrix (Mode B) for fleet sweeps.
 * **Multi-Sector Fusion & Hybrid Pipelines**: 2 same-identifier sectors ($D^2 = \sum Z_i^2$): `dual_sector_fusion_3stage.yl2` / `multi_sector_fusion_4stage.yl2`; composite-only (process/resource/alert): `rollup_sector_fusion_4stage.yl2`; triads: `part_of_the_whole_triad_multilevel.yl2`; rare destinations: `rare_destination_ecg_3stage.yl2` / `fusion_rare_destination_3stage.yl2`; max 2 event stages per query; slots/pairing rules/template choice: `references/metric-sector-catalog.md`. Hybrid: `hybrid_metric_*.yl2` (Patch Tuesday: `hybrid_metric_fleet_prevalence_2stage.yl2`).
 * **Native Reporting**: Webview/MCP/agentapi: inline `<svg>` in Pillar 1; Jetski: `<agent-embed>`.
 * **Cloud Telemetry**: For service account cloud repository access or dormant SA awakening (`resource_read_*`, `resource_written_*`, `resource_creation_*`, `resource_deletion_*`), baseline all 4 CRUD families and origin IP via `templates/pipelines/cloud_repository_scope_dual_branch.yl2` (pass `<field>: <field>` in all `metrics.*` calls so SecOps UI **Case Sensitivity Off** never zeroes baselines).
 
 ### 🎯 CTI & Threat Report Mapping
-**Map to UEBA Metric Tables**: Map to tables (`metrics.*`). **Transition Directly to Phase 1B**: Emit Pre-Flight Card & Literal Query Preview. **YIELD THE TURN (0 tools called)**.
+**Map to UEBA Metric Tables** (`metrics.*`). **Transition Directly to Phase 1B**: Emit Pre-Flight Card & Literal Query Preview. **YIELD THE TURN (0 tools called)**.
 
 ### 🔍 Phase 1B: Pre-Flight Spec & Query Preview (Once Scope & Vectors are Established)
 Once vectors and scope are confirmed (expert prompt, Phase 1A vector selection, or CTI mapping; card always precedes the query preview):
-1. **Turn 1 Tool Invariant**: Limit Turn 1 tools strictly to identity spot-checks (incl. AD TEAM LOOKUP, run first) and one probe (`udm_search`, `maxEvents: 1`) of the event filter alone (no `stage`, `match:`, `metrics.`). Never probe the candidate itself, even with `maxEvents: 1`; it runs only after Turn 2 clearance. After probe succeeds, call 0 more tools on Turn 1; emit card, query preview, and clearance question in text, then yield. Read templates at `templates/pipelines/<name>.yl2` directly.
+1. **Turn 1 Tool Invariant**: Limit Turn 1 tools strictly to identity spot-checks (incl. AD TEAM LOOKUP, run first) and one probe (`udm_search`, `maxEvents: 1`) of the event filter alone (no `stage`, `match:`, `metrics.`). Never probe the candidate itself, even with `maxEvents: 1`; it runs only after Turn 2 clearance. After probe succeeds, call 0 more tools on Turn 1; emit card, query preview, and clearance question in text, then yield. Read templates at `templates/pipelines/<name>.yl2` directly; no exploratory shell searches.
 2. **Identity Disambiguation & Confirmation Protocol (ZERO GUESSING & IMMEDIATE HALT)**:
    - *Technical IDs*: Display names (with spaces) are NOT `user.userid`. Single unqualified first names (e.g. `Frank`) must be spot-checked in UDM. Hostnames and fleet-wide scopes proceed directly with pre-flight vector formulation.
    - *14-Day UDM Spot-Check*: `udm_search(query='target.user.userid = "<name>" nocase or principal.user.userid = "<name>" nocase or target.user.user_display_name = /.*<name>.*/ nocase or principal.user.user_display_name = /.*<name>.*/ nocase', startTime: "<ISO_14D_AGO>", endTime: "<ISO_NOW>", maxEvents: 5)`.
@@ -84,7 +84,7 @@ Once vectors and scope are confirmed (expert prompt, Phase 1A vector selection, 
    * *Peer Cohort & Roster*: List cohort entities; if $N < 7$, flag `⚠️ Sparse Baseline Caution (N < 7)`. Peer Cohort Roster Requirement: no peers mentioned → fleet only; peers mentioned but unnamed → AD TEAM LOOKUP (multi-stage-metrics-guide.md), else ask for the roster; never drop.
    * *Interactive Entity Graph Dimension Mandate*: Express joins under `• Entity Graph Dimension: [Exact Filter]` (Domain Rarity, Fleet Prevalence, Binary Rarity, IP Rarity `rolling_max <= 3`, `day_count = 10` platform invariant).
    * *Model Concordance*: Match outcome/order clauses to templates (`references/model-concordance-guide.md`).
-   * *Two-Phase Chained Hunt Specification*: Cross-entity hunts emit Two-Phase Chained Hunt Specification: Phase 1 (UEBA Outlier), Bridge Contract ($host, $timestamp, $user, $caller_ip), Phase 2 (Targeted Cloud UDM Query).
+   * *Two-Phase Chained Hunt Specification* (cross-entity hunts): Phase 1 (UEBA Outlier), Bridge Contract ($host, $timestamp, $user, $caller_ip), Phase 2 (Targeted Cloud UDM Query).
 5. **Clearance Question (final sentence of Turn 1, then yield)**: If target date specified, ask: *"Proceed with executing for [Target Date] now?"*. Otherwise ask: *"Would you like me to proceed with **Mode A (Today vs 30-Day Baseline)** or **Mode B (2–14 Day Timeline)**? (Adjust noise level/significance threshold before execution if desired.)"*.
 
 ---
