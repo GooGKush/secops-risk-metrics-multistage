@@ -1,6 +1,6 @@
 # Google SecOps Multi-Stage Risk Metrics Threat Hunter (`secops-risk-metrics-multistage`)
 
-[![Version](https://img.shields.io/badge/version-v1.8.3-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-346%2F346%20passing%20(100%25)-brightgreen.svg)](tests/) [![Submission Tests](https://img.shields.io/badge/submission%20tests-32%2F32%20passing%20(100%25)-brightgreen.svg)](scripts/submission_tests.py)
+[![Version](https://img.shields.io/badge/version-v1.8.4-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-346%2F346%20passing%20(100%25)-brightgreen.svg)](tests/) [![Submission Tests](https://img.shields.io/badge/submission%20tests-32%2F32%20passing%20(100%25)-brightgreen.svg)](scripts/submission_tests.py)
 
 A specialized, production-grade AI agent skill package for **Google Security Operations (SecOps / Chronicle SIEM & SOAR)** that constructs, validates, and executes **Multi-Stage YARA-L 2.0 Directed Acyclic Graph (DAG) statistical threat hunting pipelines**, **360° Entity Behavioral Risk Radars**, and **Progressively Disclosed Consultative Threat Hunting**.
 
@@ -343,6 +343,12 @@ python3 scripts/submission_tests.py --dump-dir <OUTPUT_DIR>
 ---
 
 ## 📦 Recent Releases
+
+### v1.8.4 (October 2026) — Restored SKILL.md Guidance (v1.8.3 Regression Fix)
+* **Root cause**: v1.8.3 commit `57d1253` cut SKILL.md wording to stay under the 20,480-byte limit. Three of the cuts changed how the agent behaves: the "Run CUSUM on Frank's DNS" bypass example, the 360 Radar line "all 6 must be reported", and "no exploratory shell searches".
+* **Fix**: the three instructions are restored word for word. To pay for them, duplicated wording was shortened in the description, the `metrics.*` mapping step and the Two-Phase Chained Hunt line. SKILL.md is now 20,476 bytes.
+* **Evidence**: A/B on REG-P0-04, P1-25 and P1-36 passed 6/6 before the trims, 0/6 on v1.8.3 and 5/6 with the fix. The full regress suite passed 47/52 after one rerun of failures, against 45/52 for v1.8.3. REG-P1-10 was a broken test that required a literal `+ 1.0` floor; it is fixed in secops-regress.
+* **Test Suite**: 346/346 unit tests; 32/32 submission tests.
 
 ### v1.8.3 (October 2026) — True Median Absolute Deviation (MAD) on Any Metric Vector
 * **Real MAD**: `StatisticalModel.MAD` (`stage2_math_models/mad.yl2`, pipeline `mad_robust_z_4stage.yl2`) computes the median and MAD of the raw daily values with `window.median(..., false)` and scores `modified_z` (Iglewicz-Hoaglin, threshold 3.5). It attaches to any of the 38 Stage 1 extractors in Mode A or Mode B. The old "MAD" templates were a rescaled Z-score and a fold change; the fold change is kept as `RELATIVE_DEVIATION`.

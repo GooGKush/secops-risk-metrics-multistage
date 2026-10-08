@@ -1,10 +1,35 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.8.3)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.8.4)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v1.8.3 (Point Release) — October 2026  
+**Latest Version**: v1.8.4 (Point Release) — October 2026  
+
+---
+
+## 📢 What's New in v1.8.4 (Point Release) — Restored SKILL.md Guidance (v1.8.3 Regression Fix)
+
+v1.8.3 commit `57d1253` cut SKILL.md wording to stay under the 20,480-byte limit. Three of those cuts changed how the agent behaves. v1.8.4 puts them back. No templates, scripts or router logic changed.
+
+### 1. Restored instructions (verbatim)
+* The **"Run CUSUM on Frank's DNS"** example: a single-entity drift request skips clarification and runs.
+* The 360 Radar line **"all 6 must be reported"**: every radar sector appears in the report.
+* **"no exploratory shell searches"**: the agent follows the turn lifecycle instead of searching the filesystem.
+* The A/B result in section 3 covers the three lines together; their effects were not tested one at a time.
+
+### 2. Byte budget
+* To make room, duplicated wording was shortened in the frontmatter description (dropped "(outbound bytes, auth attempts)"), the `metrics.*` mapping step and the Two-Phase Chained Hunt line. SKILL.md is now 20,476 bytes (limit 20,480).
+* The third pointer to `references/turn-execution-lifecycle.md` stays out; the other two pointers remain.
+
+### 3. Evidence (secops-regress, direct-MCP engine)
+* A/B on REG-P0-04, P1-25 and P1-36: 6/6 at `2f00a0f` (before the trims), 0/6 on v1.8.3, 5/6 on v1.8.4.
+* Full suite, balanced topology: 47/52 after one rerun of failures, against 45/52 for v1.8.3.
+* REG-P1-10 was a broken test: it required a literal `+ 1.0` divisor floor and rejected equally safe floors such as `if($std > 0, $std, 1.0)`. It is fixed in secops-regress; the generic AST dispersion-floor rule still checks that every divisor is floored.
+* Still failing: REG-P1-15 and P2-14 (failed before this release too); REG-P1-40 and P2-15 are flaky.
+
+### 4. Test Suite
+* 346/346 unit tests; 32/32 submission tests.
 
 ---
 
