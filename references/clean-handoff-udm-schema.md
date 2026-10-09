@@ -691,17 +691,20 @@ rule secops_risk_metrics_synthetic_alert_catchall {
 ```
 
 ### 10. `BEHAVIORAL_RISK_RADAR_360` (Decoupled 6-Sector Threat Distance)
+One event per outlier entity. The agentic UEBA 4-hourly fleet sweep emits this exact shape, so keep the label keys identical:
+* `event_timestamp` is when the hunt query ran (the 30d baseline is evaluated as of that moment). Omit `ingested_timestamp`; Chronicle sets it.
+* Labels are only: `Hunt Campaign ID`, `Evaluated Day` (UTC day scored), `Composite CRI`, `Composite D` (σ), and one label per sector keyed by the sector name with value `CRI <n> | Z <z>`. USER sectors: `AUTH`, `CLOUD`, `WORKSPACE`, `EGRESS`, `DNS`, `WEB`. ASSET sectors: `AUTH`, `EGRESS`, `DNS`, `FLOWS`, `ALERTS`, `WEB`. Sectors with no qualifying activity are `CRI 0 | Z 0.00`.
+* `risk_score` is the Composite CRI. `category` follows the peak sector. Write the entity ID exactly as the source telemetry spells it (no case folding).
 ```json
 {
   "udm": {
     "metadata": {
-      "event_timestamp": "2026-08-26T21:00:00Z",
-      "ingested_timestamp": "2026-08-26T21:00:00Z",
+      "event_timestamp": "2026-08-26T16:00:00Z",
       "product_name": "SecOps Risk Metrics Hunter",
       "vendor_name": "Google SecOps",
       "event_type": "GENERIC_EVENT",
       "product_event_type": "BEHAVIORAL_RISK_RADAR_360",
-      "description": "360° Behavioral Risk Radar Anomaly: user-jdoe breached multi-sector threshold with Euclidean Threat Distance D=6.68σ (CRI: 84)",
+      "description": "USER jdoe: Composite CRI 92 (D=7.09σ); breached WEB, EGRESS, AUTH; peak WEB CRI 68 (Z 4.25).",
       "ingestion_labels": [
         { "key": "hunt_campaign_id", "value": "hunt-c7f8a91b" },
         { "key": "source_skill", "value": "secops-risk-metrics-multistage" }
@@ -712,47 +715,35 @@ rule secops_risk_metrics_synthetic_alert_catchall {
       "application": "Google SecOps Multi-Stage Risk Analytics"
     },
     "principal": {
-      "user": { "userid": "jdoe" },
-      "asset": { "hostname": "ws-jdoe.corp.local" }
+      "user": { "userid": "jdoe" }
     },
     "target": {
       "resource": {
         "name": "BEHAVIORAL_RISK_RADAR_360",
-        "resource_type": "RESOURCE_TYPE_UNSPECIFIED",
         "attribute": {
           "labels": [
             { "key": "Hunt Campaign ID", "value": "hunt-c7f8a91b" },
-            { "key": "Statistical Model", "value": "Decoupled 6-Sector Threat Distance" },
-            { "key": "Sector 1 Auth Z-Score", "value": "3.45" },
-            { "key": "Sector 2 Cloud Z-Score", "value": "2.10" },
-            { "key": "Sector 3 Workspace Z-Score", "value": "0.40" },
-            { "key": "Sector 4 Network Z-Score", "value": "3.80" },
-            { "key": "Sector 5 DNS Z-Score", "value": "1.15" },
-            { "key": "Sector 6 Web Proxy Z-Score", "value": "4.25" },
-            { "key": "Euclidean Threat Distance D", "value": "6.68" },
-            { "key": "Calibrated Risk Index (CRI)", "value": "84" },
-            { "key": "Sectors Breached", "value": "4/6" }
+            { "key": "Evaluated Day", "value": "2026-08-26" },
+            { "key": "Composite CRI", "value": "92" },
+            { "key": "Composite D", "value": "7.09" },
+            { "key": "AUTH", "value": "CRI 57 | Z 3.45" },
+            { "key": "CLOUD", "value": "CRI 37 | Z 2.10" },
+            { "key": "WORKSPACE", "value": "CRI 17 | Z 0.40" },
+            { "key": "EGRESS", "value": "CRI 62 | Z 3.80" },
+            { "key": "DNS", "value": "CRI 25 | Z 1.15" },
+            { "key": "WEB", "value": "CRI 68 | Z 4.25" }
           ]
         }
       }
     },
     "security_result": [
       {
-        "threat_name": "Statistical Outlier: Multi-Sector Behavioral Risk Surge",
-        "threat_id": "T1078, T1048, T1071.001",
-        "category": ["UNWANTED_ACTIVITY", "SUSPICIOUS_BEHAVIOR"],
-        "category_details": ["MULTI_SECTOR_BREACH", "CROSS_VECTOR_ANOMALY"],
+        "rule_name": "360 Behavioral Risk Radar",
+        "category": ["NETWORK_SUSPICIOUS"],
         "action": ["UNKNOWN_ACTION"],
-        "risk_score": 84,
-        "severity": "HIGH",
-        "summary": "Entity jdoe exhibited coordinated behavioral anomalies across 4 of 6 risk sectors (Web/Proxy +4.25σ, Network +3.80σ, Auth +3.45σ, Cloud +2.10σ; Euclidean Distance D=6.68σ).",
-        "description": "Decoupled 6-sector behavioral risk radar revealed an extreme cross-vector statistical outlier breaching the Euclidean significance threshold (D >= 3.0σ, CRI >= 50).",
-        "detection_fields": [
-          { "key": "active_sectors", "value": "AUTH, CLOUD, NETWORK, WEB_PROXY" },
-          { "key": "threat_framework", "value": "MITRE_ATTACK" },
-          { "key": "mitre_tactics", "value": "TA0001_INITIAL_ACCESS, TA0010_EXFILTRATION, TA0011_COMMAND_AND_CONTROL" },
-          { "key": "mitre_techniques", "value": "T1078, T1048.003, T1071.001" }
-        ]
+        "risk_score": 92,
+        "severity": "CRITICAL",
+        "summary": "USER jdoe: Composite CRI 92 (D=7.09σ); breached WEB, EGRESS, AUTH; peak WEB CRI 68 (Z 4.25)."
       }
     ]
   }
