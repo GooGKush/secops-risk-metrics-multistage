@@ -1,10 +1,30 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.8.4)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.8.5)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v1.8.4 (Point Release) — October 2026  
+**Latest Version**: v1.8.5 (Point Release) — October 2026  
+
+---
+
+## 📢 What's New in v1.8.5 (Point Release) — Minimal 360 Radar Hand-Off Event
+
+Documentation-only release. Section 10 of `references/clean-handoff-udm-schema.md` (`BEHAVIORAL_RISK_RADAR_360`) disagreed with the event the agentic UEBA fleet sweep actually ingests: the two used different label names for the same `product_event_type`. Section 10 now defines the shape both producers use. No templates, scripts, router logic or SKILL.md changed.
+
+### 1. The event
+* One event per outlier entity. Identity is fixed: `product_name` "SecOps Risk Metrics Hunter", `vendor_name` "Google SecOps", `event_type` `GENERIC_EVENT`, `product_event_type` `BEHAVIORAL_RISK_RADAR_360`.
+* Labels are only `Hunt Campaign ID`, `Evaluated Day`, `Composite CRI`, `Composite D` (σ), plus one label per sector keyed by sector name with value `CRI <n> | Z <z>`. USER sectors: AUTH, CLOUD, WORKSPACE, EGRESS, DNS, WEB. ASSET sectors: AUTH, EGRESS, DNS, FLOWS, ALERTS, WEB.
+* Removed: the `Statistical Model` and per-sector Z-score labels, `Sectors Breached`, `threat_id`, `category_details`, MITRE detection fields and `security_result.description`.
+* `event_timestamp` is when the hunt query ran; `ingested_timestamp` is omitted and set by Chronicle. `risk_score` is the Composite CRI; `category` follows the peak sector.
+* Entity IDs keep the casing used in the source telemetry, so exact-match pivots back to raw events still work.
+
+### 2. Corrected example
+* The old example listed six Z values with D=6.68σ, but those values give D=7.09σ. The new example's CRIs come from the real CRI function: Composite CRI 92, severity `CRITICAL`.
+
+### 3. Testing
+* 346/346 unit tests; 32/32 submission tests.
+* secops-regress (direct-MCP engine): REG-P1-39 passed. REG-P1-22 passed 1 of 4 runs on this release vs 3 of 4 on v1.8.4, on the same data where the hunt found no outlier. Both versions had one failure for a missing triage-report section. The other two failures, on this release only, were replies that never said "synthetic" when no event was logged. The edit changes no text containing that word, but it is not ruled out as the cause. REG-P1-22 is now on the flaky list with REG-P1-40 and REG-P2-15.
 
 ---
 

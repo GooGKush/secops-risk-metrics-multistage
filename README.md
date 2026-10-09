@@ -1,6 +1,6 @@
 # Google SecOps Multi-Stage Risk Metrics Threat Hunter (`secops-risk-metrics-multistage`)
 
-[![Version](https://img.shields.io/badge/version-v1.8.4-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-346%2F346%20passing%20(100%25)-brightgreen.svg)](tests/) [![Submission Tests](https://img.shields.io/badge/submission%20tests-32%2F32%20passing%20(100%25)-brightgreen.svg)](scripts/submission_tests.py)
+[![Version](https://img.shields.io/badge/version-v1.8.5-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-346%2F346%20passing%20(100%25)-brightgreen.svg)](tests/) [![Submission Tests](https://img.shields.io/badge/submission%20tests-32%2F32%20passing%20(100%25)-brightgreen.svg)](scripts/submission_tests.py)
 
 A specialized, production-grade AI agent skill package for **Google Security Operations (SecOps / Chronicle SIEM & SOAR)** that constructs, validates, and executes **Multi-Stage YARA-L 2.0 Directed Acyclic Graph (DAG) statistical threat hunting pipelines**, **360° Entity Behavioral Risk Radars**, and **Progressively Disclosed Consultative Threat Hunting**.
 
@@ -343,6 +343,12 @@ python3 scripts/submission_tests.py --dump-dir <OUTPUT_DIR>
 ---
 
 ## 📦 Recent Releases
+
+### v1.8.5 (October 2026) — Minimal 360 Radar Hand-Off Event
+* **One shape for both producers**: §10 of `references/clean-handoff-udm-schema.md` (`BEHAVIORAL_RISK_RADAR_360`) now matches the event that the agentic UEBA 4-hourly fleet sweep sends: one event per outlier entity carrying only Hunt Campaign ID, Evaluated Day, Composite CRI, Composite D and one `CRI <n> | Z <z>` label per sector.
+* **Event time and entity IDs**: `event_timestamp` is when the hunt query ran; `ingested_timestamp` is left for Chronicle to set. Entity IDs keep the casing used in the source telemetry.
+* **Corrected example**: the old example's Z values give D=7.09, not 6.68. The new example uses the real CRI function (CRI 92, `CRITICAL`).
+* **Test Suite**: 346/346 unit tests; 32/32 submission tests. SKILL.md unchanged.
 
 ### v1.8.4 (October 2026) — Restored SKILL.md Guidance (v1.8.3 Regression Fix)
 * **Root cause**: v1.8.3 commit `57d1253` cut SKILL.md wording to stay under the 20,480-byte limit. Three of the cuts changed how the agent behaves: the "Run CUSUM on Frank's DNS" bypass example, the 360 Radar line "all 6 must be reported", and "no exploratory shell searches".
