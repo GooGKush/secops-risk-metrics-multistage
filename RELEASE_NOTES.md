@@ -1,38 +1,53 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.8.5)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.8.6)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v1.8.5 (Point Release) — October 2026  
+**Latest Version**: v1.8.6 (Point Release) — October 2026  
 
 ---
 
-## 📢 Unreleased (branch `fix/root-significance-gate`) — Root Significance Gate
+## 📢 What's New in v1.8.6 (Point Release) — Root Significance Gate
 
-Queries showed a `Significance Threshold` on the Pre-Flight card that the query never enforced. 19 of 32 pipeline templates and 16 of 17 stage-2 models had no root `condition:`. The agent copies templates verbatim, so the gate was dropped. The router could add a gate, but only when asked (`apply_threshold_condition=False` by default), and the agent never runs the router at hunt time.
+The Pre-Flight card stated a `Significance Threshold` that the query never enforced. 19 of 32 pipeline templates and 16 of 17 stage-2 models had no root `condition:`. Agents copy templates verbatim, so the gate was dropped. The router could add a gate, but only when asked (`apply_threshold_condition=False` by default), and agents never run the router during a hunt.
 
 ### 1. Templates
-* Every score-producing template now ships its model's gate as a root `condition:` between `outcome:` and `order:`.
+* Every score-producing template now carries its model's gate as a root `condition:` between `outcome:` and `order:`.
   * σ models gate their Z at `{{anomaly_threshold}}` (3.0).
-  * The ratio models gate a fold change at `{{fold_change_threshold}}` (2.0): Bayes Gamma `$bayes_shift_ratio`, Beta-Binomial `$posterior_lift` (new), CV `$surge_ratio` with `$cv <= 0.5`, Relative Deviation `$fold_change` (new).
-  * Fusion and triads gate D² at `{{fusion_threshold_sq}}` (12.25, i.e. D >= 3.5σ). MAD ANDs `$modified_z >= {{robust_threshold}}` (3.5) into its existing condition.
+  * Ratio models gate a fold change at `{{fold_change_threshold}}` (2.0): Bayes Gamma `$bayes_shift_ratio`, Beta-Binomial `$posterior_lift` (new), CV `$surge_ratio` with `$cv <= 0.5`, Relative Deviation `$fold_change` (new).
+  * Fusion and triads gate D² at `{{fusion_threshold_sq}}` (12.25, i.e. D >= 3.5σ). MAD adds `$modified_z >= {{robust_threshold}}` (3.5) to its existing condition.
   * CUSUM gates `> 0.0` (drift past the 0.5σ slack), Adaptive Context gates `>= 0.0`, and the Hurdle uses `$active_days <= 2 or $intensity_z >= 3.0`.
-* `NO-GATE` (with a comment explaining why): `variance_fano.yl2`, because its score uses only the 30-day baseline and does not depend on the scored day; and the three `radar_360_*` sector micro-queries, because every sector must be reported.
+* Two templates are `NO-GATE`, each with a comment saying why:
+  * `variance_fano.yl2`: its score uses only the 30-day baseline and does not depend on the scored day.
+  * The three `radar_360_*` sector micro-queries: every sector must be reported.
 
 ### 2. Router and card
-* `MultiStageTemplateRouter._apply_significance_gate` resolves the template gate. `min_threshold` / `max_threshold` / `condition_expression` now **replace** the default gate clause on the gate variable instead of adding a second clause. `build_pipeline_query` wraps a new `_render_pipeline`. The cloud-repository redirect now forwards overrides.
+* `MultiStageTemplateRouter._apply_significance_gate` fills in the template's gate.
+  * `min_threshold`, `max_threshold` and `condition_expression` now **replace** the default gate clause on the gate variable, instead of adding a second clause.
+  * `build_pipeline_query` now wraps a new `_render_pipeline`.
+  * The cloud-repository redirect now forwards threshold overrides.
 * The query header prints `// Significance Gate: <emitted condition>` instead of the misleading `(Threshold >= x)`.
 * New: `preflight_validator.DEFAULT_SIGNIFICANCE_GATES` and `default_significance_threshold()`. `render_preflight_card` states the model's gate by default.
 
 ### 3. Docs
-* `model-concordance-guide.md`: new §2.1 table of each model's gate. All §3 AST contracts now include the gate. New checklist item 6 (Threshold Concordance).
-* `multi-stage-metrics-guide.md` §6.1: `or` **is** supported in root `condition:`. Checked against the live compiler (gus-sdl, 2026-10-13): each branch of `$z >= 3.6 or ($events >= 200000 and $z >= 3.0)` selected its own rows.
-* `SKILL.md`, `turn-execution-lifecycle.md`, `consultative-worksheet.md`: the card's threshold refers to the §2.1 model gate.
+* `model-concordance-guide.md`:
+  * New §2.1 table of each model's gate.
+  * All §3 AST contracts include the gate.
+  * New checklist item 6 (Threshold Concordance).
+* `multi-stage-metrics-guide.md` §6.1: `or` **is** supported in root `condition:`. Confirmed on gus-sdl: each branch of `$z >= 3.6 or ($events >= 200000 and $z >= 3.0)` selected its own rows.
+* `SKILL.md`, `turn-execution-lifecycle.md` and `consultative-worksheet.md`: the card's threshold refers to the §2.1 model gate. SKILL.md is 20,425 bytes.
 
 ### 4. Testing
 * 360/360 unit tests (14 new in `tests/test_threshold_gate_contract.py`); 32/32 submission tests.
-* Live compile on gus-sdl (`udm_search`, 2026-10-12): Relative Deviation, Beta-Binomial, CV, Two-Part Hurdle, MAD, dual-sector fusion, hierarchical empirical Bayes and MACD all compiled. Every returned row satisfied its gate.
+* Live compile on gus-sdl: all 36 changed variants compiled and ran, and every returned row satisfied its gate.
+* secops-regress:
+  * Full dual suite: 50/52 on AgentAPI. The two failures, P2-14 and P2-15, also fail on `main`.
+  * Executed multi-stage queries carrying a root `condition:` rose from 29–37% to 85–86%.
+* Direct-MCP A/B, 12 tests × 3 runs: 34/36 on this release against 33/36 on v1.8.5.
+* REG-P0-01 is flaky:
+  * 11/18 on this release against 8/9 on v1.8.5. The difference is not significant (one-sided p ≈ 0.15), and the test has passed 52/75 (69%) of earlier direct-MCP runs.
+  * A wording change telling the agent to check concordance without running the candidate did not reduce its Turn 1 executions, so it was not kept.
 
 ---
 

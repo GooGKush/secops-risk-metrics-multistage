@@ -1,6 +1,6 @@
 # Google SecOps Multi-Stage Risk Metrics Threat Hunter (`secops-risk-metrics-multistage`)
 
-[![Version](https://img.shields.io/badge/version-v1.8.5-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-346%2F346%20passing%20(100%25)-brightgreen.svg)](tests/) [![Submission Tests](https://img.shields.io/badge/submission%20tests-32%2F32%20passing%20(100%25)-brightgreen.svg)](scripts/submission_tests.py)
+[![Version](https://img.shields.io/badge/version-v1.8.6-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-360%2F360%20passing%20(100%25)-brightgreen.svg)](tests/) [![Submission Tests](https://img.shields.io/badge/submission%20tests-32%2F32%20passing%20(100%25)-brightgreen.svg)](scripts/submission_tests.py)
 
 A specialized, production-grade AI agent skill package for **Google Security Operations (SecOps / Chronicle SIEM & SOAR)** that constructs, validates, and executes **Multi-Stage YARA-L 2.0 Directed Acyclic Graph (DAG) statistical threat hunting pipelines**, **360° Entity Behavioral Risk Radars**, and **Progressively Disclosed Consultative Threat Hunting**.
 
@@ -125,7 +125,7 @@ secops-risk-metrics-multistage/
 │   ├── sync_malachite_catalog.py         # Re-syncs / drift-checks data/malachite against google3
 │   ├── template_router.py                # Maps natural language intent to .yl2 templates with condition filtering
 │   └── triage_formatter.py               # Generates 6-section triage reports & CRI scores
-└── tests/                                # Automated unit test suite (346 tests across 22 test modules)
+└── tests/                                # Automated unit test suite (360 tests across 23 test modules)
     ├── test_chart_specifications.py
     ├── test_chronicle_ingest.py
     ├── test_complex_multistage_syntax.py
@@ -325,7 +325,7 @@ The skill package ships with two test tiers that anyone can run from a clone:
 pytest tests/
 # or: python3 -m unittest discover tests
 ```
-* **Status**: **346 / 346 passing unit tests** across 22 test modules (100% pass rate).
+* **Status**: **360 / 360 passing unit tests** across 23 test modules (100% pass rate).
 * **Scope**: Enforces Chronicle AST grammar rules, KaTeX formatting compliance, prompt guardrail contracts, 20,480-byte budget ceilings, template router permutations across all 38 metrics and the Stage 2 models, metric-sector catalog drift against `data/`, and Entity Graph freshness filters in every graph template.
 
 ### 2. Google SecOps Malachite Compiler Submission Harness
@@ -343,6 +343,15 @@ python3 scripts/submission_tests.py --dump-dir <OUTPUT_DIR>
 ---
 
 ## 📦 Recent Releases
+
+### v1.8.6 (October 2026) — Root Significance Gate
+* **Gate enforced in every query**: every score-producing template carries its model's significance gate as a root `condition:` between `outcome:` and `order:`. The Pre-Flight card's `Significance Threshold` is now applied by the query instead of only being stated.
+  * σ models gate Z at 3.0; ratio models (Bayes Gamma, Beta-Binomial, CV, Relative Deviation) gate a 2.0× fold change; fusion and triads gate D >= 3.5σ; MAD gates modified Z >= 3.5.
+  * The Fano factor and the 360 radar sector queries are deliberately ungated.
+* **Router and card**: analyst thresholds replace the default gate instead of adding to it. The query header shows the gate actually emitted, and the Pre-Flight card states each model's gate (`references/model-concordance-guide.md` §2.1).
+* **Docs**: `or` is supported in root `condition:` (confirmed on gus-sdl).
+* **Evidence**: 36/36 changed variants compiled live on gus-sdl. Executed queries with a root `condition:` rose from 29–37% to 85–86% in secops-regress.
+* **Test Suite**: 360/360 unit tests; 32/32 submission tests.
 
 ### v1.8.5 (October 2026) — Minimal 360 Radar Hand-Off Event
 * **One shape for both producers**: §10 of `references/clean-handoff-udm-schema.md` (`BEHAVIORAL_RISK_RADAR_360`) now matches the event that the agentic UEBA 4-hourly fleet sweep sends: one event per outlier entity carrying only Hunt Campaign ID, Evaluated Day, Composite CRI, Composite D and one `CRI <n> | Z <z>` label per sector.
