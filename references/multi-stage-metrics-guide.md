@@ -166,9 +166,10 @@ Threat hunting requires adaptable sensitivity depending on operational objective
 #### Syntax & Operator Support in Root Stage `condition:`
 The Malachite compiler accepts compound boolean expressions in the root stage `condition:` block:
 * **Relational Operators**: `>`, `>=`, `<`, `<=`, `==`, `!=`
-* **Logical Operators**: `and`, `not` (bare boolean `or` is rejected in root `condition:`)
+* **Logical Operators**: `and`, `or`, `not`, with parentheses for mixed logic (e.g. `$z >= 3.6 or ($events >= 200000 and $z >= 3.0)`). Verified against the live compiler (gus-sdl, 2026-10-13): each `or` branch selects its own rows.
 * **Match Count Operators**: `1 of [ ... ]`, `ANY of [ ... ]` (supported for expressions evaluating variables within the same stage)
-* **Cross-Stage Disjunctions**: When evaluating disjunctions across distinct stages (e.g. Stage 1 read surge OR Stage 2 delete surge), compute the composite flag in `outcome:` via `if()` (e.g. `$is_outlier = if($read_z >= 3.0 or $del_z >= 3.0, 1, 0)`) and gate in `condition:` with `$is_outlier = 1`.
+* **Cross-Stage Disjunctions**: The root `condition:` reads root `outcome:` variables, so a disjunction over values that come from different stages can be written directly once each value is surfaced in the root `outcome:` (e.g. `$read_z >= 3.0 or $del_z >= 3.0`). Computing a flag in `outcome:` (`$is_outlier = if($read_z >= 3.0 or $del_z >= 3.0, 1, 0)`) and gating on `$is_outlier = 1` also works.
+* **Model Default Gates**: every model's default gate (σ, fold change, D², or none) is listed in `references/model-concordance-guide.md` §2.1. The Pre-Flight card's `Significance Threshold` must match it.
 * **Grouping**: Parentheses `(...)` for nested logic
 * **Universal Grammar Placement**: Must be placed **strictly after `outcome:`** and **strictly before `order:`**.
 

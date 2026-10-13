@@ -47,6 +47,41 @@ class StatisticalModel(str, Enum):
   CIRCADIAN_VON_MISES = "CIRCADIAN_VON_MISES"
 
 
+# Pre-Flight card wording of each model's default root significance gate. Mirrors the default
+# root `condition:` shipped in templates/stage2_math_models/ and the table in
+# references/model-concordance-guide.md section 2.1 (tests/test_threshold_gate_contract.py keeps them in sync).
+DEFAULT_SIGNIFICANCE_GATES: Dict["StatisticalModel", str] = {
+    StatisticalModel.STANDARD_Z_SCORE: "Z >= 3.0σ",
+    StatisticalModel.MAD: "Modified Z >= 3.5",
+    StatisticalModel.RELATIVE_DEVIATION: ">= 2.0× baseline",
+    StatisticalModel.VARIANCE: "N/A (dispersion screen)",
+    StatisticalModel.POISSON: "Poisson Z >= 3.0σ",
+    StatisticalModel.COEFFICIENT_OF_VARIATION: ">= 2.0× baseline, CV <= 0.5",
+    StatisticalModel.HOURLY_TEMPORAL_ZSCORE: "Hourly Z >= 3.0σ",
+    StatisticalModel.BAYESIAN_GAMMA: ">= 2.0× baseline (posterior)",
+    StatisticalModel.BAYESIAN_BETA_BINOMIAL: ">= 2.0× prior failure rate",
+    StatisticalModel.LONGITUDINAL_CUSUM: "Drift above 0.5σ slack",
+    StatisticalModel.TWO_PART_HURDLE: "Dormant awakening OR Z >= 3.0σ",
+    StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z: "Upper-tail Z >= 3.0σ",
+    StatisticalModel.PIECEWISE_CRI: "Z >= 3.0σ (CRI >= 85)",
+    StatisticalModel.FLEET_PREVALENCE_SHIELD: "Shielded Z >= 3.0σ",
+    StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD: "Z >= context threshold",
+    StatisticalModel.MACD_MOMENTUM_VELOCITY: "Fast Z >= 3.0σ",
+    StatisticalModel.CIRCADIAN_VON_MISES: "Circadian score >= 3.0",
+}
+
+
+def default_significance_threshold(statistical_model: Any) -> Optional[str]:
+  """Card wording of a model's default gate; accepts the enum, its value, or its name (case-insensitive)."""
+  if isinstance(statistical_model, StatisticalModel):
+    return DEFAULT_SIGNIFICANCE_GATES[statistical_model]
+  key = str(statistical_model).strip().upper().replace("-", "_").replace(" ", "_")
+  for model, wording in DEFAULT_SIGNIFICANCE_GATES.items():
+    if key == model.value:
+      return wording
+  return None
+
+
 class PipelineArchitecture(str, Enum):
   LOCAL_2STAGE = "LOCAL_2STAGE"
   DUAL_BASELINE_3STAGE = "DUAL_BASELINE_3STAGE"
@@ -673,14 +708,18 @@ class PreFlightValidator:
       statistical_model: str,
       entity_graph_dimension: str = "N/A",
       evaluation_mode: str = "Mode A: Today (Default)",
-      significance_threshold: str = "Z >= 3.0σ (CRI >= 50)",
+      significance_threshold: Optional[str] = None,
       active_days: Optional[int] = None,
       min_baseline_days: Optional[int] = None,
   ) -> str:
     """Renders the canonical PRE-FLIGHT HUNTING SPECIFICATION Card.
 
     Flags 'Sparse Baseline Caution' whenever active days or min_baseline_days N < 7.
+    When significance_threshold is omitted, the line states the model's default root gate
+    (DEFAULT_SIGNIFICANCE_GATES) if statistical_model names a known model, else "Z >= 3.0σ (CRI >= 50)".
     """
+    if significance_threshold is None:
+      significance_threshold = default_significance_threshold(statistical_model) or "Z >= 3.0σ (CRI >= 50)"
     effective_n = active_days if active_days is not None else min_baseline_days
     is_sparse = effective_n is not None and effective_n < 7
 

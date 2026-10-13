@@ -75,5 +75,9 @@ outcome:
   // 3. Delta-Z Anomaly Isolation (Targeted anomaly score)
   $delta_z = $personal_z - $fleet_z
 
+// Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
+condition:
+  $delta_z >= {{anomaly_threshold}}
+
 order:
   $delta_z desc

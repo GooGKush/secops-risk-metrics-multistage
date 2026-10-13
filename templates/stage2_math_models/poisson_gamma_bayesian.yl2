@@ -36,5 +36,9 @@ outcome:
   $safe_avg = if($avg_30d > 0, $avg_30d, 1.0)
   $bayes_shift_ratio = $posterior_mean / $safe_avg
 
+// Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
+condition:
+  $bayes_shift_ratio >= {{fold_change_threshold}}
+
 order:
   $bayes_shift_ratio desc

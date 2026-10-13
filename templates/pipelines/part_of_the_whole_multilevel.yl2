@@ -118,5 +118,9 @@ outcome:
   // 2. Enterprise Cross-Sectional Z-Score ("Part of the Enterprise")
   $z_vs_enterprise = ($observed - $e_avg) / if($e_std > 0, $e_std, 1.0)
 
+// Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
+condition:
+  $z_vs_enterprise >= {{anomaly_threshold}}
+
 order:
   $z_vs_enterprise desc

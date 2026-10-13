@@ -110,5 +110,9 @@ outcome:
   $rare_destinations = array_distinct($sector_b_detail.dest)
   $min_prevalence = min($rare_dest.prevalence)
 
+// Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
+condition:
+  $d_sq >= {{fusion_threshold_sq}}
+
 order:
   $d_sq desc

@@ -100,5 +100,9 @@ outcome:
   $z_b_sq = $z_b_gated * $z_b_gated
   $composite_threat_norm_sq = $z_a_sq + $z_b_sq
 
+// Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
+condition:
+  $composite_threat_norm_sq >= {{fusion_threshold_sq}}
+
 order:
   $composite_threat_norm_sq desc

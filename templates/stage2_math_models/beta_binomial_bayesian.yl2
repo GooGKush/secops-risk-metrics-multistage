@@ -31,5 +31,13 @@ outcome:
   // 3. Regularized Posterior Failure Probability
   $posterior_fail_prob = $alpha_post / $safe_total_post
 
+  // 4. Posterior lift over the 30-day prior (fold-change significance gate)
+  $safe_prior_p = if($avg_fail_prob > 0, $avg_fail_prob, 0.001)
+  $posterior_lift = $posterior_fail_prob / $safe_prior_p
+
+// Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
+condition:
+  $posterior_lift >= {{fold_change_threshold}}
+
 order:
   $posterior_fail_prob desc

@@ -82,6 +82,7 @@ class TestRareDestinationTemplates(unittest.TestCase):
         "{{host_field}}": "principal.asset.ip",
         "{{contact_filter}}": HTTP_FILTER,
         "{{dest_field}}": "target.hostname",
+        "{{anomaly_threshold}}": "3.0",
     })
     for k, v in slots.items():
       text = text.replace(k, v)

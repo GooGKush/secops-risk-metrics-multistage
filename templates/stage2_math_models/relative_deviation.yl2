@@ -18,6 +18,11 @@ outcome:
   $dev = $observed - $hist_avg
   $safe_hist_avg = if($hist_avg > 0, $hist_avg, 1.0)
   $ratio = $dev / $safe_hist_avg
+  $fold_change = $observed / $safe_hist_avg
+
+// Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
+condition:
+  $fold_change >= {{fold_change_threshold}}
 
 order:
   $ratio desc

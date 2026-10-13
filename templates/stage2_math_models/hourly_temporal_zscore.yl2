@@ -24,5 +24,9 @@ outcome:
   $safe_avg_hourly = if($avg_hourly > 0, $avg_hourly, 1.0)
   $hourly_surge_ratio = $observed_hour / $safe_avg_hourly
 
+// Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
+condition:
+  $hourly_z >= {{anomaly_threshold}}
+
 order:
   $hourly_z desc

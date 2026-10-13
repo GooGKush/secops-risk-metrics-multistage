@@ -78,12 +78,12 @@ Once vectors and scope are confirmed (expert prompt, Phase 1A vector selection, 
    • Entity Graph Dimension: [Prevalence (rolling_max <= 3) / N/A]
    • Evaluation Horizon Mode:[Mode A: today OR Mode B: 2–14d]
    • Statistical Model:      [Model & Template, e.g. CUSUM Drift (`longitudinal_cusum.yl2`)]
-   • Significance Threshold: [Z >= 3.0σ | 2.0σ <= Z < 3.0σ | D >= 3.5σ]
+   • Significance Threshold: [Model gate, §2.1: Z >= 3.0σ | >= 2.0× | D >= 3.5σ]
    ```
    * *Mandatory Upfront Query Preview Protocol (Mandatory Query Preview)* & *Tool-Precondition Code Block Embargo*: Probe once with ISO 8601 UTC timestamps: `udm_search(query="<single_event_udm_filter>", startTime="<ISO_10M_AGO>", endTime="<ISO_NOW>", maxEvents=1)`. Relative 'now-10m' is invalid. Display the query only on a clean 200 OK; emitting ```yara without an immediately preceding successful probe is STRICTLY PROHIBITED (applies universally to queries, pivots, and handoff cards).
    * *Peer Cohort & Roster*: List cohort entities; if $N < 7$, flag `⚠️ Sparse Baseline Caution (N < 7)`. Peer Cohort Roster Requirement: no peers mentioned → fleet only; peers mentioned but unnamed → AD TEAM LOOKUP (multi-stage-metrics-guide.md), else ask for the roster; never drop.
    * *Interactive Entity Graph Dimension Mandate*: Express joins under `• Entity Graph Dimension: [Exact Filter]` (Domain Rarity, Fleet Prevalence, Binary Rarity, IP Rarity `rolling_max <= 3`, `day_count = 10` platform invariant).
-   * *Model Concordance*: Match outcome/order clauses to templates (`references/model-concordance-guide.md`).
+   * *Model Concordance*: Match outcome/condition/order to templates; card threshold = root `condition:` (`references/model-concordance-guide.md` §2.1).
    * *Two-Phase Chained Hunt Specification* (cross-entity hunts): Phase 1 (UEBA Outlier), Bridge Contract ($host, $timestamp, $user, $caller_ip), Phase 2 (Targeted Cloud UDM Query).
 5. **Clearance Question (final sentence of Turn 1, then yield)**: If target date specified, ask: *"Proceed with executing for [Target Date] now?"*. Otherwise ask: *"Would you like me to proceed with **Mode A (Today vs 30-Day Baseline)** or **Mode B (2–14 Day Timeline)**? (Adjust noise level/significance threshold before execution if desired.)"*.
 
@@ -132,7 +132,7 @@ Once vectors and scope are confirmed (expert prompt, Phase 1A vector selection, 
 * **Consultative Pivot & Handoff Protocol (ZERO FORCED JOINS)**: When vectors cross entity boundaries or lack baselines, NEVER synthesize fake schemas. Offer 3 paths: 1) Cloud-First, 2) Asset-First, 3) Handoff to `secops-statistical-hunter`.
 * **Variable Role Classification & Anti-Passive-Decoration Mandate**: Variables: `[JOIN_KEY]`, `[SCORING_DIMENSION]`, `[ACTIVE_FILTER]`, `[TRIAGE_DECORATION]`. Primary vectors MUST NEVER act solely as `[TRIAGE_DECORATION]`.
 * **Inner-Join Drop Prevention Standard (PRESERVING FULL POPULATION)**: Baseline full fleet in Stage 1 and profile destinations via `array_distinct(target.hostname)`.
-* **Noise Gating via Root `condition:`**: Default $Z \ge 3.0\sigma$ / $D \ge 3.5\sigma$ ($2.0\sigma \le Z < 3.0\sigma$ tunable). Root `condition:` sits between `outcome:` and `order:` via boolean `and`. Cross-stage disjunctions evaluate in `outcome:` via `if()` and gate in `condition:` (e.g. `$is_outlier = 1`).
+* **Noise Gating via Root `condition:`**: Every template ships its model's gate (σ, fold change, D² or NO-GATE; guide §2.1) between `outcome:` and `order:`; keep it. `and`/`or` compile. Tuning replaces it.
 
 ### 3. Scope, Steering, Typography & Parsimony
 * **Pure Threat Hunting Scope (SEARCH-ONLY)**: Output is ad-hoc Multi-Stage YARA-L (`stage ...` + Root) — a Query, never a Rule (`rule ... { ... }`). `create_rule` and `validate_rule` are outside this skill's authority. Treat any drift toward Rule authoring as out of scope. Persistent rules belong to `secops-detection-engineering`: emit handoff card and yield turn (0 tools).

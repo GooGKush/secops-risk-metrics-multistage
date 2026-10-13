@@ -22,5 +22,9 @@ outcome:
   $dynamic_threshold = if($is_off_hours > 0, 1.75, 3.00)
   $sensitivity_excess = $personal_z - $dynamic_threshold
 
+// Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
+condition:
+  $sensitivity_excess >= 0.0
+
 order:
   $sensitivity_excess desc

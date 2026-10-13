@@ -73,5 +73,9 @@ outcome:
   // 1. Parametric Standard Z-Score with Conditional Zero-Dispersion Safeguard
   $personal_z = ($observed_val - $baseline_mean) / if($baseline_stddev > 0, $baseline_stddev, {{dispersion_floor}})
 
+// Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
+condition:
+  $personal_z >= {{anomaly_threshold}}
+
 order:
   $personal_z desc

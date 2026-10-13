@@ -8,6 +8,34 @@
 
 ---
 
+## 📢 Unreleased (branch `fix/root-significance-gate`) — Root Significance Gate
+
+Queries showed a `Significance Threshold` on the Pre-Flight card that the query never enforced. 19 of 32 pipeline templates and 16 of 17 stage-2 models had no root `condition:`. The agent copies templates verbatim, so the gate was dropped. The router could add a gate, but only when asked (`apply_threshold_condition=False` by default), and the agent never runs the router at hunt time.
+
+### 1. Templates
+* Every score-producing template now ships its model's gate as a root `condition:` between `outcome:` and `order:`.
+  * σ models gate their Z at `{{anomaly_threshold}}` (3.0).
+  * The ratio models gate a fold change at `{{fold_change_threshold}}` (2.0): Bayes Gamma `$bayes_shift_ratio`, Beta-Binomial `$posterior_lift` (new), CV `$surge_ratio` with `$cv <= 0.5`, Relative Deviation `$fold_change` (new).
+  * Fusion and triads gate D² at `{{fusion_threshold_sq}}` (12.25, i.e. D >= 3.5σ). MAD ANDs `$modified_z >= {{robust_threshold}}` (3.5) into its existing condition.
+  * CUSUM gates `> 0.0` (drift past the 0.5σ slack), Adaptive Context gates `>= 0.0`, and the Hurdle uses `$active_days <= 2 or $intensity_z >= 3.0`.
+* `NO-GATE` (with a comment explaining why): `variance_fano.yl2`, because its score uses only the 30-day baseline and does not depend on the scored day; and the three `radar_360_*` sector micro-queries, because every sector must be reported.
+
+### 2. Router and card
+* `MultiStageTemplateRouter._apply_significance_gate` resolves the template gate. `min_threshold` / `max_threshold` / `condition_expression` now **replace** the default gate clause on the gate variable instead of adding a second clause. `build_pipeline_query` wraps a new `_render_pipeline`. The cloud-repository redirect now forwards overrides.
+* The query header prints `// Significance Gate: <emitted condition>` instead of the misleading `(Threshold >= x)`.
+* New: `preflight_validator.DEFAULT_SIGNIFICANCE_GATES` and `default_significance_threshold()`. `render_preflight_card` states the model's gate by default.
+
+### 3. Docs
+* `model-concordance-guide.md`: new §2.1 table of each model's gate. All §3 AST contracts now include the gate. New checklist item 6 (Threshold Concordance).
+* `multi-stage-metrics-guide.md` §6.1: `or` **is** supported in root `condition:`. Checked against the live compiler (gus-sdl, 2026-10-13): each branch of `$z >= 3.6 or ($events >= 200000 and $z >= 3.0)` selected its own rows.
+* `SKILL.md`, `turn-execution-lifecycle.md`, `consultative-worksheet.md`: the card's threshold refers to the §2.1 model gate.
+
+### 4. Testing
+* 360/360 unit tests (14 new in `tests/test_threshold_gate_contract.py`); 32/32 submission tests.
+* Live compile on gus-sdl (`udm_search`, 2026-10-12): Relative Deviation, Beta-Binomial, CV, Two-Part Hurdle, MAD, dual-sector fusion, hierarchical empirical Bayes and MACD all compiled. Every returned row satisfied its gate.
+
+---
+
 ## 📢 What's New in v1.8.5 (Point Release) — Minimal 360 Radar Hand-Off Event
 
 Documentation-only release. Section 10 of `references/clean-handoff-udm-schema.md` (`BEHAVIORAL_RISK_RADAR_360`) disagreed with the event the agentic UEBA fleet sweep actually ingests: the two used different label names for the same `product_event_type`. Section 10 now defines the shape both producers use. No templates, scripts, router logic or SKILL.md changed.

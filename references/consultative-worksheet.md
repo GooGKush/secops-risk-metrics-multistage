@@ -204,7 +204,7 @@ PRE-FLIGHT HUNTING SPECIFICATION:
 • Crowd Shield:           [Active (dampens fleet-wide spikes) | N/A (isolated target)]
 • Recommended Method:     [Model Name, e.g. Longitudinal CUSUM Drift (Solves threshold evasion)]
 • Baseline Horizon Spine: 30-Day Pre-Computed (period: 1d, window: 30d)
-• Significance Threshold: [High Confidence (Z >= 3.0σ) | Investigative Band (2.0σ <= Z < 3.0σ) | D >= 3.5σ]
+• Significance Threshold: [Model gate (model-concordance-guide.md §2.1): High Confidence (Z >= 3.0σ) | Investigative Band (2.0σ <= Z < 3.0σ) | Fold Change (>= 2.0× baseline) | D >= 3.5σ | N/A (Fano)]
 • Evaluation Horizon:     Fleet Ranking Today (Option A) vs. 30-Day Daily Timeline (Option B)
 ```
 

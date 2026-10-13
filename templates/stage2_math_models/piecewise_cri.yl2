@@ -27,5 +27,9 @@ outcome:
   $cri_tier2 = if($clamped_z >= 2.0, $cri_tier3, 40.0)
   $cri_score = if($clamped_z >= 1.0, $cri_tier2, 15.0)
 
+// Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
+condition:
+  $clamped_z >= {{anomaly_threshold}}
+
 order:
   $cri_score desc

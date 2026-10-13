@@ -164,5 +164,9 @@ outcome:
   // 3. Composite Threat Norm Across the Triad vs the Fleet
   $d_vs_fleet_sq = ($z1_vs_enterprise * $z1_vs_enterprise) + ($z2_vs_enterprise * $z2_vs_enterprise) + ($z3_vs_enterprise * $z3_vs_enterprise)
 
+// Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
+condition:
+  $d_vs_fleet_sq >= {{fusion_threshold_sq}}
+
 order:
   $d_vs_fleet_sq desc

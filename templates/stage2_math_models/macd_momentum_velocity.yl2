@@ -30,5 +30,9 @@ outcome:
   $scaled_diff = $macd_diff * $velocity_ratio
   $macd_momentum_score = if($macd_diff > 0, $scaled_diff, $fast_z)
 
+// Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
+condition:
+  $fast_z >= {{anomaly_threshold}}
+
 order:
   $macd_momentum_score desc

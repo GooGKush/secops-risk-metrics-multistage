@@ -67,5 +67,9 @@ outcome:
   $poisson_sigma = math.sqrt($lambda)
   $poisson_z = ($k - $lambda) / if($poisson_sigma > 0, $poisson_sigma, 1.0)
 
+// Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
+condition:
+  $poisson_z >= {{anomaly_threshold}}
+
 order:
   $poisson_z desc

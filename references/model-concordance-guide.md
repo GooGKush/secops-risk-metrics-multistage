@@ -42,6 +42,36 @@ In multi-stage hunting workflows:
 | 16 | `CIRCADIAN_VON_MISES` | Circadian von Mises Temporal Distance | `$hourly_diff`, `$safe_stddev_hourly`, `$hourly_z`, `$event_hour`, `$raw_diff`, `$inverted_dist`, `$circ_dist`, `$von_mises_arc`, `$temporal_penalty`, `$temporal_multiplier`, `$circadian_threat_score` | Circular distance on 24h clock, quadratic von Mises penalty ($d^2 / 72.0$) | `order: $circadian_threat_score desc` | Linear Euclidean hour subtraction |
 | 17 | `RELATIVE_DEVIATION` | Relative Deviation / Fold Change vs 30d Mean | `$dev`, `$safe_hist_avg`, `$ratio` | $(x-\mu)/\mu$ fold change | `order: $ratio desc` | Labelling it MAD (it is mean-anchored, 0% breakdown point) |
 
+### 2.1 Default Root Significance Gate (the card's `Significance Threshold`)
+
+Every query carries the model's significance gate as a root `condition:` placed between `outcome:` and `order:`. The gate variable is not always the `order:` variable, and not every model is scored in σ. The Pre-Flight card's `• Significance Threshold:` line MUST state the gate from this table (adjusted if the analyst tunes it), and the emitted `condition:` MUST match it.
+
+| Model | Gate variable | Default root `condition:` | Unit | Card wording | Template placeholder |
+|---|---|---|---|---|---|
+| `STANDARD_Z_SCORE` | `$personal_z` | `$personal_z >= 3.0` | σ | `Z >= 3.0σ` | `{{anomaly_threshold}}` |
+| `ASYMMETRIC_DIRECTIONAL_Z` | `$upper_tail_z` | `$upper_tail_z >= 3.0` | σ | `Upper-tail Z >= 3.0σ` | `{{anomaly_threshold}}` |
+| `POISSON` | `$poisson_z` | `$poisson_z >= 3.0` | σ (√λ) | `Poisson Z >= 3.0σ` | `{{anomaly_threshold}}` |
+| `HOURLY_TEMPORAL_ZSCORE` | `$hourly_z` | `$hourly_z >= 3.0` | σ (hourly) | `Hourly Z >= 3.0σ` | `{{anomaly_threshold}}` |
+| `CIRCADIAN_VON_MISES` | `$circadian_threat_score` | `$circadian_threat_score >= 3.0` | σ × off-hours multiplier | `Circadian score >= 3.0` | `{{anomaly_threshold}}` |
+| `MACD_MOMENTUM_VELOCITY` | `$fast_z` | `$fast_z >= 3.0` (ranked by momentum) | σ | `Fast Z >= 3.0σ` | `{{anomaly_threshold}}` |
+| `PIECEWISE_CRI` | `$clamped_z` | `$clamped_z >= 3.0` (ranked by CRI tier) | σ (winsorized) | `Z >= 3.0σ (CRI >= 85)` | `{{anomaly_threshold}}` |
+| `FLEET_PREVALENCE_SHIELD` | `$shielded_z` | `$shielded_z >= 3.0` | σ (fleet-discounted) | `Shielded Z >= 3.0σ` | `{{anomaly_threshold}}` |
+| `TWO_PART_HURDLE` | `$active_days`, `$intensity_z` | `$active_days <= 2 or $intensity_z >= 3.0` | dormancy break or σ | `Dormant awakening OR Z >= 3.0σ` | `{{anomaly_threshold}}` |
+| `ADAPTIVE_CONTEXT_THRESHOLD` | `$sensitivity_excess` | `$sensitivity_excess >= 0.0` | σ above the context threshold (1.75σ / 3.00σ) | `Z >= context threshold` | none (built into the score) |
+| `LONGITUDINAL_CUSUM` | `$cusum_drift_score` | `$cusum_drift_score > 0.0` | excess over the 0.5σ slack | `Drift above 0.5σ slack` | none |
+| `BAYESIAN_GAMMA` | `$bayes_shift_ratio` | `$bayes_shift_ratio >= 2.0` | fold change (posterior / 30d mean) | `>= 2.0× baseline (posterior)` | `{{fold_change_threshold}}` |
+| `BAYESIAN_BETA_BINOMIAL` | `$posterior_lift` | `$posterior_lift >= 2.0` | fold change (posterior / prior) | `>= 2.0× prior failure rate` | `{{fold_change_threshold}}` |
+| `COEFFICIENT_OF_VARIATION` | `$surge_ratio`, `$cv` | `$surge_ratio >= 2.0 and $cv <= 0.5` | fold change on a predictable entity | `>= 2.0× baseline, CV <= 0.5` | `{{fold_change_threshold}}` |
+| `RELATIVE_DEVIATION` | `$fold_change` | `$fold_change >= 2.0` (ranked by `$ratio`) | fold change | `>= 2.0× baseline` | `{{fold_change_threshold}}` |
+| `MAD` | `$modified_z` | `... and $modified_z >= 3.5` (AND-ed with the scoring-window and sample-size gates) | modified Z | `Modified Z >= 3.5` | `{{robust_threshold}}` |
+| `VARIANCE` (Fano) | — | **none** (`// NO-GATE`) | — | `N/A (dispersion screen)` | — |
+
+* **Why fold change for the ratio models**: their scores are not in σ, and a fold change ("2× the usual") needs no statistical background to read. The 2.0× default is a convention, not a calibrated tail probability. Tune it like any other threshold.
+* **Why Fano has no gate**: $\sigma^2/\mu$ is computed from the 30-day baseline only, so it does not change with the scored day's value. It ranks historical burstiness (a screen for choosing Poisson vs Gaussian), not a day-level anomaly.
+* **Pipelines**: σ-scored pipelines gate their score at `{{anomaly_threshold}}` (`$delta_z`, `$z_sector`, `$composite_risk`, `$z_vs_enterprise` / `$z_vs_team`). Euclidean fusion and triads gate D² at `{{fusion_threshold_sq}}` (default `12.25`, i.e. D >= 3.5σ). `hierarchical_empirical_bayes_3stage` gates `$empirical_shift >= {{fold_change_threshold}}`. The three `radar_360_*` sector micro-queries are `NO-GATE` because every sector must be reported, nominal included.
+* **Tuning**: an analyst threshold (or a band such as `2.0σ <= Z < 3.0σ`) **replaces** the default gate clause on the same gate variable. It is never added as a second `condition:` block.
+* **Zero baselines**: when the 30-day mean is 0, the divisor floor (`if($hist_avg > 0, $hist_avg, 1.0)`) makes any activity a large fold change, so first-seen entities pass fold-change gates. Read such rows as dormancy breaks, not volume surges.
+
 ---
 
 ## 3. 🔬 Canonical AST Specifications & Verification Contracts
@@ -60,6 +90,9 @@ outcome:
   $personal_diff = $observed - $hist_avg
   $safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)
   $personal_z = $personal_diff / $safe_stddev
+
+condition:
+  $personal_z >= 3.0
 
 order:
   $personal_z desc
@@ -115,7 +148,7 @@ outcome:
   $z_gap = $modified_z - $personal_z
 
 condition:
-  $in_scoring_window = 1 and $raw_active_days >= 7
+  $in_scoring_window = 1 and $raw_active_days >= 7 and $modified_z >= 3.5
 
 order:
   $modified_z desc
@@ -137,6 +170,8 @@ outcome:
   $safe_lambda = if($lambda > 0, $lambda, 1.0)
   $fano_factor = $variance / $safe_lambda
 
+// NO-GATE: the Fano factor uses only the 30-day baseline (independent of the scored day),
+// so no significance threshold applies.
 order:
   $fano_factor desc
 ```
@@ -155,6 +190,9 @@ outcome:
   $sqrt_lambda = math.sqrt($safe_lambda)
   $poisson_z = $diff / $sqrt_lambda
 
+condition:
+  $poisson_z >= 3.0
+
 order:
   $poisson_z desc
 ```
@@ -172,6 +210,9 @@ outcome:
   $safe_hist_avg = if($hist_avg > 0, $hist_avg, 1.0)
   $cv = $hist_stddev / $safe_hist_avg
   $surge_ratio = $observed / $safe_hist_avg
+
+condition:
+  $surge_ratio >= 2.0 and $cv <= 0.5
 
 order:
   $surge_ratio desc
@@ -199,6 +240,9 @@ outcome:
 
   $safe_avg_hourly = if($avg_hourly > 0, $avg_hourly, 1.0)
   $hourly_surge_ratio = $observed_hour / $safe_avg_hourly
+
+condition:
+  $hourly_z >= 3.0
 
 order:
   $hourly_z desc
@@ -234,6 +278,9 @@ outcome:
   $safe_avg = if($avg_30d > 0, $avg_30d, 1.0)
   $bayes_shift_ratio = $posterior_mean / $safe_avg
 
+condition:
+  $bayes_shift_ratio >= 2.0
+
 order:
   $bayes_shift_ratio desc
 ```
@@ -265,6 +312,12 @@ outcome:
 
   $posterior_fail_prob = $alpha_post / $safe_total_post
 
+  $safe_prior_p = if($avg_fail_prob > 0, $avg_fail_prob, 0.001)
+  $posterior_lift = $posterior_fail_prob / $safe_prior_p
+
+condition:
+  $posterior_lift >= 2.0
+
 order:
   $posterior_fail_prob desc
 ```
@@ -286,6 +339,9 @@ outcome:
 
   $slack_excess = $raw_drift - $slack_allowance
   $cusum_drift_score = if($slack_excess > 0, $slack_excess, 0.0)
+
+condition:
+  $cusum_drift_score > 0.0
 
 order:
   $cusum_drift_score desc
@@ -311,6 +367,9 @@ outcome:
 
   $hurdle_threat_score = if($active_days <= 2, $dormant_score, $intensity_z)
 
+condition:
+  $active_days <= 2 or $intensity_z >= 3.0
+
 order:
   $hurdle_threat_score desc
 ```
@@ -331,6 +390,9 @@ outcome:
 
   $safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)
   $upper_tail_z = $excess_surge / $safe_stddev
+
+condition:
+  $upper_tail_z >= 3.0
 
 order:
   $upper_tail_z desc
@@ -359,6 +421,9 @@ outcome:
   $cri_tier2 = if($clamped_z >= 2.0, $cri_tier3, 40.0)
   $cri_score = if($clamped_z >= 1.0, $cri_tier2, 15.0)
 
+condition:
+  $clamped_z >= 3.0
+
 order:
   $cri_score desc
 ```
@@ -381,6 +446,9 @@ outcome:
 
   $prevalence_factor = if($fleet_count > 10, 0.15, 1.0)
   $shielded_z = $personal_z * $prevalence_factor
+
+condition:
+  $shielded_z >= 3.0
 
 order:
   $shielded_z desc
@@ -410,6 +478,9 @@ outcome:
   $is_off_hours = if($active_days <= 5, 1.0, 0.0)
   $dynamic_threshold = if($is_off_hours > 0, 1.75, 3.00)
   $sensitivity_excess = $personal_z - $dynamic_threshold
+
+condition:
+  $sensitivity_excess >= 0.0
 
 order:
   $sensitivity_excess desc
@@ -444,6 +515,9 @@ outcome:
   $scaled_diff = $macd_diff * $velocity_ratio
   $macd_momentum_score = if($macd_diff > 0, $scaled_diff, $fast_z)
 
+condition:
+  $fast_z >= 3.0
+
 order:
   $macd_momentum_score desc
 ```
@@ -477,6 +551,9 @@ outcome:
   $temporal_multiplier = 1.0 + $temporal_penalty
   $circadian_threat_score = $hourly_z * $temporal_multiplier
 
+condition:
+  $circadian_threat_score >= 3.0
+
 order:
   $circadian_threat_score desc
 ```
@@ -495,6 +572,11 @@ outcome:
   $safe_hist_avg = if($hist_avg > 0, $hist_avg, 1.0)
   $ratio = $dev / $safe_hist_avg
 
+  $fold_change = $observed / $safe_hist_avg
+
+condition:
+  $fold_change >= 2.0
+
 order:
   $ratio desc
 ```
@@ -512,3 +594,4 @@ Before emitting any query preview under a Pre-Flight Card in Phase 1B, verify:
    ```yara
    $personal_z = ($observed_val - $baseline_mean) / if($baseline_stddev > 0, $baseline_stddev, 1.0)
    ```
+6. **Threshold Concordance (root `condition:`)**: Does the card's `• Significance Threshold:` line state the model's gate from §2.1 (variable, operator, value, unit), and does the query carry exactly that expression as its root `condition:` between `outcome:` and `order:`? A card threshold with no matching `condition:` is a concordance failure, and so is a σ threshold stated for a fold-change or NO-GATE model. Radar sector micro-queries and the Fano factor are the only ungated queries.

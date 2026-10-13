@@ -160,5 +160,9 @@ outcome:
   $origin_z = max($stage1_extract.origin_z)
   $composite_risk = if($dest_z > 0, $dest_z, 0.0) + if($write_z > 0, $write_z, 0.0) + if($del_z > 0, $del_z, 0.0) + if($create_z > 0, $create_z, 0.0) + if($origin_z > 0, $origin_z, 0.0)
 
+// Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
+condition:
+  $composite_risk >= {{anomaly_threshold}}
+
 order:
   $composite_risk desc

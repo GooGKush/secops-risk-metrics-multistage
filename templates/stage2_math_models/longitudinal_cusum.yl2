@@ -23,5 +23,9 @@ outcome:
   $slack_excess = $raw_drift - $slack_allowance
   $cusum_drift_score = if($slack_excess > 0, $slack_excess, 0.0)
 
+// Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
+condition:
+  $cusum_drift_score > 0.0
+
 order:
   $cusum_drift_score desc

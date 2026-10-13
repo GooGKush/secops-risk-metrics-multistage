@@ -111,5 +111,9 @@ outcome:
   $rare_destination_count = count_distinct($contacts.dest)
   $min_prevalence = min($rare_dest.prevalence)
 
+// Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
+condition:
+  $z_sector >= {{anomaly_threshold}}
+
 order:
   $z_sector desc

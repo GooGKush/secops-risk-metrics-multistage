@@ -117,7 +117,7 @@ outcome:
   $z_gap = $modified_z - $personal_z
 
 condition:
-  $in_scoring_window = 1 and $raw_active_days >= {{min_baseline_days}}
+  $in_scoring_window = 1 and $raw_active_days >= {{min_baseline_days}} and $modified_z >= {{robust_threshold}}
 
 order:
   $modified_z desc

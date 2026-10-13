@@ -20,5 +20,9 @@ outcome:
   $safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)
   $upper_tail_z = $excess_surge / $safe_stddev
 
+// Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
+condition:
+  $upper_tail_z >= {{anomaly_threshold}}
+
 order:
   $upper_tail_z desc

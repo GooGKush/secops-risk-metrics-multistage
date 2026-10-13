@@ -162,6 +162,10 @@ class SubmissionTestSuite:
     rendered = rendered.replace("{{extra_dimensions}}", "")
     rendered = rendered.replace("{{dispersion_floor}}", dispersion_floor)
     rendered = rendered.replace("{{anomaly_threshold}}", anomaly_threshold)
+    # Root significance gate placeholders for ratio, fusion and MAD templates (router defaults).
+    rendered = rendered.replace("{{fold_change_threshold}}", "2.0")
+    rendered = rendered.replace("{{fusion_threshold_sq}}", "12.25")
+    rendered = rendered.replace("{{robust_threshold}}", "3.5")
     rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
     rendered = rendered.replace(
         "{{first_scored_date}}", datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d"))
@@ -283,7 +287,8 @@ class SubmissionTestSuite:
             category="Pipeline Template",
             name="2-Stage Dual-Branch Cloud Repository Scope & Origin Outlier",
             description="Evaluates service account cloud repository access with local-baseline isolation across depth, breadth/novelty, and caller origin.",
-            generator=lambda: (self.pipelines_dir / "cloud_repository_scope_dual_branch.yl2").read_text(encoding="utf-8"),
+            generator=lambda: (self.pipelines_dir / "cloud_repository_scope_dual_branch.yl2").read_text(
+                encoding="utf-8").replace("{{anomaly_threshold}}", "3.0"),
             expected_stages=["stage1_extract"],
         )
     )

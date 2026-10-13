@@ -85,8 +85,9 @@ An analyst with deep domain knowledge may specify both a mathematical model and 
    • Entity Graph Dimension: [Prevalence (rolling_max <= 3) / N/A]
    • Evaluation Horizon Mode:[Mode A: today OR Mode B: 2–14d]
    • Statistical Model:      [Model & Template, e.g. CUSUM Drift (`longitudinal_cusum.yl2`)]
-   • Significance Threshold: [Z >= 3.0σ | 2.0σ <= Z < 3.0σ | D >= 3.5σ]
+   • Significance Threshold: [Model gate from model-concordance-guide.md §2.1: Z >= 3.0σ | 2.0σ <= Z < 3.0σ | >= 2.0× baseline | D >= 3.5σ | N/A (Fano)]
    ```
+   The `Significance Threshold` line and the query's root `condition:` MUST state the same gate (variable, operator, value). A threshold on the card with no matching `condition:` in the query is a concordance failure.
 4. **Candidate Query Preview**: Render the multi-stage query assembled from `templates/pipelines/` inside a ````yara block.
 5. **Clearance Question (Final sentence of Turn 1, then yield)**:
    > *"Would you like me to proceed with **Mode A (Today vs 30-Day Baseline)** or **Mode B (2–14 Day Timeline)**? (Adjust noise level/significance threshold before execution if desired.)"*

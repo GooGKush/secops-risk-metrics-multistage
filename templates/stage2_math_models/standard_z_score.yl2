@@ -17,5 +17,9 @@ outcome:
   $safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)
   $personal_z = $personal_diff / $safe_stddev
 
+// Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
+condition:
+  $personal_z >= {{anomaly_threshold}}
+
 order:
   $personal_z desc

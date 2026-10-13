@@ -84,5 +84,9 @@ outcome:
   // 4. Shrinkage Shift Ratio
   $empirical_shift = $posterior_rate / $fleet_mu
 
+// Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
+condition:
+  $empirical_shift >= {{fold_change_threshold}}
+
 order:
   $posterior_rate desc

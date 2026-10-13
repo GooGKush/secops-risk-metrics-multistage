@@ -30,5 +30,9 @@ outcome:
   $temporal_multiplier = 1.0 + $temporal_penalty
   $circadian_threat_score = $hourly_z * $temporal_multiplier
 
+// Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
+condition:
+  $circadian_threat_score >= {{anomaly_threshold}}
+
 order:
   $circadian_threat_score desc

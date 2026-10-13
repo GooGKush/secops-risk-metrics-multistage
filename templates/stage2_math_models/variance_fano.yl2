@@ -18,5 +18,8 @@ outcome:
   $safe_lambda = if($lambda > 0, $lambda, 1.0)
   $fano_factor = $variance / $safe_lambda
 
+// NO-GATE: the Fano factor (sigma^2 / mu) is computed from the 30-day baseline only and does not
+// depend on the scored day's value, so a significance threshold does not apply. It ranks entities by
+// historical burstiness (a dispersion screen for choosing Poisson vs Gaussian), not by today's anomaly.
 order:
   $fano_factor desc

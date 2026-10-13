@@ -24,5 +24,9 @@ outcome:
   // 3. Composite Hurdle Threat Score: If active_days <= 2, apply dormant penalty; else continuous Z
   $hurdle_threat_score = if($active_days <= 2, $dormant_score, $intensity_z)
 
+// Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
+condition:
+  $active_days <= 2 or $intensity_z >= {{anomaly_threshold}}
+
 order:
   $hurdle_threat_score desc

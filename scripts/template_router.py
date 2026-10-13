@@ -132,22 +132,95 @@ class MultiStageTemplateRouter:
     """Shared stage filter + per-metric observed value; see malachite_catalog.triad_event_selection."""
     return mc.triad_event_selection(metrics)
 
-  @staticmethod
-  def _inject_condition(rendered: str, default_score: str, condition_expression: Optional[str],
-                        min_threshold: Optional[float], max_threshold: Optional[float]) -> str:
-    order_match = re.search(r"order:\s*\n\s*([$][a-zA-Z0-9_]+)", rendered)
-    score_var = order_match.group(1) if order_match else default_score
-    if condition_expression:
-      cond = condition_expression
-    elif min_threshold is not None and max_threshold is not None:
-      cond = f"{score_var} >= {min_threshold} and {score_var} < {max_threshold}"
-    elif min_threshold is not None:
-      cond = f"{score_var} >= {min_threshold}"
-    elif max_threshold is not None:
-      cond = f"{score_var} <= {max_threshold}"
+  # ---------------------------------------------------------------------------
+  # Root significance gate
+  # ---------------------------------------------------------------------------
+
+  # Gate placeholders a template's root `condition:` may carry, with their router defaults:
+  #   {{anomaly_threshold}}     sigma-unit gate (Z, Poisson Z, shielded Z, ...), default 3.0
+  #   {{fold_change_threshold}} fold-change gate for ratio models (Bayes Gamma, CV, ...), default 2.0
+  #   {{fusion_threshold_sq}}   squared Euclidean distance D^2 for fusion / triads, default 12.25 (D >= 3.5)
+  #   {{robust_threshold}}      MAD modified Z (Iglewicz-Hoaglin), default 3.5
+  GATE_PLACEHOLDERS = ("anomaly_threshold", "fold_change_threshold", "fusion_threshold_sq", "robust_threshold")
+  _GATE_CLAUSE_RE = re.compile(
+      r"(\$[A-Za-z0-9_]+)\s*>=\s*\{\{(anomaly_threshold|fold_change_threshold|fusion_threshold_sq|robust_threshold)\}\}")
+  _ROOT_CONDITION_RE = re.compile(r"^condition:[ \t]*\n(.*?)(?=\n[ \t]*\n[ \t]*order:)", re.M | re.S)
+
+  @classmethod
+  def root_condition(cls, rendered: str) -> Optional[str]:
+    """The root stage `condition:` expression (comments dropped, whitespace collapsed), or None."""
+    m = cls._ROOT_CONDITION_RE.search(rendered)
+    if not m:
+      return None
+    code = " ".join(re.sub(r"//[^\n]*", "", m.group(1)).split())
+    return code or None
+
+  @classmethod
+  def _apply_significance_gate(
+      cls,
+      rendered: str,
+      *,
+      anomaly_threshold: float = 3.0,
+      fold_change_threshold: float = 2.0,
+      fusion_threshold_sq: float = 12.25,
+      robust_threshold: float = 3.5,
+      min_threshold: Optional[float] = None,
+      max_threshold: Optional[float] = None,
+      condition_expression: Optional[str] = None,
+      default_score: str = "$personal_z",
+      only_if_template_gate: bool = False,
+  ) -> str:
+    """Resolves the template's root significance gate and applies any analyst override.
+
+    Every score-producing template ships a default root gate (`<gate var> >= {{<placeholder>}}`, see
+    GATE_PLACEHOLDERS). An override (condition_expression, or min/max_threshold on the gate variable)
+    REPLACES that default clause and keeps the template's other condition clauses (e.g. MAD's
+    scoring-window and sample-size gates). When the template has no default gate clause the override
+    is AND-ed into the root condition (or a new root condition is created), unless
+    only_if_template_gate is set; renderers that already resolved their own gate use that flag so an
+    override is never applied twice. Remaining placeholders are filled with their defaults.
+    """
+    clause = None
+    cond = cls._ROOT_CONDITION_RE.search(rendered)
+    if cond:
+      m = cls._GATE_CLAUSE_RE.search(cond.group(1))
+      if m:
+        clause = (cond.start(1) + m.start(), cond.start(1) + m.end(), m.group(1), cond.group(1).strip() == m.group(0))
+
+    if clause:
+      gate_var = clause[2]
     else:
-      return rendered
-    return re.sub(r"(\border:\s*)", f"condition:\n  {cond}\n\n\\1", rendered, count=1)
+      order_match = re.search(r"^order:\s*\n\s*([$][a-zA-Z0-9_]+)", rendered, re.M)
+      gate_var = order_match.group(1) if order_match else default_score
+
+    override = None
+    if condition_expression:
+      override = condition_expression
+    elif min_threshold is not None and max_threshold is not None:
+      override = f"{gate_var} >= {min_threshold} and {gate_var} < {max_threshold}"
+    elif min_threshold is not None:
+      override = f"{gate_var} >= {min_threshold}"
+    elif max_threshold is not None:
+      override = f"{gate_var} <= {max_threshold}"
+
+    if override:
+      if clause:
+        start, end, _, is_whole = clause
+        compound = re.search(r"\s(?:and|or)\s", override) is not None
+        replacement = override if (is_whole or not compound) else f"({override})"
+        rendered = rendered[:start] + replacement + rendered[end:]
+      elif not only_if_template_gate:
+        rendered = cls._merge_root_condition(rendered, override)
+
+    values = {
+        "anomaly_threshold": anomaly_threshold,
+        "fold_change_threshold": fold_change_threshold,
+        "fusion_threshold_sq": fusion_threshold_sq,
+        "robust_threshold": robust_threshold,
+    }
+    for name, value in values.items():
+      rendered = rendered.replace("{{" + name + "}}", str(value))
+    return rendered
 
   # ---------------------------------------------------------------------------
   # Generic sector fusion
@@ -163,6 +236,7 @@ class MultiStageTemplateRouter:
       min_threshold: Optional[float] = None,
       max_threshold: Optional[float] = None,
       condition_expression: Optional[str] = None,
+      fusion_threshold_sq: float = 12.25,
   ) -> str:
     """Renders a dual-sector (3-stage) or multi-sector (4-stage, fleet-normalized) fusion for ANY two
     entity-keyed metrics. Pairing rules come from malachite_catalog.check_fusion_pair; advisories are
@@ -205,7 +279,14 @@ class MultiStageTemplateRouter:
     # The template's slot guide is for agents filling slots by hand; it is noise once rendered.
     rendered = re.sub(r"^// SLOT FILLING:.*?(?=^// ====)", "", rendered, flags=re.M | re.S)
 
-    rendered = self._inject_condition(rendered, "$composite_threat_norm_sq", condition_expression, min_threshold, max_threshold)
+    rendered = self._apply_significance_gate(
+        rendered,
+        fusion_threshold_sq=fusion_threshold_sq,
+        min_threshold=min_threshold,
+        max_threshold=max_threshold,
+        condition_expression=condition_expression,
+        default_score="$composite_threat_norm_sq",
+    )
     prefix = "".join(f"// ADVISORY: {a}\n" for a in check.advisories)
     if hypothesis_goal:
       prefix = f"// Goal: {hypothesis_goal}\n" + prefix
@@ -317,8 +398,16 @@ class MultiStageTemplateRouter:
       identifier_field: Optional[str] = None,
       scoring_days: Optional[int] = None,
       scoring_end_date: Optional[str] = None,
+      fold_change_threshold: float = 2.0,
+      robust_threshold: float = 3.5,
   ) -> str:
     """Renders stage1 extractor + stage2 math model.
+
+    Significance gate: every stage2 model except the Fano factor ships a default root `condition:`
+    (sigma models: `>= anomaly_threshold`; ratio models: `>= fold_change_threshold`; MAD:
+    `$modified_z >= robust_threshold`). min_threshold / max_threshold / condition_expression replace
+    that default gate. apply_threshold_condition is retained for backward compatibility and no longer
+    changes the output: the default gate is always applied.
 
     scoring_days applies to StatisticalModel.MAD only: the raw search window is the robust baseline
     (~30d), so the number of most-recent days actually scored is set explicitly (Mode A: 1, Mode B
@@ -349,6 +438,9 @@ class MultiStageTemplateRouter:
           anomaly_threshold=anomaly_threshold,
           min_baseline_days=min_baseline_days,
           hypothesis_goal=hypothesis_goal,
+          min_threshold=min_threshold,
+          max_threshold=max_threshold,
+          condition_expression=condition_expression,
       )
 
     stage1_path = self.template_dir / "stage1_extractors" / f"{target_metric}.yl2"
@@ -436,25 +528,21 @@ class MultiStageTemplateRouter:
       stage2_raw = stage2_raw.replace(f"match:\n  {primary_var}, $ws by 1h", f"match:\n  {primary_var}")
       stage2_raw = stage2_raw.replace("$ws = $stage1_extract.window_start\n", "")
 
-    stage2_rendered = stage2_raw.replace("{{anomaly_threshold}}", str(anomaly_threshold))
-    stage2_rendered = stage2_rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
+    stage2_rendered = stage2_raw.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
 
-    # Noise Level & Significance Threshold Conditioning
-    if apply_threshold_condition and min_threshold is None and max_threshold is None:
-      min_threshold = anomaly_threshold
-
-    order_match = re.search(r'order:\s*\n\s*([$][a-zA-Z0-9_]+)', stage2_rendered)
-    score_var = order_match.group(1) if order_match else "$personal_z"
-
-    if condition_expression:
-      stage2_rendered = self._merge_root_condition(stage2_rendered, condition_expression)
-    elif min_threshold is not None and max_threshold is not None:
-      stage2_rendered = self._merge_root_condition(
-          stage2_rendered, f"{score_var} >= {min_threshold} and {score_var} < {max_threshold}")
-    elif min_threshold is not None:
-      stage2_rendered = self._merge_root_condition(stage2_rendered, f"{score_var} >= {min_threshold}")
-    elif max_threshold is not None:
-      stage2_rendered = self._merge_root_condition(stage2_rendered, f"{score_var} <= {max_threshold}")
+    # Noise Level & Significance Threshold Conditioning: resolve the model's default root gate and
+    # apply any analyst override (replaces the default gate clause; other clauses are kept).
+    del apply_threshold_condition  # retained for API compatibility; the default gate is always applied
+    stage2_rendered = self._apply_significance_gate(
+        stage2_rendered,
+        anomaly_threshold=anomaly_threshold,
+        fold_change_threshold=fold_change_threshold,
+        robust_threshold=robust_threshold,
+        min_threshold=min_threshold,
+        max_threshold=max_threshold,
+        condition_expression=condition_expression,
+    )
+    gate = self.root_condition(stage2_rendered)
 
     header = (
         "// ============================================================================\n"
@@ -462,7 +550,8 @@ class MultiStageTemplateRouter:
         f"// Goal: {hypothesis_goal or ('Hunt for statistical outliers in ' + target_metric)}\n"
         f"// Target Telemetry: {audit['event_label']} (Dimensions: {audit['target_field']})\n"
         f"// Event Filter: {' AND '.join(audit['event_filter'])}\n"
-        f"// Statistical Model: {statistical_model.value} (Threshold >= {anomaly_threshold})\n"
+        f"// Statistical Model: {statistical_model.value}\n"
+        f"// Significance Gate: {gate or 'NONE (model has no significance threshold; see template NO-GATE note)'}\n"
         f"// Match Mode: {match_mode.value}\n"
         f"// Baseline Window: 30-Day Historical Pre-Computed Metrics (Min Active Days: {audit['min_baseline_days']})\n"
         "// ============================================================================\n\n"
@@ -486,8 +575,62 @@ class MultiStageTemplateRouter:
       target_entity: Optional[str] = None,
       target_metrics: Optional[List[str]] = None,
       identifier_field: Optional[str] = None,
+      fold_change_threshold: float = 2.0,
+      fusion_threshold_sq: float = 12.25,
   ) -> str:
-    """Renders 3-Stage and 4-Stage advanced DAG pipelines."""
+    """Renders 3-Stage and 4-Stage advanced DAG pipelines, then resolves the root significance gate.
+
+    Pipelines whose template carries a default gate placeholder (see GATE_PLACEHOLDERS) get it filled
+    here, and min_threshold / max_threshold / condition_expression replace that default gate.
+    Renderers that resolve their own gate (sector fusion, the hybrid_metric_* family) are left as is.
+    """
+    rendered = self._render_pipeline(
+        pipeline_type,
+        target_metric=target_metric,
+        entity_type=entity_type,
+        anomaly_threshold=anomaly_threshold,
+        min_baseline_days=min_baseline_days,
+        hypothesis_goal=hypothesis_goal,
+        service_account=service_account,
+        min_threshold=min_threshold,
+        max_threshold=max_threshold,
+        condition_expression=condition_expression,
+        cohort_entities=cohort_entities,
+        target_entity=target_entity,
+        target_metrics=target_metrics,
+        identifier_field=identifier_field,
+        fusion_threshold_sq=fusion_threshold_sq,
+    )
+    return self._apply_significance_gate(
+        rendered,
+        anomaly_threshold=anomaly_threshold,
+        fold_change_threshold=fold_change_threshold,
+        fusion_threshold_sq=fusion_threshold_sq,
+        min_threshold=min_threshold,
+        max_threshold=max_threshold,
+        condition_expression=condition_expression,
+        only_if_template_gate=True,
+    )
+
+  def _render_pipeline(
+      self,
+      pipeline_type: PipelineArchitecture,
+      target_metric: Optional[str] = None,
+      entity_type: EntityType = EntityType.ASSET,
+      anomaly_threshold: float = 3.0,
+      min_baseline_days: Optional[int] = None,
+      hypothesis_goal: Optional[str] = None,
+      service_account: Optional[str] = None,
+      min_threshold: Optional[float] = None,
+      max_threshold: Optional[float] = None,
+      condition_expression: Optional[str] = None,
+      cohort_entities: Optional[List[str]] = None,
+      target_entity: Optional[str] = None,
+      target_metrics: Optional[List[str]] = None,
+      identifier_field: Optional[str] = None,
+      fusion_threshold_sq: float = 12.25,
+  ) -> str:
+    """Renders 3-Stage and 4-Stage advanced DAG pipelines (gate placeholders left for build_pipeline_query)."""
     if pipeline_type in (PipelineArchitecture.MULTI_SECTOR_FUSION_4STAGE, PipelineArchitecture.DUAL_SECTOR_FUSION_3STAGE):
       metrics = list(target_metrics or self.DEFAULT_FUSION_METRICS)
       if len(metrics) != 2:
@@ -501,6 +644,7 @@ class MultiStageTemplateRouter:
           min_threshold=min_threshold,
           max_threshold=max_threshold,
           condition_expression=condition_expression,
+          fusion_threshold_sq=fusion_threshold_sq,
       )
 
     elif pipeline_type == PipelineArchitecture.RADAR_360_DECOUPLED_SECTOR:
@@ -590,7 +734,6 @@ class MultiStageTemplateRouter:
           "{{target_metric_func_active_days}}",
           f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: num_metric_periods, {audit['target_field']}: {audit['target_field']})"
       )
-      rendered = rendered.replace("{{anomaly_threshold}}", str(anomaly_threshold))
       rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
       return rendered + "\n"
 
@@ -635,29 +778,9 @@ class MultiStageTemplateRouter:
         raw = re.sub(sa_regex_pattern, sa_binding, raw, flags=re.DOTALL)
       if hypothesis_goal:
         raw = f"// Goal: {hypothesis_goal}\n" + raw
-      rendered = raw
-
-      # Noise Level & Significance Threshold Conditioning
-      if condition_expression:
-        cond_block = f"condition:\n  {condition_expression}\n\n"
-        rendered = re.sub(r'(\border:\s*)', f"{cond_block}\\1", rendered, count=1)
-      elif min_threshold is not None and max_threshold is not None:
-        order_match = re.search(r'order:\s*\n\s*([$][a-zA-Z0-9_]+)', rendered)
-        score_var = order_match.group(1) if order_match else "$composite_risk"
-        cond_block = f"condition:\n  {score_var} >= {min_threshold} and {score_var} < {max_threshold}\n\n"
-        rendered = re.sub(r'(\border:\s*)', f"{cond_block}\\1", rendered, count=1)
-      elif min_threshold is not None:
-        order_match = re.search(r'order:\s*\n\s*([$][a-zA-Z0-9_]+)', rendered)
-        score_var = order_match.group(1) if order_match else "$composite_risk"
-        cond_block = f"condition:\n  {score_var} >= {min_threshold}\n\n"
-        rendered = re.sub(r'(\border:\s*)', f"{cond_block}\\1", rendered, count=1)
-      elif max_threshold is not None:
-        order_match = re.search(r'order:\s*\n\s*([$][a-zA-Z0-9_]+)', rendered)
-        score_var = order_match.group(1) if order_match else "$composite_risk"
-        cond_block = f"condition:\n  {score_var} <= {max_threshold}\n\n"
-        rendered = re.sub(r'(\border:\s*)', f"{cond_block}\\1", rendered, count=1)
-
-      return rendered + "\n"
+      # Significance gate: the template's `$composite_risk >= {{anomaly_threshold}}` default (and any
+      # min/max/condition override) is resolved by build_pipeline_query.
+      return raw + "\n"
 
     elif pipeline_type == PipelineArchitecture.PART_OF_THE_WHOLE_MULTILEVEL:
       if not target_metric:
@@ -687,6 +810,7 @@ class MultiStageTemplateRouter:
           cohort_filter = f'$u = "{cohort_entities[0]}"'
         rendered = rendered.replace("{{cohort_filter}}", cohort_filter)
         rendered = rendered.replace("order:\n  $z_vs_enterprise desc", "order:\n  $z_vs_team desc")
+        rendered = rendered.replace("$z_vs_enterprise >= {{anomaly_threshold}}", "$z_vs_team >= {{anomaly_threshold}}")
 
       if target_entity:
         target_filter = f'{entity_var} = "{target_entity}"'
@@ -756,6 +880,7 @@ class MultiStageTemplateRouter:
           cohort_filter = f'$u = "{cohort_entities[0]}"'
         rendered = rendered.replace("{{cohort_filter}}", cohort_filter)
         rendered = rendered.replace("order:\n  $d_vs_fleet_sq desc", "order:\n  $d_vs_team_sq desc")
+        rendered = rendered.replace("$d_vs_fleet_sq >= {{fusion_threshold_sq}}", "$d_vs_team_sq >= {{fusion_threshold_sq}}")
 
       rendered = _fill_event_filter(rendered, "{{event_filter}}", triad_filter)
       rendered = rendered.replace("{{entity_field}}", triad_audit["target_field"])

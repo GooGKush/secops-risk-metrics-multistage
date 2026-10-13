@@ -16,5 +16,9 @@ outcome:
   $sqrt_lambda = math.sqrt($safe_lambda)
   $poisson_z = $diff / $sqrt_lambda
 
+// Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
+condition:
+  $poisson_z >= {{anomaly_threshold}}
+
 order:
   $poisson_z desc
