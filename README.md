@@ -1,6 +1,6 @@
 # Google SecOps Multi-Stage Risk Metrics Threat Hunter (`secops-risk-metrics-multistage`)
 
-[![Version](https://img.shields.io/badge/version-v1.8.6-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-360%2F360%20passing%20(100%25)-brightgreen.svg)](tests/) [![Submission Tests](https://img.shields.io/badge/submission%20tests-32%2F32%20passing%20(100%25)-brightgreen.svg)](scripts/submission_tests.py)
+[![Version](https://img.shields.io/badge/version-v1.9.0-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-381%2F381%20passing%20(100%25)-brightgreen.svg)](tests/) [![Submission Tests](https://img.shields.io/badge/submission%20tests-32%2F32%20passing%20(100%25)-brightgreen.svg)](scripts/submission_tests.py)
 
 A specialized, production-grade AI agent skill package for **Google Security Operations (SecOps / Chronicle SIEM & SOAR)** that constructs, validates, and executes **Multi-Stage YARA-L 2.0 Directed Acyclic Graph (DAG) statistical threat hunting pipelines**, **360° Entity Behavioral Risk Radars**, and **Progressively Disclosed Consultative Threat Hunting**.
 
@@ -49,6 +49,7 @@ secops-risk-metrics-multistage/
 │   ├── soar-playbook-radar-integration.md# Chronicle SOAR playbook integration for 360° radar
 │   ├── statistical-hunting-cooperative-framework.md # Federated bilateral handoff protocol
 │   ├── statistical-models-taxonomy.md    # Mathematical taxonomy of all 16 statistical models
+│   ├── timeline-modes-guide.md           # Per-request 30d baseline anchoring, Mode B fixed-baseline bias, Mode C per-day shards
 │   ├── turn-execution-lifecycle.md       # Codified turn lifecycle, transition invariants, & quiet baseline protocol
 │   └── udm-hunting-field-dictionary.md   # Field-level dictionary mapping UDM protobuf fields to hunter dimensions
 ├── templates/                            # Composable YARA-L 2.0 template library
@@ -124,8 +125,9 @@ secops-risk-metrics-multistage/
 │   ├── submission_tests.py               # Canonical 32-case compiler verification test harness
 │   ├── sync_malachite_catalog.py         # Re-syncs / drift-checks data/malachite against google3
 │   ├── template_router.py                # Maps natural language intent to .yl2 templates with condition filtering
+│   ├── timeline_assembler.py             # Mode C collator: merges per-day shard results into one timeline report
 │   └── triage_formatter.py               # Generates 6-section triage reports & CRI scores
-└── tests/                                # Automated unit test suite (360 tests across 23 test modules)
+└── tests/                                # Automated unit test suite (381 tests across 24 test modules)
     ├── test_chart_specifications.py
     ├── test_chronicle_ingest.py
     ├── test_complex_multistage_syntax.py
@@ -145,6 +147,7 @@ secops-risk-metrics-multistage/
     ├── test_statistical_assumptions.py
     ├── test_submission_compiler_policy.py
     ├── test_template_router.py
+    ├── test_timeline_assembler.py
     ├── test_triage_formatter.py
     └── test_yaral_templates.py
 ```
@@ -268,10 +271,11 @@ For deep domain investigations, the skill references specialized consultative wo
 * **Insider Risk 360°** (`insider-risk-360.md`): Holistic cross-silo employee risk profiling combining HR timelines with multi-sector telemetry.
 * **Web, Proxy & Covert HTTP Channels** (`web-and-proxy.md`): User-agent fleet prevalence, proxy error-ratio surges, target-centric API hammering, and the HTTP part-of-the-whole triad.
 
-### 4. Evaluation Modes: Mode A vs. Mode B
-During the Pre-Flight Clearance gate, analysts choose between two temporal evaluation horizons:
+### 4. Evaluation Modes: Mode A, Mode B, and Mode C
+During the Pre-Flight Clearance gate, analysts choose a temporal evaluation horizon. One search request anchors one 30-day `metrics.*` baseline at its start day (Malachite `query_engine/qesql/ueba.go`), which shapes Modes B and C:
 * **Mode A (Current-Day Snapshot)**: Evaluates today so far (00:00Z to now) against the 30-day historical baseline. Designed for rapid triage, immediate threshold breach identification, and daily operational sweeps. Queries that join the Entity Graph widen the search window to D-2 00:00Z but still score only today's events (see capability 6).
-* **Mode B (14-Day Longitudinal Trend)**: Evaluates day-by-day daily buckets (`by 1d`) across a 14-day observation window against the 30-day baseline. Designed for CUSUM drift detection, cumulative exfiltration tracking, and subtle trend slope analysis.
+* **Mode B (Fixed-Baseline Timeline, 2–7 days)**: One query with daily buckets (`by 1d`). Every scored day reuses the baseline anchored at the first day, so later days face an older baseline; the card states the baseline dates. Works in every client. Longitudinal CUSUM is the exception: it wants that fixed reference and may span up to 14 days in one query.
+* **Mode C (Per-Day Baseline Timeline)**: Offered only when the client can run local scripts (`run_command`). Runs the approved query once per UTC day so each day gets its own trailing 30-day baseline, then collates the saved results with `scripts/timeline_assembler.py` (default cap 30 days). See `references/timeline-modes-guide.md`.
 
 ### 5. Natural Language Prompt Examples
 
@@ -325,7 +329,7 @@ The skill package ships with two test tiers that anyone can run from a clone:
 pytest tests/
 # or: python3 -m unittest discover tests
 ```
-* **Status**: **360 / 360 passing unit tests** across 23 test modules (100% pass rate).
+* **Status**: **381 / 381 passing unit tests** across 24 test modules (100% pass rate).
 * **Scope**: Enforces Chronicle AST grammar rules, KaTeX formatting compliance, prompt guardrail contracts, 20,480-byte budget ceilings, template router permutations across all 38 metrics and the Stage 2 models, metric-sector catalog drift against `data/`, and Entity Graph freshness filters in every graph template.
 
 ### 2. Google SecOps Malachite Compiler Submission Harness
@@ -343,6 +347,14 @@ python3 scripts/submission_tests.py --dump-dir <OUTPUT_DIR>
 ---
 
 ## 📦 Recent Releases
+
+### v1.9.0 (October 2026) — Time Model, Fixed-Baseline Mode B & Per-Day Mode C
+* **Baseline anchoring corrected**: verified in the Malachite query engine (`query_engine/qesql/ueba.go`), one search request gets one 30-day `metrics.*` baseline, anchored at its `startTime` day. The old claim that every scored day gets its own trailing baseline is removed everywhere.
+* **Time Model** (new `SKILL.md` section): UTC day buckets; the search window picks the scored days and never supplies the baseline; Mode A starts today `T00:00:00Z` (Entity Graph joins: two UTC dates back at `T00:00:00Z`, with a worked date), never a rolling window.
+* **Mode B** is now the **Fixed-Baseline Timeline** (2–7 days, one query). The card states the baseline dates; `references/timeline-modes-guide.md` explains the bias. Longitudinal CUSUM keeps one query of up to 14 days.
+* **Mode C (new): Per-Day Baseline Timeline**, offered only when `run_command` is present. One query per UTC day, collated by the new sanctioned script `scripts/timeline_assembler.py`. Clients without shell access get a note that longer or per-day timelines need a client that can run local scripts.
+* **AD TEAM LOOKUP**: must use the guide's aggregated query; the guide no longer shows a live tenant roster.
+* **Test Suite**: 381/381 unit tests; 32/32 submission tests. SKILL.md is 20,384 bytes.
 
 ### v1.8.6 (October 2026) — Root Significance Gate
 * **Gate enforced in every query**: every score-producing template carries its model's significance gate as a root `condition:` between `outcome:` and `order:`. The Pre-Flight card's `Significance Threshold` is now applied by the query instead of only being stated.

@@ -1,10 +1,44 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.8.6)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.9.0)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v1.8.6 (Point Release) — October 2026  
+**Latest Version**: v1.9.0 (Minor Release) — October 2026  
+
+---
+
+## 📢 What's New in v1.9.0 (Minor Release) — Time Model, Fixed-Baseline Mode B & Per-Day Mode C
+
+The skill said every scored day in a Mode B timeline was compared to its own trailing 30-day baseline. That is false. The Malachite query engine (`query_engine/qesql/ueba.go`: `metricWindowRange` → `dailyMetricWindowEnd`, bound once in `daywindowedFromWhere`) computes **one** baseline window per search request: `D0` = `startTime` truncated to `00:00Z` (one day earlier if `endTime` is less than 4 hours after it), baseline = `[D0 − 30d, D0)`. Every day scored in that request reuses it. On gus-sdl, re-scoring a 14-day timeline one day at a time changed the top entity's composite D from 655.9σ to 44.5σ.
+
+### 1. Time Model (new `SKILL.md` section)
+* All windows are UTC; `metrics.*` are `00:00Z` day buckets.
+* `startTime` / `endTime` pick the scored days. The 30-day baseline comes from `metrics.*`, anchored at the `startTime` day, never from a wider search window.
+* Mode A: `startTime` = today `T00:00:00Z`; Entity Graph joins use two UTC dates back at `T00:00:00Z`, with a worked example (`2026-10-13T00:00:00Z` on 10-15), never `now−48h`. Never a rolling window.
+* Other skills' mode windows do not apply (the statistical hunter's Mode A is a rolling 24-hour raw-event window).
+* `multi-stage-metrics-guide.md` §4 no longer says to "clamp the search window to exactly 24h"; it names the 30-day-window and rolling-`now-24h` mistakes and gives the correct windows. §9 and §11 now describe per-request anchoring.
+
+### 2. Evaluation modes
+* **Mode B: Fixed-Baseline Timeline** (renamed from "Longitudinal Sliding Timeline"): 2–7 days, one query. The card states the baseline dates. `references/timeline-modes-guide.md` (new) documents the bias: sustained bursts keep scoring high, drift is overstated on later days, entities that appear mid-window stay gated.
+* **Mode C: Per-Day Baseline Timeline** (new), offered only when `run_command` is present. The approved query runs unchanged once per UTC day (`D 00:00Z` → `D+1 00:00Z`), default cap 30 days. Compiler/permission errors stop all shards; a transient error gets one retry, then the shard is reported as failed, never filled.
+* Clients without `run_command` are told that per-day baselines and windows beyond 7 days need a client that can run local scripts. The Pre-Flight card placeholder no longer lists Mode C.
+* Exceptions: Longitudinal CUSUM keeps one query of up to 14 days (it needs a fixed pre-window reference). MAD's scored days follow the 2–7 day cap.
+
+### 3. New sanctioned script: `scripts/timeline_assembler.py`
+* Reads saved shard results (files or inline JSON) and writes Markdown, JSON and a ranked HTML chart (via `radar_collector.generate_ranked_fleet_html`).
+* Reports per-day status (failed and missing days are reported, never filled), per-entity onset, persistence, longest run, peak and escalation, sector onsets, and a "too new to baseline" list.
+* Computes no baselines or Z-scores. The only derived values are `D = √(composite_threat_norm_sq)` and the canonical CRI.
+* Sanctioned in `SKILL.md` (Native Execution Guarantee) and `chart-specifications-guide.md` §6B as a capability-gated script. The Hunt Tool, Hard Stop, Atomic Pipeline and Literal Query contracts each gained a Mode C clause.
+
+### 4. Other fixes
+* **AD TEAM LOOKUP**: `SKILL.md` requires the guide's aggregated query (`match: $dept`); raw filters return no fields, and an empty roster means ask, never infer. The guide example no longer shows the live gus-sdl roster (an agent reproduced it after a raw lookup returned nothing).
+* Restored the full Mode A Entity Graph freshness rule after a v1.9.0 draft moved it out of `SKILL.md`.
+* Removed text that `SKILL.md` stated twice (the "Modular References" section, a duplicate clean-hunt sentence, duplicate probe and native-execution sentences) to make room.
+* Radar guide example reports and the cooperative framework no longer model a 24-hour or "sliding" window. CUSUM and MAD template headers updated. Several stale "14–30 day" CUSUM horizons corrected to the 14-day multi-stage limit.
+
+### 5. Testing
+* 381/381 unit tests (18 new in `tests/test_timeline_assembler.py`; 4 new contract tests; the retired-label test now also rejects "sliding timeline" and a 2–14 day Mode B); 32/32 submission tests. SKILL.md is 20,384 bytes.
 
 ---
 
