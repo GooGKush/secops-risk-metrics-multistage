@@ -1,0 +1,72 @@
+# Consultative Deep Dive: MITRE ATT&CK & Multi-Stage Kill-Chain Progression
+
+> **Consultative Reference**: Loaded on-demand when an analyst references a MITRE ATT&CK tactic/technique, CTI threat report, or multi-stage attack path (e.g., *Initial Access $\to$ Discovery*, *Credential Access $\to$ Execution*, *Execution $\to$ C2 / Exfiltration*), or when recommending upstream/downstream kill-chain pivots in State 2 $\to$ State 3.
+
+---
+
+## 🧭 1. The 12-Tactic MITRE ATT&CK Enterprise to UEBA Behavioral Matrix
+
+Static detection rules target isolated point-in-time indicators (hashes, command strings, static counts). In contrast, UEBA 30-day behavioral baselines (`metrics.*`) detect the **physical telemetry deformation** each MITRE ATT&CK tactic produces relative to an entity's 30-day history ($\mu_{30d}, \sigma_{30d}$) and peer cohort:
+
+| MITRE Tactic | Primary & Secondary `metrics.*` Vectors | Entity Scope | Physical Telemetry Deformation | Recommended Mathematical Model & Pipeline Template | Upstream Entry $\leftrightarrow$ Downstream Pivot |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **`TA0001` Initial Access** | `auth_attempts_success`, `workspace_auth_attempts_success`, `auth_attempts_total` | `USER`, `ASSET` | **State Transition** (dormant account wakeup) or **Circadian Shift** (off-hours replay) | **Two-Part Hurdle** (`two_part_hurdle.yl2`), **Circadian von Mises** (`circadian_von_mises_2stage.yl2`), or **Infant Asset Age** (`hybrid_metric_derived_asset_age_2stage.yl2`) | **Downstream**: `TA0007` Discovery (`http_queries_fail`, `resource_read_total`) or `TA0002` Execution (`file_executions_total`) |
+| **`TA0002` Execution** | `file_executions_total`, `file_executions_success`, `file_executions_fail` | `ASSET`, `USER` | **Discrete Rarity** (unseen binary hash) or **Temporal Anomaly** | **Derived File Prevalence** (`hybrid_metric_derived_file_prevalence_2stage.yl2`), **Fleet Prevalence Shield** (`hybrid_metric_fleet_prevalence_2stage.yl2`), or **Poisson Rarity** (`poisson_rarity.yl2`) | **Upstream**: `TA0006` Credential Access (`auth_attempts_fail`)<br>**Downstream**: `TA0011` C2 (`dns_queries_total`) or `TA0010` Exfiltration (`network_bytes_outbound`) |
+| **`TA0003` Persistence** | `resource_creation_total`, `workspace_total_change_actions`, `auth_attempts_success` | `USER`, `ASSET` | **State Transition** (rogue SA/token creation) or **Persistent Accumulation** | **Cloud Repository Dual-Branch** (`cloud_repository_scope_dual_branch.yl2`) or **Two-Part Hurdle** (`two_part_hurdle.yl2`) | **Upstream**: `TA0001` Initial Access<br>**Downstream**: `TA0004` Privilege Escalation (`resource_written_total`) |
+| **`TA0004` Privilege Escalation** | `resource_written_total`, `resource_written_fail`, `auth_attempts_fail` | `USER`, `ASSET` | **Failure Ratio Surge** (IAM permission probing) or **Volumetric Shock** | **Failure Ratio Surge** (`http_error_ratio_surge_2stage.yl2` on `resource_written_fail`) or **Cloud Repository Dual-Branch** (`cloud_repository_scope_dual_branch.yl2`) | **Upstream**: `TA0003` Persistence<br>**Downstream**: `TA0007` Discovery (`resource_read_total`) |
+| **`TA0005` Defense Evasion** | `alert_event_name_count`, `file_executions_total`, `resource_deletion_total` | `ASSET`, `USER` | **Persistent Accumulation** (sub-threshold alert dilution) or **Crowd Masking** (Patch Tuesday hiding) | **2-Stage Alert Surge** (`radar_360_sector_alert.yl2`), **Longitudinal CUSUM** (`longitudinal_cusum.yl2`), or **Fleet Prevalence Shield** (`hybrid_metric_fleet_prevalence_2stage.yl2`) | **Upstream**: `TA0002` Execution<br>**Downstream**: `TA0010` Exfiltration (`network_bytes_outbound`) or `TA0040` Impact (`resource_deletion_total`) |
+| **`TA0006` Credential Access** | `auth_attempts_fail`, `workspace_auth_attempts_fail`, `auth_attempts_total` | `USER`, `ASSET` | **Failure Ratio Surge** (stuffing/spray) or **Dispersion Burst** (Fano clustering) | **Beta-Binomial Bayesian** (`beta_binomial_bayesian.yl2`), **Failure Ratio Surge** (`http_error_ratio_surge_2stage.yl2`), or **Part-of-the-Whole Auth Triad** (`part_of_the_whole_triad_multilevel.yl2`) | **Upstream**: `TA0001` Initial Access<br>**Downstream**: `TA0008` Lateral Movement (`auth_attempts_success`) or `TA0002` Execution (`file_executions_total`) |
+| **`TA0007` Discovery** | `http_queries_fail`, `dns_queries_fail`, `resource_read_fail`, `resource_read_total` | `ASSET`, `USER` | **Failure Ratio Surge** (4xx/NXDOMAIN/IAM `DENY` scanning) | **Failure Ratio Surge** (`http_error_ratio_surge_2stage.yl2` on `http_queries_fail`, `dns_queries_fail`, or `resource_read_fail`) or **Cloud Repository Dual-Branch** (`cloud_repository_scope_dual_branch.yl2`) | **Upstream**: `TA0001` Initial Access / `TA0006` Credential Access<br>**Downstream**: `TA0009` Collection (`workspace_total_download_actions`) |
+| **`TA0008` Lateral Movement** | `auth_attempts_success`, `auth_attempts_fail`, `network_flows_total` | `USER`, `ASSET` | **State Transition** (login to unseen/infant asset) or **Peer Divergence** | **Infant Asset Age** (`hybrid_metric_derived_asset_age_2stage.yl2`), **Dual-Sector Auth Fusion** (`dual_sector_fusion_3stage.yl2`), or **Peer Cohort Multilevel** (`part_of_the_whole_multilevel.yl2`) | **Upstream**: `TA0006` Credential Access<br>**Downstream**: `TA0002` Execution (`file_executions_total`) or `TA0009` Collection |
+| **`TA0009` Collection** | `workspace_total_download_actions`, `resource_read_total`, `network_bytes_inbound` | `USER`, `ASSET` | **Volumetric Shock** (bulk repository/Drive hoarding) or **Peer Divergence** | **Piecewise CRI** (`piecewise_cri.yl2`), **Workspace Action Triad** (`part_of_the_whole_triad_multilevel.yl2`), or **Roll-Up Sector Fusion** (`rollup_sector_fusion_4stage.yl2`) | **Upstream**: `TA0007` Discovery (`resource_read_total`)<br>**Downstream**: `TA0010` Exfiltration (`network_bytes_outbound`, `workspace_total_share_actions`) |
+| **`TA0011` Command and Control** | `network_flows_outbound`, `dns_queries_total`, `dns_bytes_outbound`, `http_queries_total` | `ASSET`, `USER` | **Volatility Regularity** (low-CV flow pulse) or **Rare Destination Contact** | **C2 Beacon Flow Frequency** (`c2_beacon_flow_frequency_2stage.yl2`), **Derived Domain Prevalence** (`hybrid_metric_derived_domain_prevalence_2stage.yl2`), or **WHOIS Lifecycle** (`hybrid_metric_whois_domain_lifecycle_2stage.yl2`) | **Upstream**: `TA0002` Execution (`file_executions_total`)<br>**Downstream**: `TA0010` Exfiltration (`network_bytes_outbound`) |
+| **`TA0010` Exfiltration** | `network_bytes_outbound`, `dns_bytes_outbound`, `workspace_network_bytes_outbound`, `workspace_emails_sent_total` | `ASSET`, `USER` | **Persistent Accumulation** (slow trickle), **Kinetic Acceleration** (MACD), or **Elephant Flow** | **Longitudinal CUSUM** (`longitudinal_cusum.yl2`), **MACD Velocity** (`macd_momentum_velocity_2stage.yl2`), **Rare Destination ECG** (`rare_destination_ecg_3stage.yl2`), or **MAD Robust Z** (`mad.yl2`) | **Upstream**: `TA0009` Collection or `TA0011` C2<br>**Downstream**: `TA0040` Impact (`resource_deletion_total`) |
+| **`TA0040` Impact** | `resource_deletion_total`, `resource_deletion_fail`, `workspace_total_change_actions`, `http_queries_total` | `USER`, `ASSET` | **Volumetric Shock** (mass infrastructure/storage wipe or API flood) | **Cloud Repository Dual-Branch** (`cloud_repository_scope_dual_branch.yl2`), **Target Surge** (`http_target_surge_2stage.yl2`), or **Asymmetric Directional Z** (`asymmetric_directional_z.yl2`) | **Upstream**: `TA0010` Exfiltration or `TA0005` Defense Evasion |
+
+---
+
+## 🔗 2. The 8 Canonical Multi-Stage Attack-Path Archetypes (Single-Query Kill-Chain Fusion)
+
+When an adversary progresses through two tactics on the **same entity class** (`USER` or `ASSET`), single-sector thresholds often fail because the attacker keeps each individual tactic below $3.0\sigma$ (e.g., $Z_a = 2.6\sigma$ and $Z_b = 2.6\sigma$). By fusing both kill-chain stages into a rectified Euclidean threat norm $D = \sqrt{\sum \max(0, Z_i)^2}$ ($D^2 \ge 12.25 \iff D \ge 3.5\sigma$), the joint trajectory crosses the significance gate cleanly:
+
+| Kill-Chain Archetype ID | MITRE Progression | Sector A (Entry Stage) | Sector B (Progression Stage) | Supported Scopes | Pipeline Template |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **`CREDENTIAL_ACCESS_TO_EXECUTION`** | `TA0006` $\to$ `TA0002` | `file_executions_total` (Roll-up over binary SHA256) | `auth_attempts_fail` | `ASSET`, `USER` | `rollup_sector_fusion_4stage.yl2` |
+| **`INITIAL_ACCESS_TO_DISCOVERY`** | `TA0001` $\to$ `TA0007` | `auth_attempts_success` | `http_queries_fail` | `ASSET`, `USER` | `dual_sector_fusion_3stage.yl2` |
+| **`EXECUTION_TO_C2_DNS`** | `TA0002` $\to$ `TA0011` | `file_executions_total` (Roll-up over binary SHA256) | `dns_queries_total` | `ASSET`, `USER` | `rollup_sector_fusion_4stage.yl2` |
+| **`EXECUTION_TO_EXFILTRATION`** | `TA0002` $\to$ `TA0010` | `file_executions_total` (Roll-up over binary SHA256) | `network_bytes_outbound` | `ASSET`, `USER` | `rollup_sector_fusion_4stage.yl2` |
+| **`CREDENTIAL_ACCESS_TO_LATERAL_MOVEMENT`** | `TA0006` $\to$ `TA0008` | `auth_attempts_fail` | `network_flows_total` | `ASSET`, `USER` | `dual_sector_fusion_3stage.yl2` |
+| **`CLOUD_DISCOVERY_TO_COLLECTION`** | `TA0007` $\to$ `TA0009` | `resource_read_total` (Roll-up over vendor/product) | `workspace_total_download_actions` | `USER` | `rollup_sector_fusion_4stage.yl2` |
+| **`DEFENSE_EVASION_ALERT_TO_EXFILTRATION`** | `TA0005` $\to$ `TA0010` | `alert_event_name_count` (Roll-up over rule name) | `network_bytes_outbound` | `ASSET` | `rollup_sector_fusion_4stage.yl2` |
+| **`C2_BEACON_TO_RARE_DESTINATION_EXFIL`** | `TA0011` $\to$ `TA0010` | `auth_attempts_total` | `http_queries_total` + `DERIVED_CONTEXT` (`rolling_max <= 3`, `day_count = 10`) | `ASSET` | `fusion_rare_destination_3stage.yl2` |
+
+---
+
+## 🌉 3. Cross-Entity & Dual-Composite Kill-Chain Bridge Protocol (Two-Phase Chained Hunts)
+
+Many real-world intrusion paths cross entity boundaries (e.g., an attacker compromises a **User Identity** in `TA0006`, lands on an **Endpoint Asset** in `TA0002`, and pivots into a **Cloud Service Account** in `TA0007/TA0009`) or combine two composite-only sectors (`alert_event_name_count` + `file_executions_total`).
+
+Because the Chronicle YARA-L 2.0 compiler enforces `CROSS_ENTITY_STAGE_BOUNDARY` (a single query cannot join `principal.user.userid` to `principal.asset.hostname`) and permits at most one composite roll-up sector per fusion query, the skill executes these attack paths via **Two-Phase Chained Kill-Chain Bridges**:
+
+| Cross-Entity / Dual-Composite Path | Phase 1 Entry Query (UEBA Outlier & Bridge Extraction) | Bridge Contract Keys | Phase 2 Progression Query (Targeted UEBA Pivot) |
+| :--- | :--- | :--- | :--- |
+| **1. `USER_CREDENTIAL_TO_HOST_EXECUTION`** (`TA0006 User Auth` $\to$ `TA0002 Host Process`) | Score `metrics.auth_attempts_fail` by `$user` (`target.user.userid`) and project `$bridge_hosts = array_distinct(target.asset.hostname)` | `$user`, `$host`, `$timestamp` | Score `metrics.file_executions_total` on resolved `$host` via `hybrid_metric_derived_file_prevalence_2stage.yl2` (`rolling_max <= 3`) |
+| **2. `HOST_EXECUTION_TO_CLOUD_SA_ACCESS`** (`TA0002 Host Process` $\to$ `TA0007/TA0009 Cloud CRUD`) | Score `metrics.file_executions_total` by `$host, $event_type, $sha256` on endpoint | `$host`, `$user`, `$caller_ip` | Score `metrics.resource_read_total`, `resource_written_total`, `resource_deletion_total` via `cloud_repository_scope_dual_branch.yl2` on `$sa` / `$ip` |
+| **3. `HOST_ALERT_TO_PROCESS_EXECUTION`** (`TA0005 EDR Alert` $\to$ `TA0002 Binary Rarity`) | Score `metrics.alert_event_name_count` by `$host, $rule_name` (`radar_360_sector_alert.yl2`) | `$host`, `$sha256`, `$rule_name` | Score `metrics.file_executions_total` on `$host` with `DERIVED_CONTEXT` file prevalence (`hybrid_metric_derived_file_prevalence_2stage.yl2`) |
+| **4. `USER_WORKSPACE_HOARDING_TO_HOST_EGRESS`** (`TA0009 Workspace Collection` $\to$ `TA0010 Network Exfil`) | Score `metrics.workspace_total_download_actions` by `$user` (`principal.user.userid`) | `$user`, `$host`, `$caller_ip` | Score `metrics.network_bytes_outbound` on bridged `$host`/`$ip` via `rare_destination_ecg_3stage.yl2` |
+
+---
+
+## 🗣️ 4. Consultative Dialogue Protocol for MITRE & Attack-Path Requests
+
+1. **Phase 1A Consultative Alignment (When Analyst Names a Tactic or Attack Goal without Specific Vectors)**:
+   * Present the `### Threat Hypothesis` framed around the MITRE tactic progression and the failure mode of static point rules.
+   * Present `### Summary View` offering:
+     - **Option 1 (Single-Vector Tactic Hunt)**: The primary `metrics.*` table and mathematical model from Section 1.
+     - **Option 2 (Same-Entity Multi-Stage Kill-Chain Fusion)**: The corresponding 2-sector `KillChainArchetype` from Section 2 ($D = \sqrt{\sum \max(0, Z_i)^2} \ge 3.5\sigma$).
+     - **Option 3 (Cross-Entity Two-Phase Kill-Chain Bridge)**: The Two-Phase Bridge from Section 3 when the attack path spans `USER` $\leftrightarrow$ `ASSET` $\leftrightarrow$ `Cloud SA`.
+   * Present `### Alternative Vectors` (including Entity Graph prevalence narrowing `rolling_max <= 3` or handoff to `secops-statistical-hunter` if sub-second raw log jitter/command-line entropy is requested).
+2. **Phase 1B Direct Transition (When Analyst Names a Specific MITRE Technique + Entity Scope + Vector)**:
+   * Map directly to the corresponding `metrics.*` table or `KillChainArchetype`, run the single-event filter probe (`maxEvents: 1`) with ISO 8601 UTC timestamps, emit the `PRE-FLIGHT HUNTING SPECIFICATION` card and candidate YARA-L preview, and yield the turn.
+3. **State 2 $\to$ State 3 Post-Hunt Kill-Chain Progression**:
+   * In Pillar 4 (`Forensic Vector Breakdown & Agentic Next Steps`), always include the **Upstream Entry Tactic** (to investigate how the entity was initially compromised) and **Downstream Progression Tactic** (to check whether the attacker advanced to the next kill-chain stage).

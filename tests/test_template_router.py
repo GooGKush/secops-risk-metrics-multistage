@@ -358,6 +358,8 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
         PipelineArchitecture.HYBRID_METRIC_DERIVED_ASSET_AGE_2STAGE,
         PipelineArchitecture.HYBRID_METRIC_FLEET_PREVALENCE_2STAGE,
         PipelineArchitecture.HYBRID_METRIC_WHOIS_DOMAIN_LIFECYCLE_2STAGE,
+        PipelineArchitecture.RARE_DESTINATION_ECG_3STAGE,
+        PipelineArchitecture.FUSION_RARE_DESTINATION_3STAGE,
     ]
     event_field = re.compile(r"(?<![$\w.])(?:metadata|principal|target|network)\.")
     for arch in graph_pipelines:
@@ -455,6 +457,38 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
       self.assertEqual(mc.observed_filter_gaps(q_alert), [])
       self.assertEqual(MalachiteASTValidator.validate_query(q_alert), [])
       self.assertEqual(StatisticalAntipatternAuditor.audit_query(q_alert), [])
+
+  def test_all_eight_mitre_killchain_archetypes_render_clean(self):
+    """All 8 MITRE ATT&CK KillChainArchetype combinations must render compiler-clean YARA-L across supported entities."""
+    from scripts.preflight_validator import KillChainArchetype, MalachiteASTValidator
+    self.assertEqual(len(KillChainArchetype), 8)
+    for archetype in KillChainArchetype:
+      spec = MultiStageTemplateRouter.KILLCHAIN_CATALOG[archetype]
+      for et in spec["supported_entities"]:
+        with self.subTest(archetype=archetype.value, entity_type=et.value):
+          q = self.router.build_killchain_hunt_query(archetype, entity_type=et)
+          self.assertIn(f"// MITRE ATT&CK Kill-Chain: {spec['mitre_tactics'][0]} -> {spec['mitre_tactics'][1]}", q)
+          self.assertIn(f"metrics.{spec['sector_a']}(", q)
+          self.assertIn(f"metrics.{spec['sector_b']}(", q)
+          self.assertEqual(mc.observed_filter_gaps(q), [])
+          self.assertEqual(MalachiteASTValidator.validate_query(q), [])
+          self.assertEqual(StatisticalAntipatternAuditor.audit_query(q), [])
+
+  def test_chained_hunt_router_cross_entity_killchain_plans(self):
+    """ChainedHuntRouter.build_cross_entity_killchain_plan must render valid Phase 1 and Phase 2 queries for all 4 paths."""
+    from scripts.preflight_validator import MalachiteASTValidator
+    from scripts.template_router import ChainedHuntRouter
+    self.assertEqual(len(ChainedHuntRouter.CROSS_ENTITY_PATHS), 4)
+    for path_name in ChainedHuntRouter.CROSS_ENTITY_PATHS:
+      with self.subTest(path_name=path_name):
+        plan = ChainedHuntRouter.build_cross_entity_killchain_plan(path_name, bridge_entity="srv-prod-01")
+        self.assertEqual(plan["path_name"], path_name)
+        self.assertGreaterEqual(len(plan["bridge_contract"]), 2)
+        for key in ("phase1_query", "phase2_query"):
+          q = plan[key]
+          self.assertEqual(mc.observed_filter_gaps(q), [], f"{path_name}:{key}")
+          self.assertEqual(MalachiteASTValidator.validate_query(q), [], f"{path_name}:{key}")
+          self.assertEqual(StatisticalAntipatternAuditor.audit_query(q), [], f"{path_name}:{key}")
 
 
 if __name__ == "__main__":

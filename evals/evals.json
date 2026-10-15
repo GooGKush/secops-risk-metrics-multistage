@@ -140,6 +140,18 @@
         "Query binds principal.asset.hostname and security_result.rule_name in metrics.alert_event_name_count",
         "Pre-Flight Specification Card precedes the candidate YARA-L preview and pauses for Mode A/B clearance"
       ]
+    },
+    {
+      "id": 13,
+      "name": "eval_mitre_attack_killchain_consultative_and_fusion_routing",
+      "prompt": "Hunt for a multi-stage kill-chain where credential access anomalies lead to lateral movement or rare destination exfiltration on host WRK-SHASEK.",
+      "expected_output": "Maps the request consultatively to the canonical MITRE ATT&CK kill-chain archetypes (TA0006 -> TA0008 / TA0011 -> TA0010), selects orthogonal metric families (e.g., auth_attempts_fail + network_flows_total or auth_attempts_total + http_queries_total with DERIVED_CONTEXT rare destination), renders the rectified Euclidean threat distance (D >= 3.5 sigma) Pre-Flight Specification Card and YARA-L preview, and offers MITRE upstream/downstream kill-chain progression pivots in State 2.",
+      "assertions": [
+        "Consultative mapping links the MITRE ATT&CK tactics (TA0006/TA0008/TA0010/TA0011) to orthogonal Malachite metric families",
+        "Multi-stage kill-chain query uses rectified Euclidean threat distance ($z_a_pos / $z_b_pos, $joint_distance_sq >= 12.25)",
+        "Cross-entity or dual-composite kill-chain paths are routed via Two-Phase Chained Hunt bridges without violating single-query composite limits",
+        "Post-execution Pillar 4 includes MITRE ATT&CK upstream and downstream kill-chain progression pivots"
+      ]
     }
   ]
 }

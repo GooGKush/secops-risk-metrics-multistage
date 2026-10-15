@@ -187,6 +187,15 @@ When the hypothesis touches two or more vectors, do not stop at listing them. Pr
   6. *WHOIS Lifecycle & Expired Domain Check*: Detect web departures to Newly Registered Domains (NRD <= 30d) or expired domain infrastructure vulnerable to hijacking (**WHOIS Domain Lifecycle** via `templates/pipelines/hybrid_metric_whois_domain_lifecycle_2stage.yl2`).
 * *Deep Dive Guide*: `references/consultative/web-and-proxy.md`
 
+### Domain 7: MITRE ATT&CK Tactics & Multi-Stage Kill-Chain Progression
+* **Why Static Rules Miss It**: Single-tactic alerts fire on isolated events that adversaries intentionally keep below static thresholds (e.g. $2.5\sigma$ per sector) or split across user identities, endpoints, and cloud service accounts.
+* **Common-Sense Rigor Check**: Verify whether both stages of a multi-stage kill chain share a single entity class (`USER` or `ASSET`) for atomic Euclidean fusion ($D = \sqrt{\sum \max(0, Z_i)^2} \ge 3.5\sigma$), or cross entity boundaries requiring a Two-Phase Chained Bridge (`$user` $\leftrightarrow$ `$host` $\leftrightarrow$ `$caller_ip`).
+* **Summary View Options**:
+  1. *Same-Entity 2-Sector Kill-Chain Fusion*: Score two sequential MITRE tactics on the same entity (`CREDENTIAL_ACCESS_TO_EXECUTION`, `INITIAL_ACCESS_TO_DISCOVERY`, `EXECUTION_TO_C2_DNS`, `EXECUTION_TO_EXFILTRATION`, `CREDENTIAL_ACCESS_TO_LATERAL_MOVEMENT`, `CLOUD_DISCOVERY_TO_COLLECTION`, or `DEFENSE_EVASION_ALERT_TO_EXFILTRATION` via `dual_sector_fusion_3stage.yl2` / `rollup_sector_fusion_4stage.yl2`).
+  2. *C2 Beaconing to Rare Destination Exfiltration*: Fuse outbound byte departures (`network_bytes_outbound`) with HTTP/DNS destination surges (`http_queries_total`) gated by Entity Context Graph rarity (`rolling_max <= 3`, `day_count = 10` via `C2_BEACON_TO_RARE_DESTINATION_EXFIL` / `fusion_rare_destination_3stage.yl2`).
+  3. *Cross-Entity Two-Phase Kill-Chain Bridge*: Execute Phase 1 UEBA outlier detection to extract bridge keys (`$user`, `$host`, `$caller_ip`, `$sha256`), then pivot into Phase 2 across the entity boundary (`USER_CREDENTIAL_TO_HOST_EXECUTION`, `HOST_EXECUTION_TO_CLOUD_SA_ACCESS`, `HOST_ALERT_TO_PROCESS_EXECUTION`, or `USER_WORKSPACE_HOARDING_TO_HOST_EGRESS`).
+* *Deep Dive Guide*: `references/consultative/mitre-attack-killchain.md`
+
 ---
 
 ## 🎛️ Pre-Flight Card Assembly & Dialogue Protocol

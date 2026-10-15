@@ -152,6 +152,30 @@ class TestTriageFormatter(unittest.TestCase):
     self.assertIn("Outcome Classification: `CLEAN_OR_SUBTHRESHOLD`", clean_report)
     self.assertIn("LONGITUDINAL_CUSUM", clean_report)
 
+  def test_mitre_killchain_progression_in_agentic_next_steps(self):
+    """CommonMarkTriageFormatter must surface MITRE ATT&CK tactic and upstream/downstream progressions."""
+    for metric, expected_tactic in (
+        ("auth_attempts_fail", "TA0006 Credential Access"),
+        ("file_executions_total", "TA0002 Execution"),
+        ("dns_queries_total", "TA0011 Command and Control"),
+        ("http_queries_fail", "TA0007 Discovery"),
+        ("network_bytes_outbound", "TA0010 Exfiltration"),
+        ("resource_read_total", "TA0007 Discovery"),
+        ("workspace_total_download_actions", "TA0009 Collection"),
+        ("alert_event_name_count", "TA0005 Defense Evasion"),
+    ):
+      prog = CommonMarkTriageFormatter.get_mitre_progression(metric)
+      self.assertIn(expected_tactic, prog["tactic"])
+      steps = CommonMarkTriageFormatter.build_agentic_next_steps(
+          self.sample_reduced_data,
+          target_metric=metric,
+          statistical_model="STANDARD_Z_SCORE",
+          anomaly_threshold=3.0,
+      )
+      self.assertIn(expected_tactic, steps)
+      self.assertIn("**Upstream**:", steps)
+      self.assertIn("**Downstream**:", steps)
+
 
 if __name__ == '__main__':
   unittest.main()

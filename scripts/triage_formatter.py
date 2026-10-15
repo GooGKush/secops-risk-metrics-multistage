@@ -58,6 +58,58 @@ class CommonMarkTriageFormatter:
 
     return "ACUTE_OUTLIER"
 
+  MITRE_KILLCHAIN_PROGRESSION: Dict[str, Dict[str, str]] = {
+      "auth": {
+          "tactic": "TA0001 Initial Access / TA0006 Credential Access",
+          "upstream": "TA0001 Initial Access (`circadian_von_mises_2stage.yl2`)",
+          "downstream": "TA0002 Execution (`CREDENTIAL_ACCESS_TO_EXECUTION`) or TA0008 Lateral Movement (`CREDENTIAL_ACCESS_TO_LATERAL_MOVEMENT`)",
+      },
+      "file_executions": {
+          "tactic": "TA0002 Execution",
+          "upstream": "TA0006 Credential Access (`CREDENTIAL_ACCESS_TO_EXECUTION`)",
+          "downstream": "TA0011 Command and Control (`EXECUTION_TO_C2_DNS`) or TA0010 Exfiltration (`EXECUTION_TO_EXFILTRATION`)",
+      },
+      "dns": {
+          "tactic": "TA0011 Command and Control / TA0010 Exfiltration",
+          "upstream": "TA0002 Execution (`EXECUTION_TO_C2_DNS`)",
+          "downstream": "TA0010 Exfiltration (`network_bytes_outbound` / `rare_destination_ecg_3stage.yl2`)",
+      },
+      "http": {
+          "tactic": "TA0007 Discovery / TA0011 Command and Control",
+          "upstream": "TA0001 Initial Access (`INITIAL_ACCESS_TO_DISCOVERY`)",
+          "downstream": "TA0010 Exfiltration (`C2_BEACON_TO_RARE_DESTINATION_EXFIL`)",
+      },
+      "network": {
+          "tactic": "TA0011 Command and Control / TA0010 Exfiltration",
+          "upstream": "TA0002 Execution (`EXECUTION_TO_EXFILTRATION`) or TA0005 Defense Evasion (`DEFENSE_EVASION_ALERT_TO_EXFILTRATION`)",
+          "downstream": "TA0040 Impact (`resource_deletion_total`) or Rare Destination Filter (`C2_BEACON_TO_RARE_DESTINATION_EXFIL`)",
+      },
+      "resource": {
+          "tactic": "TA0003 Persistence / TA0007 Discovery / TA0040 Impact",
+          "upstream": "TA0002 Host Execution (`HOST_EXECUTION_TO_CLOUD_SA_ACCESS`)",
+          "downstream": "TA0009 Collection (`CLOUD_DISCOVERY_TO_COLLECTION`)",
+      },
+      "workspace": {
+          "tactic": "TA0009 Collection / TA0010 Exfiltration",
+          "upstream": "TA0007 Cloud Discovery (`CLOUD_DISCOVERY_TO_COLLECTION`)",
+          "downstream": "TA0010 Host Network Egress (`USER_WORKSPACE_HOARDING_TO_HOST_EGRESS`)",
+      },
+      "alert": {
+          "tactic": "TA0005 Defense Evasion",
+          "upstream": "TA0002 Binary Execution (`HOST_ALERT_TO_PROCESS_EXECUTION`)",
+          "downstream": "TA0010 Exfiltration (`DEFENSE_EVASION_ALERT_TO_EXFILTRATION`)",
+      },
+  }
+
+  @classmethod
+  def get_mitre_progression(cls, target_metric: str) -> Dict[str, str]:
+    """Maps a metric name to its MITRE ATT&CK tactic and upstream/downstream kill-chain progressions."""
+    m = (target_metric or "").lower()
+    for prefix, spec in cls.MITRE_KILLCHAIN_PROGRESSION.items():
+      if prefix in m:
+        return spec
+    return cls.MITRE_KILLCHAIN_PROGRESSION["network"]
+
   @classmethod
   def build_agentic_next_steps(
       cls,
@@ -70,33 +122,34 @@ class CommonMarkTriageFormatter:
     outcome = cls.classify_hunt_outcome(reduced_data, anomaly_threshold)
     outliers = reduced_data.get("top_outliers", [])
     top_entity = outliers[0].get("entity", "target_entity") if outliers else "target_entity"
+    mitre = cls.get_mitre_progression(target_metric)
 
     if outcome == "ACUTE_OUTLIER":
       lines = [
-          f"> * **🧭 Agentic Next Steps (Outcome Classification: `{outcome}` — State 3 → Phase 1B Pivot)**:",
-          f">   * **[A] Cross-Sector Fusion / 360° Multi-Sector Sweep**: Pivot `{top_entity}` directly to Phase 1B (`dual_sector_fusion_3stage.yl2` or Omnidirectional 360° Multi-Sector Sweep) to test whether `{target_metric}` co-occurs with orthogonal kill-chain activity (IAM, Process, Network, Cloud CRUD, or `alert_event_name_count`).",
-          f">   * **[B] Two-Phase Chained Entity Pivot (Host ↔ User / Caller IP)**: Carry `{top_entity}` across the entity boundary via `ChainedHuntRouter` without re-running Phase 1A discovery.",
+          f"> * **🧭 Agentic Next Steps (Outcome Classification: `{outcome}` — State 3 → Phase 1B Pivot)** (MITRE Tactic: `{mitre['tactic']}`):",
+          f">   * **[A] Cross-Sector Fusion / 360° Multi-Sector Sweep**: Pivot `{top_entity}` directly to Phase 1B (`dual_sector_fusion_3stage.yl2`, `rollup_sector_fusion_4stage.yl2`, or Omnidirectional 360° Multi-Sector Sweep) — **Upstream**: {mitre['upstream']} | **Downstream**: {mitre['downstream']} (IAM, Process, Network, Cloud CRUD, or `alert_event_name_count`).",
+          f">   * **[B] Two-Phase Chained Entity Pivot (Host ↔ User / Caller IP)**: Carry `{top_entity}` across the entity boundary via `ChainedHuntRouter` (`build_cross_entity_killchain_plan`) without re-running Phase 1A discovery.",
           f">   * **[C] Novelty & Prevalence Verification / Alert Escalation**: Enrich `{top_entity}` with Entity Context Graph (`DERIVED_CONTEXT` file/domain prevalence or `WHOIS` lifecycle) or escalate `CRI >= 50` findings via `scripts/chronicle_ingest.py`.",
       ]
     elif outcome == "FLEET_WAVE":
       lines = [
-          f"> * **🧭 Agentic Next Steps (Outcome Classification: `{outcome}` — State 3 → Phase 1B Pivot)**:",
+          f"> * **🧭 Agentic Next Steps (Outcome Classification: `{outcome}` — State 3 → Phase 1B Pivot)** (MITRE Tactic: `{mitre['tactic']}`):",
           f">   * **[A] Suppress Rollout / Patch Wave Noise**: Re-score `{target_metric}` in Phase 1B using `FLEET_PREVALENCE_SHIELD` (`fleet_prevalence_shield.yl2`), `HYBRID_METRIC_FLEET_PREVALENCE_2STAGE`, or `DUAL_BASELINE_3STAGE` (`ΔZ = Z_personal - Z_fleet`).",
           f">   * **[B] Isolate Peer Cohort Departure**: Slice `{top_entity}` against its functional team cohort via `PART_OF_THE_WHOLE_MULTILEVEL` (`part_of_the_whole_multilevel.yl2`).",
           f">   * **[C] Filter by Enterprise Prevalence**: Apply `DERIVED_CONTEXT` rarity gating (`rolling_max <= 3`) to drop fleet-wide binaries or domains.",
       ]
     elif outcome == "SPARSE_BASELINE":
       lines = [
-          f"> * **🧭 Agentic Next Steps (Outcome Classification: `{outcome}` — State 3 → Phase 1B Pivot)**:",
+          f"> * **🧭 Agentic Next Steps (Outcome Classification: `{outcome}` — State 3 → Phase 1B Pivot)** (MITRE Tactic: `{mitre['tactic']}`):",
           f">   * **[A] Switch to Sparse-History / Cold-Start Math**: Re-evaluate `{top_entity}` on `{target_metric}` using `TWO_PART_HURDLE` (`two_part_hurdle.yl2`), `POISSON` (`poisson_rarity.yl2`), or `BAYESIAN_GAMMA` (`poisson_gamma_bayesian.yl2`) for $N < 7$ active days.",
           f">   * **[B] Borrow Peer / Fleet Baseline Strength**: Pivot to `EMPIRICAL_BAYES_3STAGE` or `PART_OF_THE_WHOLE_MULTILEVEL` so thin personal history is regularized by the peer cohort.",
           f">   * **[C] Verify Infant Asset / Dormant Account Lifecycle**: Run `HYBRID_METRIC_DERIVED_ASSET_AGE_2STAGE` (`hybrid_metric_derived_asset_age_2stage.yl2`) on `{top_entity}`.",
       ]
     else:
       lines = [
-          f"> * **🧭 Agentic Next Steps (Outcome Classification: `{outcome}` — State 3 → Phase 1B Pivot)**:",
+          f"> * **🧭 Agentic Next Steps (Outcome Classification: `{outcome}` — State 3 → Phase 1B Pivot)** (MITRE Tactic: `{mitre['tactic']}`):",
           f">   * **[A] Probe Sub-Threshold Drift / Low-and-Slow Accumulation**: Relax the significance gate to `1.5σ <= Z < {anomaly_threshold}σ` or switch `{target_metric}` to `LONGITUDINAL_CUSUM` (`longitudinal_cusum.yl2`).",
-          f">   * **[B] Pivot to Orthogonal Kill-Chain Vector**: Keep current entity scope and pivot directly to Phase 1B on an adjacent sector (`alert_event_name_count`, `file_executions_total`, `network_bytes_outbound`, or `resource_read_total`).",
+          f">   * **[B] Pivot to Orthogonal MITRE Kill-Chain Vector**: Keep current entity scope and pivot directly to Phase 1B on **Upstream** ({mitre['upstream']}) or **Downstream** ({mitre['downstream']}) (`alert_event_name_count`, `file_executions_total`, `network_bytes_outbound`, or `resource_read_total`).",
           f">   * **[C] Omnidirectional 360° Multi-Sector Sweep**: Run all 6 decoupled sector micro-queries to verify whether `{top_entity}` is nominal across every telemetry plane.",
       ]
     return "\n".join(lines)

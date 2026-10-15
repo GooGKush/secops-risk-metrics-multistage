@@ -6,9 +6,18 @@ __version__ = "2.1.1"
 import datetime
 from pathlib import Path
 import re
-from typing import List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 from . import malachite_catalog as mc
-from .preflight_validator import METRIC_CATALOG, EntityType, MalachiteASTValidator, MatchMode, PipelineArchitecture, PreFlightValidator, StatisticalModel
+from .preflight_validator import (
+    KillChainArchetype,
+    METRIC_CATALOG,
+    EntityType,
+    MalachiteASTValidator,
+    MatchMode,
+    PipelineArchitecture,
+    PreFlightValidator,
+    StatisticalModel,
+)
 
 
 def _fill_event_filter(rendered: str, slot: str, lines: Sequence[str], indent: str = "    ") -> str:
@@ -1375,6 +1384,104 @@ class MultiStageTemplateRouter:
         rendered = f"// Goal: {hypothesis_goal}\n" + rendered
       return rendered + "\n"
 
+    elif pipeline_type == PipelineArchitecture.RARE_DESTINATION_ECG_3STAGE:
+      if not target_metric:
+        target_metric = "network_bytes_outbound"
+      audit = PreFlightValidator.audit(
+          target_metric=target_metric,
+          entity_type=entity_type,
+          min_baseline_days=min_baseline_days,
+          identifier_field=identifier_field,
+      )
+      pipeline_file = self.template_dir / "pipelines" / "rare_destination_ecg_3stage.yl2"
+      if not pipeline_file.exists():
+        raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
+      raw = pipeline_file.read_text().strip()
+      host_field = audit["target_field"]
+      metric_type_arg = f"metric: {audit['metric_arg']}"
+      contact_filter = mc.baseline_semantics("http_queries_total").observed_filter
+      dest_field = "target.hostname"
+      rendered = _fill_event_filter(raw, "{{sector_filter}}", audit["event_filter"])
+      rendered = _fill_event_filter(rendered, "{{contact_filter}}", contact_filter)
+      rendered = rendered.replace("{{host_field}}", host_field)
+      rendered = rendered.replace("{{dest_field}}", dest_field)
+      rendered = rendered.replace("{{sector_observation_agg}}", audit["observed_agg"])
+      rendered = rendered.replace(
+          "{{sector_metric_func_avg}}",
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: avg, {host_field}: {host_field})"
+      )
+      rendered = rendered.replace(
+          "{{sector_metric_func_stddev}}",
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: stddev, {host_field}: {host_field})"
+      )
+      rendered = rendered.replace("{{ecg_entity_type}}", '"DOMAIN_NAME"')
+      rendered = rendered.replace("{{ecg_key_path}}", "entity.domain.name")
+      rendered = rendered.replace("{{ecg_prevalence_path}}", "entity.domain.prevalence")
+      rendered = rendered.replace("{{max_fleet_prevalence}}", "3")
+      rendered = rendered.replace("{{today_date}}", _today_date())
+      if hypothesis_goal:
+        rendered = f"// Goal: {hypothesis_goal}\n" + rendered
+      return rendered + "\n"
+
+    elif pipeline_type == PipelineArchitecture.FUSION_RARE_DESTINATION_3STAGE:
+      default_pair = (
+          ["auth_attempts_total", "http_queries_total"]
+          if entity_type == EntityType.ASSET
+          else ["workspace_total_download_actions", "http_queries_total"]
+      )
+      metrics = list(target_metrics or default_pair)
+      if len(metrics) != 2:
+        raise ValueError(f"Fusion rare destination takes 2 metrics, got {len(metrics)}: {metrics}")
+      m_a, m_b = metrics[0], metrics[1]
+      audit_a = PreFlightValidator.audit(
+          target_metric=m_a,
+          entity_type=entity_type,
+          min_baseline_days=min_baseline_days,
+          identifier_field=identifier_field,
+      )
+      audit_b = PreFlightValidator.audit(
+          target_metric=m_b,
+          entity_type=entity_type,
+          min_baseline_days=min_baseline_days,
+          identifier_field=identifier_field,
+      )
+      pipeline_file = self.template_dir / "pipelines" / "fusion_rare_destination_3stage.yl2"
+      if not pipeline_file.exists():
+        raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
+      raw = pipeline_file.read_text().strip()
+      host_field = audit_a["target_field"]
+      dest_field = "network.dns_domain" if "dns" in m_b else "target.hostname"
+      rendered = _fill_event_filter(raw, "{{sector_a_filter}}", audit_a["event_filter"])
+      rendered = _fill_event_filter(rendered, "{{sector_b_filter}}", audit_b["event_filter"])
+      rendered = rendered.replace("{{host_field}}", host_field)
+      rendered = rendered.replace("{{dest_field}}", dest_field)
+      rendered = rendered.replace("{{sector_a_observation_agg}}", audit_a["observed_agg"])
+      rendered = rendered.replace("{{sector_b_observation_agg}}", audit_b["observed_agg"])
+      rendered = rendered.replace(
+          "{{sector_a_metric_func_avg}}",
+          f"metrics.{m_a}(period: 1d, window: 30d, metric: {audit_a['metric_arg']}, agg: avg, {host_field}: {host_field})"
+      )
+      rendered = rendered.replace(
+          "{{sector_a_metric_func_stddev}}",
+          f"metrics.{m_a}(period: 1d, window: 30d, metric: {audit_a['metric_arg']}, agg: stddev, {host_field}: {host_field})"
+      )
+      rendered = rendered.replace(
+          "{{sector_b_metric_func_avg}}",
+          f"metrics.{m_b}(period: 1d, window: 30d, metric: {audit_b['metric_arg']}, agg: avg, {host_field}: {host_field}, {dest_field}: {dest_field})"
+      )
+      rendered = rendered.replace(
+          "{{sector_b_metric_func_stddev}}",
+          f"metrics.{m_b}(period: 1d, window: 30d, metric: {audit_b['metric_arg']}, agg: stddev, {host_field}: {host_field}, {dest_field}: {dest_field})"
+      )
+      rendered = rendered.replace("{{ecg_entity_type}}", '"DOMAIN_NAME"')
+      rendered = rendered.replace("{{ecg_key_path}}", "entity.domain.name")
+      rendered = rendered.replace("{{ecg_prevalence_path}}", "entity.domain.prevalence")
+      rendered = rendered.replace("{{max_fleet_prevalence}}", "3")
+      rendered = rendered.replace("{{today_date}}", _today_date())
+      if hypothesis_goal:
+        rendered = f"// Goal: {hypothesis_goal}\n" + rendered
+      return rendered + "\n"
+
     else:
       raise ValueError(f"Unsupported pipeline type: {pipeline_type}")
 
@@ -1898,8 +2005,161 @@ class MultiStageTemplateRouter:
         hypothesis_goal=hypothesis_goal,
     )
 
+  def build_rare_destination_ecg_query(
+      self,
+      target_metric: str = "network_bytes_outbound",
+      entity_type: EntityType = EntityType.ASSET,
+      anomaly_threshold: float = 3.0,
+      hypothesis_goal: Optional[str] = None,
+  ) -> str:
+    """Builds a verified 3-Stage Rare Destination ECG Filter pipeline."""
+    return self.build_pipeline_query(
+        PipelineArchitecture.RARE_DESTINATION_ECG_3STAGE,
+        target_metric=target_metric,
+        entity_type=entity_type,
+        anomaly_threshold=anomaly_threshold,
+        hypothesis_goal=hypothesis_goal,
+    )
+
+  def build_fusion_rare_destination_query(
+      self,
+      target_metrics: Optional[List[str]] = None,
+      entity_type: EntityType = EntityType.ASSET,
+      fusion_threshold_sq: float = 12.25,
+      hypothesis_goal: Optional[str] = None,
+  ) -> str:
+    """Builds a verified 3-Stage Sector Fusion + Rare Destination ECG Filter pipeline."""
+    return self.build_pipeline_query(
+        PipelineArchitecture.FUSION_RARE_DESTINATION_3STAGE,
+        target_metrics=target_metrics,
+        entity_type=entity_type,
+        fusion_threshold_sq=fusion_threshold_sq,
+        hypothesis_goal=hypothesis_goal,
+    )
+
+  # Canonical MITRE ATT&CK Multi-Stage Kill-Chain Archetypes
+  KILLCHAIN_CATALOG: Dict[KillChainArchetype, Dict[str, Any]] = {
+      KillChainArchetype.CREDENTIAL_ACCESS_TO_EXECUTION: {
+          "mitre_tactics": ("TA0006 Credential Access", "TA0002 Execution"),
+          "sector_a": "file_executions_total",
+          "sector_b": "auth_attempts_fail",
+          "supported_entities": (EntityType.ASSET, EntityType.USER),
+          "rare_destination": False,
+          "description": "Credential stuffing/brute-force followed by novel binary execution",
+      },
+      KillChainArchetype.INITIAL_ACCESS_TO_DISCOVERY: {
+          "mitre_tactics": ("TA0001 Initial Access", "TA0007 Discovery"),
+          "sector_a": "auth_attempts_success",
+          "sector_b": "http_queries_fail",
+          "supported_entities": (EntityType.ASSET, EntityType.USER),
+          "rare_destination": False,
+          "description": "Compromised account login followed by internal web/API error scanning",
+      },
+      KillChainArchetype.EXECUTION_TO_C2_DNS: {
+          "mitre_tactics": ("TA0002 Execution", "TA0011 Command and Control"),
+          "sector_a": "file_executions_total",
+          "sector_b": "dns_queries_total",
+          "supported_entities": (EntityType.ASSET, EntityType.USER),
+          "rare_destination": False,
+          "description": "Suspicious endpoint binary launch paired with DNS C2 resolution surge",
+      },
+      KillChainArchetype.EXECUTION_TO_EXFILTRATION: {
+          "mitre_tactics": ("TA0002 Execution", "TA0010 Exfiltration"),
+          "sector_a": "file_executions_total",
+          "sector_b": "network_bytes_outbound",
+          "supported_entities": (EntityType.ASSET, EntityType.USER),
+          "rare_destination": False,
+          "description": "Endpoint process staging followed by anomalous outbound data transfer",
+      },
+      KillChainArchetype.CREDENTIAL_ACCESS_TO_LATERAL_MOVEMENT: {
+          "mitre_tactics": ("TA0006 Credential Access", "TA0008 Lateral Movement"),
+          "sector_a": "auth_attempts_fail",
+          "sector_b": "network_flows_total",
+          "supported_entities": (EntityType.ASSET, EntityType.USER),
+          "rare_destination": False,
+          "description": "Failed login burst paired with anomalous lateral network connection flows",
+      },
+      KillChainArchetype.CLOUD_DISCOVERY_TO_COLLECTION: {
+          "mitre_tactics": ("TA0007 Discovery", "TA0009 Collection"),
+          "sector_a": "resource_read_total",
+          "sector_b": "workspace_total_download_actions",
+          "supported_entities": (EntityType.USER,),
+          "rare_destination": False,
+          "description": "Cloud resource enumeration paired with bulk Workspace download hoarding",
+      },
+      KillChainArchetype.DEFENSE_EVASION_ALERT_TO_EXFILTRATION: {
+          "mitre_tactics": ("TA0005 Defense Evasion", "TA0010 Exfiltration"),
+          "sector_a": "alert_event_name_count",
+          "sector_b": "network_bytes_outbound",
+          "supported_entities": (EntityType.ASSET,),
+          "rare_destination": False,
+          "description": "EDR alert accumulation paired with outbound network exfiltration",
+      },
+      KillChainArchetype.C2_BEACON_TO_RARE_DESTINATION_EXFIL: {
+          "mitre_tactics": ("TA0011 Command and Control", "TA0010 Exfiltration"),
+          "sector_a": "auth_attempts_total",
+          "sector_b": "http_queries_total",
+          "supported_entities": (EntityType.ASSET,),
+          "rare_destination": True,
+          "description": "Host authentication anomaly fused with HTTP surge to rare external destinations",
+      },
+  }
+
+  def build_killchain_hunt_query(
+      self,
+      archetype: KillChainArchetype,
+      entity_type: Optional[EntityType] = None,
+      four_stage: bool = False,
+      min_baseline_days: int = 7,
+      fusion_threshold_sq: float = 12.25,
+      hypothesis_goal: Optional[str] = None,
+      identifier_field: Optional[str] = None,
+  ) -> str:
+    """Builds a verified multi-stage MITRE ATT&CK Kill-Chain Fusion query for any canonical archetype."""
+    if isinstance(archetype, str) and not isinstance(archetype, KillChainArchetype):
+      archetype = KillChainArchetype(archetype.strip().upper())
+    if archetype not in self.KILLCHAIN_CATALOG:
+      raise ValueError(f"Unsupported KillChainArchetype: {archetype}")
+    spec = self.KILLCHAIN_CATALOG[archetype]
+    supported = spec["supported_entities"]
+    if entity_type is None:
+      entity_type = supported[0]
+    if entity_type not in supported:
+      raise ValueError(
+          f"Archetype {archetype.value} supports entity types {[e.value for e in supported]}, got {entity_type.value}"
+      )
+    tactic_a, tactic_b = spec["mitre_tactics"]
+    goal = hypothesis_goal or f"MITRE Kill-Chain ({tactic_a} -> {tactic_b}): {spec['description']}"
+    if spec.get("rare_destination"):
+      q = self.build_fusion_rare_destination_query(
+          target_metrics=[spec["sector_a"], spec["sector_b"]],
+          entity_type=entity_type,
+          fusion_threshold_sq=fusion_threshold_sq,
+          hypothesis_goal=goal,
+      )
+    else:
+      sec_a = mc.SectorSpec(spec["sector_a"], self._sector_entity_field(spec["sector_a"], entity_type, identifier_field))
+      sec_b = mc.SectorSpec(spec["sector_b"], self._sector_entity_field(spec["sector_b"], entity_type, identifier_field))
+      q = self.build_sector_fusion_query(
+          sec_a,
+          sec_b,
+          four_stage=four_stage,
+          min_baseline_days=min_baseline_days,
+          hypothesis_goal=goal,
+          fusion_threshold_sq=fusion_threshold_sq,
+      )
+    return f"// MITRE ATT&CK Kill-Chain: {tactic_a} -> {tactic_b} ({archetype.value})\n" + q
+
+
 class ChainedHuntRouter:
   """Builds Two-Phase Chained Hunt query specifications across entity boundaries."""
+
+  CROSS_ENTITY_PATHS: Tuple[str, ...] = (
+      "USER_CREDENTIAL_TO_HOST_EXECUTION",
+      "HOST_EXECUTION_TO_CLOUD_SA_ACCESS",
+      "HOST_ALERT_TO_PROCESS_EXECUTION",
+      "USER_WORKSPACE_HOARDING_TO_HOST_EGRESS",
+  )
 
   @staticmethod
   def build_phase1_endpoint_query(entity_scope: str = "fleet", anomaly_threshold: float = 3.0) -> str:
@@ -1962,3 +2222,96 @@ class ChainedHuntRouter:
       filters.append(f'principal.ip = "{caller_ip}"')
     
     return " AND ".join(filters)
+
+  @classmethod
+  def build_cross_entity_killchain_plan(
+      cls,
+      path_name: str,
+      bridge_entity: Optional[str] = None,
+      anomaly_threshold: float = 3.0,
+  ) -> Dict[str, Any]:
+    """Builds a deterministic Two-Phase Cross-Entity or Dual-Composite Kill-Chain Bridge Plan."""
+    router = MultiStageTemplateRouter()
+    key = path_name.strip().upper()
+    if key == "USER_CREDENTIAL_TO_HOST_EXECUTION":
+      phase1 = router.build_query(
+          target_metric="auth_attempts_fail",
+          entity_type=EntityType.USER,
+          statistical_model=StatisticalModel.STANDARD_Z_SCORE,
+          anomaly_threshold=anomaly_threshold,
+          hypothesis_goal="Phase 1 (TA0006 Credential Access): Identify user accounts with anomalous failed login surges",
+      )
+      phase2 = router.build_hybrid_derived_file_prevalence_query(
+          target_metric="file_executions_total",
+          entity_type=EntityType.ASSET,
+          anomaly_threshold=anomaly_threshold,
+          hypothesis_goal=f"Phase 2 (TA0002 Execution on bridged host {bridge_entity or '$host'}): Rare binary execution surge",
+      )
+      return {
+          "path_name": key,
+          "mitre_tactics": ("TA0006 Credential Access", "TA0002 Execution"),
+          "bridge_contract": ("$user", "$host", "$timestamp"),
+          "phase1_query": phase1,
+          "phase2_query": phase2,
+      }
+    elif key == "HOST_EXECUTION_TO_CLOUD_SA_ACCESS":
+      phase1 = router.build_hybrid_derived_file_prevalence_query(
+          target_metric="file_executions_total",
+          entity_type=EntityType.ASSET,
+          anomaly_threshold=anomaly_threshold,
+          hypothesis_goal="Phase 1 (TA0002 Execution): Identify endpoint rare binary execution outliers",
+      )
+      sa_arg = bridge_entity if (bridge_entity and ("@" in bridge_entity or "arn:aws:" in bridge_entity)) else None
+      phase2 = router.build_cloud_repository_scope_query(
+          service_account=sa_arg,
+          anomaly_threshold=anomaly_threshold,
+          hypothesis_goal="Phase 2 (TA0007/TA0009 Cloud Resource Access): Baseline 4 CRUD families and origin IP",
+      )
+      return {
+          "path_name": key,
+          "mitre_tactics": ("TA0002 Execution", "TA0007 Discovery / TA0009 Collection"),
+          "bridge_contract": ("$host", "$user", "$caller_ip"),
+          "phase1_query": phase1,
+          "phase2_query": phase2,
+      }
+    elif key == "HOST_ALERT_TO_PROCESS_EXECUTION":
+      phase1 = router.build_alert_surge_query(
+          entity_type=EntityType.ASSET,
+          anomaly_threshold=anomaly_threshold,
+          hypothesis_goal="Phase 1 (TA0005 Defense Evasion): Identify hosts with novel or surging EDR rule alerts",
+      )
+      phase2 = router.build_hybrid_derived_file_prevalence_query(
+          target_metric="file_executions_total",
+          entity_type=EntityType.ASSET,
+          anomaly_threshold=anomaly_threshold,
+          hypothesis_goal=f"Phase 2 (TA0002 Execution on {bridge_entity or '$host'}): Verify enterprise binary rarity",
+      )
+      return {
+          "path_name": key,
+          "mitre_tactics": ("TA0005 Defense Evasion", "TA0002 Execution"),
+          "bridge_contract": ("$host", "$sha256", "$rule_name"),
+          "phase1_query": phase1,
+          "phase2_query": phase2,
+      }
+    elif key == "USER_WORKSPACE_HOARDING_TO_HOST_EGRESS":
+      phase1 = router.build_query(
+          target_metric="workspace_total_download_actions",
+          entity_type=EntityType.USER,
+          statistical_model=StatisticalModel.PIECEWISE_CRI,
+          anomaly_threshold=anomaly_threshold,
+          hypothesis_goal="Phase 1 (TA0009 Collection): Identify users with bulk Workspace download hoarding",
+      )
+      phase2 = router.build_rare_destination_ecg_query(
+          target_metric="network_bytes_outbound",
+          entity_type=EntityType.ASSET,
+          anomaly_threshold=anomaly_threshold,
+          hypothesis_goal=f"Phase 2 (TA0010 Exfiltration from {bridge_entity or '$host'}): Outbound byte surge to rare destinations",
+      )
+      return {
+          "path_name": key,
+          "mitre_tactics": ("TA0009 Collection", "TA0010 Exfiltration"),
+          "bridge_contract": ("$user", "$host", "$caller_ip"),
+          "phase1_query": phase1,
+          "phase2_query": phase2,
+      }
+    raise ValueError(f"Unsupported cross-entity kill-chain path '{path_name}'. Must be one of {cls.CROSS_ENTITY_PATHS}")

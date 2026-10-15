@@ -2072,6 +2072,35 @@ class TestGuardrailContracts(unittest.TestCase):
     self.assertIn("PRINCIPAL_DEVICE + SECURITY_RESULT_RULE_NAME", alert_guide)
     self.assertIn("PRINCIPAL_DEVICE + PRINCIPAL_USER + PRINCIPAL_PROCESS_FILE_HASH + SECURITY_RESULT_RULE_NAME", alert_guide)
 
+  def test_priority_2_and_3_mitre_attack_killchain_contracts(self):
+    """SKILL.md, consultative worksheet, and mitre-attack-killchain.md must document all 12 MITRE tactics, 8 kill-chain archetypes, and 4 cross-entity bridges."""
+    from scripts.preflight_validator import KillChainArchetype
+    from scripts.template_router import ChainedHuntRouter
+    repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    skill_content = open(os.path.join(repo_dir, "SKILL.md"), encoding="utf-8").read()
+    worksheet_content = open(os.path.join(repo_dir, "references", "consultative-worksheet.md"), encoding="utf-8").read()
+    mitre_guide_path = os.path.join(repo_dir, "references", "consultative", "mitre-attack-killchain.md")
+    self.assertTrue(os.path.exists(mitre_guide_path), "Missing references/consultative/mitre-attack-killchain.md")
+    mitre_guide = open(mitre_guide_path, encoding="utf-8").read()
+
+    self.assertIn("references/consultative/mitre-attack-killchain.md", skill_content)
+    self.assertIn("Domain 7: MITRE ATT&CK Tactics & Multi-Stage Kill-Chain Progression", worksheet_content)
+    self.assertIn("references/consultative/mitre-attack-killchain.md", worksheet_content)
+
+    # All 12 Enterprise MITRE ATT&CK Tactics
+    for tactic_id in ("TA0001", "TA0002", "TA0003", "TA0004", "TA0005", "TA0006", "TA0007", "TA0008", "TA0009", "TA0011", "TA0010", "TA0040"):
+      self.assertIn(tactic_id, mitre_guide)
+
+    # All 8 canonical single-query Kill-Chain Fusion Archetypes
+    for arch in KillChainArchetype:
+      self.assertIn(arch.value, mitre_guide)
+      self.assertIn(arch.value, worksheet_content)
+
+    # All 4 Cross-Entity / Dual-Composite Two-Phase Kill-Chain Bridge Paths
+    for path_name in ChainedHuntRouter.CROSS_ENTITY_PATHS:
+      self.assertIn(path_name, mitre_guide)
+      self.assertIn(path_name, worksheet_content)
+
 
 if __name__ == '__main__':
   unittest.main()
