@@ -739,7 +739,7 @@ class TestGuardrailContracts(unittest.TestCase):
     errors = MalachiteASTValidator.validate_query(bad_stage)
     self.assertTrue(any("INVALID_IN_SYNTAX" in e for e in errors))
     self.assertTrue(any("INVALID_METRIC_DOT_NOTATION" in e for e in errors))
-    self.assertTrue(any("INVALID_WINDOW_SYNTAX" in e for e in errors))
+    self.assertTrue(any("NONCANONICAL_WINDOW_TOKEN" in e for e in errors))
 
   def test_malachite_ast_validator_catches_hallucinated_constructs(self):
     """MalachiteASTValidator must detect ^, if(), sqrt(), and $var in stage_name."""

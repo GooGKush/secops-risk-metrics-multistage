@@ -354,6 +354,7 @@ python3 scripts/submission_tests.py --dump-dir <OUTPUT_DIR>
 * **Mode B** is now the **Fixed-Baseline Timeline** (2–7 days, one query). The card states the baseline dates; `references/timeline-modes-guide.md` explains the bias. Longitudinal CUSUM keeps one query of up to 14 days.
 * **Mode C (new): Per-Day Baseline Timeline**, offered only when `run_command` is present. One query per UTC day, collated by the new sanctioned script `scripts/timeline_assembler.py`. Clients without shell access get a note that longer or per-day timelines need a client that can run local scripts.
 * **AD TEAM LOOKUP**: must use the guide's aggregated query; the guide no longer shows a live tenant roster.
+* **Match-window grammar**: `by 24h` is valid and matches `by 1d` buckets; the guide no longer calls it invalid. The skill keeps `by 1d` as its single daily form.
 * **Test Suite**: 381/381 unit tests; 32/32 submission tests. SKILL.md is 20,384 bytes.
 
 ### v1.8.6 (October 2026) — Root Significance Gate

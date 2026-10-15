@@ -36,6 +36,7 @@ The skill said every scored day in a Mode B timeline was compared to its own tra
 * Restored the full Mode A Entity Graph freshness rule after a v1.9.0 draft moved it out of `SKILL.md`.
 * Removed text that `SKILL.md` stated twice (the "Modular References" section, a duplicate clean-hunt sentence, duplicate probe and native-execution sentences) to make room.
 * Radar guide example reports and the cooperative framework no longer model a 24-hour or "sliding" window. CUSUM and MAD template headers updated. Several stale "14–30 day" CUSUM horizons corrected to the 14-day multi-stage limit.
+* **Match-window grammar corrected**: `by 24h` is valid YARA-L; on gus-sdl it returns the same `00:00Z` buckets and counts as `by 1d`. `multi-stage-metrics-guide.md` no longer calls it invalid syntax. The skill still writes `by 1d` everywhere, and `preflight_validator.py` now flags `by 24h` as `NONCANONICAL_WINDOW_TOKEN` (was `INVALID_WINDOW_SYNTAX`). `docs/compiler-submission-policy.md` no longer claims that a `match:` with no window is rejected; it compiles (verified on gus-sdl), and templates use it for per-entity collapse.
 
 ### 5. Testing
 * 381/381 unit tests (18 new in `tests/test_timeline_assembler.py`; 4 new contract tests; the retired-label test now also rejects "sliding timeline" and a 2–14 day Mode B); 32/32 submission tests. SKILL.md is 20,384 bytes.

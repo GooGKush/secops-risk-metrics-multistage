@@ -994,11 +994,13 @@ class MalachiteASTValidator:
         if len(outcomes) > 20:
           errors.append(f"OUTCOME_LIMIT_EXCEEDED in stage '{stage_name}': {len(outcomes)} variables (compiler limit is 20).")
 
-      # Check window keyword: 'by 1d' not 'over 1d' or 'by 24h'
+      # Check window keyword: 'by 1d' not 'over 1d'. 'by 24h' compiles and yields
+      # the same 00:00Z buckets as 'by 1d' (verified on gus-sdl 2026-10-15), but
+      # the skill writes 'by 1d' everywhere, so it is flagged as non-canonical.
       if re.search(r"match:.*?over\s+1[dh]", stage_body, re.DOTALL):
         errors.append(f"WINDOW_SYNTAX_ERROR in stage '{stage_name}': Match window must use 'by 1d' or 'by 1h' (not 'over').")
       if re.search(r"match:.*?by\s+24h", stage_body, re.DOTALL):
-        errors.append(f"INVALID_WINDOW_SYNTAX in stage '{stage_name}': 'by 24h' is invalid in YARA-L. Use 'by 1d' for daily matching.")
+        errors.append(f"NONCANONICAL_WINDOW_TOKEN in stage '{stage_name}': 'by 24h' compiles but is non-canonical. Use 'by 1d' for daily matching.")
 
       # Check for invalid 'in ("A", "B")' literal tuple syntax
       if re.search(r"\bin\s*\([\"']", stage_body):
