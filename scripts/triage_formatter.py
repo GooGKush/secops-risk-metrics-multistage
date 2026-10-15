@@ -74,7 +74,7 @@ class CommonMarkTriageFormatter:
     if outcome == "ACUTE_OUTLIER":
       lines = [
           f"> * **🧭 Agentic Next Steps (Outcome Classification: `{outcome}` — State 3 → Phase 1B Pivot)**:",
-          f">   * **[A] Cross-Sector Fusion / 360° Radar**: Pivot `{top_entity}` directly to Phase 1B (`dual_sector_fusion_3stage.yl2` or 6-spoke 360° Radar) to test whether `{target_metric}` co-occurs with orthogonal kill-chain activity (IAM, Process, Network, Cloud CRUD, or `alert_event_name_count`).",
+          f">   * **[A] Cross-Sector Fusion / 360° Multi-Sector Sweep**: Pivot `{top_entity}` directly to Phase 1B (`dual_sector_fusion_3stage.yl2` or Omnidirectional 360° Multi-Sector Sweep) to test whether `{target_metric}` co-occurs with orthogonal kill-chain activity (IAM, Process, Network, Cloud CRUD, or `alert_event_name_count`).",
           f">   * **[B] Two-Phase Chained Entity Pivot (Host ↔ User / Caller IP)**: Carry `{top_entity}` across the entity boundary via `ChainedHuntRouter` without re-running Phase 1A discovery.",
           f">   * **[C] Novelty & Prevalence Verification / Alert Escalation**: Enrich `{top_entity}` with Entity Context Graph (`DERIVED_CONTEXT` file/domain prevalence or `WHOIS` lifecycle) or escalate `CRI >= 50` findings via `scripts/chronicle_ingest.py`.",
       ]
@@ -97,7 +97,7 @@ class CommonMarkTriageFormatter:
           f"> * **🧭 Agentic Next Steps (Outcome Classification: `{outcome}` — State 3 → Phase 1B Pivot)**:",
           f">   * **[A] Probe Sub-Threshold Drift / Low-and-Slow Accumulation**: Relax the significance gate to `1.5σ <= Z < {anomaly_threshold}σ` or switch `{target_metric}` to `LONGITUDINAL_CUSUM` (`longitudinal_cusum.yl2`).",
           f">   * **[B] Pivot to Orthogonal Kill-Chain Vector**: Keep current entity scope and pivot directly to Phase 1B on an adjacent sector (`alert_event_name_count`, `file_executions_total`, `network_bytes_outbound`, or `resource_read_total`).",
-          f">   * **[C] Omnidirectional 360° Behavioral Radar Sweep**: Run all 6 decoupled sector micro-queries to verify whether `{top_entity}` is nominal across every telemetry plane.",
+          f">   * **[C] Omnidirectional 360° Multi-Sector Sweep**: Run all 6 decoupled sector micro-queries to verify whether `{top_entity}` is nominal across every telemetry plane.",
       ]
     return "\n".join(lines)
 
@@ -110,7 +110,7 @@ class CommonMarkTriageFormatter:
       anomaly_threshold: float = 3.0,
       evaluation_mode: str = "Mode A",
   ) -> str:
-    """Renders the lightweight 3-section Clean Hunt Summary for 0-row outcomes with agentic next steps."""
+    """Renders the lightweight 2-pillar Clean Hunt Summary for 0-row outcomes with agentic next steps."""
     next_steps = cls.build_agentic_next_steps(
         {"outlier_count": 0, "top_outliers": []},
         target_metric=target_metric,
@@ -118,22 +118,18 @@ class CommonMarkTriageFormatter:
         anomaly_threshold=anomaly_threshold,
     )
     return "\n".join([
-        f"### 🟢 Clean Hunt Summary: `{target_metric}` ({statistical_model})",
+        f"#### 1. Statistical Outlier Report: `{target_metric}` ({statistical_model}) (Nominal Baseline)",
         "",
-        f"* **Result**: **0 entities** exceeded the `{anomaly_threshold}σ` significance gate under **{evaluation_mode}**.",
+        f"* **Result**: **0 observed events** (**0 ranked outlier entities**) exceeded the `{anomaly_threshold}σ` significance gate under **{evaluation_mode}** ($Z = 0.00\\sigma, D = 0.00\\sigma, \\text{{CRI}} = 0$, 🟢 **Nominal Fleet Baseline**).",
         "* **Baseline Horizon**: 30-Day Pre-Computed Behavioral Tables (`window: 30d`).",
         "",
         "---",
         "",
-        "#### 💻 Executed Multi-Stage YARA-L Query",
+        "#### 2. Executed Multi-Stage YARA-L Query",
         "",
         "```yara",
         executed_query,
         "```",
-        "",
-        "---",
-        "",
-        "#### 🧭 Agentic Next Steps (Sub-Threshold & Pivot Options)",
         "",
         "> [!IMPORTANT]",
         next_steps,

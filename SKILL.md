@@ -104,9 +104,9 @@ Once vectors and scope are confirmed (expert prompt, Phase 1A vector selection, 
 #### 5. Chronicle UI Manual Pivot (Triage Reference Only): Passive UDM filter for Chronicle UI (enable **Case Sensitivity On** when running `metrics.*` in UI).
 #### 6. Collapsible Technical Appendix (Statistical & Mathematical Appendix): ($N=30d$), CRI, $D = \sqrt{\sum \max(0, Z_i)^2}$ (`references/calibrated-risk-index-guide.md`).
 4. **Zero-Telemetry Clean Hunt Exemption (True Negative Audit Summary)**: When executed query returns empty `stats` (`{}` or `{"stats": []}`), emit 2-Section Clean Hunt Audit (+ Agentic Next Steps):
-   - `#### 1. Statistical Outlier Report: [Target Metric] (Nominal Baseline)`: 0 observed events ($Z = 0.00\sigma, \text{CRI} = 0$, 🟢 **Nominal Fleet Baseline**).
-   - `#### 2. Executed Multi-Stage YARA-L Query`: Literal query and scope.
-   - Pillars 3–6 waived (360° radar: all 6 sectors + visual radar). Mode A: say window was today so far; offer Mode B or sub-threshold/CUSUM/sector pivots.
+   - `#### 1. Statistical Outlier Report: [Target Metric] (Nominal Baseline)`: 0 observed events / 0 ranked outliers ($Z = 0.00\sigma, D = 0.00\sigma, \text{CRI} = 0$, 🟢 **Nominal Fleet Baseline**; no `🚨`).
+   - `#### 2. Executed Multi-Stage YARA-L Query`: Literal query + `[A]`/`[B]`/`[C]` pivots (no `5-spoke`/`6-spoke`/`spider radar` in fleet text).
+   - Pillars 3–6 waived (EXCEPT 360°/fleet 360°: emit all 6 Pillars, all 6 sectors incl. Cloud, and $D$).
 
 ### 🔁 State 3: Iteration, Entity Shifts & Federated Bridge (Active Hunt Session Lock & Boundary)
 * **State 3 → Phase 1B Agentic Pivot Loop**: Selecting a post-execution follow-up (`[A]`/`[B]`/`[C]`) re-enters Phase 1B carrying forward resolved entity ID, peer cohort, and bridge keys (`$host`, `$user`, `$caller_ip`) without re-asking Phase 1A.

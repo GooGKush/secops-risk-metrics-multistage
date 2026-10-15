@@ -136,7 +136,7 @@ class TestTriageFormatter(unittest.TestCase):
         executed_query=self.sample_query,
     )
     self.assertIn("🧭 Agentic Next Steps (Outcome Classification: `ACUTE_OUTLIER` — State 3 → Phase 1B Pivot)", report)
-    self.assertIn("[A] Cross-Sector Fusion / 360° Radar", report)
+    self.assertIn("[A] Cross-Sector Fusion / 360° Multi-Sector Sweep", report)
     self.assertIn("[B] Two-Phase Chained Entity Pivot", report)
     self.assertIn("[C] Novelty & Prevalence Verification / Alert Escalation", report)
 
@@ -146,7 +146,9 @@ class TestTriageFormatter(unittest.TestCase):
         executed_query=self.sample_query,
         anomaly_threshold=3.0,
     )
-    self.assertIn("### 🟢 Clean Hunt Summary:", clean_report)
+    self.assertIn("#### 1. Statistical Outlier Report:", clean_report)
+    self.assertIn("Nominal Baseline", clean_report)
+    self.assertIn("0 ranked outlier entities", clean_report)
     self.assertIn("Outcome Classification: `CLEAN_OR_SUBTHRESHOLD`", clean_report)
     self.assertIn("LONGITUDINAL_CUSUM", clean_report)
 
