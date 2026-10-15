@@ -319,8 +319,8 @@ outcome:
           MetricSpoke("Network", "Network Traffic Volume", "metrics.network_bytes_outbound", 0.0, 0.0, 0.0, 0.0, "bytes", 0),
           MetricSpoke("DNS", "DNS Resolution", "metrics.dns_queries_fail", 0.0, 0.0, 0.0, 0.0, "queries", 0),
           MetricSpoke("Web & Proxy", "Web & Proxy Requests", "metrics.http_queries_total", 0.0, 0.0, 0.0, 0.0, "requests", 0),
-          MetricSpoke("Cloud", "Cloud Infrastructure", "metrics.resource_creation_total", 0.0, 0.0, 0.0, 0.0, "events", 0),
-          MetricSpoke("Endpoint", "Endpoint Process Activity", "PROCESS_LAUNCH", 0.0, 0.0, 0.0, 0.0, "events", 0),
+          MetricSpoke("Security & EDR Alerts", "Security & EDR Alerts", "metrics.alert_event_name_count", 0.0, 0.0, 0.0, 0.0, "alerts", 0),
+          MetricSpoke("Endpoint", "Endpoint Process Activity", "metrics.file_executions_total", 0.0, 0.0, 0.0, 0.0, "events", 0),
       ]
     return [
         MetricSpoke("IAM & Authentication", "Authentication Attempts", "metrics.auth_attempts_fail", 0.0, 0.0, 0.0, 0.0, "logins", 0),
@@ -352,9 +352,8 @@ outcome:
         "net": 1, "network": 1, "traffic": 1,
         "dns": 2,
         "web": 3, "http": 3, "proxy": 3,
-        "cloud": 4, "infra": 4, "crud": 4,
+        "alert": 4, "edr": 4, "cloud": 4, "infra": 4, "crud": 4,
         "proc": 5, "endpoint": 5, "process": 5,
-        "alert": 5, "edr": 5,
     }
     target_map = asset_map if entity_type.upper() == "ASSET" else user_map
 

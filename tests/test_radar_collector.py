@@ -274,6 +274,13 @@ class TestRadarCollector(unittest.TestCase):
     self.assertEqual(len(asset_spokes), 6)
     for s in asset_spokes:
       self.assertEqual(s.z_score, 0.0)
+    self.assertEqual(asset_spokes[4].sector, "Security & EDR Alerts")
+    self.assertEqual(asset_spokes[4].metric_table, "metrics.alert_event_name_count")
+    self.assertEqual(asset_spokes[5].metric_table, "metrics.file_executions_total")
+
+    parsed_asset = EntityRadarCollector.parse_scores_argument("alert=4.5,proc=3.2", "ASSET")
+    self.assertEqual(parsed_asset[4].z_score, 4.5)
+    self.assertEqual(parsed_asset[5].z_score, 3.2)
 
   def test_parse_scores_argument(self):
     """parse_scores_argument must parse key-value pairs into calibrated MetricSpoke instances."""

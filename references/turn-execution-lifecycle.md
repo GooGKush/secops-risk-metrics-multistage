@@ -40,16 +40,18 @@ Turn 1 is strictly dedicated to understanding the analyst's intent, verifying te
 When an inquiry specifies an entity or cohort but leaves the behavioral vector open-ended (e.g. *"Check Frank for suspicious behavior"*, *"Audit service account anomalies"*):
 
 1. **Zero Execution**: Call 0 tools and emit 0 candidate code blocks.
-2. **Anti-Auth-Defaulting Mandate**: Do not assume authentication or login failures. Present options across the canonical telemetry families:
+2. **Anti-Auth-Defaulting Mandate**: Do not assume authentication or login failures. Present options across all 8 canonical telemetry families plus an exploratory 360° sweep:
    - Cloud Infrastructure & Data Access (`metrics.resource_*`)
-   - Workspace Document & Drive Access (`metrics.google_workspace_*`)
+   - Workspace Document, Drive & Email Access (`metrics.workspace_*`)
    - Network Egress Volume & Flows (`metrics.network_*`)
    - DNS Resolution Spikes (`metrics.dns_*`)
    - Web & Proxy Activity (`metrics.http_*`)
    - Endpoint Execution (`metrics.file_executions_*`)
    - Authentication Anomalies (`metrics.auth_*`)
+   - Security & EDR Alerts (`metrics.alert_event_name_count` — see `references/consultative/security-edr-alerts.md`)
+   - **Omnidirectional 360° Discovery Sweep**: 6-spoke decoupled behavioral radar across all sectors when the analyst wants to explore the data before committing to a single vector.
 3. **Conversational Break**: Ask the consultative vector question and yield:
-   > *"Across which behavioral vector(s) would you like to evaluate [Target Entities]?"*
+   > *"Across which behavioral vector(s) would you like to evaluate [Target Entities], or would you like an Omnidirectional 360° Discovery Sweep?"*
 
 ### Path B: Phase 1B — Pre-Flight Specification & Query Preview
 Entered when the analyst selects a vector from Phase 1A, or when the initial prompt specifies both entity scope and telemetry vector.
@@ -109,19 +111,24 @@ Analyst clearance constitutes an explicit directive to execute the search across
 * **#### 1. Statistical Outlier Report: `[Target Metric]` ([Statistical Model]) (`window: 30d`)**: Single visual surface (inline `<svg>` in webview/MCP or `<agent-embed>` in Jetski), metric summary, and Unicode magnitude bars (`▰▰▰▰▱▱▱▱`).
 * **#### 2. Executed Multi-Stage YARA-L Query**: Verbatim mirror of the executed multi-stage query.
 * **#### 3. Ranked Outlier Summary**: Columns: `Entity`, `24h Observed`, `30d Mean (μ)`, `30d StdDev (σ)`, `Z-Score`, `CRI Score`, `Visual Magnitude`.
-* **#### 4. Forensic Vector Breakdown**: Operational threat interpretation and investigative triage steps.
-* **#### 5. Chronicle UI Manual Pivot**: Passive UDM search filter for manual pivot in Chronicle SIEM.
+* **#### 4. Forensic Vector Breakdown**: Operational threat interpretation, investigative triage steps, and **Outcome-Driven Agentic Next Steps** (`ACUTE_OUTLIER`, `CLEAN_OR_SUBTHRESHOLD`, `FLEET_WAVE`, or `SPARSE_BASELINE` via `CommonMarkTriageFormatter.build_agentic_next_steps`) proposing 2–3 concrete Phase 1B follow-up pivots `[A]`, `[B]`, `[C]`.
+* **#### 5. Chronicle UI Manual Pivot**: Passive UDM search filter for manual pivot in Chronicle SIEM (never executed automatically by the agent).
 * **#### 6. Statistical & Mathematical Appendix**: Formal KaTeX definitions ($N=30\text{d}$ baseline, CRI normalization, Euclidean norm $D$).
 
-#### 2-Section Clean Hunt Audit (Zero-Telemetry Exemption)
+#### Clean Hunt Audit (Zero-Telemetry Exemption & Agentic Next Steps)
 When the executed query returns an empty `stats` payload (`{"stats": []}` or `{}`):
 * `#### 1. Statistical Outlier Report: [Target Metric] (Nominal Baseline)`: 0 observed events ($Z = 0.00\sigma, \text{CRI} = 0$, 🟢 **Nominal Fleet Baseline**).
 * `#### 2. Executed Multi-Stage YARA-L Query`: Literal query executed.
-* *Pillars 3, 4, 5, and 6 are waived.*
+* `#### 3. Agentic Next Steps (Sub-Threshold & Pivot Options)`: Propose `[A]` relaxing the significance gate (`1.5σ <= Z < 3.0σ`) or switching to `LONGITUDINAL_CUSUM`, `[B]` pivoting to an orthogonal kill-chain vector, or `[C]` running a 6-spoke 360° Behavioral Radar sweep (`CommonMarkTriageFormatter.format_clean_hunt_report`).
+* *Pillars 3 (table), 5, and 6 are waived.*
 
 ---
 
-## 4. Turn 3+: Iteration & Entity Shifts
+## 4. Turn 3+: State 3 → Phase 1B Agentic Pivot Loop & Entity Shifts
 
+* **State 3 → Phase 1B Agentic Pivot Loop**: When the analyst selects a follow-up option (`[A]`, `[B]`, or `[C]`) from Pillar 4 or a Clean Hunt report, transition directly from State 3 back to **Phase 1B** while carrying forward:
+  1. The resolved technical entity ID (`principal.user.userid` or `principal.asset.hostname`) and peer cohort roster from the prior turn (do **not** re-ask Phase 1A scope questions or re-run identity disambiguation for the same entity).
+  2. Any bridge keys extracted in State 2 (`$host`, `$user`, `$caller_ip`, `$sha256`, `$resource`) when pivoting across entity boundaries (e.g., Host ↔ User via `ChainedHuntRouter` or `build_alert_surge_query(entity_type=EntityType.USER)`).
+  3. Emit the updated Pre-Flight Specification Card and Candidate Multi-Stage YARA-L Query for the new vector/model and ask for execution clearance.
 * **Entity Shifts (*"same search for Laura"*):** Retain session context, re-enter Phase 1B for the new entity (resolve ID, emit pre-flight card + preview), and ask for clearance. Do not execute immediately without re-confirming scope.
 * **Skill Boundary Shifts:** Sub-second packet timing or raw log regex requirements emit a delegation card to `secops-statistical-hunter`. Persistent rule authoring emits a delegation card to `secops-detection-engineering`.

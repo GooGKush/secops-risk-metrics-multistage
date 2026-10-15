@@ -383,6 +383,8 @@ CANONICAL_TRIADS: Tuple[Tuple[str, Tuple[str, str, str]], ...] = (
     ("HTTP", ("http_queries_total", "http_queries_fail", "http_queries_success")),
     ("Network bytes", ("network_bytes_total", "network_bytes_outbound", "network_bytes_inbound")),
     ("Network flows", ("network_flows_total", "network_flows_outbound", "network_flows_inbound")),
+    ("Workspace activity", ("workspace_auth_attempts_total", "workspace_total_download_actions", "workspace_total_change_actions")),
+    ("Workspace Gmail", ("workspace_network_bytes_total", "workspace_network_bytes_outbound", "workspace_emails_sent_total")),
 )
 
 
@@ -404,11 +406,14 @@ def triad_event_selection(metrics: Sequence[str]) -> Tuple[List[str], Dict[str, 
   metrics whose filter has extra lines are observed with a conditional sum over those lines.
   """
   sems = {m: baseline_semantics(m) for m in metrics}
+  shared = [ln for ln in sems[metrics[0]].observed_filter if all(ln in sems[m].observed_filter for m in metrics)]
   totals = [m for m in metrics if m.endswith("_total")]
-  if totals and len({metric_family(m) for m in metrics}) == 1:
+  if shared:
+    common = shared
+  elif totals and len({metric_family(m) for m in metrics}) == 1:
     common = list(sems[totals[0]].observed_filter)
   else:
-    common = [ln for ln in sems[metrics[0]].observed_filter if all(ln in sems[m].observed_filter for m in metrics)]
+    common = []
   extras = {m: [ln for ln in sems[m].observed_filter if ln not in common] for m in metrics}
   stage_filter = list(common)
   if all(extras[m] for m in metrics):

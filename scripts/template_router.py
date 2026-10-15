@@ -425,12 +425,7 @@ class MultiStageTemplateRouter:
     # Enforce Local-Baseline Isolation: multi-database account queries must route to CLOUD_REPOSITORY_SCOPE_DUAL_BRANCH.
     # An explicit MAD request is exempt: MAD groups by the full (user, vendor, product, resource) baseline tuple,
     # which already isolates each repository's baseline.
-    if target_metric in [
-        "resource_read_total",
-        "resource_written_total",
-        "resource_written_success",
-        "resource_written_fail",
-    ] and entity_type == EntityType.USER and statistical_model != StatisticalModel.MAD:
+    if target_metric.startswith("resource_") and entity_type == EntityType.USER and statistical_model != StatisticalModel.MAD:
       return self.build_pipeline_query(
           PipelineArchitecture.CLOUD_REPOSITORY_SCOPE_DUAL_BRANCH,
           target_metric=target_metric,
@@ -689,6 +684,14 @@ class MultiStageTemplateRouter:
       return rendered + "\n"
 
     elif pipeline_type == PipelineArchitecture.HTTP_ERROR_RATIO_SURGE_2STAGE:
+      if target_metric and not (target_metric == "http_queries_fail" and entity_type == EntityType.ASSET and not identifier_field):
+        return self.build_failure_ratio_surge_query(
+            fail_metric=target_metric,
+            entity_type=entity_type,
+            anomaly_threshold=anomaly_threshold,
+            hypothesis_goal=hypothesis_goal,
+            identifier_field=identifier_field,
+        )
       pipeline_file = self.template_dir / "pipelines" / "http_error_ratio_surge_2stage.yl2"
       if not pipeline_file.exists():
         raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
@@ -772,6 +775,14 @@ class MultiStageTemplateRouter:
       if not pipeline_file.exists():
         raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
       raw = pipeline_file.read_text().strip()
+      if target_metric and target_metric.endswith("_fail"):
+        raw = raw.replace("    $sa = principal.user.userid", '    not security_result.action = "ALLOW"\n    $sa = principal.user.userid')
+        for fam in ("resource_read", "resource_written", "resource_deletion", "resource_creation"):
+          raw = raw.replace(f"metrics.{fam}_total(", f"metrics.{fam}_fail(")
+      elif target_metric and target_metric.endswith("_success"):
+        raw = raw.replace("    $sa = principal.user.userid", '    security_result.action = "ALLOW"\n    $sa = principal.user.userid')
+        for fam in ("resource_read", "resource_written", "resource_deletion", "resource_creation"):
+          raw = raw.replace(f"metrics.{fam}_total(", f"metrics.{fam}_success(")
       if service_account:
         sa_regex_pattern = r"(?:\(\s*)?\$sa\s*=\s*/@.*?nocase(?:\s*\))?"
         sa_binding = f'    $sa = "{service_account}"'
@@ -1181,6 +1192,20 @@ class MultiStageTemplateRouter:
       if not pipeline_file.exists():
         raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
       raw = pipeline_file.read_text().strip()
+      extra_filters = [ln for ln in audit["event_filter"] if ln != 'metadata.event_type = "PROCESS_LAUNCH"']
+      if extra_filters:
+        extra_block = "\n    ".join(extra_filters)
+        raw = raw.replace('    metadata.event_type = "PROCESS_LAUNCH"', f'    metadata.event_type = "PROCESS_LAUNCH"\n    {extra_block}')
+      if target_metric != "file_executions_total":
+        raw = raw.replace("metrics.file_executions_total(", f"metrics.{target_metric}(")
+      if audit["target_field"] != "principal.asset.hostname":
+        ent_var = "$user" if entity_type == EntityType.USER else "$host"
+        ent_name = ent_var.lstrip("$")
+        raw = raw.replace("principal.asset.hostname = $host", f"{audit['target_field']} = {ent_var}")
+        raw = raw.replace("principal.asset.hostname: principal.asset.hostname", f"{audit['target_field']}: {audit['target_field']}")
+        raw = raw.replace("    $host != \"\"", f"    {ent_var} != \"\"")
+        raw = raw.replace("$host, $sha256 by 1d", f"{ent_var}, $sha256 by 1d")
+        raw = raw.replace("$host = $stage1_process_baseline.host", f"{ent_var} = $stage1_process_baseline.{ent_name}")
       rendered = raw.replace("{{anomaly_threshold}}", str(anomaly_threshold))
       rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
       rendered = rendered.replace("{{max_fleet_prevalence}}", "3")
@@ -1361,11 +1386,12 @@ class MultiStageTemplateRouter:
       min_threshold: Optional[float] = None,
       max_threshold: Optional[float] = None,
       condition_expression: Optional[str] = None,
+      target_metric: str = "resource_read_total",
   ) -> str:
     """Builds a verified Cloud Repository Scope pipeline guaranteeing target.resource.name binding."""
     return self.build_pipeline_query(
         PipelineArchitecture.CLOUD_REPOSITORY_SCOPE_DUAL_BRANCH,
-        target_metric="resource_read_total",
+        target_metric=target_metric,
         entity_type=EntityType.USER,
         anomaly_threshold=anomaly_threshold,
         hypothesis_goal=hypothesis_goal,
@@ -1373,6 +1399,343 @@ class MultiStageTemplateRouter:
         min_threshold=min_threshold,
         max_threshold=max_threshold,
         condition_expression=condition_expression,
+    )
+
+  def build_failure_ratio_surge_query(
+      self,
+      fail_metric: str = "http_queries_fail",
+      entity_type: EntityType = EntityType.ASSET,
+      anomaly_threshold: float = 3.0,
+      min_fail_ratio: float = 0.40,
+      hypothesis_goal: Optional[str] = None,
+      identifier_field: Optional[str] = None,
+  ) -> str:
+    """Builds a generalized 2-Stage Failure-to-Total Ratio Surge pipeline for any *_fail metric."""
+    valid_fail_metrics = {
+        "http_queries_fail": "http_queries_total",
+        "dns_queries_fail": "dns_queries_total",
+        "auth_attempts_fail": "auth_attempts_total",
+        "file_executions_fail": "file_executions_total",
+        "resource_read_fail": "resource_read_total",
+        "resource_written_fail": "resource_written_total",
+        "resource_creation_fail": "resource_creation_total",
+        "resource_deletion_fail": "resource_deletion_total",
+    }
+    if fail_metric not in valid_fail_metrics:
+      raise ValueError(f"Unsupported fail_metric '{fail_metric}'. Must be one of {sorted(valid_fail_metrics)}")
+    total_metric = valid_fail_metrics[fail_metric]
+    audit = PreFlightValidator.audit(
+        target_metric=fail_metric,
+        entity_type=entity_type,
+        identifier_field=identifier_field,
+    )
+    ent_field = audit["target_field"]
+    ent_var = "$user" if entity_type == EntityType.USER else "$host"
+    ent_name = ent_var.lstrip("$")
+    fail_filter_lines = mc.baseline_semantics(fail_metric).observed_filter
+    total_filter_lines = mc.baseline_semantics(total_metric).observed_filter
+    fail_filter_block = "\n    ".join(fail_filter_lines)
+    total_filter_block = "\n    ".join(total_filter_lines)
+
+    if fail_metric == "file_executions_fail":
+      extra_bindings = "    principal.process.file.sha256 = $sha256\n    $sha256 != \"\"\n"
+      match_keys = f"{ent_var}, $sha256"
+      root_joins = (
+          f"{ent_var} = $stage1_http_failure_surge.{ent_name}\n"
+          f"$sha256 = $stage1_http_failure_surge.sha256\n"
+          f"{ent_var} = $stage2_total_traffic.{ent_name}\n"
+          f"$sha256 = $stage2_total_traffic.sha256"
+      )
+      metric_args = (
+          f"metadata.event_type: metadata.event_type,\n"
+          f"        {ent_field}: {ent_field},\n"
+          f"        principal.process.file.sha256: principal.process.file.sha256"
+      )
+    elif fail_metric.startswith("resource_"):
+      extra_bindings = (
+          "    metadata.vendor_name = $vendor\n"
+          "    metadata.product_name = $product\n"
+          "    target.resource.name = $resource\n"
+          "    $resource != \"\"\n"
+      )
+      match_keys = f"{ent_var}, $vendor, $product, $resource"
+      root_joins = (
+          f"{ent_var} = $stage1_http_failure_surge.{ent_name}\n"
+          f"$vendor = $stage1_http_failure_surge.vendor\n"
+          f"$product = $stage1_http_failure_surge.product\n"
+          f"$resource = $stage1_http_failure_surge.resource\n"
+          f"{ent_var} = $stage2_total_traffic.{ent_name}\n"
+          f"$vendor = $stage2_total_traffic.vendor\n"
+          f"$product = $stage2_total_traffic.product\n"
+          f"$resource = $stage2_total_traffic.resource"
+      )
+      metric_args = (
+          f"{ent_field}: {ent_field},\n"
+          f"        metadata.vendor_name: metadata.vendor_name,\n"
+          f"        metadata.product_name: metadata.product_name,\n"
+          f"        target.resource.name: target.resource.name"
+      )
+    else:
+      extra_bindings = ""
+      match_keys = ent_var
+      root_joins = (
+          f"{ent_var} = $stage1_http_failure_surge.{ent_name}\n"
+          f"{ent_var} = $stage2_total_traffic.{ent_name}"
+      )
+      metric_args = f"{ent_field}: {ent_field}"
+
+    goal_line = f"// Goal: {hypothesis_goal}\n" if hypothesis_goal else ""
+    return (
+        f"{goal_line}// Purpose: Hunt for entities with anomalous failure-to-total ratios in {fail_metric}\n"
+        "// ============================================================================\n"
+        "// ARCHITECTURE: 2-STAGE FAILURE RATIO & RECONNAISSANCE SURGE PIPELINE\n"
+        "// ============================================================================\n\n"
+        "stage stage1_http_failure_surge {\n"
+        f"    {fail_filter_block}\n"
+        f"    {ent_field} = {ent_var}\n"
+        f"    {ent_var} != \"\"\n"
+        f"{extra_bindings}\n"
+        "  match:\n"
+        f"    {match_keys} by 1d\n\n"
+        "  outcome:\n"
+        "    $failed_obs = count(metadata.id)\n"
+        f"    $hist_fail_avg = max(metrics.{fail_metric}(\n"
+        "        period: 1d, window: 30d, metric: event_count_sum, agg: avg,\n"
+        f"        {metric_args}\n"
+        "    ))\n"
+        f"    $hist_fail_stddev = max(metrics.{fail_metric}(\n"
+        "        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,\n"
+        f"        {metric_args}\n"
+        "    ))\n"
+        f"    $hist_fail_active_days = max(metrics.{fail_metric}(\n"
+        "        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,\n"
+        f"        {metric_args}\n"
+        "    ))\n"
+        "    $fail_z = ($failed_obs - $hist_fail_avg) / if($hist_fail_stddev > 0, $hist_fail_stddev, 1.0)\n"
+        "}\n\n"
+        "stage stage2_total_traffic {\n"
+        f"    {total_filter_block}\n"
+        f"    {ent_field} = {ent_var}\n"
+        f"    {ent_var} != \"\"\n"
+        f"{extra_bindings}\n"
+        "  match:\n"
+        f"    {match_keys} by 1d\n\n"
+        "  outcome:\n"
+        "    $total_obs = count(metadata.id)\n"
+        "}\n\n"
+        f"{root_joins}\n\n"
+        "match:\n"
+        f"  {match_keys} by 1d\n\n"
+        "outcome:\n"
+        "  $fail_z = max($stage1_http_failure_surge.fail_z)\n"
+        "  $observed_fails = max($stage1_http_failure_surge.failed_obs)\n"
+        "  $total_events = max($stage2_total_traffic.total_obs)\n"
+        "  $fail_ratio = $observed_fails / ($total_events + 0.001)\n"
+        "  $recon_score = $fail_z * $fail_ratio\n\n"
+        "condition:\n"
+        f"  $fail_z >= {anomaly_threshold}\n"
+        f"  and $fail_ratio >= {min_fail_ratio}\n\n"
+        "order:\n"
+        "  $recon_score desc\n"
+    )
+
+  def build_c2_beacon_flow_query(
+      self,
+      target_metric: str = "network_flows_outbound",
+      entity_type: EntityType = EntityType.ASSET,
+      anomaly_threshold: float = 3.0,
+      min_baseline_days: int = 7,
+      hypothesis_goal: Optional[str] = None,
+      identifier_field: Optional[str] = None,
+  ) -> str:
+    """Builds a 2-Stage C2 Beacon Flow Frequency & Regularity pipeline for network_flows_* metrics."""
+    valid_flow_metrics = ("network_flows_outbound", "network_flows_inbound", "network_flows_total")
+    if target_metric not in valid_flow_metrics:
+      raise ValueError(f"Unsupported flow metric '{target_metric}'. Must be one of {valid_flow_metrics}")
+    audit = PreFlightValidator.audit(
+        target_metric=target_metric,
+        entity_type=entity_type,
+        min_baseline_days=min_baseline_days,
+        identifier_field=identifier_field,
+    )
+    ent_field = audit["target_field"]
+    ent_var = "$user" if entity_type == EntityType.USER else "$host"
+    ent_name = ent_var.lstrip("$")
+    filter_block = "\n    ".join(audit["event_filter"])
+    if target_metric == "network_flows_outbound":
+      bytes_expr = "sum(network.sent_bytes)"
+    elif target_metric == "network_flows_inbound":
+      bytes_expr = "sum(network.received_bytes)"
+    else:
+      bytes_expr = "sum(network.sent_bytes) + sum(network.received_bytes)"
+    goal_line = f"// Goal: {hypothesis_goal}\n" if hypothesis_goal else ""
+    return (
+        f"{goal_line}// Purpose: Hunt for C2 beaconing flow frequency surge and timing regularity in {target_metric}\n"
+        "// ============================================================================\n"
+        "// ARCHITECTURE: 2-STAGE C2 BEACON FLOW FREQUENCY & REGULARITY PIPELINE\n"
+        "// ============================================================================\n\n"
+        "stage stage1_flow_frequency {\n"
+        f"    {filter_block}\n"
+        f"    {ent_field} = {ent_var}\n"
+        f"    {ent_var} != \"\"\n\n"
+        "  match:\n"
+        f"    {ent_var} by 1d\n\n"
+        "  outcome:\n"
+        "    $observed_flows = count(metadata.id)\n"
+        f"    $observed_bytes = {bytes_expr}\n"
+        "    $distinct_targets = count_distinct(target.ip)\n"
+        f"    $hist_flow_avg = max(metrics.{target_metric}(\n"
+        "        period: 1d, window: 30d, metric: event_count_sum, agg: avg,\n"
+        f"        {ent_field}: {ent_field}\n"
+        "    ))\n"
+        f"    $hist_flow_stddev = max(metrics.{target_metric}(\n"
+        "        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,\n"
+        f"        {ent_field}: {ent_field}\n"
+        "    ))\n"
+        f"    $hist_flow_active_days = max(metrics.{target_metric}(\n"
+        "        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,\n"
+        f"        {ent_field}: {ent_field}\n"
+        "    ))\n"
+        "    $flow_z = ($observed_flows - $hist_flow_avg) / if($hist_flow_stddev > 0, $hist_flow_stddev, 1.0)\n"
+        "    $flow_cv = $hist_flow_stddev / if($hist_flow_avg > 0, $hist_flow_avg, 1.0)\n"
+        "    $bytes_per_flow = $observed_bytes / ($observed_flows + 0.001)\n"
+        "}\n\n"
+        f"{ent_var} = $stage1_flow_frequency.{ent_name}\n\n"
+        "match:\n"
+        f"  {ent_var} by 1d\n\n"
+        "outcome:\n"
+        "  $flow_z = max($stage1_flow_frequency.flow_z)\n"
+        "  $flow_cv = min($stage1_flow_frequency.flow_cv)\n"
+        "  $observed_flows = max($stage1_flow_frequency.observed_flows)\n"
+        "  $historical_flow_avg = max($stage1_flow_frequency.hist_flow_avg)\n"
+        "  $active_days = max($stage1_flow_frequency.hist_flow_active_days)\n"
+        "  $bytes_per_flow = min($stage1_flow_frequency.bytes_per_flow)\n"
+        "  $distinct_targets = max($stage1_flow_frequency.distinct_targets)\n"
+        "  $beacon_score = $flow_z * (1.0 / ($flow_cv + 0.1))\n\n"
+        "condition:\n"
+        f"  $flow_z >= {anomaly_threshold}\n"
+        f"  and $active_days >= {audit['min_baseline_days']}\n\n"
+        "order:\n"
+        "  $beacon_score desc\n"
+    )
+
+  def build_alert_surge_query(
+      self,
+      entity_type: EntityType = EntityType.ASSET,
+      anomaly_threshold: float = 3.0,
+      hypothesis_goal: Optional[str] = None,
+  ) -> str:
+    """Builds a 2-Stage Security & EDR Alert Surge pipeline for metrics.alert_event_name_count.
+
+    Supports host-level roll-ups (PRINCIPAL_DEVICE + SECURITY_RESULT_RULE_NAME) and user+host+process
+    compound attribution (PRINCIPAL_DEVICE + PRINCIPAL_USER + PRINCIPAL_PROCESS_FILE_HASH + SECURITY_RESULT_RULE_NAME).
+    """
+    metric_name = "alert_event_name_count"
+    filter_block = "\n    ".join(mc.baseline_semantics(metric_name).observed_filter)
+    goal_line = f"// Goal: {hypothesis_goal}\n" if hypothesis_goal else ""
+    if entity_type == EntityType.USER:
+      return (
+          f"{goal_line}// Purpose: Hunt for user-attributed EDR & security alert surges across host and process context\n"
+          "// ============================================================================\n"
+          "// ARCHITECTURE: 2-STAGE USER-ATTRIBUTED SECURITY & EDR ALERT SURGE PIPELINE\n"
+          "// ============================================================================\n\n"
+          "stage stage1_alert_detail {\n"
+          f"    {filter_block}\n"
+          "    principal.user.userid = $user\n"
+          "    principal.asset.hostname = $host\n"
+          "    principal.process.file.sha256 = $sha256\n"
+          "    security_result.rule_name = $rule_name\n"
+          "    $user != \"\"\n"
+          "    $host != \"\"\n"
+          "    $sha256 != \"\"\n"
+          "    $rule_name != \"\"\n\n"
+          "  match:\n"
+          "    $user, $host, $sha256, $rule_name by 1d\n\n"
+          "  outcome:\n"
+          "    $d_obs = count(metadata.id)\n"
+          f"    $d_mu = max(metrics.{metric_name}(\n"
+          "        period: 1d, window: 30d, metric: event_count_sum, agg: avg,\n"
+          "        principal.asset.hostname: principal.asset.hostname,\n"
+          "        principal.user.userid: principal.user.userid,\n"
+          "        principal.process.file.sha256: principal.process.file.sha256,\n"
+          "        security_result.rule_name: security_result.rule_name\n"
+          "    ))\n"
+          f"    $d_sigma = max(metrics.{metric_name}(\n"
+          "        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,\n"
+          "        principal.asset.hostname: principal.asset.hostname,\n"
+          "        principal.user.userid: principal.user.userid,\n"
+          "        principal.process.file.sha256: principal.process.file.sha256,\n"
+          "        security_result.rule_name: security_result.rule_name\n"
+          "    ))\n"
+          f"    $d_days = max(metrics.{metric_name}(\n"
+          "        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,\n"
+          "        principal.asset.hostname: principal.asset.hostname,\n"
+          "        principal.user.userid: principal.user.userid,\n"
+          "        principal.process.file.sha256: principal.process.file.sha256,\n"
+          "        security_result.rule_name: security_result.rule_name\n"
+          "    ))\n"
+          "    $d_z = ($d_obs - $d_mu) / if($d_sigma > 0, $d_sigma, 1.0)\n"
+          "    $d_novel = if($d_days = 0, 1, 0)\n"
+          "}\n\n"
+          "$user = $stage1_alert_detail.user\n"
+          "$host = $stage1_alert_detail.host\n\n"
+          "match:\n"
+          "  $user, $host by 1d\n\n"
+          "outcome:\n"
+          "  $alert_z = max($stage1_alert_detail.d_z)\n"
+          "  $total_alerts = sum($stage1_alert_detail.d_obs)\n"
+          "  $distinct_rules = count_distinct($stage1_alert_detail.rule_name)\n"
+          "  $novel_rules = sum($stage1_alert_detail.d_novel)\n\n"
+          "condition:\n"
+          f"  $alert_z >= {anomaly_threshold}\n\n"
+          "order:\n"
+          "  $alert_z desc\n"
+      )
+    return (
+        f"{goal_line}// Purpose: Hunt for host-level EDR & security alert surges across distinct rule names\n"
+        "// ============================================================================\n"
+        "// ARCHITECTURE: 2-STAGE HOST SECURITY & EDR ALERT SURGE PIPELINE\n"
+        "// ============================================================================\n\n"
+        "stage stage1_alert_detail {\n"
+        f"    {filter_block}\n"
+        "    principal.asset.hostname = $host\n"
+        "    security_result.rule_name = $rule_name\n"
+        "    $host != \"\"\n"
+        "    $rule_name != \"\"\n\n"
+        "  match:\n"
+        "    $host, $rule_name by 1d\n\n"
+        "  outcome:\n"
+        "    $d_obs = count(metadata.id)\n"
+        f"    $d_mu = max(metrics.{metric_name}(\n"
+        "        period: 1d, window: 30d, metric: event_count_sum, agg: avg,\n"
+        "        principal.asset.hostname: principal.asset.hostname,\n"
+        "        security_result.rule_name: security_result.rule_name\n"
+        "    ))\n"
+        f"    $d_sigma = max(metrics.{metric_name}(\n"
+        "        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,\n"
+        "        principal.asset.hostname: principal.asset.hostname,\n"
+        "        security_result.rule_name: security_result.rule_name\n"
+        "    ))\n"
+        f"    $d_days = max(metrics.{metric_name}(\n"
+        "        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,\n"
+        "        principal.asset.hostname: principal.asset.hostname,\n"
+        "        security_result.rule_name: security_result.rule_name\n"
+        "    ))\n"
+        "    $d_z = ($d_obs - $d_mu) / if($d_sigma > 0, $d_sigma, 1.0)\n"
+        "    $d_novel = if($d_days = 0, 1, 0)\n"
+        "}\n\n"
+        "$host = $stage1_alert_detail.host\n\n"
+        "match:\n"
+        "  $host by 1d\n\n"
+        "outcome:\n"
+        "  $alert_z = max($stage1_alert_detail.d_z)\n"
+        "  $total_alerts = sum($stage1_alert_detail.d_obs)\n"
+        "  $distinct_rules = count_distinct($stage1_alert_detail.rule_name)\n"
+        "  $novel_rules = sum($stage1_alert_detail.d_novel)\n\n"
+        "condition:\n"
+        f"  $alert_z >= {anomaly_threshold}\n\n"
+        "order:\n"
+        "  $alert_z desc\n"
     )
 
   def build_hybrid_enrichment_query(

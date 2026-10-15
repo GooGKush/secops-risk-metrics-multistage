@@ -23,14 +23,14 @@ Operational execution: `references/turn-execution-lifecycle.md`.
 ---
 
 ## ⏰ Time Model (Prerequisite for Every Query)
-UTC throughout; `metrics.*` are `00:00Z` day buckets. `startTime`/`endTime` pick the scored days; the 30d baseline comes from `metrics.*` (anchored at the `startTime` day), never a wider window. Mode A: `startTime` = today `T00:00:00Z` (Entity Graph: UTC date −2 days at `T00:00:00Z`, e.g. `2026-10-13T00:00:00Z` on 10-15; not now−48h), `endTime` = now; never rolling. Other skills' mode windows do not apply.
+UTC throughout; `metrics.*` are `00:00Z` day buckets. `startTime`/`endTime` pick the scored days; the 30d baseline comes from `metrics.*` (anchored at the `startTime` day), never a wider window. Mode A: `startTime` = today `T00:00:00Z` (Entity Graph: UTC date −2d at `T00:00:00Z`; not now−48h), `endTime` = now; never rolling. Other skills' mode windows do not apply.
 
 ## ⏱️ Evaluation Modes
 
 1. **Mode A: Current-Day Snapshot (`FLEET_ROLLUP`)**: today `00:00Z`→now vs 30d baseline (`window: 30d`). Target dates (e.g. "Aug 12") auto-bypass Mode B.
 2. **Mode B: Fixed-Baseline Timeline (`TIMELINE_BREAKDOWN`)**: 2–7 days, one query (`match: $entity by 1d`), start ≤1y ago.
 3. **Mode C: Per-Day Baseline Timeline** (`run_command` present only): one query per UTC day, each vs its own trailing 30d, collated by `scripts/timeline_assembler.py`.
-* **Window Invariant**: The platform anchors ONE `period: 1d, window: 30d` baseline at the query's start day; all days scored in that query reuse it (older for later days). Mode B: state the baseline dates. No `run_command`: no Mode C; say per-day baselines and >7d need a client that runs local scripts. Details: `references/timeline-modes-guide.md`.
+* **Window Invariant**: The platform anchors ONE `period: 1d, window: 30d` baseline at start day; all scored days reuse it. Mode B: state baseline dates. No `run_command`: no Mode C; per-day baselines and >7d need a client that runs local scripts. Details: `references/timeline-modes-guide.md`.
 
 ---
 
@@ -43,16 +43,16 @@ UTC throughout; `metrics.*` are `00:00Z` day buckets. `startTime`/`endTime` pick
 Lifecycle mechanics and turn contracts are in `references/turn-execution-lifecycle.md`.
 
 ### 🚦 State 1: Pre-Flight Clearance & Specification (Zero Execution on Turn 1) (MANDATORY STEP 1: PRE-FLIGHT CLEARANCE)
-On Turn 1 (including *"Run..."* or *"Scan..."*), focus strictly on pre-flight alignment: probe the event filter once, render candidate preview, and offer the evaluation modes. Multi-stage execution and 6-pillar findings occur strictly in Turn 2 after clearance.
+On Turn 1 (incl. *"Run..."*/*"Scan..."*), do pre-flight alignment only: probe event filter once, render preview, offer evaluation modes. Execution and 6-pillar findings occur in Turn 2 after clearance.
 
 ### 🧭 Phase 1A: Consultative Vector & Scope Discovery (Dual-Requirement Gate)
 Phase 1B is **ONLY UNLOCKED** when **BOTH** are explicitly defined:
 1. **Entity Scope** (user, cohort, fleet / cloud) **AND**
-2. **Telemetry Vector(s)** (selected from canonical sectors: Cloud CRUD, Workspace, Network Egress, DNS Resolution, Web & Proxy, Endpoint, Auth).
+2. **Telemetry Vector(s)** (selected from canonical sectors: Cloud CRUD, Workspace, Network Egress, DNS Resolution, Web & Proxy, Endpoint, Auth, Security & EDR Alerts (`alert_event_name_count`), or 360° Discovery Sweep).
 
 > **Anti-Auth-Defaulting Guardrail & Conversational Break (CONVERSATIONAL BREAK)**:
-> When telemetry vector is unspecified, **THE AGENT MUST NOT DEFAULT TO `metrics.auth_attempts_*` OR `USER_LOGIN`**. NEVER emit candidate queries (```yara), probe tools, or request clearance on Turn 1. Consult `references/consultative-worksheet.md` and yield turn (0 tools called), asking: *"Across which behavioral vector(s) would you like to evaluate [Target Entities]?"* Upon analyst vector selection on Turn 2, enter Phase 1B immediately in that same turn: probe the selected vector via `udm_search` (maxEvents: 1), emit formal `PRE-FLIGHT HUNTING SPECIFICATION` card preceding candidate query preview, concluding with the mode clearance question.
-> *(Expert / Defined Vector Bypass: When both Entity Scope and Telemetry Vector are specified upfront, e.g. "Can you check Frank's authentication activity for anomalies?", proceed directly to Phase 1B, resolving identity first. The Expert Exemption permits bypassing Phase 1A questioning, never the Turn 1 Clearance Gate).*
+> When telemetry vector is unspecified, **THE AGENT MUST NOT DEFAULT TO `metrics.auth_attempts_*` OR `USER_LOGIN`**. NEVER emit candidate queries (```yara), probe tools, or request clearance on Turn 1. Consult `references/consultative-worksheet.md` and yield turn (0 tools called), asking: *"Across which behavioral vector(s) would you like to evaluate [Target Entities]?"* On Turn 2 vector selection, enter Phase 1B in that same turn: probe via `udm_search` (maxEvents: 1), emit `PRE-FLIGHT HUNTING SPECIFICATION` card preceding candidate query preview, and ask the mode clearance question.
+> *(Expert Bypass: When Scope + Vector are specified upfront, proceed directly to Phase 1B, resolving identity first; never bypass the Turn 1 Clearance Gate).*
 
 ### 🕸️ 360° Entity Behavioral Risk Radar & Multi-Sector Threat Fusion
 * **360° Radar**: 6-sector health check (`references/360-behavioral-radar-guide.md`) via decoupled micro-queries (`templates/pipelines/radar_360_decoupled_sector.yl2`); all 6 sectors (Auth, Cloud, Workspace, Network, DNS, Web) must be reported. Radial radar for individuals; Ranked Outlier Bars or Heatmap Matrix for fleet sweeps.
@@ -64,9 +64,9 @@ Phase 1B is **ONLY UNLOCKED** when **BOTH** are explicitly defined:
 
 ### 🔍 Phase 1B: Pre-Flight Spec & Query Preview (Once Scope & Vectors are Established)
 Once vectors and scope are confirmed (expert prompt, Phase 1A vector selection, or CTI mapping; card always precedes the query preview):
-1. **Turn 1 Tool Invariant**: Limit Turn 1 tools strictly to identity spot-checks (incl. AD TEAM LOOKUP, run first) and one probe (`udm_search`, `maxEvents: 1`) of the event filter alone (no `stage`, `match:`, `metrics.`). Never probe the candidate itself, even with `maxEvents: 1`; it runs only after Turn 2 clearance. After probe succeeds, call 0 more tools on Turn 1; emit card, query preview, and clearance question in text, then yield.
+1. **Turn 1 Tool Invariant**: Limit Turn 1 tools to identity spot-checks (incl. AD TEAM LOOKUP, run first) and one probe (`udm_search`, `maxEvents: 1`) of the event filter alone (no `stage`, `match:`, `metrics.`). Never probe the candidate itself, even with `maxEvents: 1`; it runs only after Turn 2 clearance. After probe succeeds, call 0 more tools on Turn 1; emit card, preview, and clearance question, then yield.
 2. **Identity Disambiguation & Confirmation Protocol (ZERO GUESSING & IMMEDIATE HALT)**:
-   - *Technical IDs*: Display names (with spaces) are NOT `user.userid`. Single unqualified first names (e.g. `Frank`) must be spot-checked in UDM. Hostnames and fleet-wide scopes proceed directly with pre-flight vector formulation.
+   - *Technical IDs*: Display names (with spaces) are NOT `user.userid`. Single first names (e.g. `Frank`) require a UDM spot-check. Hostnames/fleet scopes proceed directly.
    - *14-Day UDM Spot-Check*: `udm_search(query='target.user.userid = "<name>" nocase or principal.user.userid = "<name>" nocase or target.user.user_display_name = /.*<name>.*/ nocase or principal.user.user_display_name = /.*<name>.*/ nocase', startTime: "<ISO_14D_AGO>", endTime: "<ISO_NOW>", maxEvents: 5)`.
    - *Match Found ($\ge 1$ events)*: Extract verified technical `user.userid` from `target.user.userid` or `principal.user.userid`. In card: `• Target Entity / Scope: <Name> (Verified User ID: <id>)`.
    - *HARD RESOLUTION GATE (ZERO GUESSING & NO SPEC CARD)*: If 0 events match, **NEVER GUESS A USERNAME AND NEVER EMIT PRE-FLIGHT CARD**. **HALT IMMEDIATELY (0 tools called)**, asking: *"I could not resolve an active technical `user.userid` for '<Name>' in recent UDM telemetry. What is their corporate email or technical username?"*
@@ -100,16 +100,16 @@ Once vectors and scope are confirmed (expert prompt, Phase 1A vector selection, 
 #### 1. Statistical Outlier Report: `[Target Metric]` ([Statistical Model]) (`window: 30d`). Single visual surface: <agent-embed> in Jetski (`run_command` present); <svg> in MCP/webview; Client Tool (if present); ASCII on request. Zero data-uri or raw SVG in chat Markdown. Unicode magnitude bars (`▰▰▰▰▱▱▱▱`). Details: `references/chart-specifications-guide.md`.
 #### 2. Executed Multi-Stage YARA-L Query: For 360 Radar, display executed sector micro-queries (representative `stage auth_risk` with `order: $z desc`). A bare raw-event filter with no `stage`/`match`/`outcome` is PROHIBITED in Pillar 2.
 #### 3. Ranked Outlier Summary & Provenance Stamp: Columns: `Entity`, `24h Observed`, `30d Mean (μ)`, `30d StdDev (σ)`, `Z-Score`, `CRI Score`, `Visual Magnitude`. Stamp execution provenance (events scanned, query execution time, projected schema columns).
-#### 4. Forensic Vector Breakdown: Threat translation, scenarios, SOC playbook.
-#### 5. Chronicle UI Manual Pivot (Triage Reference Only): Passive UDM filter for Chronicle UI (note: enable **Case Sensitivity On** when running `metrics.*` in UI).
+#### 4. Forensic Vector Breakdown: Threat translation, scenarios, SOC playbook, and **Agentic Next Steps** (`ACUTE_OUTLIER`, `CLEAN_OR_SUBTHRESHOLD`, `FLEET_WAVE`, `SPARSE_BASELINE` via `triage_formatter.py`).
+#### 5. Chronicle UI Manual Pivot (Triage Reference Only): Passive UDM filter for Chronicle UI (enable **Case Sensitivity On** when running `metrics.*` in UI).
 #### 6. Collapsible Technical Appendix (Statistical & Mathematical Appendix): ($N=30d$), CRI, $D = \sqrt{\sum \max(0, Z_i)^2}$ (`references/calibrated-risk-index-guide.md`).
-4. **Zero-Telemetry Clean Hunt Exemption (True Negative Audit Summary)**: When executed query returns empty `stats` (`{}` or `{"stats": []}`), emit 2-Section Clean Hunt Audit:
+4. **Zero-Telemetry Clean Hunt Exemption (True Negative Audit Summary)**: When executed query returns empty `stats` (`{}` or `{"stats": []}`), emit 2-Section Clean Hunt Audit (+ Agentic Next Steps):
    - `#### 1. Statistical Outlier Report: [Target Metric] (Nominal Baseline)`: 0 observed events ($Z = 0.00\sigma, \text{CRI} = 0$, 🟢 **Nominal Fleet Baseline**).
    - `#### 2. Executed Multi-Stage YARA-L Query`: Literal query and scope.
-   - Pillars 3–6 are waived (360° radar: all 6 sectors plus visual radar).
-   - Mode A: say the window was today so far and offer Mode B.
+   - Pillars 3–6 waived (360° radar: all 6 sectors + visual radar). Mode A: say window was today so far; offer Mode B or sub-threshold/CUSUM/sector pivots.
 
 ### 🔁 State 3: Iteration, Entity Shifts & Federated Bridge (Active Hunt Session Lock & Boundary)
+* **State 3 → Phase 1B Agentic Pivot Loop**: Selecting a post-execution follow-up (`[A]`/`[B]`/`[C]`) re-enters Phase 1B carrying forward resolved entity ID, peer cohort, and bridge keys (`$host`, `$user`, `$caller_ip`) without re-asking Phase 1A.
 * **Entity Shift**: On *"same query for"*, retain Active Hunt Session Lock & Boundary (ZERO CROSS-SKILL DRIFT) and Re-enter State 1 for new entity.
 * **Federated Bridge**: When micro-math requested, emit Skill Handoff Card to `secops-statistical-hunter`.
 

@@ -504,6 +504,31 @@ class TestSiblingTriads(unittest.TestCase):
     self.assertNotIn("{{cohort_filter}}", fleet_only)
     self.assertIn("TEAM COHORT", gen.render().split("## Sibling triads", 1)[1].split("### ", 1)[0])
 
+  def test_workspace_activity_and_gmail_triads_render_cleanly(self):
+    router = MultiStageTemplateRouter()
+    expected_stage = {
+        "Workspace activity": ['metadata.vendor_name = "Google Workspace"'],
+        "Workspace Gmail": ['(metadata.product_name = "GMAIL" or metadata.product_name = "gmail")'],
+    }
+    for label, metrics in mc.CANONICAL_TRIADS:
+      if not label.startswith("Workspace"):
+        continue
+      with self.subTest(triad=label):
+        stage, obs = mc.triad_event_selection(metrics)
+        self.assertEqual(stage, expected_stage[label])
+        q = router.build_pipeline_query(
+            PipelineArchitecture.PART_OF_THE_WHOLE_TRIAD_MULTILEVEL,
+            entity_type=EntityType.USER,
+            target_metrics=list(metrics),
+            cohort_entities=["alice", "bob"],
+            target_entity="alice",
+        )
+        self.assertEqual(mc.observed_filter_gaps(q), [])
+        self.assertEqual(MalachiteASTValidator.validate_query(q), [])
+        for m in metrics:
+          self.assertIn(f"metrics.{m}(", q)
+          self.assertIn(obs[m], q)
+
 
 class TestIdentifierSwapComments(unittest.TestCase):
   """Every Stage 1 extractor tells the agent which identifier fields it may swap in."""

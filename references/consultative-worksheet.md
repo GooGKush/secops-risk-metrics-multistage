@@ -161,10 +161,10 @@ When the hypothesis touches two or more vectors, do not stop at listing them. Pr
 * **Summary View Options**:
   1. *Time-of-Day Execution Anomalies*: Detect endpoint binary launches occurring during historically dead hours (**Hourly Temporal Z-Score** on `file_executions_total`).
   2. *Living-off-the-Land Surge*: Surface statistically rare binary executions for a specific host and hash (**Poisson Rarity** on `file_executions_success`).
-  3. *EDR Alert Accumulation*: Detect subtle increases in vendor alerts on critical assets before an incident is declared (**Longitudinal CUSUM Drift** on `alert_event_name_count`).
+  3. *EDR Alert Accumulation & Novel Rule Breakout*: Detect subtle increases or first-time rule firings (`$d_days = 0`) in vendor alerts on critical assets or user+host+process tuples before an incident is declared (**Longitudinal CUSUM Drift** or **2-Stage Alert Surge** on `alert_event_name_count` via `MultiStageTemplateRouter.build_alert_surge_query`).
   4. *Enterprise Software Rollout / Patch Tuesday Normalization*: Separate targeted endpoint malware execution from corporate package updates (**Archetype 3: Dual-Plane Fleet Prevalence Normalization** via `templates/pipelines/hybrid_metric_fleet_prevalence_2stage.yl2` using token-centric match topology `$token by 1d` on binary hash `target.process.file.sha256 = $token` and hyperbolic prevalence dampener `1.0 / (k_fleet + 1.0)`).
-  5. *Derived Context File Prevalence Sieve*: Isolate execution bursts strictly to binaries observed on <= 3 endpoints across enterprise history, filtering out all high-prevalence corporate rollouts (**Derived File Prevalence** via `templates/pipelines/hybrid_metric_derived_file_prevalence_2stage.yl2`).
-* *Deep Dive Guide*: `references/consultative/endpoint-and-covert.md`
+  5. *Derived Context File Prevalence Sieve*: Isolate execution bursts (`file_executions_total`, `file_executions_fail`, or `file_executions_success` across `ASSET` or `USER`) strictly to binaries observed on <= 3 endpoints across enterprise history, filtering out all high-prevalence corporate rollouts (**Derived File Prevalence** via `templates/pipelines/hybrid_metric_derived_file_prevalence_2stage.yl2`).
+* *Deep Dive Guides*: `references/consultative/endpoint-and-covert.md`, `references/consultative/security-edr-alerts.md`
 
 ### Domain 5: Comprehensive Insider Risk & Multi-Vector Health Check
 * **Why Static Rules Miss It**: Security tools operate in operational silos. Individual telemetry logs (a few extra logins, a few extra file downloads, mild cloud reads) appear completely benign in isolation.

@@ -117,6 +117,29 @@
         "Pre-Flight card or response states the single baseline window dates applied to all scored days",
         "Response notes that per-day baselines and windows beyond 7 days need a client that can run local scripts"
       ]
+    },
+    {
+      "id": 11,
+      "name": "eval_post_execution_agentic_next_steps_and_pivot",
+      "prompt": "Option [A] — pivot WRK-SHASEK to Dual-Sector Fusion with network egress.",
+      "expected_output": "Transitions directly from State 3 back to Phase 1B carrying forward the resolved entity ID (WRK-SHASEK) without re-asking Phase 1A scope questions, emits the updated Pre-Flight Hunting Specification card and Dual-Sector Fusion YARA-L preview, and pauses for execution clearance.",
+      "assertions": [
+        "Pillar 4 or Clean Hunt report classifies the hunt outcome (ACUTE_OUTLIER, CLEAN_OR_SUBTHRESHOLD, FLEET_WAVE, or SPARSE_BASELINE) and offers [A]/[B]/[C] Agentic Next Steps",
+        "Selecting an Agentic Next Step transitions from State 3 directly to Phase 1B carrying forward resolved entity ID and cohort context",
+        "Agent does not re-ask Phase 1A vector discovery questions when pivoting",
+        "Agent emits the updated Pre-Flight Specification Card and candidate YARA-L preview and pauses for clearance"
+      ]
+    },
+    {
+      "id": 12,
+      "name": "eval_alert_metric_and_workspace_triad_promotion",
+      "prompt": "Check host WRK-SHASEK for EDR and security alert accumulation against its 30-day baseline.",
+      "expected_output": "Routes to metrics.alert_event_name_count with the canonical 4-EDR log_type filter and (principal.asset.hostname, security_result.rule_name) dimensions, emits the Pre-Flight Specification Card and 2-stage roll-up query preview, and pauses for clearance.",
+      "assertions": [
+        "Query filters on the 4 canonical EDR log_types (CB_EDR, CS_EDR, MICROSOFT_GRAPH_ALERT, SENTINELONE_ALERTS)",
+        "Query binds principal.asset.hostname and security_result.rule_name in metrics.alert_event_name_count",
+        "Pre-Flight Specification Card precedes the candidate YARA-L preview and pauses for Mode A/B clearance"
+      ]
     }
   ]
 }

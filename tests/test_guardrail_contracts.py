@@ -2046,6 +2046,32 @@ class TestGuardrailContracts(unittest.TestCase):
     self.assertIn("Euclidean Threat Distance", guide_content)
     self.assertIn("Calibrated Risk Index", guide_content)
 
+  def test_priority_1_and_4_agentic_loop_and_alert_promotion_contracts(self):
+    """SKILL.md and references must enforce 8th canonical vector (alert_event_name_count), 360° sweep, and State 3 -> Phase 1B agentic loop."""
+    repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    skill_content = open(os.path.join(repo_dir, "SKILL.md"), encoding="utf-8").read()
+    lifecycle_content = open(os.path.join(repo_dir, "references", "turn-execution-lifecycle.md"), encoding="utf-8").read()
+    alert_guide_path = os.path.join(repo_dir, "references", "consultative", "security-edr-alerts.md")
+    self.assertTrue(os.path.exists(alert_guide_path), "Missing references/consultative/security-edr-alerts.md")
+    alert_guide = open(alert_guide_path, encoding="utf-8").read()
+
+    # Phase 1A 8th vector + 360° Discovery Sweep
+    self.assertIn("Security & EDR Alerts (`alert_event_name_count`)", skill_content)
+    self.assertIn("360° Discovery Sweep", skill_content)
+    self.assertIn("Omnidirectional 360° Discovery Sweep", lifecycle_content)
+
+    # Outcome-Driven Agentic Next Steps + State 3 -> Phase 1B Loop
+    for shape in ("ACUTE_OUTLIER", "CLEAN_OR_SUBTHRESHOLD", "FLEET_WAVE", "SPARSE_BASELINE"):
+      self.assertIn(shape, skill_content)
+      self.assertIn(shape, lifecycle_content)
+    self.assertIn("State 3 → Phase 1B Agentic Pivot Loop", skill_content)
+    self.assertIn("State 3 → Phase 1B Agentic Pivot Loop", lifecycle_content)
+
+    # Consultative deep-dive guide for Security & EDR Alerts
+    self.assertIn("metrics.alert_event_name_count", alert_guide)
+    self.assertIn("PRINCIPAL_DEVICE + SECURITY_RESULT_RULE_NAME", alert_guide)
+    self.assertIn("PRINCIPAL_DEVICE + PRINCIPAL_USER + PRINCIPAL_PROCESS_FILE_HASH + SECURITY_RESULT_RULE_NAME", alert_guide)
+
 
 if __name__ == '__main__':
   unittest.main()

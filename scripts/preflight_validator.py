@@ -680,18 +680,31 @@ class PreFlightValidator:
         for m in target_metrics
     ]
     # Mixed metric families is the more fundamental error, so report it first.
+    families = set(_mc.metric_family(m) for m in target_metrics)
     event_types = set(a["required_event_type"] for a in audits)
-    if len(event_types) > 1:
+    shared_filters = set(audits[0]["event_filter"]).intersection(*(a["event_filter"] for a in audits[1:]))
+    if len(families) > 1 or (len(event_types) > 1 and not shared_filters):
       raise ValueError(
           f"Heterogeneous event types not permitted in atomic triad: {event_types}. "
           "All metrics must share identical event_type."
       )
     fields = {a["target_field"] for a in audits}
     if len(fields) > 1:
-      raise ValueError(
-          f"Triad metrics resolve to different entity fields {sorted(fields)}; one stage can bind only one. "
-          "Pass identifier_field as a full UDM path valid for all three metrics."
-      )
+      if identifier_field is None:
+        common_dims = _mc.triad_entity_dimensions(target_metrics)
+        expected_pool = _mc.USER_DIMENSIONS if entity_type == EntityType.USER else _mc.DEVICE_DIMENSIONS
+        matching_dims = [d for d in common_dims if d in expected_pool]
+        if matching_dims:
+          leaf = _mc.DEFAULT_USER_IDENTIFIER if entity_type == EntityType.USER else _mc.DEFAULT_DEVICE_IDENTIFIER
+          auto_field = next(f for f in _mc.dimension_fields()[matching_dims[0]] if f.endswith("." + leaf))
+          for a in audits:
+            a["target_field"] = auto_field
+          fields = {auto_field}
+      if len(fields) > 1:
+        raise ValueError(
+            f"Triad metrics resolve to different entity fields {sorted(fields)}; one stage can bind only one. "
+            "Pass identifier_field as a full UDM path valid for all three metrics."
+        )
     return {
         "status": "VALID",
         "required_event_type": audits[0]["required_event_type"],
@@ -1065,7 +1078,8 @@ class MalachiteASTValidator:
 
       # Anti-Pattern 6B: Multi-vector metric conflation within single stage
       metric_event_types = {METRIC_CATALOG[m].event_type for m in metrics_calls if m in METRIC_CATALOG}
-      if len(metric_event_types) > 1 and not (metric_event_types <= MalachiteASTValidator.CLOUD_RESOURCE_EVENTS):
+      metric_families = {_mc.metric_family(m) for m in metrics_calls if m in METRIC_CATALOG}
+      if len(metric_event_types) > 1 and len(metric_families) > 1 and not (metric_event_types <= MalachiteASTValidator.CLOUD_RESOURCE_EVENTS):
         errors.append(
             f"MULTI_VECTOR_STAGE_CONFLATION in stage '{stage_name}': Stage attempts to evaluate metrics across different event types ({sorted(list(metric_event_types))}). "
             "Each telemetry vector must be evaluated in its own decoupled stage or micro-query."

@@ -9,6 +9,136 @@ from typing import Any, Dict, List, Optional
 class CommonMarkTriageFormatter:
   """Formats outlier findings into executive markdown triage reports with plain-English impact cards."""
 
+  OUTCOME_SHAPES = (
+      "ACUTE_OUTLIER",
+      "CLEAN_OR_SUBTHRESHOLD",
+      "FLEET_WAVE",
+      "SPARSE_BASELINE",
+  )
+
+  @staticmethod
+  def classify_hunt_outcome(
+      reduced_data: Dict[str, Any],
+      anomaly_threshold: float = 3.0,
+  ) -> str:
+    """Deterministically classifies post-execution hunt results into one of 4 outcome shapes."""
+    outliers = reduced_data.get("top_outliers", [])
+    total_outliers = reduced_data.get("outlier_count", len(outliers))
+    if total_outliers == 0 or not outliers:
+      return "CLEAN_OR_SUBTHRESHOLD"
+
+    if reduced_data.get("fleet_wave") is True or total_outliers >= 10 or len(outliers) >= 10:
+      return "FLEET_WAVE"
+
+    active_days_vals = []
+    for r in outliers:
+      for k in ("active_days", "hist_active_days", "historical_active_days", "active_baseline_days"):
+        if k in r and r[k] is not None:
+          try:
+            active_days_vals.append(float(r[k]))
+          except (TypeError, ValueError):
+            pass
+          break
+    if active_days_vals and all(days < 7.0 for days in active_days_vals):
+      return "SPARSE_BASELINE"
+
+    score_key = reduced_data.get("primary_score_metric", "anomaly_score")
+    scores = []
+    for r in outliers:
+      raw_score = r.get(
+          score_key,
+          r.get("z_score", r.get("threat_distance", r.get("threat_norm", r.get("anomaly_score", 0.0)))),
+      )
+      try:
+        scores.append(float(raw_score))
+      except (TypeError, ValueError):
+        pass
+    if scores and max(scores) < anomaly_threshold:
+      return "CLEAN_OR_SUBTHRESHOLD"
+
+    return "ACUTE_OUTLIER"
+
+  @classmethod
+  def build_agentic_next_steps(
+      cls,
+      reduced_data: Dict[str, Any],
+      target_metric: str,
+      statistical_model: str,
+      anomaly_threshold: float = 3.0,
+  ) -> str:
+    """Generates outcome-driven agentic follow-up recommendations for Pillar 4 or Clean Hunt reports."""
+    outcome = cls.classify_hunt_outcome(reduced_data, anomaly_threshold)
+    outliers = reduced_data.get("top_outliers", [])
+    top_entity = outliers[0].get("entity", "target_entity") if outliers else "target_entity"
+
+    if outcome == "ACUTE_OUTLIER":
+      lines = [
+          f"> * **🧭 Agentic Next Steps (Outcome Classification: `{outcome}` — State 3 → Phase 1B Pivot)**:",
+          f">   * **[A] Cross-Sector Fusion / 360° Radar**: Pivot `{top_entity}` directly to Phase 1B (`dual_sector_fusion_3stage.yl2` or 6-spoke 360° Radar) to test whether `{target_metric}` co-occurs with orthogonal kill-chain activity (IAM, Process, Network, Cloud CRUD, or `alert_event_name_count`).",
+          f">   * **[B] Two-Phase Chained Entity Pivot (Host ↔ User / Caller IP)**: Carry `{top_entity}` across the entity boundary via `ChainedHuntRouter` without re-running Phase 1A discovery.",
+          f">   * **[C] Novelty & Prevalence Verification / Alert Escalation**: Enrich `{top_entity}` with Entity Context Graph (`DERIVED_CONTEXT` file/domain prevalence or `WHOIS` lifecycle) or escalate `CRI >= 50` findings via `scripts/chronicle_ingest.py`.",
+      ]
+    elif outcome == "FLEET_WAVE":
+      lines = [
+          f"> * **🧭 Agentic Next Steps (Outcome Classification: `{outcome}` — State 3 → Phase 1B Pivot)**:",
+          f">   * **[A] Suppress Rollout / Patch Wave Noise**: Re-score `{target_metric}` in Phase 1B using `FLEET_PREVALENCE_SHIELD` (`fleet_prevalence_shield.yl2`), `HYBRID_METRIC_FLEET_PREVALENCE_2STAGE`, or `DUAL_BASELINE_3STAGE` (`ΔZ = Z_personal - Z_fleet`).",
+          f">   * **[B] Isolate Peer Cohort Departure**: Slice `{top_entity}` against its functional team cohort via `PART_OF_THE_WHOLE_MULTILEVEL` (`part_of_the_whole_multilevel.yl2`).",
+          f">   * **[C] Filter by Enterprise Prevalence**: Apply `DERIVED_CONTEXT` rarity gating (`rolling_max <= 3`) to drop fleet-wide binaries or domains.",
+      ]
+    elif outcome == "SPARSE_BASELINE":
+      lines = [
+          f"> * **🧭 Agentic Next Steps (Outcome Classification: `{outcome}` — State 3 → Phase 1B Pivot)**:",
+          f">   * **[A] Switch to Sparse-History / Cold-Start Math**: Re-evaluate `{top_entity}` on `{target_metric}` using `TWO_PART_HURDLE` (`two_part_hurdle.yl2`), `POISSON` (`poisson_rarity.yl2`), or `BAYESIAN_GAMMA` (`poisson_gamma_bayesian.yl2`) for $N < 7$ active days.",
+          f">   * **[B] Borrow Peer / Fleet Baseline Strength**: Pivot to `EMPIRICAL_BAYES_3STAGE` or `PART_OF_THE_WHOLE_MULTILEVEL` so thin personal history is regularized by the peer cohort.",
+          f">   * **[C] Verify Infant Asset / Dormant Account Lifecycle**: Run `HYBRID_METRIC_DERIVED_ASSET_AGE_2STAGE` (`hybrid_metric_derived_asset_age_2stage.yl2`) on `{top_entity}`.",
+      ]
+    else:
+      lines = [
+          f"> * **🧭 Agentic Next Steps (Outcome Classification: `{outcome}` — State 3 → Phase 1B Pivot)**:",
+          f">   * **[A] Probe Sub-Threshold Drift / Low-and-Slow Accumulation**: Relax the significance gate to `1.5σ <= Z < {anomaly_threshold}σ` or switch `{target_metric}` to `LONGITUDINAL_CUSUM` (`longitudinal_cusum.yl2`).",
+          f">   * **[B] Pivot to Orthogonal Kill-Chain Vector**: Keep current entity scope and pivot directly to Phase 1B on an adjacent sector (`alert_event_name_count`, `file_executions_total`, `network_bytes_outbound`, or `resource_read_total`).",
+          f">   * **[C] Omnidirectional 360° Behavioral Radar Sweep**: Run all 6 decoupled sector micro-queries to verify whether `{top_entity}` is nominal across every telemetry plane.",
+      ]
+    return "\n".join(lines)
+
+  @classmethod
+  def format_clean_hunt_report(
+      cls,
+      target_metric: str,
+      statistical_model: str,
+      executed_query: str,
+      anomaly_threshold: float = 3.0,
+      evaluation_mode: str = "Mode A",
+  ) -> str:
+    """Renders the lightweight 3-section Clean Hunt Summary for 0-row outcomes with agentic next steps."""
+    next_steps = cls.build_agentic_next_steps(
+        {"outlier_count": 0, "top_outliers": []},
+        target_metric=target_metric,
+        statistical_model=statistical_model,
+        anomaly_threshold=anomaly_threshold,
+    )
+    return "\n".join([
+        f"### 🟢 Clean Hunt Summary: `{target_metric}` ({statistical_model})",
+        "",
+        f"* **Result**: **0 entities** exceeded the `{anomaly_threshold}σ` significance gate under **{evaluation_mode}**.",
+        "* **Baseline Horizon**: 30-Day Pre-Computed Behavioral Tables (`window: 30d`).",
+        "",
+        "---",
+        "",
+        "#### 💻 Executed Multi-Stage YARA-L Query",
+        "",
+        "```yara",
+        executed_query,
+        "```",
+        "",
+        "---",
+        "",
+        "#### 🧭 Agentic Next Steps (Sub-Threshold & Pivot Options)",
+        "",
+        "> [!IMPORTANT]",
+        next_steps,
+    ])
+
   @staticmethod
   def format_report(
       reduced_data: Dict[str, Any],
@@ -131,6 +261,9 @@ class CommonMarkTriageFormatter:
         "> * **Potential Attack Scenarios**: Ransomware staging, credential stuffing, data exfiltration, lateral movement.",
         "> * **Legitimate False Positives**: Scheduled backup jobs, administrative bulk updates, patch deployments.",
         "> * **SOC Action Playbook**: 1. Inspect affected entity, 2. Check process tree, 3. Validate egress network destinations.",
+        CommonMarkTriageFormatter.build_agentic_next_steps(
+            reduced_data, target_metric, statistical_model, anomaly_threshold
+        ),
         "",
         "---",
         "",

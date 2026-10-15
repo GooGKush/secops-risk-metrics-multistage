@@ -373,6 +373,89 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
           self.assertNotIn("event_timestamp.seconds >=", preds, f"{arch.name}:{name}")
           self.assertEqual(has_filter, bool(event_field.search(preds)), f"{arch.name}:{name}")
 
+  def test_all_12_resource_metrics_auto_route_to_cloud_repository_scope(self):
+    """All 12 resource_* metrics (_total, _fail, _success) must route to CLOUD_REPOSITORY_SCOPE_DUAL_BRANCH."""
+    from scripts.preflight_validator import METRIC_CATALOG, MalachiteASTValidator
+    cloud_metrics = [m for m in METRIC_CATALOG if m.startswith("resource_")]
+    self.assertEqual(len(cloud_metrics), 12)
+    for m in cloud_metrics:
+      with self.subTest(metric=m):
+        q = self.router.build_query(
+            target_metric=m,
+            entity_type=EntityType.USER,
+            statistical_model=StatisticalModel.STANDARD_Z_SCORE,
+        )
+        self.assertIn("match:\n    $sa, $vendor, $product, $resource, $ip by 1d", q)
+        self.assertEqual(mc.observed_filter_gaps(q), [])
+        self.assertEqual(MalachiteASTValidator.validate_query(q), [])
+        if m.endswith("_fail"):
+          self.assertIn('not security_result.action = "ALLOW"', q)
+          self.assertIn(f"metrics.{m}(", q)
+        elif m.endswith("_success"):
+          self.assertIn('security_result.action = "ALLOW"', q)
+          self.assertIn(f"metrics.{m}(", q)
+
+  def test_failure_ratio_surge_supports_all_eight_fail_metrics(self):
+    """build_failure_ratio_surge_query must render compiler-valid 2-stage queries for all 8 *_fail metrics."""
+    from scripts.preflight_validator import MalachiteASTValidator
+    fail_cases = [
+        ("http_queries_fail", EntityType.ASSET),
+        ("http_queries_fail", EntityType.USER),
+        ("dns_queries_fail", EntityType.ASSET),
+        ("auth_attempts_fail", EntityType.USER),
+        ("file_executions_fail", EntityType.ASSET),
+        ("resource_read_fail", EntityType.USER),
+        ("resource_written_fail", EntityType.USER),
+        ("resource_creation_fail", EntityType.USER),
+        ("resource_deletion_fail", EntityType.USER),
+    ]
+    for fail_metric, et in fail_cases:
+      with self.subTest(fail_metric=fail_metric, entity_type=et.value):
+        q = self.router.build_failure_ratio_surge_query(
+            fail_metric=fail_metric,
+            entity_type=et,
+            anomaly_threshold=3.0,
+        )
+        self.assertIn(f"metrics.{fail_metric}(", q)
+        self.assertIn("$fail_ratio = $observed_fails / ($total_events + 0.001)", q)
+        self.assertEqual(mc.observed_filter_gaps(q), [])
+        self.assertEqual(MalachiteASTValidator.validate_query(q), [])
+        self.assertEqual(StatisticalAntipatternAuditor.audit_query(q), [])
+
+  def test_derived_file_prevalence_supports_fail_success_and_user(self):
+    """HYBRID_METRIC_DERIVED_FILE_PREVALENCE_2STAGE must support file_executions_fail/success and USER."""
+    from scripts.preflight_validator import MalachiteASTValidator
+    for metric in ("file_executions_total", "file_executions_fail", "file_executions_success"):
+      for et in (EntityType.ASSET, EntityType.USER):
+        with self.subTest(metric=metric, entity_type=et.value):
+          q = self.router.build_pipeline_query(
+              PipelineArchitecture.HYBRID_METRIC_DERIVED_FILE_PREVALENCE_2STAGE,
+              target_metric=metric,
+              entity_type=et,
+          )
+          self.assertIn(f"metrics.{metric}(", q)
+          self.assertEqual(mc.observed_filter_gaps(q), [])
+          self.assertEqual(MalachiteASTValidator.validate_query(q), [])
+
+  def test_c2_beacon_flow_and_alert_surge_queries(self):
+    """build_c2_beacon_flow_query and build_alert_surge_query must render valid multi-stage queries."""
+    from scripts.preflight_validator import MalachiteASTValidator
+    for flow_metric in ("network_flows_outbound", "network_flows_inbound", "network_flows_total"):
+      for et in (EntityType.ASSET, EntityType.USER):
+        q = self.router.build_c2_beacon_flow_query(target_metric=flow_metric, entity_type=et)
+        self.assertIn(f"metrics.{flow_metric}(", q)
+        self.assertIn("$beacon_score =", q)
+        self.assertEqual(mc.observed_filter_gaps(q), [])
+        self.assertEqual(MalachiteASTValidator.validate_query(q), [])
+        self.assertEqual(StatisticalAntipatternAuditor.audit_query(q), [])
+
+    for et in (EntityType.ASSET, EntityType.USER):
+      q_alert = self.router.build_alert_surge_query(entity_type=et)
+      self.assertIn("metrics.alert_event_name_count(", q_alert)
+      self.assertEqual(mc.observed_filter_gaps(q_alert), [])
+      self.assertEqual(MalachiteASTValidator.validate_query(q_alert), [])
+      self.assertEqual(StatisticalAntipatternAuditor.audit_query(q_alert), [])
+
 
 if __name__ == "__main__":
   unittest.main()

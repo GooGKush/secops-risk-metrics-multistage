@@ -84,7 +84,7 @@ elsewhere still fails if the combined set is not listed. Example: `auth_attempts
 
 * **Fusion-capable** (entity field valid alone): `auth_attempts_fail`, `auth_attempts_success`, `auth_attempts_total`, `dns_bytes_outbound`, `dns_queries_fail`, `dns_queries_success`, `dns_queries_total`, `http_queries_fail`, `http_queries_success`, `http_queries_total`, `network_bytes_inbound`, `network_bytes_outbound`, `network_bytes_total`, `network_flows_inbound`, `network_flows_outbound`, `network_flows_total`, `workspace_auth_attempts_total`, `workspace_emails_sent_total`, `workspace_network_bytes_outbound`, `workspace_network_bytes_total`, `workspace_total_change_actions`, `workspace_total_download_actions`
 * **Composite-only** (fusion sector only as a roll-up): `alert_event_name_count`, `file_executions_fail`, `file_executions_success`, `file_executions_total`, `resource_creation_fail`, `resource_creation_success`, `resource_creation_total`, `resource_deletion_fail`, `resource_deletion_success`, `resource_deletion_total`, `resource_read_fail`, `resource_read_success`, `resource_read_total`, `resource_written_fail`, `resource_written_success`, `resource_written_total`
-* **Sibling triads**: Auth, DNS, HTTP, Network bytes, Network flows (see *Sibling triads* below the metric rows)
+* **Sibling triads**: Auth, DNS, HTTP, Network bytes, Network flows, Workspace activity, Workspace Gmail (see *Sibling triads* below the metric rows)
 
 ## Metrics
 
@@ -1037,6 +1037,32 @@ peer group the template also scores the group as a whole against the fleet (`$z*
   * `m1_observation_agg` (network_flows_total): `count(metadata.id)`; metric arg `metric: event_count_sum`
   * `m2_observation_agg` (network_flows_outbound): `sum(if(network.sent_bytes > 0 and network.sent_bytes < 1000000000000000, 1, 0))`; metric arg `metric: event_count_sum`
   * `m3_observation_agg` (network_flows_inbound): `sum(if(network.received_bytes > 0 and network.received_bytes < 1000000000000000, 1, 0))`; metric arg `metric: event_count_sum`
+
+### Workspace activity triad
+
+* **Metrics (m1, m2, m3)**: `workspace_auth_attempts_total`, `workspace_total_download_actions`, `workspace_total_change_actions`
+* **Entity dimensions valid for all three**: PRINCIPAL_USER (user, default `principal.user.userid`). Any field of the chosen dimension works (see *Dimension → UDM fields*).
+* **Stage event filter** (`event_filter` slot):
+  ```yara
+  metadata.vendor_name = "Google Workspace"
+  ```
+* **Observed values**:
+  * `m1_observation_agg` (workspace_auth_attempts_total): `sum(if((metadata.product_name = "login" or metadata.product_name = "saml" or metadata.product_name = "token"), 1, 0))`; metric arg `metric: event_count_sum`
+  * `m2_observation_agg` (workspace_total_download_actions): `sum(if(metadata.product_event_type = "download", 1, 0))`; metric arg `metric: event_count_sum`
+  * `m3_observation_agg` (workspace_total_change_actions): `count(metadata.id)`; metric arg `metric: event_count_sum`
+
+### Workspace Gmail triad
+
+* **Metrics (m1, m2, m3)**: `workspace_network_bytes_total`, `workspace_network_bytes_outbound`, `workspace_emails_sent_total`
+* **Entity dimensions valid for all three**: PRINCIPAL_USER (user, default `principal.user.userid`). Any field of the chosen dimension works (see *Dimension → UDM fields*).
+* **Stage event filter** (`event_filter` slot):
+  ```yara
+  (metadata.product_name = "GMAIL" or metadata.product_name = "gmail")
+  ```
+* **Observed values**:
+  * `m1_observation_agg` (workspace_network_bytes_total): `sum(network.sent_bytes) + sum(network.received_bytes)`; metric arg `metric: value_sum`
+  * `m2_observation_agg` (workspace_network_bytes_outbound): `sum(network.sent_bytes)`; metric arg `metric: value_sum`
+  * `m3_observation_agg` (workspace_emails_sent_total): `count(metadata.id)`; metric arg `metric: event_count_sum`
 
 ## Entity Graph filters (`DERIVED_CONTEXT`)
 
