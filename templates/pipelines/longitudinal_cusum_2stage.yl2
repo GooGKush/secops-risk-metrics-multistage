@@ -1,7 +1,9 @@
 // ============================================================================
 // ARCHITECTURE: 2-STAGE LONGITUDINAL CUSUM BEHAVIORAL DRIFT PIPELINE
 // Skill: secops-risk-metrics-multistage
-// Purpose: Detects quiet, low-and-slow behavioral drift across 14-30 sliding days
+// Purpose: Detects quiet, low-and-slow behavioral drift across up to 14 days (multi-stage search limit).
+//          One request anchors ONE 30d baseline at its start day, so every day is scored against the
+//          same pre-window reference: the fixed reference CUSUM needs. Do not split CUSUM into Mode C shards.
 // Formula: S_t^+ = max(0, S_{t-1}^+ + ((x_t - mu) / if(sigma > 0, sigma, 1.0) - k_ref))
 // event_filter slot: the metric's "Observed event filter" lines from references/metric-sector-catalog.md, one per line.
 // Telemetry Metric Mappings:

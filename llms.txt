@@ -5,7 +5,7 @@ Agentic skill for Google SecOps UEBA multi-stage statistical outlier hunting usi
 Key instructions for agents:
 1. PHASE 1A/1B CONVERSATIONAL STAGING & PRE-FLIGHT CLEARANCE (ZERO EXECUTION ON TURN 1):
    - Phase 1A (Broad Inquiries): For open-ended inquiries (e.g. "privilege abuse", "insider threat"), execute 0 tools, do NOT emit a Pre-Flight Card or YARA-L preview, and NEVER default to `auth_attempts_*`. Present the 3 cohort scope options and 7 behavioral metric families (6 canonical radar sectors), and YIELD THE TURN (Conversational Break).
-   - Phase 1B (Specific Inquiries / Turn 2): Once scope and vectors are known, deliver a 1-2 sentence cyber analogy, render the ASCII Pre-Flight Specification Card, render the complete literal multi-stage YARA-L preview, and ask Mode A vs Mode B clearance prompt.
+   - Phase 1B (Specific Inquiries / Turn 2): Once scope and vectors are known, deliver a 1-2 sentence cyber analogy, render the ASCII Pre-Flight Specification Card, render the complete literal multi-stage YARA-L preview, and ask the mode clearance prompt (Mode A today; Mode B 2–7 day fixed-baseline timeline; Mode C per-day baseline only when run_command is present).
 
 2. UNIVERSAL 6-POINT STAGE 1 OUTCOME CONTRACT:
    - Every Stage 1 extractor template MUST emit this exact 6-variable outcome tuple:

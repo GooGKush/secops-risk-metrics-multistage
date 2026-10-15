@@ -58,7 +58,7 @@ Entered when the analyst selects a vector from Phase 1A, or when the initial pro
   1. Probe the selected vector via `udm_search` (`maxEvents: 1`).
   2. Emit the full `PRE-FLIGHT HUNTING SPECIFICATION` card.
   3. Emit the complete Candidate Multi-Stage YARA-L Query code block.
-  4. Conclude with the Mode A vs Mode B clearance question, then yield.
+  4. Conclude with the mode clearance question (Mode A / Mode B, plus Mode C when `run_command` is present), then yield.
   *Never ask for clearance without presenting both the specification card and candidate query preview in the same turn.*
 
 #### The "Expert Exemption" Clarification
@@ -83,21 +83,22 @@ An analyst with deep domain knowledge may specify both a mathematical model and 
    • Baseline Horizon Spine: 30-Day (period: 1d, 30d)
    • Peer Cohort & Roster:   [Team/Dept, e.g. IT (Frank, Tim)]
    • Entity Graph Dimension: [Prevalence (rolling_max <= 3) / N/A]
-   • Evaluation Horizon Mode:[Mode A: today OR Mode B: 2–14d]
+   • Evaluation Horizon Mode:[chosen mode only: A today | B 2–7d + baseline dates]
    • Statistical Model:      [Model & Template, e.g. CUSUM Drift (`longitudinal_cusum.yl2`)]
    • Significance Threshold: [Model gate from model-concordance-guide.md §2.1: Z >= 3.0σ | 2.0σ <= Z < 3.0σ | >= 2.0× baseline | D >= 3.5σ | N/A (Fano)]
    ```
    The `Significance Threshold` line and the query's root `condition:` MUST state the same gate (variable, operator, value). A threshold on the card with no matching `condition:` in the query is a concordance failure.
 4. **Candidate Query Preview**: Render the multi-stage query assembled from `templates/pipelines/` inside a ````yara block.
 5. **Clearance Question (Final sentence of Turn 1, then yield)**:
-   > *"Would you like me to proceed with **Mode A (Today vs 30-Day Baseline)** or **Mode B (2–14 Day Timeline)**? (Adjust noise level/significance threshold before execution if desired.)"*
+   > *"Would you like me to proceed with **Mode A (Today vs 30-Day Baseline)** or **Mode B (2–7 Day Fixed-Baseline Timeline)**[, or **Mode C (Per-Day Baseline)** if `run_command` is present]? (Adjust noise level/significance threshold before execution if desired.)"*
+   *(Mode B and C mechanics, baseline anchoring, and the no-shell note: `timeline-modes-guide.md`.)*
    *(If a specific target date was requested: "Proceed with executing for [Target Date] now?")*
 
 ---
 
 ## 3. Turn 2: Deterministic Multi-Stage Execution & Reporting
 
-Turn 2 executes **strictly after explicit analyst clearance** (*"Mode A"*, *"Mode B"*, *"proceed"*, *"execute"*).
+Turn 2 executes **strictly after explicit analyst clearance** (*"Mode A"*, *"Mode B"*, *"Mode C"*, *"proceed"*, *"execute"*).
 
 ### Step 1: Telemetry Dispatch
 Analyst clearance constitutes an explicit directive to execute the search across Chronicle SIEM to verify the baseline. Always dispatch the approved multi-stage query via `udm_search` (returning `"stats"`), regardless of preliminary spot-check counts. For 360° Radar investigations, dispatch the decoupled sector micro-queries in parallel. When telemetry yields zero events or an empty stats payload (`{}` or `{"stats": []}`), format the response affirmatively as a nominal baseline using the two-pillar Zero-Telemetry Clean Hunt structure below.

@@ -225,7 +225,7 @@ class SubmissionTestSuite:
             test_id="PIPE-04-CUSUM",
             category="Pipeline Template",
             name="2-Stage Longitudinal CUSUM Behavioral Drift",
-            description="Evaluates slow behavioral shifts over a sliding timeline with 0.5 sigma slack allowance.",
+            description="Evaluates slow behavioral shifts over a multi-day timeline (one fixed reference baseline) with 0.5 sigma slack allowance.",
             generator=lambda: self._render_pipeline(
                 "longitudinal_cusum_2stage.yl2", "network_bytes_outbound", EntityType.ASSET
             ),

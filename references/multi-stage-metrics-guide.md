@@ -99,7 +99,7 @@ Multi-stage DAG queries support two distinct temporal evaluation modes:
 | :--- | :--- | :--- |
 | `events:` header inside `stage` blocks | Declare predicates directly inside `stage name { ... }` | Stage blocks in Multi-Stage YARA-L do not use `events:`. |
 | Wrapping the final stage in `stage name { ... }` | Unwrapped root level | The final stage must be at the root level of the query file. |
-| Stage search window > 24h (e.g. 7d) | Clamp Stage 1 search window to exactly 24h / 1d | Daily metrics already embed 30 days of data; expanding search window causes metric duplicate joins. |
+| Search window wider than the days you score (e.g. 30d "to get the baseline", or a rolling `now-24h`) | Clamp the search window to the scored UTC day(s): Mode A = today `00:00Z` → now (D-2 `00:00Z` + `get_date` for Entity Graph joins); Mode B = first scored day `00:00Z` → now | The 30-day baseline comes from `metrics.*`, anchored at the `startTime` day (`timeline-modes-guide.md` §1). A wider window re-anchors the baseline earlier and scores extra days; a rolling `now-24h` starts on yesterday's date and splits results across two daily buckets. |
 | `stage_name.$variable` or `stage_name.variable` | `$stage_name.variable` | In YARA-L, stage references require the leading `$` on the stage identifier (e.g. `$stage1_extract.actual`). Placing `$` after the dot causes an ANTLR syntax crash (`no viable alternative at input 'stage.$'`). |
 | Cross-sector joins in 360° profiling (e.g. Auth + Egress) | Decoupled parallel micro-queries | Multi-stage queries are inner joins; joining orthogonal sectors silently drops entities with zero events in either sector. |
 | Inverting `principal` vs `target` for User profiling | Use `target.user.userid` for `USER_LOGIN`; use `principal.user.userid` for Cloud CRUD, Workspace, Network, Endpoint | Login events target an account (`target.user.userid`); operational events are initiated by an actor (`principal.user.userid`). Metrics filters must match these dimensions. |
@@ -319,7 +319,7 @@ When generating multi-stage search queries, determine the analyst's analytical i
 > In Google SecOps, interactive Multi-Stage DAG and Join queries are enforced with a hard maximum search duration of **14 Days (`336 hours`)**.
 > * Attempting to run a multi-stage search with a time picker range > 14 days (e.g. 30 days) triggers: `The request time range is greater than maximum duration of 14 days allowed for multistage queries.`
 > * **Recommended Operational Range:** Set UI search time picker to **14 Days** (e.g. 2-week block like `2026-07-01` to `2026-07-14`).
-> * **Underlying 30-Day Baselines are Unaffected:** Even within a 14-day search window, `metrics.*(window: 30d)` still evaluates against the full 30-day trailing baseline for every active day!
+> * **The 30-Day Baseline Is Anchored Per Request, Not Per Day:** `metrics.*(window: 30d)` resolves to one baseline, `[D0 − 30d, D0)`, where `D0` is the request start day. Every day scored in that request reuses it. For a per-day trailing baseline, run one request per day (Mode C, `timeline-modes-guide.md`).
 
 ---
 
@@ -378,9 +378,11 @@ A common question analysts ask is:
    * For every entity and day, Chronicle pre-calculates the historical rolling mean ($\mu$), standard deviation ($\sigma$), sum, count, min, and max across 30 trailing days.
 2. **Constant-Time $O(1)$ Function Calls**:
    * When YARA-L 2.0 invokes `metrics.metric_name(period: 1d, window: 30d, ...)`, it is **not** running an ad-hoc 30-day scan of raw petabytes of event logs.
-   * Instead, it performs an immediate index lookup against the pre-aggregated summary tables for that specific calendar day.
-3. **Statistical Independence Guaranteed**:
-   * Because the 30-day baseline is pre-aggregated, an entity evaluated on `2026-08-25` is measured against their established behavioral profile from the preceding 30 calendar days—ensuring today's burst does not contaminate or inflate the baseline mean.
+   * Instead, it reads the pre-aggregated daily summary rows that fall inside one baseline window.
+3. **One Baseline Window Per Request**:
+   * The query engine derives that window once from the request time range (`query_engine/qesql/ueba.go`: `metricWindowRange`): `D0` = `startTime` truncated to `00:00Z` (one day earlier if `endTime` is less than 4 hours after it), baseline = `[D0 − 30d, D0)`.
+   * A request scoring `2026-08-25` alone measures that day against `2026-07-26 → 2026-08-25`, so the day's own burst cannot inflate its baseline.
+   * A request scoring `2026-08-19 → 2026-08-25` measures **all seven days** against `2026-07-20 → 2026-08-19`. Later days face an older baseline; see `timeline-modes-guide.md` for the bias and for Mode C (one request per day).
 
 ---
 
@@ -577,7 +579,7 @@ When comparing an individual to a team cohort, single-tier comparisons create bl
    - **Group vs Enterprise**: $Z_{\text{team\_vs\_enterprise}} = (\mu_{\text{team}} - \mu_{\text{enterprise}}) / \sigma_{\text{enterprise}}$ (`$z_team_vs_enterprise`; triad: `$z*_team_vs_enterprise`, `$d_team_vs_fleet_sq`). This is the defined user → group → enterprise path: the user against the group, and the group against the whole.
 4. **Peer group rule**: no peers mentioned → delete the template's `// >>> TEAM COHORT` blocks (personal + fleet, rank by `$z_vs_enterprise`). Peers named → keep the blocks and rank by `$z_vs_team`. Peers mentioned but not named ("vs his team", "his group") → run the **AD TEAM LOOKUP** below in Turn 1, fill the roster from it, and show it in the Pre-Flight as `• Peer Cohort & Roster: <team> (AD department | AD group): <members>` above a candidate query that already contains the filled TEAM COHORT blocks. Ask for the roster only if the lookup finds no team for the subject; never drop the comparison silently. A roster from any source (named, supplied in a later turn, or AD) keeps the blocks. The roster is a list of identifiers in the query (`$u = "a" or $u = "b"`), subject included.
 
-   **AD TEAM LOOKUP** (Active Directory records in the Entity Graph, `ENTITY_CONTEXT`). This is the one Turn 1 query allowed besides the compiler probe: it reads AD user records only, never events, so it is context resolution, not hunt execution. Window: the last 30 days (AD records are not daily prevalence records, so Rule 5 freshness does not apply). Replace `frank.kolzig` with the subject. Verified live on gus-sdl: returns `Information Technology` → `frank.kolzig, tim.smith, tim.smith_admin, bobby.fuhr`.
+   **AD TEAM LOOKUP** (Active Directory records in the Entity Graph, `ENTITY_CONTEXT`). This is the one Turn 1 query allowed besides the compiler probe: it reads AD user records only, never events, so it is context resolution, not hunt execution. Window: the last 30 days (AD records are not daily prevalence records, so Rule 5 freshness does not apply). Replace `frank.kolzig` with the subject. Run it exactly as written: the `match:` / `outcome:` block is what returns members. The bare filter lines alone return event names with no user or department fields, so a roster can never be read from them. Report only the members the `$members` column returns; output shape: `<department>` → `<user_a>, <user_b>, …`.
    ```
    graph.metadata.source_type = "ENTITY_CONTEXT"
    graph.metadata.entity_type = "USER"
@@ -782,7 +784,7 @@ Threat hunting follows a two-tier investigative lifecycle:
 
 ### Tier 1: Fleet/Vector Outlier Hunting (Broad Discovery)
 * **Goal**: Surface top anomalous identities or resources across an entire fleet or category on a specific vector (e.g. Cloud CRUD, Network Bytes, Authentication Spikes).
-* **Execution**: Single atomic multi-stage YARA-L query (Mode A current-day snapshot or Mode B 2–14d timeline).
+* **Execution**: Single atomic multi-stage YARA-L query (Mode A current-day snapshot or Mode B 2–7d fixed-baseline timeline); Mode C runs that same query once per day (`timeline-modes-guide.md`).
 * **Reporting Standard**:
   * **Pillar 1**: Renders the distribution or timeline of the *target hunt itself* (e.g., bar chart of observed vs baseline $\mu$ for Mode A, or multi-day inception curve for Mode B).
   * **Pillars 2–5**: Query, ranked fleet summary, forensic threat breakdown, and 1-click investigation queries.
@@ -829,15 +831,16 @@ Under no circumstances should the assistant treat a follow-up query as a prompt 
 
 3. **Time Horizon Substitution & Anchor Mapping**:
    * Standard snapshot queries operate in **Mode A** (current-day snapshot vs 30d baseline).
-   * Follow-up phrases such as *"looking backwards 14 days starting from [Date]"* or *"14-day timeline"* map directly to **Mode B: Longitudinal Sliding Timeline (`TIMELINE_BREAKDOWN`)**.
-   * **Date-Anchor Resolution**:
-     $$\text{endTime} = \text{Anchor Date (e.g. 2026-08-18T23:59:59Z)}$$
-     $$\text{startTime} = \text{Anchor Date} - 14\text{d (e.g. 2026-08-04T00:00:00Z)}$$
-   * **Timeline Query Semantics**: Multi-stage YARA-L groups daily observations: `match: $entity by 1d` evaluated against the 30-day baseline spine (`window: 30d`).
+   * Follow-up phrases such as *"looking backwards 14 days starting from [Date]"* or *"14-day timeline"* are timeline requests. Up to 7 days: **Mode B: Fixed-Baseline Timeline (`TIMELINE_BREAKDOWN`)**. Longer, or when per-day accuracy matters: **Mode C: Per-Day Baseline Timeline** if `run_command` is present; otherwise offer the 7-day Mode B and state that longer windows need a client that can run local scripts (`timeline-modes-guide.md`).
+   * **Date-Anchor Resolution** (Mode B, N ≤ 7 days):
+     $$\text{endTime} = \text{Anchor Date} + 1\text{d (e.g. 2026-08-19T00:00:00Z)}$$
+     $$\text{startTime} = \text{endTime} - N\text{d (e.g. 2026-08-12T00:00:00Z for N = 7)}$$
+     Mode C instead runs one shard per day in `[Anchor Date − N + 1, Anchor Date]`.
+   * **Timeline Query Semantics**: Multi-stage YARA-L groups daily observations with `match: $entity by 1d`. In one request every scored day reuses the single 30-day baseline anchored at `startTime` (`timeline-modes-guide.md` §1).
 
 4. **Follow-Up Clearance Protocol**:
    * If both the entity scope and telemetry vectors are unambiguously known from the context, present the updated **Pre-Flight Hunting Specification Card** and literal **Multi-Stage YARA-L Query Preview**.
-   * Ask for execution clearance (Mode A vs. Mode B confirmation) and yield the turn (zero search or ingestion tools called on Turn 1 of the follow-up).
+   * Ask for execution clearance (mode confirmation) and yield the turn (zero search or ingestion tools called on Turn 1 of the follow-up).
 
 ### 25.1 In-Flight Dialogue & Pre-Clearance Parameter Tuning
 When the analyst asks questions, requests methodological explanations, or adjusts parameters (significance thresholds, dates, mathematical models) prior to giving Mode A/B clearance:
@@ -845,7 +848,7 @@ When the analyst asks questions, requests methodological explanations, or adjust
 2. **Context Retention**: Maintain the active entity scope, telemetry vectors, and baseline configuration in working memory without restarting discovery.
 3. **Specification Refresh**: Present the refreshed Pre-Flight Hunting Specification Card reflecting updated thresholds or models.
 4. **Query Re-Verification**: When query logic changes, execute a 1-shot probe (`udm_search(query=..., maxEvents=1)`) and display the updated candidate query block.
-5. **Prompt for Clearance**: Conclude by asking whether to proceed with Mode A (Today vs 30-Day Baseline) or Mode B (2–14 Day Timeline) and yield the turn.
+5. **Prompt for Clearance**: Conclude by asking whether to proceed with Mode A (Today vs 30-Day Baseline) or Mode B (2–7 Day Fixed-Baseline Timeline), plus Mode C (Per-Day Baseline) when `run_command` is present, and yield the turn.
 
 
 ---
@@ -969,7 +972,7 @@ To prevent fabricated results or recycled numbers, reports must stamp execution 
    * Code emission belongs exclusively to the destination skill once invoked (or after handoff clearance and invocation). Emitting unvalidated candidate code for another skill during handoff violates the Tool-Precondition Code Block Embargo, because the source skill cannot validate code designed for the destination skill's grammar.
 2. **Dual-Layer Trickle Defense (Low-Volume Stealth Attacks)**:
    * When investigating low-volume trickle attacks with randomized jitter (e.g., SUNBURST DNS), an agent must NOT prematurely surrender risk metrics.
-   * **Layer 1 (Longitudinal CUSUM Drift)**: Mode B Longitudinal CUSUM Drift ($S_t^+ \ge 4.0\sigma$ on `metrics.dns_queries_total`) detects cumulative, multi-day low-volume drift ($k = 0.5\sigma$, $h = 4.0\sigma$) over 14–30 days even when daily volume is low.
+   * **Layer 1 (Longitudinal CUSUM Drift)**: Mode B Longitudinal CUSUM Drift ($S_t^+ \ge 4.0\sigma$ on `metrics.dns_queries_total`) detects cumulative, multi-day low-volume drift ($k = 0.5\sigma$, $h = 4.0\sigma$) over up to 14 days (the multi-stage search limit, one request against one fixed 30-day reference baseline) even when daily volume is low.
    * **Layer 2 (Ad-Hoc Timing Jitter Handoff)**: Handoff to `secops-statistical-hunter` is reserved strictly for evaluating sub-minute or hourly inter-arrival timing jitter ($CV \le 0.20$) on raw connection timestamps (`metadata.event_timestamp.seconds`).
 
 ---
@@ -987,7 +990,7 @@ To provide maximum analytical value without compromising mathematical integrity,
    Rather than attempting to calculate second-level timing across millions of raw events or relying solely on volume, the agent leverages **Entity Graph Derived Context** to screen for external destinations with isolated enterprise prevalence ($\le 3$ internal hosts over 10 days).
 2. **The Compilable Multi-Stage Query (`PIPE-09-PREVALENCE`)**:
    The query pairs raw `NETWORK_CONNECTION` events with `metrics.network_bytes_outbound` (for host-level historical context) and joins with `graph.entity.artifact.prevalence` (`rolling_max <= 3`, `day_count = 10`).
-   **Mode A window**: `startTime` two days back at 00:00Z (D-2), `endTime` now, and today's UTC date in the `get_date` line. A window that starts today 00:00Z matches no built graph days; zero rows from it are a freshness gap, not a clean hunt. For Mode B, delete the `get_date` line and keep the 2–14 day window (Rule 5, `references/entity-context-graph-guide.md`).
+   **Mode A window**: `startTime` two days back at 00:00Z (D-2), `endTime` now, and today's UTC date in the `get_date` line. A window that starts today 00:00Z matches no built graph days; zero rows from it are a freshness gap, not a clean hunt. For Mode B, delete the `get_date` line and keep the 2–7 day window (Rule 5, `references/entity-context-graph-guide.md`).
    ```yara
    // Stage 1: Measure outbound network connection activity and 30-day baseline per host and external IP
    stage host_egress {
@@ -1094,7 +1097,7 @@ To provide maximum analytical value without compromising mathematical integrity,
 
 ### A. The Hard Pre-Flight Clearance Gate (NO QUERY = NO CLEARANCE)
 A critical guardrail failure occurs when an agent presents a Pre-Flight Hunting Specification Card, omits the YARA-L query preview (due to probe failure or compiler hesitation), and yet proceeds to ask the Step 5 clearance question:
-> *"Would you like to run Mode A (Today vs 30-Day Baseline) or Mode B (2–14 Day Timeline)?"*
+> *"Would you like to run Mode A (Today vs 30-Day Baseline) or Mode B (2–7 Day Fixed-Baseline Timeline)?"* (add Mode C (Per-Day Baseline) when `run_command` is present)
 
 Under the **Hard Pre-Flight Clearance Gate**, this sequence is strictly prohibited:
 1. **Query Preview Is Mandatory for Clearance**: Step 5 clearance question MUST NEVER be asked unless a valid, compilable multi-stage YARA-L query has been successfully probed (200 OK via `udm_search`) and displayed in a ````yara code block under the Pre-Flight Card on that turn.

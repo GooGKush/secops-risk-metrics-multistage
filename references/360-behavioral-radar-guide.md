@@ -37,7 +37,7 @@ Execute independent decoupled sector queries, retrieve the observed metrics per 
 * **Fleetwide 360° Threat Fusion (Multi-Entity Sweep / Fleet Audit)**:
   - **Objective**: Audit $N$ entities across an organization or peer group to identify who exhibited anomalous activity across any of the 6 sectors.
   - **Pillar 1 Surface**: **Multi-Sector Fleet Heatmap Matrix** (`radar_fleet_heatmap.html`) or **Ranked Fleet Outlier Bar Chart** (`radar_fleet_ranking.html`). Linear and matrix layouts provide clean, readable comparisons without radial centroid collapse.
-  - **Recommended Horizon**: **Mode B (2–14 Day Timeline)**, run at the 14-day maximum. Because security anomalies and data exfiltration are bursty, episodic events, a 14-day sliding window surfaces historical bursts that a single-day snapshot misses.
+  - **Recommended Horizon**: **Mode B (2–7 Day Fixed-Baseline Timeline)**, run at the 7-day maximum. Because security anomalies and data exfiltration are bursty, episodic events, a multi-day window surfaces recent bursts that a single-day snapshot misses. All scored days share one baseline anchored at the first day (`timeline-modes-guide.md`).
   - **Sector Consistency & Euclidean Join Mandate**: Both single-entity and fleetwide threat fusion evaluate and report across all 6 canonical sectors: Authentication, Cloud CRUD, Workspace Exfiltration, Network Flow, DNS Resolution, and Web & Proxy Activity. Outlier ranking and multi-sector fusion MUST join sector Z-scores via the composite Euclidean Threat Distance formula ($D = \sqrt{\sum_{i=1}^6 \max(0, Z_i)^2}$) and Calibrated Risk Index ($\text{CRI} = \text{round}\left(\frac{100}{1 + e^{-0.6(D - 3.0)}}\right)$). Pillar 1, 3, and 6 MUST report composite Threat Distance $D$, and Pillar 6 (Statistical & Mathematical Appendix) MUST provide the Euclidean formulation.
   - **Interactive Drill-Down**: Offer the 6-spoke radial radar as a 1-click drill-down when the analyst selects a specific high-risk entity from the ranked list.
   - **Drill-Down Query Construction**: When transitioning from a fleetwide sweep to an individual drilldown, constrain the target entity directly on the canonical UDM attribute in the stage predicates (e.g., `target.user.userid = "ola.burch"` with `$user = target.user.userid`). Variables bind to UDM fields rather than string literals, ensuring valid YARA-L compiler syntax.
@@ -107,7 +107,7 @@ PRE-FLIGHT HUNTING SPECIFICATION:
 • Baseline Horizon Spine: 30-Day Pre-Computed (period: 1d, 30d)
 • Peer Cohort & Roster:   [Department / Peer Group, e.g. Information Technology]
 • Entity Graph Dimension: N/A (360° Omnidirectional Behavioral Radar)
-• Evaluation Horizon Mode:Mode A: today OR Mode B: 2–14d
+• Evaluation Horizon Mode:[chosen mode only, e.g. Mode B: 7d, baseline <D0 − 30d> → <D0>]
 • Statistical Model:      360° Entity Behavioral Risk Radar (6-Sector Fusion)
 • Significance Threshold: Z >= 3.0σ / D >= 3.5σ (CRI >= 57)
 ```
@@ -145,7 +145,7 @@ order:
 ```
 
 *Yield Turn Prompt*:
-> *"Would you like me to proceed with **Mode A (Today vs 30-Day Baseline)** or **Mode B (2–14 Day Timeline)**? (For open-ended fleet sweeps, Mode B is recommended to capture episodic bursts; Mode A is optimal for active incident triage.)"*
+> *"Would you like me to proceed with **Mode A (Today vs 30-Day Baseline)** or **Mode B (2–7 Day Fixed-Baseline Timeline)**? (For open-ended fleet sweeps, Mode B is recommended to capture episodic bursts; Mode A is optimal for active incident triage.)"*
 
 ---
 
@@ -611,7 +611,7 @@ order:
 
 > [!NOTE]
 > **Single-Sector Micro-Query Standard (Mode A & Mode B)**:
-> Chronicle SIEM evaluates orthogonal telemetry planes independently. In both Mode A (current-day snapshot) and Mode B (2–14d longitudinal timeline), the 360° report displays exclusively this single representative micro-query (`stage auth_risk` with `order: $z desc`) in Pillar 2. All 6 sector Z-scores are joined in the report presentation layer (Pillars 1, 3, 4, and 6) to compute Euclidean distance $D$ and CRI.
+> Chronicle SIEM evaluates orthogonal telemetry planes independently. In both Mode A (current-day snapshot) and Mode B (2–7d fixed-baseline timeline), the 360° report displays exclusively this single representative micro-query (`stage auth_risk` with `order: $z desc`) in Pillar 2. All 6 sector Z-scores are joined in the report presentation layer (Pillars 1, 3, 4, and 6) to compute Euclidean distance $D$ and CRI.
 
 
 ---
@@ -630,7 +630,7 @@ order:
 
 ```markdown
 PROVENANCE STAMP:
-• Telemetry Events Scanned:  100 events across 24h evaluation window
+• Telemetry Events Scanned:  100 events across the current-day window (today 00:00Z → now)
 • Chronicle Target Customer: 8cbac5ae-8267-4da7-b405-cdbc6fa3f1d5 (Region: us, Project: gus-sdl)
 • Sector Join Runtime:       Client-Side Euclidean Join (radar_collector.py / browser V8)
 • Output Dimensions:         [entity_id, observed, baseline_mean, baseline_stddev, z_score, D, CRI]
@@ -645,7 +645,7 @@ All six evaluated behavioral sectors remain within expected historical variance 
 * **IAM & Authentication**: 6 observed logins vs. 30d baseline mean of 4.2 ($\sigma = 1.8$, $Z = +0.64\sigma$), representing normal routine access.
 * **DNS Resolution**: 4 queries vs. 30d baseline mean of 3.5 ($\sigma = 1.2$, $Z = +0.23\sigma$), within expected lookup volume.
 * **Web & Proxy Activity**: 0 requests vs. 30d baseline mean of 0.0 ($Z = +0.00\sigma$), nominal web browsing traffic.
-* **Cloud, Workspace, and Network Planes**: Zero observed actions across the 24h evaluation window matching zero-baseline history ($Z = +0.00\sigma$).
+* **Cloud, Workspace, and Network Planes**: Zero observed actions across the current-day window matching zero-baseline history ($Z = +0.00\sigma$).
 * **Composite Threat Distance**: Multi-sector Euclidean distance $D = 0.68\sigma$ ($\text{CRI} = 18 / 100$) indicates volumetric quiescence across all vectors with zero acute surges.
 
 ##### SOC Playbook & Immediate Remediation Recommendations
@@ -691,7 +691,7 @@ When running in a pure command-line terminal without webview or shell calculatio
 
 ```markdown
 ### 🛡️ 360° Entity Behavioral Scorecard: `admin`
-• Evaluation Horizon: 24h Snapshot (2026-09-05 to 2026-09-06)
+• Evaluation Horizon: Current-Day Snapshot (2026-09-06 00:00Z → now)
 • Historical Baseline: 30-Day Pre-Computed Metrics
 • Multi-Sector Consensus: 🚨 2 of 6 Sectors Active (High Threat Fusion)
 

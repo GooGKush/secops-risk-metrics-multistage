@@ -186,9 +186,10 @@ To guarantee data integrity while supporting rich graphical visualizations and e
 * **Zero Simulation Guarantee**: Python is STRICTLY PROHIBITED from constructing YARA-L queries, fetching raw SIEM logs, computing baselines, or faking detection metrics. Every base metric presented in reports must originate directly from Chronicle.
 
 ### B. The Post-Search Collation & Visual Reduction Plane (Sanctioned Repo Scripts Allowed)
-* **Post-Search Execution Exemption**: Once verified JSON results are returned from `udm_search`, local Python execution via `run_command` is permitted SOLELY on sanctioned repository scripts (`scripts/radar_collector.py`, `scripts/triage_formatter.py`, `scripts/chart_generator.py`, `scripts/chronicle_ingest.py`).
+* **Post-Search Execution Exemption**: Once verified JSON results are returned from `udm_search`, local Python execution via `run_command` is permitted SOLELY on sanctioned repository scripts (`scripts/radar_collector.py`, `scripts/triage_formatter.py`, `scripts/chart_generator.py`, `scripts/timeline_assembler.py`, `scripts/chronicle_ingest.py`).
 * **Clearance-Gated Script**: `scripts/chronicle_ingest.py` carries one additional gate beyond the others. It transmits rather than collates, so it runs only after the analyst has authorized the Pre-Ingestion Clearance Card, and never during an active hunt. Its `--dry-run` mode renders the request without transmitting and is unrestricted.
-* **Post-Search Collation**: When hunts fan out across decoupled micro-queries (due to Chronicle's 4-join limit) or multi-day sliding horizons, sanctioned scripts are authorized to merge the results and compute exact mathematical composite formulas ($D = \sqrt{\sum \max(0, Z_i)^2}$, Calibrated Risk Index $\text{CRI}$, and CUSUM drift) that Chronicle YARA-L cannot compute natively.
+* **Capability-Gated Script**: `scripts/timeline_assembler.py` runs only for Mode C (Per-Day Baseline Timeline), which is offered only when `run_command` is present. It reads saved shard results and never calls Chronicle itself (`timeline-modes-guide.md` §3.5).
+* **Post-Search Collation**: When hunts fan out across decoupled micro-queries (due to Chronicle's 4-join limit) or Mode C daily shards, sanctioned scripts are authorized to merge the results and compute exact mathematical composite formulas ($D = \sqrt{\sum \max(0, Z_i)^2}$, Calibrated Risk Index $\text{CRI}$, and CUSUM drift) that Chronicle YARA-L cannot compute natively.
 * **Anti-Scratch-Script Guardrail**: Writing or executing ad-hoc scratch scripts (`scratch/test.py`) during threat hunts is strictly prohibited.
 
 ### C. The Tri-Surface Visual Rendering Contract (Jetski Embed vs. Generic MCP vs. CLI)
@@ -219,12 +220,12 @@ To prevent cognitive distortion and preserve investigative clarity, the visual s
 | Hunt Archetype | Operational Objective | Pillar 1 Visual Surface | Downstream Next Step |
 | :--- | :--- | :--- | :--- |
 | **Vector / Fleet Outlier Hunt (Mode A: Current-Day Snapshot)** | Real-time fleet-wide ranking of outliers on a specific behavioral vector during active incident triage. | **Dual-Y Outlier Bar / Distribution Chart**: `<agent-embed>` in Jetski; inline SVG in generic MCP; ASCII table in CLI. | Summarize ranked fleet in Pillar 3. If an entity exhibits extreme novelty ($Z \ge 3.0\sigma$), proactively suggest a 360° deep-dive in Pillar 4. |
-| **Vector / Fleet Outlier Hunt (Mode B: 2–14d Timeline)** | Temporal longitudinal trajectory tracking to determine inception date, burst duration, or gradual CUSUM drift. | **Longitudinal Baseline Envelope & Inception Timeline**: `<agent-embed>` in Jetski; inline SVG in generic MCP; ASCII timeline in CLI. | Analyze onset timing in Pillar 4; suggest 360° cross-sector verification if multi-stage compromise is suspected. |
-| **360° Fleetwide Threat Fusion (Multi-Entity Sweep)** | Broad fleet audit evaluating $N$ entities across all 6 behavioral sectors to uncover episodic bursts and anomalous accounts. | **Multi-Sector Fleet Heatmap Matrix** or **Ranked Fleet Outlier Bar Chart**: Recommended with Mode B (2–14d Timeline) for burst capture. | Rank high-risk entities in Pillar 3; offer 1-click **360° Radial Radar single-entity drill-down** on selected outliers in Pillar 4. |
+| **Vector / Fleet Outlier Hunt (Mode B: 2–7d Fixed-Baseline Timeline / Mode C: Per-Day Baseline)** | Temporal longitudinal trajectory tracking to determine inception date, burst duration, or gradual CUSUM drift. | **Longitudinal Baseline Envelope & Inception Timeline**: `<agent-embed>` in Jetski; inline SVG in generic MCP; ASCII timeline in CLI. | Analyze onset timing in Pillar 4; suggest 360° cross-sector verification if multi-stage compromise is suspected. |
+| **360° Fleetwide Threat Fusion (Multi-Entity Sweep)** | Broad fleet audit evaluating $N$ entities across all 6 behavioral sectors to uncover episodic bursts and anomalous accounts. | **Multi-Sector Fleet Heatmap Matrix** or **Ranked Fleet Outlier Bar Chart**: Recommended with Mode B (2–7d Fixed-Baseline Timeline) for burst capture. | Rank high-risk entities in Pillar 3; offer 1-click **360° Radial Radar single-entity drill-down** on selected outliers in Pillar 4. |
 | **360° Single-Entity Health Check (Specific Target Entity)** | Multi-vector evaluation of a *single specific entity* across all 6 behavioral sectors to measure aggregate threat distance ($D$). | **360° Behavioral Risk Radar**: Rendered via `scripts/radar_collector.py` as `<agent-embed>` in Jetski; Client visual tool or inline SVG in generic MCP; ASCII radar in CLI. | Recommend host isolation, credential suspension, or SOAR case escalation. |
 
 > [!TIP]
-> **Affirmative Surface Alignment**: Align visual geometry with the operational scope: reserve 6-spoke radial/spider radar charts for single target entities to illustrate individual behavioral signatures. For fleetwide reviews, multi-entity comparisons, and cohort sweeps, present Ranked Outlier Bar Charts or Multi-Sector Fleet Heatmap Matrices, paired with Mode B (2–14 Day Timeline) to uncover episodic burst anomalies. Offer the radial radar as an interactive single-entity drill-down when an outlier is selected from the fleet ranking.
+> **Affirmative Surface Alignment**: Align visual geometry with the operational scope: reserve 6-spoke radial/spider radar charts for single target entities to illustrate individual behavioral signatures. For fleetwide reviews, multi-entity comparisons, and cohort sweeps, present Ranked Outlier Bar Charts or Multi-Sector Fleet Heatmap Matrices, paired with Mode B (2–7 Day Fixed-Baseline Timeline) to uncover episodic burst anomalies. Offer the radial radar as an interactive single-entity drill-down when an outlier is selected from the fleet ranking.
 
 ---
 
@@ -298,7 +299,7 @@ Visualizes daily event volume bars along the left Y-axis and standard deviation 
 <svg viewBox="0 0 760 360" width="100%" height="360" xmlns="http://www.w3.org/2000/svg">
   <!-- Title & Metadata -->
   <text x="20" y="28" font-size="15" font-weight="700" fill="#202124">Longitudinal Horizon Timeline: Observed Volume vs. Z-Score Drift</text>
-  <text x="20" y="46" font-size="12" fill="#5f6368">Entity: srv-db-01.corp | Mode B (14-Day Timeline) | Threshold: +3.0σ</text>
+  <text x="20" y="46" font-size="12" fill="#5f6368">Entity: srv-db-01.corp | Mode B (7-Day Timeline) | Threshold: +3.0σ</text>
 
   <!-- Left Y-Axis (Volume) -->
   <text x="18" y="170" font-size="11" font-weight="600" fill="#1a73e8" transform="rotate(-90 18 170)" text-anchor="middle">Observed Volume</text>

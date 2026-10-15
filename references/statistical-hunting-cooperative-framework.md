@@ -34,7 +34,7 @@ In an enterprise SecOps environment, threat hunting across massive telemetry req
 | :--- | :--- | :--- |
 | **Telemetry Foundation** | 30-day pre-computed behavioral baselines (`metrics.*`) | Raw unaggregated UDM events (`udm.metadata`, `udm.network`) |
 | **Statistical Toolkit** | Standard $Z$, Delta $Z$ ($\Delta Z$), Longitudinal CUSUM ($S_t^+$), Euclidean Distance ($D$), Calibrated Risk Index (CRI) | Median Absolute Deviation (MAD), Coefficient of Variation ($CV \le 0.20$), Poisson Rarity, Tukey Fences (IQR), Benford's Law |
-| **Lookback Horizon** | 30-day sliding baseline window (1 row/entity daily rollup) | Ad-hoc search window (e.g. 1h, 4h, 24h, 7d) on raw log streams |
+| **Lookback Horizon** | 30-day pre-computed baseline (1 row/entity per UTC day), anchored once per search request at its `startTime` day; scored windows are UTC days (today `00:00Z` → now) | Ad-hoc search window (e.g. 1h, 4h, 24h, 7d) on raw log streams |
 | **Target Problems** | Behavioral drift, peer group deviation, fleet-wide anomaly ranking, multi-sector 360° risk profiling | C2 beaconing jitter, living-off-the-land frequency spikes, rare user-agent hunting, raw port/process outliers |
 
 ---

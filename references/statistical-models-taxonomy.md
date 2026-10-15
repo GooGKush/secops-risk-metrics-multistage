@@ -204,7 +204,7 @@ Before running a multi-stage statistical hunt, explain the approach to the secur
 ---
 
 ## 9. Longitudinal CUSUM Drift Accumulation (`LONGITUDINAL_CUSUM`)
-* **Security Problem Solved**: Catches low-and-slow data exfiltration, stealth credential accumulation, or slow permission creep where daily activity stays below daily alert thresholds ($Z \approx 1.5\sigma$) but steadily bleeds data across 14–30 days.
+* **Security Problem Solved**: Catches low-and-slow data exfiltration, stealth credential accumulation, or slow permission creep where daily activity stays below daily alert thresholds ($Z \approx 1.5\sigma$) but steadily bleeds data across many days (one CUSUM request covers up to 14 days, the multi-stage search limit).
 * **Mathematical Formulation (Page's Half-Rectified CUSUM)**:
   $$\text{Raw Drift} = x - \mu, \quad \text{Slack } k = 0.5 \cdot \sigma_{\text{safe}}$$
   $$\text{CUSUM Increment } S_t = \max(0, (x - \mu) - k)$$
@@ -407,7 +407,7 @@ When communicating with analysts, SOC managers, or threat hunters, use this guid
 
 ### 2. Weekend & Cyclic Seasonality Dip
 * **The Concern**: Standard 30-day trailing averages blend weekdays and weekends together, even though enterprise activity drops by 70–90% on weekends.
-* **The Clarification**: For non-seasonal blended baselines, Mode B (Longitudinal Sliding Timeline) breaks down activity day-by-day so analysts can directly inspect day-of-week cyclic trends, or analysts can leverage `HOURLY_TEMPORAL_ZSCORE` for diurnal profiles.
+* **The Clarification**: For non-seasonal blended baselines, Mode B (Fixed-Baseline Timeline) or Mode C (Per-Day Baseline Timeline) breaks down activity day-by-day so analysts can directly inspect day-of-week cyclic trends, or analysts can leverage `HOURLY_TEMPORAL_ZSCORE` for diurnal profiles.
 
 ### 3. Cartesian Join Product Prevention (Multi-Stage DAG Isolation)
 * **The Concern**: Why can\'t we search for creation and deletion events in a single un-staged query?

@@ -199,13 +199,52 @@ class TestGuardrailContracts(unittest.TestCase):
     self.assertIn("Non-Metrics Telemetry Steering Mandate", self.skill_content)
 
   def test_evaluation_modes_distinguish_snapshot_and_timeline(self):
-    """SKILL.md must distinguish current-day Snapshot Mode from the Longitudinal Timeline Mode, and pin the window invariant."""
+    """SKILL.md must distinguish Snapshot, Fixed-Baseline, and Per-Day Baseline modes, and pin the window invariant.
+
+    Malachite anchors ONE 30d baseline per search request at its start day
+    (query_engine/qesql/ueba.go: metricWindowRange / dailyMetricWindowEnd), so a
+    multi-day single query is a fixed-baseline timeline, not a sliding one.
+    """
     self.assertIn("Evaluation Modes", self.skill_content)
     self.assertIn("Mode A: Current-Day Snapshot", self.skill_content)
-    self.assertIn("Mode B: Longitudinal Sliding Timeline", self.skill_content)
-    # The search window sets how many days are SCORED; the 30d baseline is fixed.
+    self.assertIn("Mode B: Fixed-Baseline Timeline", self.skill_content)
+    self.assertIn("Mode C: Per-Day Baseline Timeline", self.skill_content)
     self.assertIn("Window Invariant", self.skill_content)
     self.assertIn("`period: 1d, window: 30d`", self.skill_content)
+    self.assertIn("anchors ONE", self.skill_content)
+    self.assertIn("references/timeline-modes-guide.md", self.skill_content)
+    # The retired claim must not come back.
+    self.assertNotIn("Sliding Timeline", self.skill_content)
+    self.assertNotIn("compared to its own trailing 30d baseline (`period", self.skill_content)
+
+  def test_mode_c_is_capability_gated_and_mode_b_capped(self):
+    """Mode C requires run_command; Mode B is a 2-7 day single query; no-shell clients get the harness note."""
+    self.assertIn("(`run_command` present only)", self.skill_content)
+    self.assertIn("2–7 days, one query", self.skill_content)
+    self.assertIn("need a client that runs local scripts", self.skill_content)
+    self.assertNotIn("2–14", self.skill_content)
+
+  def test_mode_c_execution_contracts_amended(self):
+    """Fan-out must be an explicit exemption in every contract that would otherwise forbid it."""
+    self.assertIn("once to execute (Mode C: once per day shard)", self.skill_content)
+    self.assertIn("Mode C reruns the one approved query per day, unchanged", self.skill_content)
+    self.assertIn("Mode C adds a shard date table", self.skill_content)
+    self.assertIn("Mode C: report a shard that fails a retry; never fill it", self.skill_content)
+
+  def test_timeline_assembler_is_sanctioned_everywhere(self):
+    """The collator must exist and be named in SKILL.md, the chart guide, and the timeline guide."""
+    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    self.assertTrue(os.path.exists(os.path.join(skill_dir, 'scripts', 'timeline_assembler.py')))
+    self.assertIn("Mode C collator `scripts/timeline_assembler.py`", self.skill_content)
+    with open(os.path.join(skill_dir, 'references', 'chart-specifications-guide.md'), encoding='utf-8') as f:
+      chart = f.read()
+    self.assertIn('`scripts/timeline_assembler.py`', chart)
+    with open(os.path.join(skill_dir, 'references', 'timeline-modes-guide.md'), encoding='utf-8') as f:
+      guide = f.read()
+    self.assertIn('scripts/timeline_assembler.py', guide)
+    self.assertIn('Never read raw shard files back into context', guide)
+    self.assertIn('Offer Mode C **only** when `run_command` is present', guide)
+    self.assertIn('Baseline = `[D0 − 30d, D0)`', guide)
   def test_zero_gratuitous_entity_graph_injection_contract(self):
     """SKILL.md must strictly mandate that Entity Graph constructs are on-demand or algorithmically grounded only."""
     self.assertIn("Zero Gratuitous Entity Graph Injection (ON-DEMAND / ALGORITHMIC GROUNDING ONLY)", self.skill_content)
@@ -1274,7 +1313,8 @@ class TestGuardrailContracts(unittest.TestCase):
     self.assertIn("Multi-Turn Continuity & Conversational Anaphora Resolution", guide_content)
     self.assertIn("The Anti-Context-Collapse Mandate", guide_content)
     self.assertIn("looking backwards 14 days", guide_content)
-    self.assertIn("Mode B: Longitudinal Sliding Timeline", guide_content)
+    self.assertIn("Mode B: Fixed-Baseline Timeline", guide_content)
+    self.assertIn("Mode C: Per-Day Baseline Timeline", guide_content)
 
   def test_generic_client_visualization_tool_contract(self):
     """SKILL.md and chart specifications guide must support generic client visualization tool discovery without proprietary hardcoding."""
@@ -1688,8 +1728,8 @@ class TestGuardrailContracts(unittest.TestCase):
     """Retired Mode A/B labels must not reappear in agent- or consumer-facing text.
 
     Mode A is a current-day window (00:00Z -> now), NOT a rolling 24 hours: a
-    rolling window straddles two daily metrics buckets. Mode B spans 2-14 days,
-    with 14 as the ceiling rather than the only option.
+    rolling window straddles two daily metrics buckets. Mode B spans 2-7 days,
+    with 7 as the ceiling rather than the only option.
 
     Rule 1 (Mode A) is a case-insensitive proximity rule, so any re-drift phrasing
     is caught, not just the exact strings that were removed once.
@@ -1698,6 +1738,10 @@ class TestGuardrailContracts(unittest.TestCase):
     rendered caption legitimately reads "Mode B (7-Day Timeline)" when seven days
     were requested. Only the retired *names*, which embed a fixed horizon in the
     mode's title, are forbidden.
+
+    Rule 3 retires "Sliding Timeline" and a 2-14 day Mode B horizon. One request
+    anchors one 30d baseline at its start day (query_engine/qesql/ueba.go), so a
+    multi-day single query is a fixed-baseline timeline; per-day baselines are Mode C.
 
     RELEASE_NOTES.md is excluded as historical changelog prose.
     """
@@ -1713,6 +1757,8 @@ class TestGuardrailContracts(unittest.TestCase):
         rf'(?:Mode\s+A.{{0,40}}?{hour24})|(?:{hour24}.{{0,40}}?Mode\s+A)', re.IGNORECASE)
     # Rule 2: retired Mode B names that bake a fixed horizon into the title.
     mode_b = re.compile(r'\d+\s*-?\s*day\s+longitudinal', re.IGNORECASE)
+    # Rule 3: the retired sliding-window claim and the retired 2-14 day Mode B horizon.
+    sliding = re.compile(r'sliding\s+timeline|Mode\s+B.{0,40}?2\s*[–-]\s*14', re.IGNORECASE)
 
     offenders = []
     for path in targets:
@@ -1723,11 +1769,13 @@ class TestGuardrailContracts(unittest.TestCase):
             offenders.append(f"{rel}:{lineno} (Mode A / 24-hour)")
           if mode_b.search(line):
             offenders.append(f"{rel}:{lineno} (retired Mode B name)")
+          if sliding.search(line):
+            offenders.append(f"{rel}:{lineno} (retired sliding / 2-14d Mode B)")
 
     self.assertEqual(
         [], offenders,
         "Retired evaluation-mode labels found. Mode A is a current-day window, "
-        "not a rolling 24h; Mode B is 'Longitudinal Sliding Timeline' with no "
+        "not a rolling 24h; Mode B is 'Fixed-Baseline Timeline' (2-7 days) with no "
         f"fixed horizon in its name. Offenders: {offenders}"
     )
 
@@ -1740,8 +1788,7 @@ class TestGuardrailContracts(unittest.TestCase):
 
     Interpolations are stripped before matching, so `{n_points}-Day Timeline`
     passes while `14-Day Timeline` fails. The 30-day baseline is exempt: it is a
-    genuine platform constant (every scored day is compared to its own trailing
-    30-day baseline), not a user-selected horizon.
+    genuine platform constant (`window: 30d`), not a user-selected horizon.
     """
     skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     interpolation = re.compile(r'\{[^{}]*\}')

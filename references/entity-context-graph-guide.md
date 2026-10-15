@@ -174,7 +174,7 @@ stage stage1_process_baseline {
 }
 ```
 
-* **Mode B** (14-day timeline) already spans built days; keep its window and do not add the today filter.
+* **Mode B** (2–7 day timeline) and each **Mode C** shard older than today already span built days; keep its window and do not add the today filter.
 * Graph records without daily intervals (on GUS-SDL: the long-lived `FILE` entity records, which carry `prevalence.day_count = 0`, and the `ASSET` records used for first-seen age) do overlap today. The rule is still applied uniformly: it costs nothing for them and the agent does not have to classify the stage first.
 * **Zero rows are not a Nominal Baseline unless the window covered built graph days.** If a graph-joined Mode A query started at today 00:00Z and returned zero rows, report a freshness gap and rerun with the D-2 window; do not report a clean hunt.
 * Inner join caveat: an entity with no graph record drops out entirely. Absent from the graph is not the same as rare; say so in the report.

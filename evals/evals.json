@@ -19,7 +19,7 @@
       "expected_output": "An overview of Longitudinal CUSUM drift ('The Slow Leaking Pipe') explaining multi-day residual accumulation, presenting the pre-flight plan with the 14-day window and CUSUM threshold S+ >= 4.0σ (CRI >= 46), and pausing for clearance.",
       "assertions": [
         "Response explains the CUSUM slow leaking pipe analogy",
-        "Response specifies the multi-day evaluation horizon (7d-14d) against 30d baselines",
+        "Response specifies a multi-day CUSUM horizon (7d-14d, one query) scored against one fixed 30d reference baseline anchored at the window start",
         "Response explains the significance threshold (S+ >= 4.0σ / CRI >= 46)",
         "Response pauses for user confirmation before executing searches"
       ]
@@ -91,6 +91,31 @@
         "Query contains zero if(...) conditional branches in outcome blocks",
         "Outcome division variables incorporate mandatory + 1.0 dispersion floor",
         "Query passes Malachite AST validation without syntax errors"
+      ]
+    },
+    {
+      "id": 9,
+      "name": "eval_mode_c_per_day_fanout_with_shell",
+      "prompt": "Using 30-day risk metrics, run a 14-day multi-sector fusion of auth and outbound bytes across the fleet, with each day measured against its own baseline.",
+      "expected_output": "With run_command available, offers Mode C (Per-Day Baseline Timeline): one shard per UTC day running the same approved query, a shard count and run-time estimate on the Pre-Flight card, collation via scripts/timeline_assembler.py, and pauses for clearance before dispatching any shard.",
+      "assertions": [
+        "Response explains that one request anchors one 30d baseline at its start day, so per-day baselines need one query per day",
+        "Pre-Flight card states Mode C with the shard count, date range, and estimated run time",
+        "Every shard uses the identical approved query; only startTime/endTime differ (D 00:00Z to D+1 00:00Z)",
+        "Collation is planned through scripts/timeline_assembler.py, not by reading raw shard results into context",
+        "Agent executes 0 multi-stage searches on Turn 1"
+      ]
+    },
+    {
+      "id": 10,
+      "name": "eval_mode_b_cap_without_shell",
+      "prompt": "Run a 14-day timeline of outbound bytes anomalies for the fleet using risk metrics.",
+      "expected_output": "In a client without run_command, does not offer Mode C. Offers Mode B capped at 7 days, states the fixed-baseline dates and bias, and notes that per-day baselines and longer windows need a client that can run local scripts.",
+      "assertions": [
+        "Mode C is not offered when run_command is absent",
+        "Mode B horizon is capped at 7 days",
+        "Pre-Flight card or response states the single baseline window dates applied to all scored days",
+        "Response notes that per-day baselines and windows beyond 7 days need a client that can run local scripts"
       ]
     }
   ]

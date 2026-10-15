@@ -12,7 +12,7 @@
 //
 // SEARCH WINDOW CONTRACT: the raw search window IS the robust baseline. Use ~30d ending now
 //   (udm_search practical max ~1 month). {{first_scored_date}} (UTC YYYY-MM-DD) = the end date for
-//   Mode A (today only), or end date minus (N-1) days for a Mode B N-day (2-14) scoring timeline.
+//   Mode A (today only), or end date minus (N-1) days for a Mode B N-day (2-7) scoring timeline.
 //   {{min_baseline_days}} = minimum active days required for a median (default 7).
 //
 // CONCRETE FIELD BINDING & INSTANTIATION GUIDE:

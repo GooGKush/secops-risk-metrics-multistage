@@ -125,7 +125,7 @@ When the hypothesis touches two or more vectors, do not stop at listing them. Pr
 * **Why Static Rules Miss It**: Fixed threshold alerts (e.g. `bytes > 5GB`) are easily bypassed by chunked daily transfers (e.g. 400MB/day), and blanket rules cannot distinguish routine developer egress from unauthorized dumps.
 * **Common-Sense Rigor Check**: Check for scheduled backups, cloud file synchronization, or developer builds before assuming exfiltration; use median-anchored baselines (MAD) when historic large transfers distort averages.
 * **Summary View Options**:
-  1. *Low-and-Slow Trickle*: Accumulate minor daily upload deviations over 14–30 days (**Longitudinal CUSUM Drift** on `network_bytes_outbound`).
+  1. *Low-and-Slow Trickle*: Accumulate minor daily upload deviations over up to 14 days (**Longitudinal CUSUM Drift** on `network_bytes_outbound`; one request, the multi-stage search limit).
   2. *Bulk Hoarding Burst*: Penalize sudden exponential download surges while absorbing routine daily variance (**Piecewise CRI / Shock Absorber** on `workspace_total_download_actions`).
   3. *Covert Protocol Egress*: Detect data staging and tunneling via DNS queries (**Poisson-Gamma Bayesian** on `dns_bytes_outbound`).
   4. *Multilevel Network Triad Breakout*: Compare Outbound, Inbound, and Total Byte volume simultaneously against team cohort and enterprise wholes to catch asymmetric data siphoning (**Part-of-the-Whole Triad** via `part_of_the_whole_triad_multilevel.yl2`).
@@ -218,5 +218,5 @@ When the analyst asks a question or requests parameter adjustments prior to givi
 2. **Maintain Active Context**: Retain the active entity scope, telemetry vectors, and hunt objective in working context.
 3. **Update Specification**: Present the updated Pre-Flight Card reflecting the adjusted parameters (threshold, horizon, baseline model).
 4. **Re-Verify Query**: Probe the updated multi-stage YARA-L query via `udm_search` when query logic changes, and display the refreshed candidate query block.
-5. **Prompt for Clearance**: Conclude by asking whether to proceed with Mode A (Today vs 30-Day Baseline) or Mode B (2–14 Day Timeline).
+5. **Prompt for Clearance**: Conclude by asking whether to proceed with Mode A (Today vs 30-Day Baseline) or Mode B (2–7 Day Fixed-Baseline Timeline), plus Mode C (Per-Day Baseline) when `run_command` is present.
 
