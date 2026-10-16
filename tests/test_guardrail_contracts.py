@@ -226,7 +226,8 @@ class TestGuardrailContracts(unittest.TestCase):
 
   def test_mode_c_execution_contracts_amended(self):
     """Fan-out must be an explicit exemption in every contract that would otherwise forbid it."""
-    self.assertIn("once to execute (Mode C: once per day shard)", self.skill_content)
+    self.assertIn("Mode C: once per day shard", self.skill_content)
+    self.assertIn("two-phase bridge: Phase 1 then Phase 2", self.skill_content)
     self.assertIn("Mode C reruns the one approved query per day, unchanged", self.skill_content)
     self.assertIn("Mode C adds a shard date table", self.skill_content)
     self.assertIn("Mode C: report a shard that fails a retry; never fill it", self.skill_content)
@@ -664,10 +665,10 @@ class TestGuardrailContracts(unittest.TestCase):
     with open(tax_path, 'r', encoding='utf-8') as f:
       t_content = f.read()
 
-    self.assertIn("How Risk Metrics Multi-Stage Analytics Work", s_content)
-    self.assertIn("Execution Framework Summary", s_content)
+    # v1.9.2: the overview section was removed from SKILL.md (always loaded)
+    # as low-value text; the taxonomy reference still carries it.
+    del s_content
     self.assertIn("Execution Framework Summary", t_content)
-    self.assertIn("Ask for more information", s_content)
     self.assertIn("Ask for more information", t_content)
 
   def test_clean_handoff_and_anti_case_pollution_contract(self):
@@ -1561,7 +1562,7 @@ class TestGuardrailContracts(unittest.TestCase):
 
     # Dual-Layer Trickle Defense
     # SKILL.md keeps only the steering pointer; the mechanism lives in the guide.
-    self.assertIn("Mode B Longitudinal CUSUM Drift", skill_content)
+    self.assertIn("Longitudinal CUSUM Drift (`longitudinal_cusum.yl2`, one ≤14d query; not Mode B)", skill_content)
     self.assertIn("secops-statistical-hunter", skill_content)
     self.assertIn("Dual-Layer Trickle Defense", guide_content)
     self.assertIn("metrics.dns_queries_total", guide_content)
@@ -2101,14 +2102,46 @@ class TestGuardrailContracts(unittest.TestCase):
       self.assertIn(path_name, mitre_guide)
       self.assertIn(path_name, worksheet_content)
 
+class TestVestigialDirectivesRetired(unittest.TestCase):
+  """v1.9.2 consolidation: directives that contradicted newer behavior stay gone."""
+
+  @classmethod
+  def setUpClass(cls):
+    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(skill_dir, 'SKILL.md'), 'r', encoding='utf-8') as f:
+      cls.skill = f.read()
+
+  def test_preflight_gate_covers_state3_pivots(self):
+    self.assertIn("Every pre-flight turn (Turn 1", self.skill)
+    self.assertIn("Turn 1 Tool Invariant** (every pre-flight turn, incl. State 3 pivots)", self.skill)
+    self.assertNotIn("Analyst clearance on Turn 2", self.skill)
+
+  def test_followups_are_numbered_not_lettered(self):
+    # [A]/[B] collided with Mode A/Mode B clearance ("Let's do [B]" ran Mode B).
+    self.assertIn("`[1]`/`[2]`/`[3]`", self.skill)
+    self.assertNotIn("[A]", self.skill)
+    self.assertIn("A follow-up pick (`[1]`/`[2]`/`[3]`) is never clearance.", self.skill)
+
+  def test_pillar4_names_the_followups(self):
+    line = [l for l in self.skill.splitlines() if l.startswith("#### 4. Forensic Vector Breakdown")][0]
+    self.assertIn("`[1]`/`[2]`/`[3]`", line)
+
+  def test_no_rolling_24h_column(self):
+    self.assertNotIn("24h Observed", self.skill)
+
+  def test_cti_mapping_does_not_yield_without_probe(self):
+    self.assertNotIn("Literal Query Preview. **YIELD THE TURN (0 tools called)**", self.skill)
+
+  def test_two_phase_bridge_is_sanctioned_everywhere(self):
+    self.assertNotIn("once to probe, once to execute", self.skill)
+    self.assertNotIn("1) Cloud-First, 2) Asset-First", self.skill)
+    self.assertIn("1) Two-Phase Chained Hunt (bridge keys)", self.skill)
+
+  def test_cusum_not_called_mode_b(self):
+    self.assertNotIn("Mode B Longitudinal CUSUM", self.skill)
+
+  def test_radar_rosters_per_entity_type(self):
+    self.assertIn("host: Security & EDR Alerts in the Cloud slot", self.skill)
 
 if __name__ == '__main__':
   unittest.main()
-
-
-
-
-
-
-
-

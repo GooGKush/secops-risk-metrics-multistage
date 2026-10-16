@@ -847,7 +847,7 @@ When the analyst asks questions, requests methodological explanations, or adjust
 1. **Colloquial Explanation**: Answer the question directly using plain-English security analogies or quantitative depth matching the analyst's conversational register.
 2. **Context Retention**: Maintain the active entity scope, telemetry vectors, and baseline configuration in working memory without restarting discovery.
 3. **Specification Refresh**: Present the refreshed Pre-Flight Hunting Specification Card reflecting updated thresholds or models.
-4. **Query Re-Verification**: When query logic changes, execute a 1-shot probe (`udm_search(query=..., maxEvents=1)`) and display the updated candidate query block.
+4. **Query Re-Verification**: When query logic changes, re-probe the event filter (`udm_search(query="<single_event_filter>", maxEvents=1)`; never the candidate) and display the updated candidate query block.
 5. **Prompt for Clearance**: Conclude by asking whether to proceed with Mode A (Today vs 30-Day Baseline) or Mode B (2–7 Day Fixed-Baseline Timeline), plus Mode C (Per-Day Baseline) when `run_command` is present, and yield the turn.
 
 
@@ -897,7 +897,7 @@ Chronicle Malachite maintains 30-day historical baselines for `metrics.http_quer
 
 ### E. The Pre-Preview Compilation Probe Gate (Compiler Verification)
 Before outputting any candidate multi-stage YARA-L query in the Phase 1B Pre-Flight Specification Card (including on Turn 2 after Phase 1A vector selection):
-* The agent executes a 1-shot compilation probe via `udm_search(query="<single_event_filter>", startTime="<ISO_10M_AGO>", endTime="<ISO_NOW>", maxEvents=1)`. **Passing `maxEvents: 1` (or `<= 10`) is a HARD MANDATORY REQUIREMENT on every pre-flight probe** — omitting `maxEvents` defaults to 10,000 events and violates the Turn 1 Zero-Unsolicited-Execution gate. Never execute more than 2 probes total on Turn 1. Timestamps MUST be absolute ISO 8601 UTC; relative offsets (`"now-10m"`, `"now"`) are rejected by the API — see section 30C.
+* The agent executes a 1-shot event-filter probe via `udm_search(query="<single_event_filter>", startTime="<ISO_10M_AGO>", endTime="<ISO_NOW>", maxEvents=1)`. **Passing `maxEvents: 1` is a HARD MANDATORY REQUIREMENT on every pre-flight probe** — omitting `maxEvents` returns up to 100 events (the `udm_search` default) and violates the Zero-Unsolicited-Execution gate. One probe per pre-flight turn; if it fails, one corrected retry. Timestamps MUST be absolute ISO 8601 UTC; relative offsets (`"now-10m"`, `"now"`) are rejected by the API — see section 30C.
 * **Single-Action Deletion vs. 4-Family Service Account Scope**: When the user asks specifically whether a named human user (e.g. `frank.kolzig`) performed abnormal **cloud storage bucket deletions**, scope the query strictly to `RESOURCE_DELETION` / `USER_RESOURCE_DELETION` (`metrics.resource_deletion_total`) rather than the 4-family service account pipeline (`cloud_repository_scope_dual_branch.yl2`), so unrelated `USER_RESOURCE_ACCESS` reads do not pollute the deletion hunt.
 * **Zero Broken Previews**: If the probe fails with a compilation error, the agent is strictly prohibited from rendering the broken query in markdown. It must auto-correct syntax or trigger the Consultative Pivot Protocol immediately.
 
@@ -1127,8 +1127,8 @@ Under the **Hard Pre-Flight Clearance Gate**, this sequence is strictly prohibit
 1. **API Rejection of Relative Time Offsets**:
    Chronicle's `udm_search` API endpoint strictly requires absolute ISO 8601 UTC timestamps (e.g., `2026-09-04T17:00:00Z`). Passing relative strings such as `"now-10m"` or `"now"` causes the underlying API to fail with an unrecoverable `Internal error encountered`.
 2. **Probe Protocol**:
-   All 1-shot compiler validation probes must compute the current UTC timestamp and a 10-minute historical boundary formatted as explicit ISO 8601 strings:
-   `udm_search(query="<query>", startTime="<ISO_10M_AGO>", endTime="<ISO_NOW>", maxEvents=1)`
+   All 1-shot event-filter probes must compute the current UTC timestamp and a 10-minute historical boundary formatted as explicit ISO 8601 strings:
+   `udm_search(query="<single_event_filter>", startTime="<ISO_10M_AGO>", endTime="<ISO_NOW>", maxEvents=1)`
 
 ### D. Pillar 2 Executed Multi-Stage Query Integrity
 1. **Executed Multi-Stage YARA-L Query Requirement**:

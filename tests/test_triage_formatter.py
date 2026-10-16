@@ -136,9 +136,9 @@ class TestTriageFormatter(unittest.TestCase):
         executed_query=self.sample_query,
     )
     self.assertIn("🧭 Agentic Next Steps (Outcome Classification: `ACUTE_OUTLIER` — State 3 → Phase 1B Pivot)", report)
-    self.assertIn("[A] Cross-Sector Fusion / 360° Multi-Sector Sweep", report)
-    self.assertIn("[B] Two-Phase Chained Entity Pivot", report)
-    self.assertIn("[C] Novelty & Prevalence Verification / Alert Escalation", report)
+    self.assertIn("[1] Cross-Sector Fusion / 360° Multi-Sector Sweep", report)
+    self.assertIn("[2] Two-Phase Chained Entity Pivot", report)
+    self.assertIn("[3] Novelty & Prevalence Verification / Alert Escalation", report)
 
     clean_report = CommonMarkTriageFormatter.format_clean_hunt_report(
         target_metric="metrics.network_bytes_outbound",

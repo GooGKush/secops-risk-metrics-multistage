@@ -74,7 +74,7 @@ An analyst with deep domain knowledge may specify both a mathematical model and 
    - Run a 14-day lookback check: `udm_search(query='target.user.userid = "<name>" nocase or principal.user.userid = "<name>" nocase', maxEvents=5)`.
    - If resolved, bind the technical `user.userid`. If unresolved, halt (0 tools called) and ask for the technical username.
 2. **Single-Event Baseline Probe (Turn 1 Tool Invariant)**:
-   - The compiler probe on Turn 1 evaluates exclusively simple single-event filters with `maxEvents: 1` using strict ISO 8601 UTC timestamps:
+   - The event-filter probe on every pre-flight turn evaluates exclusively simple single-event filters with `maxEvents: 1` using strict ISO 8601 UTC timestamps:
      `udm_search(query="<single_event_filter>", startTime="<ISO_10M_AGO>", endTime="<ISO_NOW>", maxEvents=1)`
    - This verifies connectivity and tenant schema support. Full multi-stage DAG execution belongs strictly to Turn 2 following analyst approval.
 3. **Structured PRE-FLIGHT HUNTING SPECIFICATION Card**:
@@ -110,22 +110,22 @@ Analyst clearance constitutes an explicit directive to execute the search across
 #### Standard 6-Pillar Report (When Outliers Detected)
 * **#### 1. Statistical Outlier Report: `[Target Metric]` ([Statistical Model]) (`window: 30d`)**: Single visual surface (inline `<svg>` in webview/MCP or `<agent-embed>` in Jetski), metric summary, and Unicode magnitude bars (`▰▰▰▰▱▱▱▱`).
 * **#### 2. Executed Multi-Stage YARA-L Query**: Verbatim mirror of the executed multi-stage query.
-* **#### 3. Ranked Outlier Summary**: Columns: `Entity`, `24h Observed`, `30d Mean (μ)`, `30d StdDev (σ)`, `Z-Score`, `CRI Score`, `Visual Magnitude`.
-* **#### 4. Forensic Vector Breakdown**: Operational threat interpretation, investigative triage steps, and **Outcome-Driven Agentic Next Steps** (`ACUTE_OUTLIER`, `CLEAN_OR_SUBTHRESHOLD`, `FLEET_WAVE`, or `SPARSE_BASELINE` via `CommonMarkTriageFormatter.build_agentic_next_steps`) proposing 2–3 concrete Phase 1B follow-up pivots `[A]`, `[B]`, `[C]`.
+* **#### 3. Ranked Outlier Summary**: Columns: `Entity`, `Observed`, `30d Mean (μ)`, `30d StdDev (σ)`, `Z-Score`, `CRI Score`, `Visual Magnitude`.
+* **#### 4. Forensic Vector Breakdown**: Operational threat interpretation, investigative triage steps, and **Outcome-Driven Agentic Next Steps** (`ACUTE_OUTLIER`, `CLEAN_OR_SUBTHRESHOLD`, `FLEET_WAVE`, or `SPARSE_BASELINE` via `CommonMarkTriageFormatter.build_agentic_next_steps`) proposing three concrete Phase 1B follow-up pivots labeled `[1]`, `[2]`, `[3]` (numbers, so a pick is never mistaken for Mode A/B clearance).
 * **#### 5. Chronicle UI Manual Pivot**: Passive UDM search filter for manual pivot in Chronicle SIEM (never executed automatically by the agent).
 * **#### 6. Statistical & Mathematical Appendix**: Formal KaTeX definitions ($N=30\text{d}$ baseline, CRI normalization, Euclidean norm $D$).
 
 #### Clean Hunt Audit (Zero-Telemetry Exemption & Agentic Next Steps)
 When the executed query returns an empty `stats` payload (`{"stats": []}` or `{}`) on a non-360° hunt:
 * `#### 1. Statistical Outlier Report: [Target Metric] (Nominal Baseline)`: 0 observed events / 0 ranked outlier entities ($Z = 0.00\sigma, D = 0.00\sigma, \text{CRI} = 0$, 🟢 **Nominal Fleet Baseline** — never emit `🚨` on a clean hunt).
-* `#### 2. Executed Multi-Stage YARA-L Query`: Literal query executed, followed immediately inside Pillar 2 by the **Agentic Next Steps** bullet block (`[A]` relaxing the significance gate `1.5σ <= Z < 3.0σ` or switching to `LONGITUDINAL_CUSUM`, `[B]` pivoting to an orthogonal kill-chain vector, or `[C]` running an Omnidirectional 360° Multi-Sector Sweep via `CommonMarkTriageFormatter.format_clean_hunt_report` — never write `"5-spoke radar"`, `"6-spoke radar"`, or `"spider radar"` in fleetwide reports).
+* `#### 2. Executed Multi-Stage YARA-L Query`: Literal query executed, followed immediately inside Pillar 2 by the **Agentic Next Steps** bullet block (`[1]` relaxing the significance gate `1.5σ <= Z < 3.0σ` or switching to `LONGITUDINAL_CUSUM`, `[2]` pivoting to an orthogonal kill-chain vector, or `[3]` running an Omnidirectional 360° Multi-Sector Sweep via `CommonMarkTriageFormatter.format_clean_hunt_report` — never write `"5-spoke radar"`, `"6-spoke radar"`, or `"spider radar"` in fleetwide reports).
 * *Pillars 3 (table), 5, and 6 are waived for non-360° clean hunts. **360° Behavioral Radar / Fleetwide 360° Multi-Sector Threat Fusion Exception**: Single-entity and fleetwide 360° sweeps (`360` / `radar`) are NEVER abbreviated to 2 pillars — even when all 6 sectors return 0 events, always emit all **6 numbered Pillars** (`#### 1.` through `#### 6.`), including `#### 3. Ranked Outlier Summary Table` with all 6 canonical sectors (`Authentication`, `Cloud CRUD`, `Workspace / Endpoint Activity`, `Network Egress`, `DNS Resolution`, `Web & Proxy Activity`) and Euclidean Threat Distance $D = \sqrt{\sum \max(0, Z_i)^2}$.*
 
 ---
 
 ## 4. Turn 3+: State 3 → Phase 1B Agentic Pivot Loop & Entity Shifts
 
-* **State 3 → Phase 1B Agentic Pivot Loop**: When the analyst selects a follow-up option (`[A]`, `[B]`, or `[C]`) from Pillar 4 or a Clean Hunt report, transition directly from State 3 back to **Phase 1B** while carrying forward:
+* **State 3 → Phase 1B Agentic Pivot Loop**: When the analyst selects a follow-up option (`[1]`, `[2]`, or `[3]`) from Pillar 4 or a Clean Hunt report, transition directly from State 3 back to **Phase 1B** while carrying forward:
   1. The resolved technical entity ID (`principal.user.userid` or `principal.asset.hostname`) and peer cohort roster from the prior turn (do **not** re-ask Phase 1A scope questions or re-run identity disambiguation for the same entity).
   2. Any bridge keys extracted in State 2 (`$host`, `$user`, `$caller_ip`, `$sha256`, `$resource`) when pivoting across entity boundaries (e.g., Host ↔ User via `ChainedHuntRouter` or `build_alert_surge_query(entity_type=EntityType.USER)`).
   3. Emit the updated Pre-Flight Specification Card and Candidate Multi-Stage YARA-L Query for the new vector/model and ask for execution clearance.

@@ -64,7 +64,7 @@
       "id": 6,
       "name": "eval_active_hunt_session_lock",
       "prompt": "Can you run the same query for admin?",
-      "expected_output": "Maintains the statistical hunting framework and re-enters State 1 for the new entity (spot check, compiler probe, and clearance request), rather than falling through to secops-siem-search or dumping raw logs.",
+      "expected_output": "Maintains the statistical hunting framework and re-enters State 1 for the new entity (spot check, event-filter probe, and clearance request), rather than falling through to secops-siem-search or dumping raw logs.",
       "assertions": [
         "Agent maintains Multi-Stage Risk Analytics session affinity",
         "Agent does not invoke secops-siem-search or dump unaggregated raw events",
@@ -121,10 +121,10 @@
     {
       "id": 11,
       "name": "eval_post_execution_agentic_next_steps_and_pivot",
-      "prompt": "Option [A] — pivot WRK-SHASEK to Dual-Sector Fusion with network egress.",
+      "prompt": "Option [1] — pivot WRK-SHASEK to Dual-Sector Fusion with network egress.",
       "expected_output": "Transitions directly from State 3 back to Phase 1B carrying forward the resolved entity ID (WRK-SHASEK) without re-asking Phase 1A scope questions, emits the updated Pre-Flight Hunting Specification card and Dual-Sector Fusion YARA-L preview, and pauses for execution clearance.",
       "assertions": [
-        "Pillar 4 or Clean Hunt report classifies the hunt outcome (ACUTE_OUTLIER, CLEAN_OR_SUBTHRESHOLD, FLEET_WAVE, or SPARSE_BASELINE) and offers [A]/[B]/[C] Agentic Next Steps",
+        "Pillar 4 or Clean Hunt report classifies the hunt outcome (ACUTE_OUTLIER, CLEAN_OR_SUBTHRESHOLD, FLEET_WAVE, or SPARSE_BASELINE) and offers [1]/[2]/[3] Agentic Next Steps",
         "Selecting an Agentic Next Step transitions from State 3 directly to Phase 1B carrying forward resolved entity ID and cohort context",
         "Agent does not re-ask Phase 1A vector discovery questions when pivoting",
         "Agent emits the updated Pre-Flight Specification Card and candidate YARA-L preview and pauses for clearance"

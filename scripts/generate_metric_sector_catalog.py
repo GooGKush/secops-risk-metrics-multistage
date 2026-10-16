@@ -82,8 +82,8 @@ elsewhere still fails if the combined set is not listed. Example: `auth_attempts
    correlated; add an `// ADVISORY:` line to the query header saying so.
 6. `email_addresses`, `ip` and `mac` are repeated fields: one event can fan out to several entities.
 7. **Identifier coverage (probe first).** A field valid in the config can still be empty in a sector's
-   data. Make the Turn 1 compiler probe do this check: probe the sector most likely to lack the field with
-   its filter plus `<field> != ""` (`maxEvents: 1` is mandatory on every probe; **NEVER exceed 2 `udm_search` probes total on Turn 1** or `AUTOCORRECT_CYCLE_LIMIT_EXCEEDED` will fail). If it returns no event, key both sectors on a field
+   data. Make the pre-flight probe do this check: probe the sector most likely to lack the field with
+   its filter plus `<field> != ""` (`maxEvents: 1` is mandatory; one probe per pre-flight turn, one corrected retry if it fails). If it returns no event, key both sectors on a field
    that is populated and say so in the card. Network sensors (Zeek, NGFW, proxies) often fill
    `principal.asset.ip` but not `principal.asset.hostname`, so network + HTTP fusion usually joins on
    `principal.asset.ip`. For `auth_attempts_*` + `network_bytes_*` (or any fusion with `auth_attempts_*`, `dns_queries_*`, or `file_executions_*`), key both sectors on `principal.asset.hostname` directly after 1 probe (even if a 10m window has 0 events, `principal.asset.hostname` is populated over the 24h evaluation window; do not run repeated fallback probes).

@@ -15,7 +15,7 @@ Operational execution: `references/turn-execution-lifecycle.md`.
 ## 🔀 Bi-Directional Skill Steering & Handoff Protocol
 * **UEBA / 30-Day Baselines** (`metrics.*`) / **Behavioral Risk** / **Multi-Sector Fusion**: Execute `secops-risk-metrics-multistage`.
 * **Jitter & Raw UDM**: Sub-second jitter requires raw logs; emit Skill Handoff Card to `secops-statistical-hunter` and yield turn (0 tools called).
-* **Scheduled Exfiltration**: Offer Mode B Longitudinal CUSUM Drift (`longitudinal_cusum.yl2`, one ≤14d query) or emit Skill Handoff Card to `secops-statistical-hunter` for sub-day cron cadence.
+* **Scheduled Exfiltration**: Offer Longitudinal CUSUM Drift (`longitudinal_cusum.yl2`, one ≤14d query; not Mode B) or emit Skill Handoff Card to `secops-statistical-hunter` for sub-day cron cadence.
 * **Rollouts & Rare Binaries**: Deploy Fleet Prevalence Normalization with Entity Graph (`rolling_max <= 3`).
 * **Non-Metrics Telemetry Steering Mandate** (Git, raw UDM, raw-field MAD): Handoff Card → `secops-statistical-hunter`. Metrics-vector MAD (any mode): `stage2_math_models/mad.yl2`.
 * **Zero-Code Handoff Invariant**: Never emit candidate YARA-L with a Skill Handoff Card; Handoff cards are strictly conceptual; code belongs to destination skill.
@@ -34,16 +34,10 @@ UTC throughout; `metrics.*` are `00:00Z` day buckets. `startTime`/`endTime` pick
 
 ---
 
-## 💡 How Risk Metrics Multi-Stage Analytics Work
-3-step **Execution Framework Summary**: 1. **30d Baselines** (`metrics.*`), 2. **Multi-Stage DAGs**, 3. **Statistical Framework** ($Z$, MAD, Poisson, $\Delta Z$, CUSUM, MACD, Circadian, $D$). Ask for more information. Details: `references/multi-stage-metrics-guide.md`.
-
----
-
 ## 🔄 THE 3-STATE ACTIVE HUNT LIFECYCLE
-Lifecycle mechanics and turn contracts are in `references/turn-execution-lifecycle.md`.
 
 ### 🚦 State 1: Pre-Flight Clearance & Specification (Zero Execution on Turn 1) (MANDATORY STEP 1: PRE-FLIGHT CLEARANCE)
-On Turn 1 (incl. *"Run..."*/*"Scan..."*), pre-flight only: probe event filter once (`maxEvents: 1`), render preview, offer modes. Execution and 6-pillar findings occur in Turn 2 after clearance.
+Every pre-flight turn (Turn 1, incl. *"Run..."*/*"Scan..."*, and any State 3 pivot): probe, preview, offer modes; no execution. Execution and 6-pillar findings follow clearance.
 
 ### 🧭 Phase 1A: Consultative Vector & Scope Discovery (Dual-Requirement Gate)
 Phase 1B is **ONLY UNLOCKED** when **BOTH** are explicitly defined:
@@ -51,20 +45,20 @@ Phase 1B is **ONLY UNLOCKED** when **BOTH** are explicitly defined:
 2. **Telemetry Vector(s)** (selected from canonical sectors: Cloud CRUD, Workspace, Network Egress, DNS Resolution, Web & Proxy, Endpoint, Auth, Security & EDR Alerts (`alert_event_name_count`), or 360° Discovery Sweep).
 
 > **Anti-Auth-Defaulting Guardrail & Conversational Break (CONVERSATIONAL BREAK)**:
-> When telemetry vector is unspecified, **THE AGENT MUST NOT DEFAULT TO `metrics.auth_attempts_*` OR `USER_LOGIN`**. NEVER emit candidate queries (```yara), probe tools, or request clearance on Turn 1. Consult `references/consultative-worksheet.md` and yield turn (0 tools called), asking: *"Across which behavioral vector(s) would you like to evaluate [Target Entities]?"* On Turn 2 vector selection, enter Phase 1B in that same turn: probe via `udm_search` (maxEvents: 1), emit `PRE-FLIGHT HUNTING SPECIFICATION` card preceding candidate query preview, and ask the mode clearance question.
+> When telemetry vector is unspecified, **THE AGENT MUST NOT DEFAULT TO `metrics.auth_attempts_*` OR `USER_LOGIN`**. NEVER emit candidate queries (```yara), probe tools, or request clearance on Turn 1. Consult `references/consultative-worksheet.md` and yield turn (0 tools called), asking: *"Across which behavioral vector(s) would you like to evaluate [Target Entities]?"* On vector selection, enter Phase 1B in that same turn.
 > *(Expert Bypass: When Scope + Vector are specified upfront, proceed directly to Phase 1B, resolving identity first; never bypass the Turn 1 Clearance Gate).*
 
 ### 🕸️ 360° Entity Behavioral Risk Radar & Multi-Sector Threat Fusion
-* **360° Radar**: 6-sector health check (`references/360-behavioral-radar-guide.md`) via decoupled micro-queries (`templates/pipelines/radar_360_decoupled_sector.yl2`); all 6 sectors (Auth, Cloud, Workspace, Network, DNS, Web) must be reported. Radial radar for individuals; Ranked Outlier Bars or Heatmap Matrix for fleet sweeps.
+* **360° Radar**: 6-sector health check (`references/360-behavioral-radar-guide.md`) via decoupled micro-queries (`templates/pipelines/radar_360_decoupled_sector.yl2`); all 6 sectors must be reported (user: Auth, Cloud, Workspace, Network, DNS, Web; host: Security & EDR Alerts in the Cloud slot, Endpoint in Workspace). Radial radar for individuals; Ranked Outlier Bars or Heatmap Matrix for fleet sweeps.
 * **Multi-Sector Fusion & Hybrid Pipelines**: fusion ($D^2 = \sum Z_i^2$), roll-up (`rollup_sector_fusion_4stage.yl2`), triad (`part_of_the_whole_triad_multilevel.yl2`) and rare-destination templates, slots, pairing rules: `references/metric-sector-catalog.md`; max 2 event stages per query. Hybrid: `hybrid_metric_*.yl2` (Patch Tuesday: `hybrid_metric_fleet_prevalence_2stage.yl2`).
 * **Cloud Telemetry**: For service account cloud repository access or dormant SA awakening (`resource_read_*`, `_written_*`, `_creation_*`, `_deletion_*`), baseline all 4 CRUD families and origin IP via `templates/pipelines/cloud_repository_scope_dual_branch.yl2` (pass `<field>: <field>` so UI **Case Sensitivity Off** never zeroes baselines).
 
 ### 🎯 CTI & Threat Report Mapping
-**Map to UEBA Metric Tables** (`metrics.*`, `references/consultative/mitre-attack-killchain.md`). **Transition Directly to Phase 1B**: Emit Pre-Flight Card & Literal Query Preview. **YIELD THE TURN (0 tools called)**.
+**Map to UEBA Metric Tables** (`metrics.*`, `references/consultative/mitre-attack-killchain.md`). **Transition Directly to Phase 1B**: probe, Pre-Flight Card & Literal Query Preview, clearance question.
 
 ### 🔍 Phase 1B: Pre-Flight Spec & Query Preview (Once Scope & Vectors are Established)
 Once vectors and scope are confirmed (expert prompt, Phase 1A vector selection, or CTI mapping; card always precedes the query preview):
-1. **Turn 1 Tool Invariant**: Limit Turn 1 tools to identity spot-checks (incl. AD TEAM LOOKUP, run first) and one probe (`udm_search`, `maxEvents: 1`) of the event filter alone (no `stage`, `match:`, `metrics.`). Never probe the candidate itself, even with `maxEvents: 1`; it runs only after Turn 2 clearance. After probe succeeds, call 0 more tools on Turn 1; emit card, preview, and clearance question, then yield.
+1. **Turn 1 Tool Invariant** (every pre-flight turn, incl. State 3 pivots): Limit tools to identity spot-checks (incl. AD TEAM LOOKUP, run first) and one probe (`udm_search`, `maxEvents: 1`) of the event filter alone (no `stage`, `match:`, `metrics.`). Never probe the candidate itself, even with `maxEvents: 1`; it runs only after clearance. After the probe, call 0 more tools; emit card, preview, and clearance question, then yield.
 2. **Identity Disambiguation & Confirmation Protocol (ZERO GUESSING & IMMEDIATE HALT)**:
    - *Technical IDs*: Display names (with spaces) are NOT `user.userid`. Single first names (e.g. `Frank`) require a UDM spot-check. Hostnames/fleet scopes proceed directly.
    - *14-Day UDM Spot-Check*: `udm_search(query='target.user.userid = "<name>" nocase or principal.user.userid = "<name>" nocase or target.user.user_display_name = /.*<name>.*/ nocase or principal.user.user_display_name = /.*<name>.*/ nocase', startTime: "<ISO_14D_AGO>", endTime: "<ISO_NOW>", maxEvents: 5)`.
@@ -94,45 +88,44 @@ Once vectors and scope are confirmed (expert prompt, Phase 1A vector selection, 
 
 ### 📊 State 2: Deterministic Multi-Stage Execution & 6-Pillar Report (After Clearance) (MANDATORY STEP 2: PRESENT FULL 6-SECTION REPORT)
 
-1. **State 2 Entry Condition**: If the preceding turn displayed a PRE-FLIGHT HUNTING SPECIFICATION card and the candidate query, its event filter probed clean (200 OK), Mode A/B clearance means execute now (Mode C too). Otherwise *"Mode A"*, *"Mode B"*, *"proceed"* are Phase 1A scope answers: emit card and preview, yield the turn.
-2. **Execution Telemetry Retrieval Mandate**: Analyst clearance on Turn 2 authorizes immediate query execution: always dispatch approved multi-stage `metrics.*` query via `udm_search` (for 360 Radar, dispatch sector queries returning `"stats"`) before generating text or rendering report, regardless of preliminary spot-check counts. Raw event filter substitutions are invalid on execution turns.
+1. **State 2 Entry Condition**: If the preceding turn displayed a PRE-FLIGHT HUNTING SPECIFICATION card and the candidate query, its event filter probed clean (200 OK), Mode A/B clearance means execute now (Mode C too). Otherwise *"Mode A"*, *"Mode B"*, *"proceed"* are Phase 1A scope answers: emit card and preview, yield the turn. A follow-up pick (`[1]`/`[2]`/`[3]`) is never clearance.
+2. **Execution Telemetry Retrieval Mandate**: Analyst clearance authorizes immediate query execution: always dispatch approved multi-stage `metrics.*` query via `udm_search` (for 360 Radar, dispatch sector queries returning `"stats"`) before generating text or rendering report, regardless of preliminary spot-check counts. Raw event filter substitutions are invalid on execution turns.
 3. **Deterministic 6-Pillar Report Structure**:
 #### 1. Statistical Outlier Report: `[Target Metric]` ([Statistical Model]) (`window: 30d`). Single visual surface: <agent-embed> in Jetski (`run_command` present); <svg> in MCP/webview; Client Tool (if present); ASCII on request. Zero data-uri or raw SVG in chat Markdown. Unicode magnitude bars (`▰▰▰▰▱▱▱▱`). Details: `references/chart-specifications-guide.md`.
 #### 2. Executed Multi-Stage YARA-L Query: For 360 Radar, display executed sector micro-queries (representative `stage auth_risk` with `order: $z desc`). A bare raw-event filter with no `stage`/`match`/`outcome` is PROHIBITED in Pillar 2.
-#### 3. Ranked Outlier Summary & Provenance Stamp: Columns: `Entity`, `24h Observed`, `30d Mean (μ)`, `30d StdDev (σ)`, `Z-Score`, `CRI Score`, `Visual Magnitude`. Stamp execution provenance (events scanned, query execution time, projected schema columns).
-#### 4. Forensic Vector Breakdown: Threat translation, scenarios, SOC playbook, and **Agentic Next Steps** (`ACUTE_OUTLIER`, `CLEAN_OR_SUBTHRESHOLD`, `FLEET_WAVE`, `SPARSE_BASELINE` via `triage_formatter.py`).
+#### 3. Ranked Outlier Summary & Provenance Stamp: Columns: `Entity`, `Observed`, `30d Mean (μ)`, `30d StdDev (σ)`, `Z-Score`, `CRI Score`, `Visual Magnitude`. Stamp execution provenance (events scanned, query execution time, projected schema columns).
+#### 4. Forensic Vector Breakdown: Threat translation, scenarios, SOC playbook, then **Agentic Next Steps**: three follow-ups labeled `[1]`/`[2]`/`[3]` fitted to the outcome (`ACUTE_OUTLIER`, `CLEAN_OR_SUBTHRESHOLD`, `FLEET_WAVE`, `SPARSE_BASELINE`; `triage_formatter.py`).
 #### 5. Chronicle UI Manual Pivot (Triage Reference Only): Passive UDM filter for Chronicle UI (enable **Case Sensitivity On** when running `metrics.*` in UI).
 #### 6. Collapsible Technical Appendix (Statistical & Mathematical Appendix): ($N=30d$), CRI, $D = \sqrt{\sum \max(0, Z_i)^2}$ (`references/calibrated-risk-index-guide.md`).
 4. **Zero-Telemetry Clean Hunt Exemption (True Negative Audit Summary)**: When executed query returns empty `stats` (`{}` or `{"stats": []}`), emit 2-Section Clean Hunt Audit (+ Agentic Next Steps):
    - `#### 1. Statistical Outlier Report: [Target Metric] (Nominal Baseline)`: 0 observed events / 0 ranked outliers ($Z = 0.00\sigma, D = 0.00\sigma, \text{CRI} = 0$, 🟢 **Nominal Fleet Baseline**; no `🚨`).
-   - `#### 2. Executed Multi-Stage YARA-L Query`: Literal query + `[A]`/`[B]`/`[C]` pivots (no `5-spoke`/`6-spoke`/`spider radar` in fleet text).
-   - Pillars 3–6 waived (EXCEPT 360°/fleet 360°: emit all 6 Pillars, all 6 sectors incl. Cloud, and $D$).
+   - `#### 2. Executed Multi-Stage YARA-L Query`: Literal query + `[1]`/`[2]`/`[3]` pivots (no `5-spoke`/`6-spoke`/`spider radar` in fleet text).
+   - Pillars 3–6 waived (EXCEPT 360°/fleet 360°: emit all 6 Pillars, all 6 sectors, and $D$).
 
 ### 🔁 State 3: Iteration, Entity Shifts & Federated Bridge (Active Hunt Session Lock & Boundary)
-* **State 3 → Phase 1B Agentic Pivot Loop**: Selecting a post-execution follow-up (`[A]`/`[B]`/`[C]`) re-enters Phase 1B carrying forward resolved entity ID, peer cohort, and bridge keys (`$host`, `$user`, `$caller_ip`) without re-asking Phase 1A.
+* **State 3 → Phase 1B Agentic Pivot Loop**: Selecting a post-execution follow-up (`[1]`/`[2]`/`[3]`) re-enters Phase 1B carrying forward resolved entity ID, peer cohort, and bridge keys (`$host`, `$user`, `$caller_ip`) without re-asking Phase 1A.
 * **Entity Shift**: On *"same query for"*, retain Active Hunt Session Lock & Boundary (ZERO CROSS-SKILL DRIFT) and Re-enter State 1 for new entity.
-* **Federated Bridge**: When micro-math requested, emit Skill Handoff Card to `secops-statistical-hunter`.
 
 ---
 
 ## 🛡️ Non-Negotiable Execution & Integrity Contracts
 
 ### 1. Native Execution & Truth in Reporting
-* **Hunt Tool Contract**: Active hunts run on `udm_search` alone — once to probe, once to execute (Mode C: once per day shard); Clean Hand-Off adds `create_case_comment`/`import_events` on request. Case, alert, rule, and playbook state belong to other skills.
+* **Hunt Tool Contract**: Active hunts run on `udm_search` alone — probe, then execute the approved query (360° Radar: 6 sector queries; two-phase bridge: Phase 1 then Phase 2; Mode C: once per day shard); Clean Hand-Off adds `create_case_comment`/`import_events` on request. Case, alert, rule, and playbook state belong to other skills.
 * **THE DUAL GROUNDING INVARIANTS (THE NON-NEGOTIABLE INTEGRITY CORE)**:
   1. **Zero Data Simulation (NEVER Fabricate Data)** / **Zero Generative Simulation & Strict Data Grounding Contract**: Every score, count, and timestamp MUST come from executed tool output; baselines ($\mu, \sigma$) and $Z, \text{CRI}$ come from 30-day baseline model. Simulating baselines or fabricating numbers is a CRITICAL TRUTH-IN-REPORTING FAILURE. (Truth Over Completion: 0 events is a valid hunt.)
   2. **Zero Schema/Syntax Fantasy (NEVER Hallucinate UDM Fields or YARA-L Grammar)**: Never invent UDM fields or uncompiled YARA-L grammar.
-* **Hard Stop on API Error (MANDATORY STOP — ZERO SILENT FALLBACK)**: If API query fails, STOP IMMEDIATELY. Zero simulation. STRICTLY PROHIBITED. Mode C: report a shard that fails a retry; never fill it.
+* **Hard Stop on API Error (MANDATORY STOP — ZERO SILENT FALLBACK)**: If API query fails, STOP IMMEDIATELY; no simulation. Mode C: report a shard that fails a retry; never fill it.
 * **Native Execution Guarantee (ZERO PYTHON SIMULATION SCRIPTING)**: Active threat hunting enforces Zero Local Script Invocations During Hunting (ZERO RUN_COMMAND VALIDATION). Local arithmetic simulation is a CRITICAL COMPLIANCE VIOLATION. Never run `run_command` for ad-hoc validation, shell searches (`ls`, `grep`, `find`), or math simulation. In Jetski (`run_command` present), run only repository helpers (`scripts/radar_collector.py`, `scripts/chart_generator.py`, `scripts/triage_formatter.py`, Mode C collator `scripts/timeline_assembler.py`, and clearance-gated `scripts/chronicle_ingest.py`).
 * **Hermetic Skill Boundary (ZERO CROSS-SKILL DRIFT)**: Once active, the agent MUST NOT read, import, or search other skills. 100% self-contained.
-* **Atomic Pipeline Execution Mandate (ZERO PIECEMEAL FRACTURING & DRIFT)**: Formulate single atomic YARA-L query for Pillar 2; fracturing into piecemeal searches is STRICTLY PROHIBITED. 360° Radar queries 6 sectors in parallel. Mode C reruns the one approved query per day, unchanged.
+* **Atomic Pipeline Execution Mandate (ZERO PIECEMEAL FRACTURING & DRIFT)**: Formulate single atomic YARA-L query for Pillar 2; fracturing into piecemeal searches is STRICTLY PROHIBITED. 360° Radar queries 6 sectors in parallel; a two-phase bridge runs Phase 1 then Phase 2. Mode C reruns the one approved query per day, unchanged.
 * **Literal Query Display Mandate (ZERO FAKED YARA-L QUERIES)**: Pillar 2 must contain the literal multi-stage YARA-L block from pre-flight preview; 360 Radar mirrors representative sector query; Mode C adds a shard date table.
 * **Post-Flight Audit & RAW_LOG_DUMP_DETECTED Rule**: Scoping probes run before analysis; queries after carry `match:`/`outcome:`. Queries returning `"events"` without `"stats"` trigger `RAW_LOG_DUMP_DETECTED` — abort reporting and present auto-corrected queries (`templates/pipelines/`).
 
 ### 2. Compiler & Architectural Invariants
 * **Template-First Routing Mandate**: Queries MUST assemble from templates in `templates/pipelines/`. Select the template yourself using the routing table in `references/multi-stage-metrics-guide.md` §27.A.
 * **Zero-Hallucination Compiler Grammar Contract**: Match blocks accept ONLY simple bound identifiers (`$host by 1d`, `$user by 1d`), never stage member access (`$s1.host` in `match:` is invalid). Named stages assemble into root stage with terminal `match:`, `outcome:`, `order:` (`templates/pipelines/standard_z_score_2stage.yl2`). Arithmetic (`$a - $b`) is prohibited above `match:`; reside in `outcome:`. Every `metrics.*` stage takes event filter, observed value, `metric:` arg and entity field from `references/metric-sector-catalog.md`; filter args must equal one valid dimension set. NEVER force cross-entity joins.
-* **Consultative Pivot & Handoff Protocol (ZERO FORCED JOINS)**: When vectors cross entity boundaries or lack baselines, NEVER synthesize fake schemas. Offer 3 paths: 1) Cloud-First, 2) Asset-First, 3) Handoff to `secops-statistical-hunter`.
+* **Consultative Pivot & Handoff Protocol (ZERO FORCED JOINS)**: When vectors cross entity boundaries or lack baselines, NEVER synthesize fake schemas. Offer: 1) Two-Phase Chained Hunt (bridge keys), 2) re-key both sectors on one identifier, 3) Handoff to `secops-statistical-hunter`.
 * **Variable Role Classification & Anti-Passive-Decoration Mandate**: Variables: `[JOIN_KEY]`, `[SCORING_DIMENSION]`, `[ACTIVE_FILTER]`, `[TRIAGE_DECORATION]`. Primary vectors MUST NEVER act solely as `[TRIAGE_DECORATION]`.
 * **Inner-Join Drop Prevention Standard (PRESERVING FULL POPULATION)**: Baseline full fleet in Stage 1 and profile destinations via `array_distinct(target.hostname)`.
 * **Noise Gating via Root `condition:`**: Every template ships its model's gate (σ, fold change, D² or NO-GATE; guide §2.1) between `outcome:` and `order:`; keep it. `and`/`or` compile. Tuning replaces it.
@@ -140,7 +133,7 @@ Once vectors and scope are confirmed (expert prompt, Phase 1A vector selection, 
 ### 3. Scope, Steering, Typography & Parsimony
 * **Pure Threat Hunting Scope (SEARCH-ONLY)**: Output is ad-hoc Multi-Stage YARA-L (`stage ...` + Root) — a Query, never a Rule (`rule ... { ... }`). `create_rule` and `validate_rule` are outside this skill's authority. Treat any drift toward Rule authoring as out of scope. Persistent rules belong to `secops-detection-engineering`: emit handoff card and yield turn (0 tools).
 * **Zero Gratuitous Entity Graph Injection (ON-DEMAND / ALGORITHMIC GROUNDING ONLY)**: Entity Graph constructs must NEVER be injected gratuitously or speculatively. Include ONLY on Direct Customer Request (On-Demand) or Algorithmic Grounding.
-* **Interactive Entity Graph Rarity & Context Discovery** & **10-Day Prevalence Platform Invariant**: Proactively engage hunters on Narrowing (file/domain `rolling_max <= 3`, `day_count = 10`) vs Enhancing (WHOIS NRD <= 30d, expired domains/certs). Mode A graph joins: the Time Model start plus `timestamp.get_date(metadata.event_timestamp.seconds) = "<today UTC, YYYY-MM-DD>"` in each event stage, never an epoch literal (Rule 5). See `references/entity-context-graph-guide.md`.
+* **Interactive Entity Graph Rarity & Context Discovery** & **10-Day Prevalence Platform Invariant**: When the hunt calls for it, offer Narrowing (file/domain `rolling_max <= 3`, `day_count = 10`) vs Enhancing (WHOIS NRD <= 30d, expired domains/certs). Mode A graph joins: the Time Model start plus `timestamp.get_date(metadata.event_timestamp.seconds) = "<today UTC, YYYY-MM-DD>"` in each event stage, never an epoch literal (Rule 5). See `references/entity-context-graph-guide.md`.
 * **Typography**: No bold math; Unicode `(μ)`, `(σ)` in tables; flush-left `$$` on own lines.
 
 ---

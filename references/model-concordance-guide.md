@@ -10,7 +10,7 @@ In Google SecOps Multi-Stage Risk Analytics, the **Model Concordance Invariant**
 In multi-stage hunting workflows:
 1. In **Phase 1B (Pre-Flight Plan)**, the agent declares a statistical model in prose, e.g.:
    `• Statistical Model: Empirical Bayes Poisson-Gamma Conjugate Updating (Shrinkage Prior)`
-2. The mandatory compiler probe (`udm_search(..., maxEvents: 1)`) executes against Chronicle SIEM. Crucially, **the probe only validates UDM event predicates** (`metadata.event_type`, `principal.user.userid`). It has zero visibility into the YARA-L Stage 2 DAG or its `outcome:` block arithmetic.
+2. The mandatory event-filter probe (`udm_search(..., maxEvents: 1)`) executes against Chronicle SIEM. Crucially, **the probe only validates UDM event predicates** (`metadata.event_type`, `principal.user.userid`). It has zero visibility into the YARA-L Stage 2 DAG or its `outcome:` block arithmetic.
 3. Without explicit concordance enforcement, an agent may exhibit "model degradation": declaring an advanced model in prose, but lazily emitting a generic univariate Gaussian $Z$-score (`$z = ($observed - $avg) / $stddev`) in the code block.
 
 ### The Concordance Principle

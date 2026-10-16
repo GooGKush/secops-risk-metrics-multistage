@@ -127,30 +127,30 @@ class CommonMarkTriageFormatter:
     if outcome == "ACUTE_OUTLIER":
       lines = [
           f"> * **🧭 Agentic Next Steps (Outcome Classification: `{outcome}` — State 3 → Phase 1B Pivot)** (MITRE Tactic: `{mitre['tactic']}`):",
-          f">   * **[A] Cross-Sector Fusion / 360° Multi-Sector Sweep**: Pivot `{top_entity}` directly to Phase 1B (`dual_sector_fusion_3stage.yl2`, `rollup_sector_fusion_4stage.yl2`, or Omnidirectional 360° Multi-Sector Sweep) — **Upstream**: {mitre['upstream']} | **Downstream**: {mitre['downstream']} (IAM, Process, Network, Cloud CRUD, or `alert_event_name_count`).",
-          f">   * **[B] Two-Phase Chained Entity Pivot (Host ↔ User / Caller IP)**: Carry `{top_entity}` across the entity boundary via `ChainedHuntRouter` (`build_cross_entity_killchain_plan`) without re-running Phase 1A discovery.",
-          f">   * **[C] Novelty & Prevalence Verification / Alert Escalation**: Enrich `{top_entity}` with Entity Context Graph (`DERIVED_CONTEXT` file/domain prevalence or `WHOIS` lifecycle) or escalate `CRI >= 50` findings via `scripts/chronicle_ingest.py`.",
+          f">   * **[1] Cross-Sector Fusion / 360° Multi-Sector Sweep**: Pivot `{top_entity}` directly to Phase 1B (`dual_sector_fusion_3stage.yl2`, `rollup_sector_fusion_4stage.yl2`, or Omnidirectional 360° Multi-Sector Sweep) — **Upstream**: {mitre['upstream']} | **Downstream**: {mitre['downstream']} (IAM, Process, Network, Cloud CRUD, or `alert_event_name_count`).",
+          f">   * **[2] Two-Phase Chained Entity Pivot (Host ↔ User / Caller IP)**: Carry `{top_entity}` across the entity boundary via `ChainedHuntRouter` (`build_cross_entity_killchain_plan`) without re-running Phase 1A discovery.",
+          f">   * **[3] Novelty & Prevalence Verification / Alert Escalation**: Enrich `{top_entity}` with Entity Context Graph (`DERIVED_CONTEXT` file/domain prevalence or `WHOIS` lifecycle) or escalate `CRI >= 50` findings via `scripts/chronicle_ingest.py`.",
       ]
     elif outcome == "FLEET_WAVE":
       lines = [
           f"> * **🧭 Agentic Next Steps (Outcome Classification: `{outcome}` — State 3 → Phase 1B Pivot)** (MITRE Tactic: `{mitre['tactic']}`):",
-          f">   * **[A] Suppress Rollout / Patch Wave Noise**: Re-score `{target_metric}` in Phase 1B using `FLEET_PREVALENCE_SHIELD` (`fleet_prevalence_shield.yl2`), `HYBRID_METRIC_FLEET_PREVALENCE_2STAGE`, or `DUAL_BASELINE_3STAGE` (`ΔZ = Z_personal - Z_fleet`).",
-          f">   * **[B] Isolate Peer Cohort Departure**: Slice `{top_entity}` against its functional team cohort via `PART_OF_THE_WHOLE_MULTILEVEL` (`part_of_the_whole_multilevel.yl2`).",
-          f">   * **[C] Filter by Enterprise Prevalence**: Apply `DERIVED_CONTEXT` rarity gating (`rolling_max <= 3`) to drop fleet-wide binaries or domains.",
+          f">   * **[1] Suppress Rollout / Patch Wave Noise**: Re-score `{target_metric}` in Phase 1B using `FLEET_PREVALENCE_SHIELD` (`fleet_prevalence_shield.yl2`), `HYBRID_METRIC_FLEET_PREVALENCE_2STAGE`, or `DUAL_BASELINE_3STAGE` (`ΔZ = Z_personal - Z_fleet`).",
+          f">   * **[2] Isolate Peer Cohort Departure**: Slice `{top_entity}` against its functional team cohort via `PART_OF_THE_WHOLE_MULTILEVEL` (`part_of_the_whole_multilevel.yl2`).",
+          f">   * **[3] Filter by Enterprise Prevalence**: Apply `DERIVED_CONTEXT` rarity gating (`rolling_max <= 3`) to drop fleet-wide binaries or domains.",
       ]
     elif outcome == "SPARSE_BASELINE":
       lines = [
           f"> * **🧭 Agentic Next Steps (Outcome Classification: `{outcome}` — State 3 → Phase 1B Pivot)** (MITRE Tactic: `{mitre['tactic']}`):",
-          f">   * **[A] Switch to Sparse-History / Cold-Start Math**: Re-evaluate `{top_entity}` on `{target_metric}` using `TWO_PART_HURDLE` (`two_part_hurdle.yl2`), `POISSON` (`poisson_rarity.yl2`), or `BAYESIAN_GAMMA` (`poisson_gamma_bayesian.yl2`) for $N < 7$ active days.",
-          f">   * **[B] Borrow Peer / Fleet Baseline Strength**: Pivot to `EMPIRICAL_BAYES_3STAGE` or `PART_OF_THE_WHOLE_MULTILEVEL` so thin personal history is regularized by the peer cohort.",
-          f">   * **[C] Verify Infant Asset / Dormant Account Lifecycle**: Run `HYBRID_METRIC_DERIVED_ASSET_AGE_2STAGE` (`hybrid_metric_derived_asset_age_2stage.yl2`) on `{top_entity}`.",
+          f">   * **[1] Switch to Sparse-History / Cold-Start Math**: Re-evaluate `{top_entity}` on `{target_metric}` using `TWO_PART_HURDLE` (`two_part_hurdle.yl2`), `POISSON` (`poisson_rarity.yl2`), or `BAYESIAN_GAMMA` (`poisson_gamma_bayesian.yl2`) for $N < 7$ active days.",
+          f">   * **[2] Borrow Peer / Fleet Baseline Strength**: Pivot to `EMPIRICAL_BAYES_3STAGE` or `PART_OF_THE_WHOLE_MULTILEVEL` so thin personal history is regularized by the peer cohort.",
+          f">   * **[3] Verify Infant Asset / Dormant Account Lifecycle**: Run `HYBRID_METRIC_DERIVED_ASSET_AGE_2STAGE` (`hybrid_metric_derived_asset_age_2stage.yl2`) on `{top_entity}`.",
       ]
     else:
       lines = [
           f"> * **🧭 Agentic Next Steps (Outcome Classification: `{outcome}` — State 3 → Phase 1B Pivot)** (MITRE Tactic: `{mitre['tactic']}`):",
-          f">   * **[A] Probe Sub-Threshold Drift / Low-and-Slow Accumulation**: Relax the significance gate to `1.5σ <= Z < {anomaly_threshold}σ` or switch `{target_metric}` to `LONGITUDINAL_CUSUM` (`longitudinal_cusum.yl2`).",
-          f">   * **[B] Pivot to Orthogonal MITRE Kill-Chain Vector**: Keep current entity scope and pivot directly to Phase 1B on **Upstream** ({mitre['upstream']}) or **Downstream** ({mitre['downstream']}) (`alert_event_name_count`, `file_executions_total`, `network_bytes_outbound`, or `resource_read_total`).",
-          f">   * **[C] Omnidirectional 360° Multi-Sector Sweep**: Run all 6 decoupled sector micro-queries to verify whether `{top_entity}` is nominal across every telemetry plane.",
+          f">   * **[1] Probe Sub-Threshold Drift / Low-and-Slow Accumulation**: Relax the significance gate to `1.5σ <= Z < {anomaly_threshold}σ` or switch `{target_metric}` to `LONGITUDINAL_CUSUM` (`longitudinal_cusum.yl2`).",
+          f">   * **[2] Pivot to Orthogonal MITRE Kill-Chain Vector**: Keep current entity scope and pivot directly to Phase 1B on **Upstream** ({mitre['upstream']}) or **Downstream** ({mitre['downstream']}) (`alert_event_name_count`, `file_executions_total`, `network_bytes_outbound`, or `resource_read_total`).",
+          f">   * **[3] Omnidirectional 360° Multi-Sector Sweep**: Run all 6 decoupled sector micro-queries to verify whether `{top_entity}` is nominal across every telemetry plane.",
       ]
     return "\n".join(lines)
 

@@ -218,7 +218,7 @@ To guarantee zero compilation errors and prevent silent drops:
 ### A. Turn 1 Pre-Flight Clearance Hard Gate (NO QUERY = NO CLEARANCE)
 When conducting a 360° Entity Behavioral Risk Radar hunt:
 1. **Mandatory Upfront Query Preview**: The agent must display the compilable micro-query template representing the 6-sector decoupled evaluation.
-2. **Strict Compiler Probe Requirement**: Before displaying ````yara in markdown, the probe query must be validated via `udm_search` with ISO 8601 timestamps (`startTime="<ISO_10M_AGO>"`, `endTime="<ISO_NOW>"`). Relative strings like `"now-10m"` are forbidden.
+2. **Strict Probe Requirement**: Before displaying ````yara in markdown, the event-filter probe must succeed via `udm_search` with ISO 8601 timestamps (`startTime="<ISO_10M_AGO>"`, `endTime="<ISO_NOW>"`). Relative strings like `"now-10m"` are forbidden.
 3. **Hard Pre-Flight Clearance Gate**: If the query cannot be probed or compiled, the clearance question (Step 5) MUST NOT be asked. The agent must halt immediately and report what blocked query compilation.
 
 ### B. Turn 2 Execution Integrity (Prohibition of Raw UDM Filters in Pillar 2)
