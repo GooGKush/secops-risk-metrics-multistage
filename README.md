@@ -1,6 +1,6 @@
 # Google SecOps Multi-Stage Risk Metrics Threat Hunter (`secops-risk-metrics-multistage`)
 
-[![Version](https://img.shields.io/badge/version-v1.9.0-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-381%2F381%20passing%20(100%25)-brightgreen.svg)](tests/) [![Submission Tests](https://img.shields.io/badge/submission%20tests-32%2F32%20passing%20(100%25)-brightgreen.svg)](scripts/submission_tests.py)
+[![Version](https://img.shields.io/badge/version-v1.9.1-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-393%2F393%20passing%20(100%25)-brightgreen.svg)](tests/) [![Submission Tests](https://img.shields.io/badge/submission%20tests-32%2F32%20passing%20(100%25)-brightgreen.svg)](scripts/submission_tests.py)
 
 A specialized, production-grade AI agent skill package for **Google Security Operations (SecOps / Chronicle SIEM & SOAR)** that constructs, validates, and executes **Multi-Stage YARA-L 2.0 Directed Acyclic Graph (DAG) statistical threat hunting pipelines**, **360° Entity Behavioral Risk Radars**, and **Progressively Disclosed Consultative Threat Hunting**.
 
@@ -15,6 +15,7 @@ This repository is structured to conform strictly with the [Agent Skills Specifi
 ```
 secops-risk-metrics-multistage/
 ├── SKILL.md                              # Core orchestrator prompt, 360° radar spec, & pre-flight decision matrix
+├── GEMINI.md                             # Workspace operational rules for AI coding assistants
 ├── README.md                             # Package overview, directory map, & usage guide
 ├── RELEASE_NOTES.md                      # Comprehensive release notes & ready-to-run queries
 ├── CONTRIBUTING.md                       # Contribution guidelines & test requirements
@@ -33,22 +34,24 @@ secops-risk-metrics-multistage/
 │   ├── chart-specifications-guide.md     # Vega-Lite & Chart.js declarative visual contracts
 │   ├── clean-handoff-udm-schema.md       # 10 UDM event schemas, CRI severity ladder & ingestion vectors
 │   ├── consultative-worksheet.md         # Master consultative guidance worksheet & attack vector taxonomy
-│   ├── consultative/                     # Specialized domain consultative deep-dives
+│   ├── consultative/                     # Specialized domain consultative deep-dives (8 guides)
 │   │   ├── cloud-infrastructure.md       # Cloud CRUD, service account abuse, & privilege escalation
 │   │   ├── data-exfiltration.md          # Volumetric bursts, low-and-slow trickles, & staging
 │   │   ├── endpoint-and-covert.md        # Rare binary execution, living-off-the-land, & beaconing
 │   │   ├── identity-and-access.md        # Credential compromise, circadian shifts, & dormancy breaks
 │   │   ├── insider-risk-360.md           # Holistic multi-silo insider profiling & 360° radar
+│   │   ├── mitre-attack-killchain.md     # MITRE ATT&CK kill-chain mapping & multi-stage attack paths
+│   │   ├── security-edr-alerts.md        # Security & EDR alert frequency baselining (alert_event_name_count)
 │   │   └── web-and-proxy.md              # HTTP/proxy surges, error ratios, & rare user agents
 │   ├── entity-context-graph-guide.md     # Chronicle Entity Context Graph (DERIVED_CONTEXT & GLOBAL_CONTEXT) guide
 │   ├── malachite-function-factory-matrix.md # Chronicle Function Factory built-in functions & AST grammar contracts
 │   ├── metric-sector-catalog.md          # GENERATED: per-metric observed filter, value, metric arg, entity fields, fusion rules
 │   ├── metrics-catalog.md                # GENERATED: catalog of 38 pre-computed behavioral risk metrics
-│   ├── model-concordance-guide.md        # AST concordance contracts, outcome variables & prohibited fallbacks across all 16 models
+│   ├── model-concordance-guide.md        # AST concordance contracts, outcome variables & prohibited fallbacks across all 17 models
 │   ├── multi-stage-metrics-guide.md      # Multi-stage YARA-L DAG contracts, condition gating, & Entity Graph rules
 │   ├── soar-playbook-radar-integration.md# Chronicle SOAR playbook integration for 360° radar
 │   ├── statistical-hunting-cooperative-framework.md # Federated bilateral handoff protocol
-│   ├── statistical-models-taxonomy.md    # Mathematical taxonomy of all 16 statistical models
+│   ├── statistical-models-taxonomy.md    # Mathematical taxonomy of all 17 statistical models
 │   ├── timeline-modes-guide.md           # Per-request 30d baseline anchoring, Mode B fixed-baseline bias, Mode C per-day shards
 │   ├── turn-execution-lifecycle.md       # Codified turn lifecycle, transition invariants, & quiet baseline protocol
 │   └── udm-hunting-field-dictionary.md   # Field-level dictionary mapping UDM protobuf fields to hunter dimensions
@@ -86,7 +89,8 @@ secops-risk-metrics-multistage/
 │   │   ├── rollup_sector_fusion_4stage.yl2         # Composite-only metric (process, cloud CRUD, alerts) as a fusion sector
 │   │   ├── rollup_sector_fusion_5stage.yl2
 │   │   └── standard_z_score_2stage.yl2
-│   ├── stage1_extractors/                # Complete catalog of all 38 Stage 1 baseline extractors
+│   ├── stage1_extractors/                # 37 Stage 1 extractor templates covering all 38 pre-computed behavioral risk metrics
+│   │   ├── alert_event_name_count.yl2
 │   │   ├── auth_attempts_* (fail, success, total)
 │   │   ├── resource_* (creation, deletion, read, written, permissions)
 │   │   ├── file_executions_* (fail, success, total)
@@ -94,7 +98,7 @@ secops-risk-metrics-multistage/
 │   │   ├── dns_queries_* / dns_bytes_* (fail, success, total)
 │   │   ├── http_queries_* (fail, success, total)
 │   │   └── workspace_* (auth, emails sent, network bytes, downloads, changes)
-│   └── stage2_math_models/               # 16 plug-and-play mathematical model templates
+│   └── stage2_math_models/               # 17 plug-and-play mathematical model templates
 │       ├── adaptive_context_threshold.yl2
 │       ├── asymmetric_directional_z.yl2
 │       ├── beta_binomial_bayesian.yl2
@@ -113,6 +117,7 @@ secops-risk-metrics-multistage/
 │       ├── two_part_hurdle.yl2
 │       └── variance_fano.yl2
 ├── scripts/                              # Verification, execution, collector, & formatting utilities
+│   ├── __init__.py
 │   ├── chart_generator.py                # Formats hunt outputs into Vega-Lite & Chart.js specs
 │   ├── chronicle_ingest.py               # Direct ImportEvents REST ingestion (MCP-independent path)
 │   ├── federated_handoff.py              # Cross-skill bilateral threat hunt handoff protocol
@@ -126,8 +131,8 @@ secops-risk-metrics-multistage/
 │   ├── sync_malachite_catalog.py         # Re-syncs / drift-checks data/malachite against google3
 │   ├── template_router.py                # Maps natural language intent to .yl2 templates with condition filtering
 │   ├── timeline_assembler.py             # Mode C collator: merges per-day shard results into one timeline report
-│   └── triage_formatter.py               # Generates 6-section triage reports & CRI scores
-└── tests/                                # Automated unit test suite (381 tests across 24 test modules)
+│   └── triage_formatter.py               # Generates 6-section triage reports, CRI scores & Post-Data Agentic Next Steps
+└── tests/                                # Automated unit test suite (393 tests across 24 test modules)
     ├── test_chart_specifications.py
     ├── test_chronicle_ingest.py
     ├── test_complex_multistage_syntax.py
@@ -138,6 +143,7 @@ secops-risk-metrics-multistage/
     ├── test_global_context_syntax.py
     ├── test_guardrail_contracts.py
     ├── test_hybrid_pipelines.py
+    ├── test_mad_cross_skill_sync.py
     ├── test_malachite_catalog.py
     ├── test_model_concordance.py
     ├── test_radar_collector.py
@@ -147,6 +153,7 @@ secops-risk-metrics-multistage/
     ├── test_statistical_assumptions.py
     ├── test_submission_compiler_policy.py
     ├── test_template_router.py
+    ├── test_threshold_gate_contract.py
     ├── test_timeline_assembler.py
     ├── test_triage_formatter.py
     └── test_yaral_templates.py
@@ -191,24 +198,25 @@ secops-risk-metrics-multistage/
    * Formulates a federated, cooperative threat hunting funnel between macro 30-day baselines (`secops-risk-metrics-multistage`) and micro raw UDM event telemetry (`secops-statistical-hunter`).
    * Inquiries involving sub-second C2 timing jitter, packet-level regularity, raw UDM log spikes, or non-metrics telemetry automatically emit the Markdown Skill Handoff Card and yield the turn (0 tools called).
    * Strictly enforces the **Zero-Code Handoff Invariant**: handoff cards provide conceptual architectural guidance and parameters, leaving YARA-L code generation strictly to the destination skill.
-8. **Standardized 6-Section CommonMark Triage Reporting**:
+8. **Standardized 6-Section CommonMark Triage Reporting & Post-Data Agentic Loop**:
    * Synthesizes hunt findings into a rigorous 6-pillar forensic triage report:
      1. *Statistical Outlier Report*: Executive headline, active/baseline window summary, and single-surface visual chart (`<agent-embed>` in Jetski, inline `<svg>` in generic MCP, or Unicode `▰▰▰▰▱▱▱▱` bars in CLI).
      2. *Executed Multi-Stage YARA-L Query*: Literal multi-stage YARA-L 2.0 query executed via `udm_search`.
      3. *Ranked Outlier Summary & Provenance Stamp*: Quantitative tabular breakdown with 24h observed counts, 30-day baseline $\mu, \sigma$, statistical deviation score, Calibrated Risk Index (`CRI [0–100]`) badge, and Unicode magnitude bars (`▰▰▰▰▱▱▱▱`).
-     4. *Forensic Vector Breakdown*: Threat translation, attack scenarios, legitimate confounders, and actionable SOC playbook steps.
+     4. *Forensic Vector Breakdown*: Threat translation, MITRE ATT&CK kill-chain progression, attack scenarios, legitimate confounders, actionable SOC playbook steps, and outcome-driven **Agentic Next Steps (`[A]` / `[B]` / `[C]`)**.
      5. *Chronicle UI Manual Pivot (Triage Reference Only)*: Copy-and-paste raw UDM filter expression for manual Chronicle UI timeline inspection.
      6. *Statistical & Mathematical Appendix*: Collapsible `<details>` derivation of model parameters, degrees of freedom ($N$), and CRI normalization.
+   * **State 3 → Phase 1B Pivot Loop**: Selecting a `[A]` / `[B]` / `[C]` follow-up pivot transitions directly into Phase 1B pre-flight clearance carrying forward the target entity, cohort scope, and evaluation window.
 9. **Noise Level Tuning & Root-Stage `condition:` Gating**:
    * Employs native Chronicle compiler support for root-stage `condition:` post-aggregation filtering (`HAVING` semantics) placed directly before `order:`.
    * Enables precision sensitivity steering across high-confidence alerting (`$z_score >= 3.0`), investigative drift bands (`$z_score >= 2.0 and $z_score < 3.0`), directional silencing (`$z_score <= -3.0`), and baseline maturity hurdles (`$active_days >= 7`).
 10. **Cloud Infrastructure CRUD & Origin IP Monitoring**:
-    * Evaluates cloud repository and data store operations (`resource_read_*`, `resource_written_*`) across Google Cloud (`GCP_CLOUDAUDIT`), AWS CloudTrail, and Azure Activity logs via dual-branch DAGs (`cloud_repository_scope_dual_branch.yl2`), preventing single-product narrowing traps and capturing origin IP pivots.
+    * Evaluates cloud repository and data store operations (`resource_read_*`, `resource_written_*`, `resource_deletion_*`, `resource_creation_*` across `total`, `fail`, and `success` modes) across Google Cloud (`GCP_CLOUDAUDIT`), AWS CloudTrail, and Azure Activity logs via dual-branch DAGs (`cloud_repository_scope_dual_branch.yl2`), preventing single-product narrowing traps and capturing origin IP pivots.
 11. **Identity Governance & Zero-Guessing Technical ID Disambiguation Gate**:
     * Strictly bans heuristic username synthesis. Scopes technical ID disambiguation spot-checks strictly to ambiguous human display names (e.g. "Frank"), while hostnames, technical identifiers (`user_id`), and fleet-wide scopes proceed directly with pre-flight vector formulation.
     * Uses a 14-day UDM lookback window (`startTime: 14d ago, maxEvents: 5`) across `principal.user` and `target.user`. Halts immediately and prompts the analyst if an ambiguous human identity cannot be resolved from telemetry.
 12. **Comprehensive 38-Metric Extractor Matrix & Stage 2 Math Models**:
-    * 100% coverage across 38 Stage 1 extractors (Authentication, Cloud CRUD, File Execution, Network Egress/Flows, DNS Activity, HTTP, Google Workspace) and 17 Stage 2 model templates (Standard $Z$, True MAD / Modified $Z$, Relative Deviation, Poisson Rarity, Hourly Temporal $Z$, $CV$, Fano Factor, Asymmetric $Z$, CUSUM, Two-Part Hurdle, Piecewise CRI, Empirical Bayes Gamma, Beta-Binomial, Fleet Shield, Adaptive Thresholds, MACD Momentum Velocity, Circadian von Mises).
+    * 100% coverage across 38 Stage 1 extractors (Authentication, Cloud CRUD, File Execution, Network Egress/Flows, DNS Activity, HTTP, Google Workspace, Security/EDR Alerts) and 17 Stage 2 model templates (Standard $Z$, True MAD / Modified $Z$, Relative Deviation, Poisson Rarity, Hourly Temporal $Z$, $CV$, Fano Factor, Asymmetric $Z$, CUSUM, Two-Part Hurdle, Piecewise CRI, Empirical Bayes Gamma, Beta-Binomial, Fleet Shield, Adaptive Thresholds, MACD Momentum Velocity, Circadian von Mises).
     * Every Stage 1 extractor's observed event filter matches what its pre-computed baseline counts, and each carries a note listing the identifier fields valid for that metric.
     * Pre-composed in 32 pipeline templates in `templates/pipelines/`.
 13. **Calibrated Risk Index (CRI [0–100])**:
@@ -221,11 +229,14 @@ secops-risk-metrics-multistage/
     * Any two metrics that share an identifier can be fused, not just a fixed set of combinations. The agent fills each sector from `references/metric-sector-catalog.md`, which is generated from the Chronicle compiler's own metric configuration (vendored in `data/malachite/`) and lists, per metric: the observed event filter, observed value, `metric:` argument, valid identifier fields and valid dimension sets.
     * The catalog's pairing rules let the agent judge a requested pair before building it: pairs with the same entity kind and identifier proceed (e.g. network bytes + HTTP on `principal.asset.ip`), user ↔ host pairs are refused with the reason, and a query may hold at most 2 UDM event stages.
     * Metrics that only have composite baselines (`file_executions_*`, `resource_*`, `alert_event_name_count`) join a fusion as a **roll-up sector** (`rollup_sector_fusion_4stage.yl2`), e.g. process execution + DNS by host.
-    * Valid sibling triads for part-of-the-whole (auth, DNS, HTTP, network bytes, network flows) are generated into the catalog.
+    * Valid sibling triads for part-of-the-whole (auth, DNS, HTTP, network bytes, network flows, Google Workspace) and generic failure-to-total ratio surges across all 8 `*_fail` / `*_total` metric families are supported natively.
     * The consultative worksheet's Cross-Vector Pairing section maps a requested pair to a template, offers the rare-destination filter where it applies, and explains why an invalid pair is rejected.
 17. **User → Peer Group → Enterprise Comparison**:
     * `part_of_the_whole_multilevel.yl2` and its triad variant compare a user to their own baseline and to the enterprise, and to a peer group when one is given. With a peer group they also score the group against the enterprise (`$z_team_vs_enterprise`, `$d_team_vs_fleet_sq`).
     * When the analyst mentions a team without naming members, the agent looks the team up in Active Directory via the Entity Graph (the subject's department, else their smallest AD group excluding Domain Users) and shows the roster in the Pre-Flight card. It asks for a roster only when no AD team is found.
+18. **MITRE ATT&CK Kill-Chain Archetypes & Cross-Entity Bridges**:
+    * `KillChainArchetype` (`scripts/template_router.py`) maps 8 industry MITRE ATT&CK kill-chains (`T1078`, `T1110`, `T1059`, `T1021`, `T1530`, `T1071`, `T1048`, `T1485`/`T1098`) directly to turnkey multi-stage YARA-L pipelines.
+    * `ChainedHuntRouter.build_cross_entity_killchain_plan()` automates two-query sequential bridges across Chronicle's single-identifier-type-per-DAG boundary (`HOST_TO_USER`, `USER_TO_HOST`, and `CLOUD_TO_HOST`).
 
 ---
 
@@ -269,6 +280,8 @@ For deep domain investigations, the skill references specialized consultative wo
 * **Endpoint & Covert Execution** (`endpoint-and-covert.md`): Rare binary execution, living-off-the-land binaries (LOLBins), and enterprise prevalence shielding.
 * **Identity & Credential Compromise** (`identity-and-access.md`): Credential sprays, circadian schedule shifts, dormant account awakening, and MFA fatigue.
 * **Insider Risk 360°** (`insider-risk-360.md`): Holistic cross-silo employee risk profiling combining HR timelines with multi-sector telemetry.
+* **MITRE ATT&CK Kill-Chain & Attack-Path Mapping** (`mitre-attack-killchain.md`): Maps 8 canonical MITRE ATT&CK multi-stage attack paths (`T1078`, `T1110`, `T1059`, `T1021`, `T1530`, `T1071`, `T1048`, `T1485`/`T1098`) and cross-entity bridges across user, host, and cloud identities.
+* **Security & EDR Alert Frequency Baselining** (`security-edr-alerts.md`): Per-rule historical alert baselining (`metrics.alert_event_name_count`) rolled up by asset (`principal.asset.hostname`) or user (`principal.user.userid`).
 * **Web, Proxy & Covert HTTP Channels** (`web-and-proxy.md`): User-agent fleet prevalence, proxy error-ratio surges, target-centric API hammering, and the HTTP part-of-the-whole triad.
 
 ### 4. Evaluation Modes: Mode A, Mode B, and Mode C
@@ -329,7 +342,7 @@ The skill package ships with two test tiers that anyone can run from a clone:
 pytest tests/
 # or: python3 -m unittest discover tests
 ```
-* **Status**: **381 / 381 passing unit tests** across 24 test modules (100% pass rate).
+* **Status**: **393 / 393 passing unit tests** (plus 212 subtests) across 24 test modules (100% pass rate).
 * **Scope**: Enforces Chronicle AST grammar rules, KaTeX formatting compliance, prompt guardrail contracts, 20,480-byte budget ceilings, template router permutations across all 38 metrics and the Stage 2 models, metric-sector catalog drift against `data/`, and Entity Graph freshness filters in every graph template.
 
 ### 2. Google SecOps Malachite Compiler Submission Harness
@@ -347,6 +360,14 @@ python3 scripts/submission_tests.py --dump-dir <OUTPUT_DIR>
 ---
 
 ## 📦 Recent Releases
+
+### v1.9.1 (October 2026) — Post-Data Agentic Next Steps, MITRE Kill-Chain Archetypes, Cross-Entity Bridges & Underused Metric Promotion
+* **Post-Data Agentic Next Steps & State 3 → Phase 1B Pivot Loop**: `CommonMarkTriageFormatter.build_agentic_next_steps()` classifies hunt outcomes into `ACUTE_OUTLIER`, `CLEAN_OR_SUBTHRESHOLD`, `FLEET_WAVE`, and `SPARSE_BASELINE`, appending concrete `[A]` / `[B]` / `[C]` follow-up pivots to Pillar 4 (and to the 2-pillar Clean Hunt report). Selecting a pivot transitions directly to Phase 1B pre-flight clearance carrying forward the entity, cohort, and evaluation window.
+* **MITRE ATT&CK Kill-Chain Mapping & Archetypes**: New `references/consultative/mitre-attack-killchain.md`, Domain 7 in `references/consultative-worksheet.md`, and `KillChainArchetype` (`build_killchain_archetype_query()`) map 8 industry MITRE ATT&CK kill-chains (`T1078`, `T1110`, `T1059`, `T1021`, `T1530`, `T1071`, `T1048`, `T1485`/`T1098`) to multi-stage YARA-L pipelines and Pillar 4 progression guidance.
+* **Cross-Entity Bridges & Rare-Destination Routing**: `ChainedHuntRouter.build_cross_entity_killchain_plan()` automates `HOST_TO_USER`, `USER_TO_HOST`, and `CLOUD_TO_HOST` bridges; `RARE_DESTINATION_ECG_3STAGE` and `FUSION_RARE_DESTINATION_3STAGE` are wired into `MultiStageTemplateRouter`.
+* **Underused Metric Promotion & 6-Spoke Host Radar**: Added `references/consultative/security-edr-alerts.md`, host/user `alert_event_name_count` roll-up builders (`build_alert_surge_query()`), 6-spoke host radar harmonization (`ALERTS` replacing legacy `EXEC`), generic 8-family `*_fail` ratio surges (`build_failure_ratio_surge_query()`), `fail`/`success` modes in `cloud_repository_scope_dual_branch.yl2`, and Workspace triads (`build_workspace_triad_query()`).
+* **Turn 1 Probe & 360° Fleet Sweep Hardening**: Enforced `maxEvents: 1` and a 2-probe cap on Turn 1 pre-flight probes, plus `limit: 20` and canonical 6-sector labels on fleetwide 360° sweeps.
+* **Test Suite & Live Regression**: 393/393 unit tests (212 subtests); 32/32 submission tests; 51/52 (98.1%) AgentAPI & 52/52 (100.0%) cross-arm live `secops-regress` pass rate. SKILL.md is 20,459 bytes.
 
 ### v1.9.0 (October 2026) — Time Model, Fixed-Baseline Mode B & Per-Day Mode C
 * **Baseline anchoring corrected**: verified in the Malachite query engine (`query_engine/qesql/ueba.go`), one search request gets one 30-day `metrics.*` baseline, anchored at its `startTime` day. The old claim that every scored day gets its own trailing baseline is removed everywhere.
