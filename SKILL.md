@@ -43,7 +43,7 @@ UTC throughout; `metrics.*` are `00:00Z` day buckets. `startTime`/`endTime` pick
 Lifecycle mechanics and turn contracts are in `references/turn-execution-lifecycle.md`.
 
 ### 🚦 State 1: Pre-Flight Clearance & Specification (Zero Execution on Turn 1) (MANDATORY STEP 1: PRE-FLIGHT CLEARANCE)
-On Turn 1 (incl. *"Run..."*/*"Scan..."*), do pre-flight alignment only: probe event filter once, render preview, offer evaluation modes. Execution and 6-pillar findings occur in Turn 2 after clearance.
+On Turn 1 (incl. *"Run..."*/*"Scan..."*), pre-flight only: probe event filter once (`maxEvents: 1`), render preview, offer modes. Execution and 6-pillar findings occur in Turn 2 after clearance.
 
 ### 🧭 Phase 1A: Consultative Vector & Scope Discovery (Dual-Requirement Gate)
 Phase 1B is **ONLY UNLOCKED** when **BOTH** are explicitly defined:

@@ -91,7 +91,7 @@ stage stage2_fleet_prevalence {
     $fleet_prevalence = max($graph.graph.entity.file.prevalence.rolling_max)
 }
 
-// Stage 3 (Root Stage): Common Compiler Prevalence Normalization
+// Stage 3 (Root Stage): Common Compiler Prevalence Normalization (Corporate Rollout / Patch Tuesday Shield)
 $token = $stage1_personal_surge.token
 $token = $stage2_fleet_prevalence.token
 

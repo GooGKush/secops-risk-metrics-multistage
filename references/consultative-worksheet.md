@@ -226,6 +226,6 @@ When the analyst asks a question or requests parameter adjustments prior to givi
 1. **Answer Conversationally**: Address the question directly using plain-English analogies or data-science depth matching the analyst's conversational register.
 2. **Maintain Active Context**: Retain the active entity scope, telemetry vectors, and hunt objective in working context.
 3. **Update Specification**: Present the updated Pre-Flight Card reflecting the adjusted parameters (threshold, horizon, baseline model).
-4. **Re-Verify Query**: Probe the updated multi-stage YARA-L query via `udm_search` when query logic changes, and display the refreshed candidate query block.
+4. **Re-Verify Query**: Probe the updated single-event UDM filter via `udm_search(maxEvents=1)` when query logic changes, and display the refreshed candidate query block.
 5. **Prompt for Clearance**: Conclude by asking whether to proceed with Mode A (Today vs 30-Day Baseline) or Mode B (2–7 Day Fixed-Baseline Timeline), plus Mode C (Per-Day Baseline) when `run_command` is present.
 

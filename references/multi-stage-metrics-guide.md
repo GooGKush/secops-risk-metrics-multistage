@@ -896,8 +896,9 @@ Chronicle Malachite maintains 30-day historical baselines for `metrics.http_quer
 * **Pivot to `secops-statistical-hunter`**: When the analyst explicitly requires ad-hoc mathematical anomaly detection directly on URI strings (e.g., path entropy, directory traversal frequency, parameter fuzzing, payload byte distributions) over raw `NETWORK_HTTP` logs.
 
 ### E. The Pre-Preview Compilation Probe Gate (Compiler Verification)
-Before outputting any candidate multi-stage YARA-L query in the Phase 1B Pre-Flight Specification Card:
-* The agent executes a 1-shot compilation probe via `udm_search(query="<query>", startTime="<ISO_10M_AGO>", endTime="<ISO_NOW>", maxEvents=1)`. Timestamps MUST be absolute ISO 8601 UTC; relative offsets (`"now-10m"`, `"now"`) are rejected by the API — see section 30C.
+Before outputting any candidate multi-stage YARA-L query in the Phase 1B Pre-Flight Specification Card (including on Turn 2 after Phase 1A vector selection):
+* The agent executes a 1-shot compilation probe via `udm_search(query="<single_event_filter>", startTime="<ISO_10M_AGO>", endTime="<ISO_NOW>", maxEvents=1)`. **Passing `maxEvents: 1` (or `<= 10`) is a HARD MANDATORY REQUIREMENT on every pre-flight probe** — omitting `maxEvents` defaults to 10,000 events and violates the Turn 1 Zero-Unsolicited-Execution gate. Never execute more than 2 probes total on Turn 1. Timestamps MUST be absolute ISO 8601 UTC; relative offsets (`"now-10m"`, `"now"`) are rejected by the API — see section 30C.
+* **Single-Action Deletion vs. 4-Family Service Account Scope**: When the user asks specifically whether a named human user (e.g. `frank.kolzig`) performed abnormal **cloud storage bucket deletions**, scope the query strictly to `RESOURCE_DELETION` / `USER_RESOURCE_DELETION` (`metrics.resource_deletion_total`) rather than the 4-family service account pipeline (`cloud_repository_scope_dual_branch.yl2`), so unrelated `USER_RESOURCE_ACCESS` reads do not pollute the deletion hunt.
 * **Zero Broken Previews**: If the probe fails with a compilation error, the agent is strictly prohibited from rendering the broken query in markdown. It must auto-correct syntax or trigger the Consultative Pivot Protocol immediately.
 
 ---
