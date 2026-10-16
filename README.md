@@ -1,6 +1,6 @@
 # Google SecOps Multi-Stage Risk Metrics Threat Hunter (`secops-risk-metrics-multistage`)
 
-[![Version](https://img.shields.io/badge/version-v1.9.1-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-393%2F393%20passing%20(100%25)-brightgreen.svg)](tests/) [![Submission Tests](https://img.shields.io/badge/submission%20tests-32%2F32%20passing%20(100%25)-brightgreen.svg)](scripts/submission_tests.py)
+[![Version](https://img.shields.io/badge/version-v1.9.2-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-401%2F401%20passing%20(100%25)-brightgreen.svg)](tests/) [![Submission Tests](https://img.shields.io/badge/submission%20tests-32%2F32%20passing%20(100%25)-brightgreen.svg)](scripts/submission_tests.py)
 
 A specialized, production-grade AI agent skill package for **Google Security Operations (SecOps / Chronicle SIEM & SOAR)** that constructs, validates, and executes **Multi-Stage YARA-L 2.0 Directed Acyclic Graph (DAG) statistical threat hunting pipelines**, **360° Entity Behavioral Risk Radars**, and **Progressively Disclosed Consultative Threat Hunting**.
 
@@ -132,7 +132,7 @@ secops-risk-metrics-multistage/
 │   ├── template_router.py                # Maps natural language intent to .yl2 templates with condition filtering
 │   ├── timeline_assembler.py             # Mode C collator: merges per-day shard results into one timeline report
 │   └── triage_formatter.py               # Generates 6-section triage reports, CRI scores & Post-Data Agentic Next Steps
-└── tests/                                # Automated unit test suite (393 tests across 24 test modules)
+└── tests/                                # Automated unit test suite (401 tests across 24 test modules)
     ├── test_chart_specifications.py
     ├── test_chronicle_ingest.py
     ├── test_complex_multistage_syntax.py
@@ -342,7 +342,7 @@ The skill package ships with two test tiers that anyone can run from a clone:
 pytest tests/
 # or: python3 -m unittest discover tests
 ```
-* **Status**: **393 / 393 passing unit tests** (plus 212 subtests) across 24 test modules (100% pass rate).
+* **Status**: **401 / 401 passing unit tests** (plus 212 subtests) across 24 test modules (100% pass rate).
 * **Scope**: Enforces Chronicle AST grammar rules, KaTeX formatting compliance, prompt guardrail contracts, 20,480-byte budget ceilings, template router permutations across all 38 metrics and the Stage 2 models, metric-sector catalog drift against `data/`, and Entity Graph freshness filters in every graph template.
 
 ### 2. Google SecOps Malachite Compiler Submission Harness
@@ -360,6 +360,13 @@ python3 scripts/submission_tests.py --dump-dir <OUTPUT_DIR>
 ---
 
 ## 📦 Recent Releases
+
+### v1.9.2 (October 2026) — Retired Contradictory Directives, Numbered Follow-Ups & Consolidation
+* **Numbered follow-ups**: post-hunt pivots are `[1]` / `[2]` / `[3]` (were `[A]`/`[B]`/`[C]`, which could be read as Mode A/B clearance). A follow-up pick is never clearance. Pillar 4 and the 360° report template now name them.
+* **Contradictions resolved**: the pre-flight gate covers every pre-flight turn, including follow-up pivots; CTI mapping no longer yields without a probe; the two-phase bridge is admitted by the tool, atomic-pipeline and cross-entity rules; "24h Observed" → "Observed"; CUSUM is no longer called Mode B; host and user radar rosters are both stated.
+* **Probe wording**: "compiler probe" → "event-filter probe" across the references; one probe per pre-flight turn (+1 corrected retry); `maxEvents: 1` only.
+* **Consolidation**: duplicate and low-value text removed. SKILL.md 20,459 → 20,083 bytes.
+* **Test Suite**: 401/401 unit tests; 32/32 submission tests.
 
 ### v1.9.1 (October 2026) — Post-Data Agentic Next Steps, MITRE Kill-Chain Archetypes, Cross-Entity Bridges & Underused Metric Promotion
 * **Post-Data Agentic Next Steps & State 3 → Phase 1B Pivot Loop**: `CommonMarkTriageFormatter.build_agentic_next_steps()` classifies hunt outcomes into `ACUTE_OUTLIER`, `CLEAN_OR_SUBTHRESHOLD`, `FLEET_WAVE`, and `SPARSE_BASELINE`, appending `[A]` / `[B]` / `[C]` follow-up pivots to Pillar 4 (and to the 2-pillar Clean Hunt report). Picking a pivot goes straight to Phase 1B pre-flight, carrying forward the entity, cohort, and bridge keys.

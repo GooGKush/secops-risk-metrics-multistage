@@ -1,10 +1,42 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.9.1)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.9.2)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v1.9.1 (Point Release) — October 2026  
+**Latest Version**: v1.9.2 (Point Release) — October 2026  
+
+---
+
+## 📢 What's New in v1.9.2 (Point Release) — Retired Contradictory Directives, Numbered Follow-Ups & Consolidation
+
+A cleanup release. Several `SKILL.md` directives written before later changes contradicted them; agents followed the stale ones. This release retires them, relabels the post-hunt follow-ups, and removes text that was stated more than once.
+
+### 1. Follow-ups are `[1]` / `[2]` / `[3]`
+* The v1.9.1 follow-ups were lettered `[A]` / `[B]` / `[C]`, the same letters as the Mode A / Mode B clearance answers. A request to "do [B]" could be read as clearance for Mode B and executed without a new pre-flight. They are now numbered in `SKILL.md`, `references/turn-execution-lifecycle.md` and `scripts/triage_formatter.py`, and `SKILL.md` states that a follow-up pick is never clearance.
+* The Pillar 4 line in `SKILL.md` now names the three follow-ups (it listed only the outcome profiles), and the worked 360° report in `references/360-behavioral-radar-guide.md` ends with them. Previously only the clean-hunt line spelled them out, so full 6-pillar and 360° reports often had none.
+
+### 2. Contradictions resolved
+* **Pre-flight gate covers every pre-flight turn**: the Turn 1 Tool Invariant and "no execution before clearance" were worded by turn number ("Turn 1", "clearance on Turn 2"). A selected follow-up re-enters Phase 1B on a later turn, where those words did not apply. The gate now covers every pre-flight turn, including follow-up pivots.
+* **CTI mapping**: no longer says "yield with 0 tools called" right after showing a query preview, which the probe embargo forbids.
+* **Two-phase bridge**: the Hunt Tool Contract ("once to execute"), the Atomic Pipeline mandate ("single atomic query") and the cross-entity options (Cloud-First / Asset-First) predated the v1.9.1 two-phase bridge, which runs two queries by design. All three now admit it.
+* **Pillar 3 column**: "24h Observed" is now "Observed"; Mode A is today `00:00Z` → now, not a rolling 24 hours.
+* **CUSUM**: the one ≤14-day Longitudinal CUSUM query is no longer called Mode B (Mode B is 2–7 days).
+* **360° radar sectors**: `SKILL.md` now states both rosters: user (Auth, Cloud, Workspace, Network, DNS, Web) and host (Security & EDR Alerts in the Cloud slot, Endpoint in the Workspace slot), matching `scripts/radar_collector.py`.
+* **Entity Graph**: "proactively engage" is softened to "when the hunt calls for it", consistent with the rule against gratuitous Entity Graph joins.
+
+### 3. Probe wording in the references
+* "Compiler probe" / "compilation probe" is now "event-filter probe" in `multi-stage-metrics-guide.md`, `model-concordance-guide.md`, `metric-sector-catalog.md` (and its generator), `turn-execution-lifecycle.md` and `soar-playbook-radar-integration.md`. "Compiler probe" invites compiling the candidate query, which the skill forbids.
+* Query re-verification probes the event filter, never the changed candidate.
+* One probe per pre-flight turn, plus one corrected retry if it fails (the references said "2 probes"; `SKILL.md` said one).
+* `maxEvents` must be 1 (a reference allowed "1 or ≤ 10"). Omitting it returns up to 100 events, the `udm_search` default (a reference said 10,000).
+
+### 4. Consolidation
+* Removed from `SKILL.md`: the "How Risk Metrics Multi-Stage Analytics Work" section (the overview remains in `references/statistical-models-taxonomy.md`), a second pointer to the turn lifecycle, two restatements of the probe rule, the State 3 "Federated Bridge" bullet (duplicate of the steering rules), and doubled emphasis.
+* `SKILL.md`: 20,459 → 20,083 bytes, 150 → 143 lines.
+
+### 5. Testing & Verification
+* **401 / 401 unit tests passing** (8 new in `TestVestigialDirectivesRetired`, which keeps the retired directives out); **32 / 32 submission tests passing**.
 
 ---
 
