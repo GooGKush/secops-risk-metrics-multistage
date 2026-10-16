@@ -10,41 +10,36 @@
 
 ## 📢 What's New in v1.9.1 (Point Release) — Post-Data Agentic Next Steps, MITRE Kill-Chain Archetypes, Cross-Entity Bridges & Underused Metric Promotion
 
-This release closes four architectural gaps across post-hunt agentic continuation, consultative MITRE ATT&CK kill-chain mapping, multi-stage cross-entity kill-chain routing, and full coverage of underused `metrics.*` families, alongside live regression hardening for Turn 1 probes and 360° fleet sweeps.
+This release adds post-hunt follow-up recommendations, consultative MITRE ATT&CK tactic mapping, two-sector kill-chain query builders, cross-entity bridge plans, and Security & EDR alert baselining, alongside Turn 1 probe and 360° fleet sweep hardening.
 
 ### 1. Post-Data Agentic "Next Steps" & State 3 → Phase 1B Pivot Loop
-* **Outcome-Driven Next Steps (`scripts/triage_formatter.py`)**: Added `CommonMarkTriageFormatter.build_agentic_next_steps()`, which classifies executed hunt results into four statistical profiles (`ACUTE_OUTLIER`, `CLEAN_OR_SUBTHRESHOLD`, `FLEET_WAVE`, and `SPARSE_BASELINE`) and appends three concrete `[A]` / `[B]` / `[C]` follow-up pivot recommendations to Pillar 4 (and to the 2-pillar Clean Hunt report when zero rows return).
-* **State 3 → Phase 1B Pivot Loop (`SKILL.md`, `references/turn-execution-lifecycle.md`)**: When an analyst selects a recommended `[A]` / `[B]` / `[C]` follow-up pivot after a completed hunt, the agent transitions directly into Phase 1B pre-flight clearance while carrying forward the target entity, cohort scope, and evaluation window—bypassing redundant Phase 1A discovery.
+* **Outcome-Driven Next Steps (`scripts/triage_formatter.py`)**: `CommonMarkTriageFormatter.build_agentic_next_steps()` classifies executed hunt results into four profiles (`ACUTE_OUTLIER`, `CLEAN_OR_SUBTHRESHOLD`, `FLEET_WAVE`, `SPARSE_BASELINE`) and appends three `[A]` / `[B]` / `[C]` follow-up pivots to Pillar 4 (and to the 2-pillar Clean Hunt report when zero rows return).
+* **State 3 → Phase 1B Pivot Loop (`SKILL.md`, `references/turn-execution-lifecycle.md`)**: When the analyst picks `[A]` / `[B]` / `[C]` after a completed hunt, the agent goes straight to Phase 1B pre-flight, carrying forward the resolved entity, peer cohort, and bridge keys (`$host`, `$user`, `$caller_ip`) without repeating Phase 1A discovery.
 
-### 2. Consultative MITRE ATT&CK & Industry Attack-Path Mapping
-* **MITRE Kill-Chain Consultative Guide (`references/consultative/mitre-attack-killchain.md`)**: Maps 8 canonical multi-stage attack paths (`T1078` Valid Accounts → Cloud/SaaS Abuse, `T1110` Brute Force → Compromise, `T1059` Execution → DNS/C2 Beaconing, `T1021` Lateral Movement, `T1530` Cloud Data Staging → Egress, `T1071` Web/Application Layer Protocol, `T1048` Exfiltration Over Alternative Protocol, `T1485`/`T1098` Persistence & Destruction) to pre-computed 30-day `metrics.*` baselines, statistical models, and multi-stage YARA-L templates.
-* **Consultative Worksheet Domain 7 (`references/consultative-worksheet.md`)**: Added Domain 7 (*Multi-Stage Attack Paths & MITRE ATT&CK Kill-Chain Progression*) for analysts framing hunts by MITRE technique ID or kill-chain stage.
-* **Pillar 4 Kill-Chain Progression (`scripts/triage_formatter.py`)**: `CommonMarkTriageFormatter` now renders upstream precursor techniques, active kill-chain stage, and downstream next-stage pivots in Pillar 4 when `mitre_technique` is provided.
+### 2. Consultative MITRE ATT&CK Tactic Mapping
+* **MITRE Kill-Chain Consultative Guide (`references/consultative/mitre-attack-killchain.md`)**: Maps 12 MITRE ATT&CK Enterprise tactics (`TA0001`–`TA0011`, `TA0040`) to their `metrics.*` vectors, entity scope, telemetry deformation, and recommended model and pipeline template, and defines 8 two-tactic attack-path archetypes (Section 3).
+* **Consultative Worksheet Domain 7 (`references/consultative-worksheet.md`)**: *Multi-Stage Attack Paths & MITRE ATT&CK Kill-Chain Progression*, for analysts framing a hunt by tactic or kill-chain stage.
+* **Pillar 4 Kill-Chain Progression (`scripts/triage_formatter.py`)**: `CommonMarkTriageFormatter.get_mitre_progression(target_metric)` maps the hunted metric to its tactic and upstream/downstream stages, rendered in Pillar 4.
 
-### 3. Inherent Multi-Stage Kill-Chain Archetypes & Cross-Entity Bridges
-* **8 MITRE Kill-Chain Archetypes (`scripts/template_router.py`)**: Added `KillChainArchetype` and `MultiStageTemplateRouter.build_killchain_archetype_query()` providing turnkey multi-stage query generation for all 8 MITRE ATT&CK kill-chain archetypes (`T1078_VALID_ACCOUNTS_CLOUD`, `T1110_BRUTE_FORCE_COMPROMISE`, `T1059_EXECUTION_C2_BEACON`, `T1021_LATERAL_EXPANSION`, `T1530_CLOUD_STAGING_EXFIL`, `T1071_WEB_C2_EXFIL`, `T1048_ALT_PROTOCOL_EXFIL`, `T1485_DESTRUCTION_PERSISTENCE`).
-* **Rare-Destination ECG Pipelines Wired in Router**: Wired `PipelineTemplate.RARE_DESTINATION_ECG_3STAGE` (`build_rare_destination_query()`) and `PipelineTemplate.FUSION_RARE_DESTINATION_3STAGE` (`build_fusion_rare_destination_query()`) into `MultiStageTemplateRouter` with automatic `DERIVED_CONTEXT` domain/IP prevalence joins and Mode A date pinning.
-* **Cross-Entity Kill-Chain Bridge Plans (`ChainedHuntRouter.build_cross_entity_killchain_plan()`)**: Automates two-query sequential bridge plans across Chronicle's single-identifier-type-per-DAG boundary:
-  * `HOST_TO_USER` (`principal.asset.hostname` → `principal.user.userid`)
-  * `USER_TO_HOST` (`principal.user.userid` → `principal.asset.hostname`)
-  * `CLOUD_TO_HOST` (`principal.ip` caller IP → `principal.asset.hostname`)
+### 3. Multi-Stage Kill-Chain Archetypes & Cross-Entity Bridges
+* **8 Kill-Chain Archetypes (`scripts/template_router.py`)**: `KillChainArchetype` and `MultiStageTemplateRouter.build_killchain_hunt_query()` build two-sector fusion queries for `CREDENTIAL_ACCESS_TO_EXECUTION`, `INITIAL_ACCESS_TO_DISCOVERY`, `EXECUTION_TO_C2_DNS`, `EXECUTION_TO_EXFILTRATION`, `CREDENTIAL_ACCESS_TO_LATERAL_MOVEMENT`, `CLOUD_DISCOVERY_TO_COLLECTION`, `DEFENSE_EVASION_ALERT_TO_EXFILTRATION`, and `C2_BEACON_TO_RARE_DESTINATION_EXFIL` (same names as the guide).
+* **Rare-Destination ECG Pipelines Wired in Router**: `PipelineTemplate.RARE_DESTINATION_ECG_3STAGE` (`build_rare_destination_ecg_query()`) and `PipelineTemplate.FUSION_RARE_DESTINATION_3STAGE` (`build_fusion_rare_destination_query()`), with `DERIVED_CONTEXT` domain/IP prevalence joins and Mode A date pinning.
+* **Cross-Entity Bridge Plans (`ChainedHuntRouter.build_cross_entity_killchain_plan()`)**: Two-query sequential plans across Chronicle's one-identifier-type-per-DAG boundary: `USER_CREDENTIAL_TO_HOST_EXECUTION`, `HOST_EXECUTION_TO_CLOUD_SA_ACCESS`, `HOST_ALERT_TO_PROCESS_EXECUTION`, and `USER_WORKSPACE_HOARDING_TO_HOST_EGRESS`.
 
-### 4. Underused Metric Promotion & 6-Spoke Host Radar Harmonization
-* **Security & EDR Alert Surge Baselining (`metrics.alert_event_name_count`)**: Added `references/consultative/security-edr-alerts.md` and `MultiStageTemplateRouter.build_alert_surge_query()` supporting both `asset` (`principal.asset.hostname`) and `user` (`principal.user.userid`) roll-ups over per-rule alert baselines.
-* **6-Spoke Host Radar Harmonization (`scripts/radar_collector.py`)**: Aligned `ASSET_SECTOR_MAP` with the canonical 6-spoke host radar (`AUTH`, `EGRESS`, `DNS`, `FLOWS`, `ALERTS`, `WEB`, replacing the legacy `EXEC` host label with `ALERTS` while retaining backward-compatible alias mapping).
-* **Generic 8-Family Failure-Ratio Surge Builder**: Added `MultiStageTemplateRouter.build_failure_ratio_surge_query()` supporting failure-to-total ratio surges across all 8 `*_fail` / `*_total` families (`auth_attempts`, `dns_queries`, `http_queries`, `file_executions`, `resource_read`, `resource_written`, `resource_creation`, `resource_deletion`).
-* **Cloud Repository `fail` / `success` Modes (`cloud_repository_scope_dual_branch.yl2`)**: Extended `build_cloud_repository_query(outcome_mode=...)` to support `"total"`, `"fail"` (Access-Denied reconnaissance across read/write/delete/create), and `"success"` modes.
-* **Workspace Action & Exfiltration Triads**: Added `MultiStageTemplateRouter.build_workspace_triad_query()` coupling `workspace_total_download_actions`, `workspace_total_change_actions`, and `workspace_emails_sent_total` (or `workspace_network_bytes_outbound`).
+### 4. Underused Metric Promotion & Host Radar Spokes
+* **Security & EDR Alert Surge Baselining (`metrics.alert_event_name_count`)**: New `references/consultative/security-edr-alerts.md` and `MultiStageTemplateRouter.build_alert_surge_query()` with `asset` (`principal.asset.hostname`) and `user` (`principal.user.userid`) roll-ups over per-rule alert baselines.
+* **Host Radar Spokes (`scripts/radar_collector.py`)**: The asset radar's sixth spoke is now **Security & EDR Alerts** (`metrics.alert_event_name_count`), replacing Cloud Infrastructure (`metrics.resource_creation_total`), and the Endpoint spoke reads `metrics.file_executions_total` instead of raw `PROCESS_LAUNCH`. The "alert" / "edr" keywords now route to the alerts spoke.
+* **Generic 8-Family Failure-Ratio Surge Builder**: `MultiStageTemplateRouter.build_failure_ratio_surge_query()` covers failure-to-total ratio surges across the 8 `*_fail` / `*_total` families (`auth_attempts`, `dns_queries`, `http_queries`, `file_executions`, `resource_read`, `resource_written`, `resource_creation`, `resource_deletion`).
 
 ### 5. Pre-Flight Probe & 360° Fleet Radar Hardening
-* **Turn 1 Probe Caps**: Enforced explicit `maxEvents: 1` and a strict 2-probe Turn 1 cap on pre-flight identifier/schema probes across `SKILL.md`, `references/consultative-worksheet.md`, `scripts/generate_metric_sector_catalog.py`, `references/metric-sector-catalog.md`, `references/multi-stage-metrics-guide.md`, and `templates/pipelines/hybrid_metric_fleet_prevalence_2stage.yl2`.
-* **360° Fleet Sweep Row Caps & Canonical Sector Labels**: Added `limit: 20` to fleetwide 360° decoupled and 3-sector sweep micro-queries and enforced the 6 canonical sector labels (`Authentication`, `Cloud Infrastructure`, `Workspace / Endpoint Activity`, `Network Egress`, `DNS Resolution`, `Web & Proxy Activity`) in `references/360-behavioral-radar-guide.md`.
+* **Turn 1 Probe Caps**: Explicit `maxEvents: 1` and a 2-probe Turn 1 cap on pre-flight identifier/schema probes across `SKILL.md`, `references/consultative-worksheet.md`, `scripts/generate_metric_sector_catalog.py`, `references/metric-sector-catalog.md`, `references/multi-stage-metrics-guide.md`, and `templates/pipelines/hybrid_metric_fleet_prevalence_2stage.yl2`.
+* **360° Fleet Sweep Row Caps & Canonical Sector Labels**: `limit: 20` on fleetwide 360° decoupled and 3-sector sweep micro-queries, and the 6 canonical sector labels (`Authentication`, `Cloud Infrastructure`, `Workspace / Endpoint Activity`, `Network Egress`, `DNS Resolution`, `Web & Proxy Activity`) in `references/360-behavioral-radar-guide.md`.
 
 ### 6. Testing & Verification
-* **393 / 393 unit tests passing** (`212 subtests`) across 24 test modules; **32 / 32 submission tests passing**. `SKILL.md` is `20,459` bytes (limit `20,480`).
-* **secops-regress (52-test live benchmark)**: **51 / 52 (98.1%) PASS** on the AgentAPI arm (`run_20261015_145912` + targeted re-verifications) and **52 / 52 (100.0%)** pass on at least one engine arm.
+* **393 / 393 unit tests passing** (212 subtests) across 24 test modules; **32 / 32 submission tests passing**. `SKILL.md` is 20,459 bytes (limit 20,480).
 
 ---
+
 
 ## 📢 What's New in v1.9.0 (Minor Release) — Time Model, Fixed-Baseline Mode B & Per-Day Mode C
 
