@@ -655,6 +655,13 @@ All six evaluated behavioral sectors remain within expected historical variance 
 * **Baseline Health**: Entity maintains healthy operational baseline alignment across cloud, SaaS, authentication, and network telemetry.
 * **External Alert Handoff**: If this entity is flagged by an independent external alert (e.g. EDR/SIEM detection), pivot to raw event telemetry via Phase 2 UDM hunting or host memory triage.
 
+##### Agentic Next Steps (`CLEAN_OR_SUBTHRESHOLD`)
+* **[1] Probe Sub-Threshold Drift**: Re-run the highest-Z sector with the gate relaxed to `1.5σ <= Z < 3.0σ`, or as `LONGITUDINAL_CUSUM` over 7–14 days.
+* **[2] Two-Sector Fusion on the Top Pair**: Fuse the two highest-Z sectors for this entity (`dual_sector_fusion_3stage.yl2`) to catch coordinated sub-threshold movement.
+* **[3] Peer Cohort Comparison**: Compare the entity's busiest sector against its team cohort (`part_of_the_whole_triad_multilevel.yl2`).
+
+Every 360° report (single-entity or fleet) ends Pillar 4 with three follow-ups labeled `[1]`/`[2]`/`[3]`, fitted to the outcome profile (`ACUTE_OUTLIER`, `CLEAN_OR_SUBTHRESHOLD`, `FLEET_WAVE`, `SPARSE_BASELINE`). A selected follow-up re-enters Phase 1B; it is never clearance.
+
 ---
 
 #### 5. Chronicle UI Manual Pivot (Triage Reference Only)
