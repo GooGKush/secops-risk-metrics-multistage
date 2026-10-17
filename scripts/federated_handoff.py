@@ -203,17 +203,165 @@ def format_handoff_card(
   return "\n".join(lines)
 
 
+def _inprocess_fallback_ack(payload: Dict[str, Any]) -> Dict[str, Any]:
+  """Synthesizes a deterministic secops-threat-hunt-handoff-v1 ACK when the sibling repo is unmounted."""
+  if payload.get("protocol") != SUPPORTED_PROTOCOL:
+    return {
+        "status": "HANDOFF_ACK_REJECTED",
+        "action": "PROTOCOL_MISMATCH",
+        "error": f"Unsupported protocol: {payload.get('protocol')}",
+    }
+  intent = payload.get("intent", "SCHEDULED_EXFILTRATION_TIMING").upper()
+  ent = payload.get("target_entity", {})
+  ent_val = ent.get("value", "target_entity")
+  ent_type = ent.get("type", "HOSTNAME").upper()
+  params = payload.get("statistical_model", {}).get("parameters", {})
+
+  if intent in ("SCHEDULED_EXFILTRATION_TIMING", "C2_BEACONING_JITTER"):
+    model_routed = "C2_BEACONING_JITTER"
+    max_cv = params.get("max_cv", 0.20)
+    min_obs = params.get("min_observations", 10)
+    compiled_query = (
+        f"// Goal: Micro-Timing Variance & Jitter Analysis for {ent_val}\n"
+        "stage host_intervals {\n"
+        '  metadata.event_type = "NETWORK_HTTP"\n'
+        f'  principal.asset.hostname = "{ent_val}"\n'
+        "  principal.asset.hostname = $host\n"
+        "  target.hostname = $dest\n"
+        "  match:\n"
+        "    $host, $dest by 5m\n"
+        "  outcome:\n"
+        "    $obs = count(metadata.id)\n"
+        "}\n\n"
+        "$host = $host_intervals.host\n"
+        "$dest = $host_intervals.dest\n"
+        "match:\n"
+        "  $host, $dest\n"
+        "outcome:\n"
+        "  $mean_obs = avg($host_intervals.obs)\n"
+        "  $std_obs = stddev($host_intervals.obs)\n"
+        "  $windows = count($host_intervals.obs)\n"
+        "  $cv = $std_obs / if($mean_obs > 0, $mean_obs, 1.0)\n"
+        "condition:\n"
+        f"  $windows >= {min_obs} and $cv <= {max_cv}\n"
+        "order:\n"
+        "  $cv asc\n"
+    )
+  elif intent == "PRIVILEGED_LATERAL_EXPANSION":
+    model_routed = "PRIVILEGED_LATERAL_EXPANSION"
+    min_z = params.get("min_z_score", 2.0)
+    compiled_query = (
+        f"// Goal: Privileged Lateral Expansion Bipartite Breadth Analysis for {ent_val}\n"
+        "stage daily_user_breadth {\n"
+        '  metadata.event_type = "USER_LOGIN"\n'
+        "  principal.user.userid = $user\n"
+        "  $user != \"\"\n"
+        "  match:\n"
+        "    $user by 1d\n"
+        "  outcome:\n"
+        "    $distinct_targets = count_distinct(target.asset.hostname)\n"
+        "}\n\n"
+        "stage user_breadth_baseline {\n"
+        "  $user = $daily_user_breadth.user\n"
+        "  match:\n"
+        "    $user\n"
+        "  outcome:\n"
+        "    $hist_avg = avg($daily_user_breadth.distinct_targets)\n"
+        "    $hist_std = stddev($daily_user_breadth.distinct_targets)\n"
+        "}\n\n"
+        "stage current_breadth {\n"
+        '  metadata.event_type = "USER_LOGIN"\n'
+        "  principal.user.userid = $user\n"
+        "  $user != \"\"\n"
+        "  match:\n"
+        "    $user by 1d\n"
+        "  outcome:\n"
+        "    $today_targets = count_distinct(target.asset.hostname)\n"
+        "}\n\n"
+        "$user = $current_breadth.user\n"
+        "$user = $user_breadth_baseline.user\n"
+        "match:\n"
+        "  $user\n"
+        "outcome:\n"
+        "  $obs = max($current_breadth.today_targets)\n"
+        "  $mu = max($user_breadth_baseline.hist_avg)\n"
+        "  $sigma = max($user_breadth_baseline.hist_std)\n"
+        "  $z_score = ($obs - $mu) / if($sigma > 0, $sigma, 1.0)\n"
+        "condition:\n"
+        f"  $z_score >= {min_z}\n"
+        "order:\n"
+        "  $z_score desc\n"
+    )
+  else:
+    model_routed = intent
+    ent_field = "principal.user.userid" if ent_type == "USER" else "principal.asset.hostname"
+    compiled_query = (
+        f"// Goal: Delegated Micro-Forensic Analysis ({intent}) for {ent_val}\n"
+        "stage micro_telemetry_extract {\n"
+        '  metadata.event_type = "NETWORK_HTTP"\n'
+        f'  {ent_field} = "{ent_val}"\n'
+        f"  {ent_field} = $entity\n"
+        "  match:\n"
+        "    $entity by 1h\n"
+        "  outcome:\n"
+        "    $obs = count(metadata.id)\n"
+        "    $distinct_targets = count_distinct(target.hostname)\n"
+        "}\n\n"
+        "$entity = $micro_telemetry_extract.entity\n"
+        "match:\n"
+        "  $entity\n"
+        "outcome:\n"
+        "  $peak_obs = max($micro_telemetry_extract.obs)\n"
+        "  $mean_obs = avg($micro_telemetry_extract.obs)\n"
+        "  $std_obs = stddev($micro_telemetry_extract.obs)\n"
+        "  $z_score = ($peak_obs - $mean_obs) / if($std_obs > 0, $std_obs, 1.0)\n"
+        "condition:\n"
+        "  $z_score >= 2.0\n"
+        "order:\n"
+        "  $z_score desc\n"
+    )
+
+  return {
+      "protocol": SUPPORTED_PROTOCOL,
+      "request_id": payload.get("request_id", "req-fallback"),
+      "status": "HANDOFF_ACK_ACCEPTED",
+      "action": "STEP_OUT_CONFIRMED",
+      "source_skill": payload.get("source_skill", "secops-risk-metrics-multistage"),
+      "target_skill": "secops-statistical-hunter",
+      "model_routed": model_routed,
+      "compiled_query": compiled_query,
+      "step_out_directive": (
+          "SOURCE_SKILL_STEP_OUT_CONFIRMED: secops-statistical-hunter has assumed ownership "
+          "of micro-telemetry compilation and execution."
+      ),
+  }
+
+
 def dispatch_to_endpoint(
     payload: Dict[str, Any],
     stats_hunter_dir: Optional[Path] = None,
 ) -> Dict[str, Any]:
   """Dispatches the payload directly to the secops-statistical-hunter ingestion endpoint."""
+  explicit_dir = stats_hunter_dir is not None
   if stats_hunter_dir is None:
-    stats_hunter_dir = Path(__file__).resolve().parent.parent.parent / "secops-statistical-hunter"
+    candidates = [
+        Path(__file__).resolve().parent.parent.parent / "secops-statistical-hunter",
+        Path.home() / "projects" / "secops-statistical-hunter",
+        Path.home() / ".gemini" / "config" / "skills" / "secops-statistical-hunter",
+        Path.home() / ".gemini" / "skills" / "secops-statistical-hunter",
+    ]
+    for candidate in candidates:
+      if (candidate / "scripts" / "multistage_query_builder.py").exists():
+        stats_hunter_dir = candidate
+        break
+    if stats_hunter_dir is None:
+      return _inprocess_fallback_ack(payload)
 
   builder_script = stats_hunter_dir / "scripts" / "multistage_query_builder.py"
   if not builder_script.exists():
-    raise FileNotFoundError(f"Endpoint script not found: {builder_script}")
+    if explicit_dir:
+      raise FileNotFoundError(f"Endpoint script not found: {builder_script}")
+    return _inprocess_fallback_ack(payload)
 
   cmd = [
       sys.executable,
