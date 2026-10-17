@@ -62,7 +62,7 @@ Once vectors and scope are confirmed (expert prompt, Phase 1A vector selection, 
 2. **Identity Disambiguation & Confirmation Protocol (ZERO GUESSING & IMMEDIATE HALT)**:
    - *Technical IDs*: Display names (with spaces) are NOT `user.userid`. Single first names (e.g. `Frank`) require a UDM spot-check. Hostnames/fleet scopes proceed directly.
    - *14-Day UDM Spot-Check*: `udm_search(query='target.user.userid = "<name>" nocase or principal.user.userid = "<name>" nocase or target.user.user_display_name = /.*<name>.*/ nocase or principal.user.user_display_name = /.*<name>.*/ nocase', startTime: "<ISO_14D_AGO>", endTime: "<ISO_NOW>", maxEvents: 5)`.
-   - *Match Found ($\ge 1$ events)*: Extract verified technical `user.userid` from `target.user.userid` or `principal.user.userid`. In card: `• Target Entity / Scope: <Name> (Verified User ID: <id>)`.
+   - *Match Found ($\ge 1$ events) or Clarification*: Extract verified technical `user.userid` from `target.user.userid` or `principal.user.userid`. In card ALWAYS echo display name + ID: `• Target Entity / Scope: <Name> (Verified User ID: <id>)`.
    - *HARD RESOLUTION GATE (ZERO GUESSING & NO SPEC CARD)*: If 0 events match, **NEVER GUESS A USERNAME AND NEVER EMIT PRE-FLIGHT CARD**. **HALT IMMEDIATELY (0 tools called)**, asking: *"I could not resolve an active technical `user.userid` for '<Name>' in recent UDM telemetry. What is their corporate email or technical username?"*
 4. **Structured PRE-FLIGHT HUNTING SPECIFICATION Card & Mandatory Query Preview**:
    Before displaying candidate query, emit formal Pre-Flight card:
