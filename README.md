@@ -1,6 +1,6 @@
 # Google SecOps Multi-Stage Risk Metrics Threat Hunter (`secops-risk-metrics-multistage`)
 
-[![Version](https://img.shields.io/badge/version-v1.9.2-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-401%2F401%20passing%20(100%25)-brightgreen.svg)](tests/) [![Submission Tests](https://img.shields.io/badge/submission%20tests-32%2F32%20passing%20(100%25)-brightgreen.svg)](scripts/submission_tests.py)
+[![Version](https://img.shields.io/badge/version-v1.9.3-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-402%2F402%20passing%20(100%25)-brightgreen.svg)](tests/) [![Submission Tests](https://img.shields.io/badge/submission%20tests-32%2F32%20passing%20(100%25)-brightgreen.svg)](scripts/submission_tests.py)
 
 A specialized, production-grade AI agent skill package for **Google Security Operations (SecOps / Chronicle SIEM & SOAR)** that constructs, validates, and executes **Multi-Stage YARA-L 2.0 Directed Acyclic Graph (DAG) statistical threat hunting pipelines**, **360° Entity Behavioral Risk Radars**, and **Progressively Disclosed Consultative Threat Hunting**.
 
@@ -132,7 +132,7 @@ secops-risk-metrics-multistage/
 │   ├── template_router.py                # Maps natural language intent to .yl2 templates with condition filtering
 │   ├── timeline_assembler.py             # Mode C collator: merges per-day shard results into one timeline report
 │   └── triage_formatter.py               # Generates 6-section triage reports, CRI scores & Post-Data Agentic Next Steps
-└── tests/                                # Automated unit test suite (401 tests across 24 test modules)
+└── tests/                                # Automated unit test suite (402 tests across 24 test modules)
     ├── test_chart_specifications.py
     ├── test_chronicle_ingest.py
     ├── test_complex_multistage_syntax.py
@@ -342,7 +342,7 @@ The skill package ships with two test tiers that anyone can run from a clone:
 pytest tests/
 # or: python3 -m unittest discover tests
 ```
-* **Status**: **401 / 401 passing unit tests** (plus 212 subtests) across 24 test modules (100% pass rate).
+* **Status**: **402 / 402 passing unit tests** (plus 212 subtests) across 24 test modules (100% pass rate).
 * **Scope**: Enforces Chronicle AST grammar rules, KaTeX formatting compliance, prompt guardrail contracts, 20,480-byte budget ceilings, template router permutations across all 38 metrics and the Stage 2 models, metric-sector catalog drift against `data/`, and Entity Graph freshness filters in every graph template.
 
 ### 2. Google SecOps Malachite Compiler Submission Harness
@@ -360,6 +360,12 @@ python3 scripts/submission_tests.py --dump-dir <OUTPUT_DIR>
 ---
 
 ## 📦 Recent Releases
+
+### v1.9.3 (October 2026) — Jetski `<agent-embed>` Artifact Registration, Timeline Score Auto-Detection & Ranked Bar Layout
+* **Jetski `<agent-embed>` contract (`SKILL.md`, `references/chart-specifications-guide.md`, `references/timeline-modes-guide.md`)**: HTML charts in `<artifact_dir>` must be registered with `write_file` (`UserFacing: true`) rather than written only by a bash subprocess (`--html-out` writes to `<scratch>` first), and `<agent-embed>` requires `src="file:///<artifact_dir>/<chart>.html"></agent-embed>` with the `file:///` URI scheme and an explicit closing tag.
+* **Mode C score column auto-detection (`scripts/timeline_assembler.py`)**: `SCORE_CANDIDATES` now includes all template score outcome columns (`personal_z`, `beacon_score`, `shielded_z`, `threat_score`, `threat_distance_sq`, `d_vs_fleet_sq`, `d_vs_team_sq`, `upper_tail_z`, `poisson_z`, `hourly_z`, `flow_z`, `clamped_z`, `fast_z`, `normalized_odds_score`, `cusum_drift_score`, `hurdle_threat_score`, `circadian_threat_score`, `macd_momentum_score`, `sensitivity_excess`, `cri_score`, `surge_ratio`, `bayes_shift_ratio`, `posterior_fail_prob`, `fano_factor`, `ratio`), so Mode C runs over any pipeline template score without `--score-field`.
+* **Ranked fleet bar chart layout (`scripts/radar_collector.py`)**: widened SVG canvas (`740px`, `label_width=240`, 28-char label truncation, HTML escaping, host CSS variable theme support) so long FQDNs and user IDs do not collide with horizontal bars.
+* **Test Suite**: 402/402 unit tests; 32/32 submission tests. SKILL.md is 20,173 bytes.
 
 ### v1.9.2 (October 2026) — Retired Contradictory Directives, Numbered Follow-Ups & Consolidation
 * **Numbered follow-ups**: post-hunt pivots are `[1]` / `[2]` / `[3]` (were `[A]`/`[B]`/`[C]`, which could be read as Mode A/B clearance). A follow-up pick is never clearance. Pillar 4 and the 360° report template now name them.

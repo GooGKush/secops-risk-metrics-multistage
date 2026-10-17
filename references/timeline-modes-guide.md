@@ -70,13 +70,14 @@ python3 scripts/timeline_assembler.py \
   --shard 2026-10-01=<path> --shard 2026-10-02=<path> ... \
   --failed 2026-10-05 \
   --markdown-out <scratch>/timeline.md --json-out <scratch>/timeline.json \
-  --html-out <artifact_dir>/timeline_ranked.html
+  --html-out <scratch>/timeline_ranked.html
 ```
 
+* Register `<artifact_dir>/timeline_ranked.html` via `write_file` (`ArtifactMetadata` with `UserFacing: true`, `RequestFeedback: false`) using the HTML generated at `<scratch>/timeline_ranked.html`. Subprocess writes inside `run_command` do not register Jetski artifacts and will cause `<agent-embed>` to fail with `"invalid embed"`.
 * The collator only reshapes Chronicle output (per-day counts, per-entity onset/persistence, peaks, escalation, lead/lag, sparse-baseline list). It computes no baselines or Z-scores. The one derived value is `D = √(composite_threat_norm_sq)` when a template emits only the squared norm, plus CRI via the canonical sigmoid.
 
 ### 3.6 Report (6 pillars, adapted)
-* **Pillar 1**: `<agent-embed>` of the ranked HTML chart from `--html-out`.
+* **Pillar 1**: `<agent-embed src="file:///<artifact_dir>/timeline_ranked.html"></agent-embed>` and `[Open Visual Chart](file:///<artifact_dir>/timeline_ranked.html)` (`src` MUST use the `file:///` URI scheme and an explicit closing tag `</agent-embed>`, never a bare filesystem path or self-closing `<agent-embed ... />`).
 * **Pillar 2**: the approved query once, then a shard table (date, `startTime`, `endTime`, status, rows).
 * **Pillar 3**: the collator's per-day table and top outliers.
 * **Pillar 4**: persistence, onset, escalation, sector lead/lag, and the sparse-baseline list (entities with real volume but too few baseline days to score).

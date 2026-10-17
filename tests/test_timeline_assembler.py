@@ -170,6 +170,21 @@ class TestAssembly(unittest.TestCase):
     md = ta.TimelineAssembler.render_markdown(asm.build())
     self.assertIn("No outliers in any completed shard", md)
 
+  def test_auto_detects_template_score_columns(self):
+    for col, val, is_sq, expected in (
+        ("personal_z", 4.0, False, 4.0),
+        ("beacon_score", 5.5, False, 5.5),
+        ("shielded_z", 3.2, False, 3.2),
+        ("threat_distance_sq", 25.0, True, 5.0),
+        ("d_vs_fleet_sq", 16.0, True, 4.0),
+    ):
+      asm = ta.TimelineAssembler()
+      asm.add_shard("2026-10-01", [{"host": "h1", col: val}])
+      summary = asm.build()
+      self.assertEqual(col, summary["meta"]["score_field"])
+      self.assertEqual(is_sq, summary["meta"]["score_is_sqrt_of_field"])
+      self.assertAlmostEqual(expected, summary["top"][0]["score"], places=2)
+
 
 class TestCli(unittest.TestCase):
 

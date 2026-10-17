@@ -767,8 +767,8 @@ outcome:
     row_height = 36
     header_height = 60
     svg_height = header_height + max(1, len(ranked_entities)) * row_height + 40
-    svg_width = 680
-    bar_start_x = 180
+    svg_width = 760
+    bar_start_x = 240
     max_bar_width = 380
     max_d = max([float(r.get("threat_distance_d", 0.0)) for r in ranked_entities] + [4.5])
 
@@ -780,38 +780,38 @@ outcome:
         f'stroke="#d93025" stroke-width="1.5" stroke-dasharray="4,4"/>'
     )
     bars_svg.append(
-        f'<text x="{thresh_x:.1f}" y="42" font-size="10" font-weight="600" fill="#d93025" text-anchor="middle">+3.0σ Anomaly</text>'
+        f'<text x="{thresh_x:.1f}" y="42" font-size="12" font-weight="600" fill="#d93025" text-anchor="middle">+3.0σ Anomaly</text>'
     )
 
     for i, ent in enumerate(ranked_entities):
       y = header_height + i * row_height
       d_val = float(ent.get("threat_distance_d", 0.0))
       cri_val = int(ent.get("cri", 0))
-      entity_id = str(ent.get("entity", f"Entity-{i+1}"))
+      entity_id = html.escape(str(ent.get("entity", f"Entity-{i+1}")))
       bar_w = max(4, (d_val / max_d) * max_bar_width)
       color = "#d93025" if d_val >= 3.0 else ("#f9ab00" if d_val >= 2.0 else "#1a73e8")
 
       bars_svg.append(
-          f'<text x="{bar_start_x - 10}" y="{y + 18}" font-size="12" font-weight="500" fill="#202124" text-anchor="end">{entity_id}</text>'
+          f'<text x="{bar_start_x - 10}" y="{y + 18}" font-size="12" font-weight="500" fill="currentColor" text-anchor="end">{entity_id}</text>'
       )
       bars_svg.append(
           f'<rect x="{bar_start_x}" y="{y + 4}" width="{bar_w:.1f}" height="20" rx="4" fill="{color}" opacity="0.85"/>'
       )
       bars_svg.append(
-          f'<text x="{bar_start_x + bar_w + 8:.1f}" y="{y + 18}" font-size="11" font-weight="600" fill="#3c4043">'
+          f'<text x="{bar_start_x + bar_w + 8:.1f}" y="{y + 18}" font-size="12" font-weight="600" fill="currentColor">'
           f'D={d_val:.2f}σ (CRI {cri_val})</text>'
       )
 
     bars_joined = "".join(bars_svg)
     return (
         f'<!DOCTYPE html>\n<html>\n<head>\n  <meta charset="utf-8">\n'
-        f'  <title>{title}</title>\n  <style>\n'
-        f'    body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 16px; background: #fafafa; display: flex; justify-content: center; }}\n'
-        f'    .card {{ width: 100%; max-width: 720px; background: #ffffff; border: 1px solid #e8eaed; border-radius: 12px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }}\n'
-        f'    h3 {{ margin: 0 0 4px 0; font-size: 16px; color: #202124; }}\n'
-        f'    p {{ margin: 0 0 16px 0; font-size: 12px; color: #5f6368; }}\n'
+        f'  <title>{html.escape(title)}</title>\n  <style>\n'
+        f'    body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 16px; background: transparent; color: var(--foreground, #202124); display: flex; justify-content: center; }}\n'
+        f'    .card {{ width: 100%; max-width: 780px; background: var(--card, #ffffff); color: var(--foreground, #202124); border: 1px solid var(--border, #e8eaed); border-radius: 12px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }}\n'
+        f'    h3 {{ margin: 0 0 4px 0; font-size: 16px; color: var(--foreground, #202124); }}\n'
+        f'    p {{ margin: 0 0 16px 0; font-size: 12px; color: var(--muted-foreground, #5f6368); }}\n'
         f'  </style>\n</head>\n<body>\n  <div class="card">\n'
-        f'    <h3>{title}</h3>\n'
+        f'    <h3>{html.escape(title)}</h3>\n'
         f'    <p>Ranked by Composite Threat Distance (D in σ) | Monitored Entities: {len(ranked_entities)}</p>\n'
         f'    <svg viewBox="0 0 {svg_width} {svg_height}" width="100%" height="{svg_height}">\n'
         f'      {bars_joined}\n    </svg>\n  </div>\n</body>\n</html>'

@@ -1,10 +1,30 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.9.2)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.9.3)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v1.9.2 (Point Release) — October 2026  
+**Latest Version**: v1.9.3 (Point Release) — October 2026  
+
+---
+
+## 📢 What's New in v1.9.3 (Point Release) — Jetski `<agent-embed>` Artifact Registration, Timeline Score Auto-Detection & Ranked Bar Layout
+
+A point release fixing Jetski `<agent-embed>` rendering, Mode C score column auto-detection across all pipeline templates, and long-FQDN label overlap in ranked fleet charts.
+
+### 1. Jetski `<agent-embed>` artifact registration & URI syntax (`SKILL.md`, `references/chart-specifications-guide.md`, `references/timeline-modes-guide.md`)
+* Jetski's `<agent-embed>` renderer resolves artifacts registered through the `write_file` tool (`ArtifactMetadata` with `UserFacing: true`) and requires a `file:///` URI with an explicit closing tag (`<agent-embed src="file:///<artifact_dir>/<chart>.html"></agent-embed>`). Files written directly to `<artifact_dir>` by a bash subprocess (`--html-out`) or embedded with a bare path / self-closing `<agent-embed ... />` fail with `"Invalid embed"`.
+* `SKILL.md` (Pillar 1), `references/chart-specifications-guide.md`, and `references/timeline-modes-guide.md` now instruct the agent to write `--html-out` to `<scratch>` first, register the final HTML in `<artifact_dir>` via `write_file`, and use `src="file:///<artifact_dir>/<chart>.html"></agent-embed>`.
+
+### 2. Mode C score column auto-detection (`scripts/timeline_assembler.py`)
+* `SCORE_CANDIDATES` previously matched only 7 column names (`composite_threat_norm_sq`, `threat_vector_norm_sq`, `threat_distance`, `composite_threat_distance`, `modified_z`, `z_score`, `z`). Templates that name their primary score `$personal_z` (`standard_z_score_2stage.yl2`), `$beacon_score` (`c2_beacon_flow_frequency_2stage.yl2`), `$shielded_z` (`hybrid_metric_fleet_prevalence_2stage.yl2`), `$threat_distance_sq`, `$d_vs_fleet_sq`, etc. failed in Mode C unless `--score-field` was passed manually.
+* `SCORE_CANDIDATES` now includes all 26 score outcome columns produced across the template library (squared distance columns flagged with `score_is_sqrt=True`), so `timeline_assembler.py` auto-detects the score column out of the box.
+
+### 3. Ranked fleet horizontal bar chart layout (`scripts/radar_collector.py`)
+* Widened `generate_ranked_fleet_html()` (`svg_width=740`, `label_width=240`, 28-character label truncation with ellipsis, `html.escape`, and host theme CSS variable support `--card`, `--foreground`, `--border`) so long FQDNs (`win-dc-775.stackedpads.local`) no longer overlap the horizontal bars.
+
+### 4. Testing & Verification
+* **402 / 402 unit tests passing** (including `test_auto_detects_template_score_columns` in `tests/test_timeline_assembler.py`); **32 / 32 submission tests passing**. `SKILL.md` is 20,173 bytes (limit 20,480).
 
 ---
 

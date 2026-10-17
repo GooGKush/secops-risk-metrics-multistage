@@ -198,7 +198,7 @@ To guarantee visual fidelity across diverse frontend clients:
 1. **Jetski Environment (`run_command` present)**:
    * **MANDATORY `<agent-embed>` (ZERO DATA-URI / ZERO RAW SVG IN CHAT)**:
      * In Jetski Web UI, the Markdown parser (`rehype-sanitize`) and CSP strictly block raw `<svg>` tags and `data:image/svg+xml;base64` Data-URIs (rendering as broken image placeholders).
-     * Therefore, in Jetski, **ALL visual charts** (whether 360° radar, Mode B longitudinal timeline, or Mode A distribution) MUST be written to an HTML artifact in `<artifact_dir>/<chart_name>.html` and embedded in Pillar 1 using:
+     * Therefore, in Jetski, **ALL visual charts** (whether 360° radar, Mode B/C longitudinal timeline, or Mode A distribution) MUST be registered in `<artifact_dir>/<chart_name>.html` via the `write_file` tool (`ArtifactMetadata` with `UserFacing: true`, `RequestFeedback: false` — never written solely by a bash subprocess) and embedded in Pillar 1 using the `file:///` URI scheme and an explicit closing tag (never a bare filesystem path or self-closing `/>`):
        `<agent-embed src="file:///<artifact_dir>/<chart_name>.html"></agent-embed>`
      * Inside `<agent-embed>`, SVG, HTML, and Tailwind CSS render natively in an isolated sandboxed iframe with zero sanitizer stripping.
      * In Pillar 1, output ONLY `<agent-embed src="file:///<artifact_dir>/<chart_name>.html"></agent-embed>` and link `[Open Visual Chart](file:///<artifact_dir>/<chart_name>.html)`. Omit ASCII card.

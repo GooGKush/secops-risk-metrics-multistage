@@ -50,7 +50,7 @@ from scripts.template_router import MultiStageTemplateRouter
 
 
 def iter_if_calls(query: str):
-  """Yields (call_text, [condition, then, else]) for every if(...) call, honoring nested parentheses.
+  r"""Yields (call_text, [condition, then, else]) for every if(...) call, honoring nested parentheses.
 
   A naive `if\s*\(([^)]+)\)` regex truncates at the first ')' and misreads conditions that contain
   function calls, e.g. if(timestamp.get_date(metadata.event_timestamp.seconds) >= "2026-10-01", 1, 0).
