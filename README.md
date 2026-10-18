@@ -239,6 +239,9 @@ secops-risk-metrics-multistage/
 18. **MITRE ATT&CK Kill-Chain Archetypes & Cross-Entity Bridges**:
     * `KillChainArchetype` (`scripts/template_router.py`) maps 8 industry MITRE ATT&CK kill-chains (`T1078`, `T1110`, `T1059`, `T1021`, `T1530`, `T1071`, `T1048`, `T1485`/`T1098`) directly to turnkey multi-stage YARA-L pipelines.
     * `ChainedHuntRouter.build_cross_entity_killchain_plan()` automates two-query sequential bridges across Chronicle's single-identifier-type-per-DAG boundary (`HOST_TO_USER`, `USER_TO_HOST`, and `CLOUD_TO_HOST`).
+19. **Unified Python Hybrid Engine (`scripts/ueba_hybrid_engine.py`) & Dual-Surface MCP Tooling**:
+    * Consolidates pipeline compilation (`compile_hunt_pipeline`), cross-skill federated handoffs (`dispatch_hybrid_handoff`), and 6-pillar forensic dossier rendering (`render_forensic_dossier`) into a single composable Python engine (`compile`, `handoff`, `render`, `catalog` CLI subcommands).
+    * Exposes the same three primitives as native Gemini `FunctionDeclaration` tools in headless MCP clients (`DirectMCPEngine`, `agentic_ueba`), offloading `24.4%` (`177.6 KB` per turn) of static reference/template prose while preserving full combinatorial flexibility across all 12 statistical models, 38 Malachite metrics, and 8 `secops-statistical-hunter` hybrid enrichment topologies.
 
 ---
 
@@ -344,7 +347,7 @@ The skill package ships with two test tiers that anyone can run from a clone:
 pytest tests/
 # or: python3 -m unittest discover tests
 ```
-* **Status**: **402 / 402 passing unit tests** (plus 212 subtests) across 24 test modules (100% pass rate).
+* **Status**: **421 / 421 passing unit tests** (plus 212 subtests) across 25 test modules (100% pass rate).
 * **Scope**: Enforces Chronicle AST grammar rules, KaTeX formatting compliance, prompt guardrail contracts, 20,480-byte budget ceilings, template router permutations across all 38 metrics and the Stage 2 models, metric-sector catalog drift against `data/`, and Entity Graph freshness filters in every graph template.
 
 ### 2. Google SecOps Malachite Compiler Submission Harness
@@ -362,6 +365,11 @@ python3 scripts/submission_tests.py --dump-dir <OUTPUT_DIR>
 ---
 
 ## 📦 Recent Releases
+
+### v2.0.0 (October 2026) — Unified Python Hybrid Engine, Native Headless MCP Tools & 24.4% Prompt Compression
+* **Unified Python Hybrid Engine (`scripts/ueba_hybrid_engine.py`)**: Exposes `compile_hunt_pipeline()`, `dispatch_hybrid_handoff()`, and `render_forensic_dossier()` via CLI (`compile`, `handoff`, `render`, `catalog`) and Python API, covering all 12 statistical models, 38 Malachite metrics, 7 pipeline architectures, Turn 1 consultative demarcation handoffs (`secops-threat-hunt-handoff-v1`), and Phase 2 Macro-to-Micro hybrid enrichment with `secops-statistical-hunter`.
+* **Headless MCP & Cloud Run Integration (`secops-regress` & `agentic_ueba`)**: Registers `compile_hunt_pipeline`, `dispatch_hybrid_handoff`, and `render_forensic_dossier` as native Gemini `FunctionDeclaration` tools in headless MCP clients, offloading `177.6 KB` (`-24.4%`) of static reference/template prose per turn and accelerating Direct MCP suite runtime by `20.0%` (`35m 51s` → `28m 41s`).
+* **Test Suite & Live A/B Benchmark**: **421/421 unit tests** (+212 subtests) across 25 test modules; **32/32 submission tests**; **`116/116` (`100.0%`)** verified across `AgentAPI` (`58/58`) and `Direct MCP` (`58/58`). `SKILL.md` is 20,407 bytes.
 
 ### v1.9.3 (October 2026) — Jetski `<agent-embed>` Artifact Registration, Timeline Score Auto-Detection & Ranked Bar Layout
 * **Jetski `<agent-embed>` contract (`SKILL.md`, `references/chart-specifications-guide.md`, `references/timeline-modes-guide.md`)**: HTML charts in `<artifact_dir>` must be registered with `write_file` (`UserFacing: true`) rather than written only by a bash subprocess (`--html-out` writes to `<scratch>` first), and `<agent-embed>` requires `src="file:///<artifact_dir>/<chart>.html"></agent-embed>` with the `file:///` URI scheme and an explicit closing tag.
