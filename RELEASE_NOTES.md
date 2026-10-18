@@ -1,10 +1,34 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v1.9.3)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v2.0.0)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v1.9.3 (Point Release) — October 2026  
+**Latest Version**: v2.0.0 (Major Release) — October 2026  
+
+---
+
+## 📢 What's New in v2.0.0 (Major Release) — Unified Python Hybrid Engine, Native Headless MCP Tools & 24.4% Prompt Compression
+
+A major architectural evolution introducing the **Unified Python Hybrid Engine (`scripts/ueba_hybrid_engine.py`)**, exposing deterministic pipeline compilation, cross-skill hybrid handoffs to `secops-statistical-hunter`, and 6-pillar forensic dossier rendering as both CLI subcommands (for AgentAPI / Jetski) and native Gemini `FunctionDeclaration` tools (for headless MCP clients and Cloud Run `agentic_ueba`).
+
+### 1. Unified Python Hybrid Engine (`scripts/ueba_hybrid_engine.py`)
+* **`compile_hunt_pipeline()` (`compile` CLI subcommand)**:
+  - Preserves full combinatorial flexibility across all **12 statistical models** (`zscore`, `mad`, `poisson`, `fano`, `cv`, `bayesian_gamma`, `beta_binomial`, `cusum`, `delta_z`, `macd`, `von_mises`, `hurdle`), **38 Malachite metrics**, and **7 pipeline architectures** (`single_metric`, `multi_sector_fusion`, `rollup_4stage`, `triad`, `360_radar`, `cloud_crud`, `hybrid_enrichment`), plus `MICRO_RAW` delegation to `secops-statistical-hunter`.
+  - Automatically runs `PreFlightValidator` / `MalachiteASTValidator`, computes canonical UTC ISO-8601 windows for Modes A/B/C/D, extracts the 1-shot single-event schema probe query, and generates the rubric-compliant `PRE-FLIGHT HUNTING SPECIFICATION` card.
+* **`dispatch_hybrid_handoff()` (`handoff` CLI subcommand)**:
+  - Bridges `secops-risk-metrics-multistage` and `secops-statistical-hunter` for both **Turn 1 consultative demarcation handoffs** (`secops-threat-hunt-handoff-v1`, strictly enforcing the Zero-Code Handoff Invariant) and **Phase 2 Macro-to-Micro hybrid enrichment** (`DIVERSITY_DEFICIT`, `ELEPHANT_FLOW_CONCENTRATION`, `C2_BEACONING_JITTER`, `TWO_PART_HURDLE`, `FLEET_PREVALENCE_NORMALIZATION`, `ORTHOGONAL_THREAT_SPACE`, `BAYESIAN_JOINT_ODDS`, `PRIVILEGED_LATERAL_EXPANSION`, `RAW_TELEMETRY_ENRICHMENT`).
+* **`render_forensic_dossier()` (`render` CLI subcommand)**:
+  - Wraps `CommonMarkTriageFormatter`, `timeline_assembler.py`, and `radar_collector.py` to deterministically render the 6-Pillar CommonMark triage report, Calibrated Risk Index (`CRI [0–100]`), numbered `[1]`/`[2]`/`[3]` Agentic Next Steps, Zero-Telemetry Clean Hunt recovery, and 360° SVG/HTML charts.
+
+### 2. Dual-Surface Headless MCP & Cloud Run Integration (`secops-regress` & `agentic_ueba`)
+* **Zero Headless Client Breakage**: Headless Python MCP clients (`DirectMCPEngine` and `agentic_ueba`) register `compile_hunt_pipeline`, `dispatch_hybrid_handoff`, and `render_forensic_dossier` as native local Gemini `FunctionDeclaration` tools alongside `read_local_skill` and `generate_behavioral_radar`.
+* **−24.4% System Prompt Compression (−177.6 KB / Turn)**: Static reference tables and verbose template prose are offloaded from the per-turn system prompt into on-demand Python tool calls (`726,601 bytes` → `549,013 bytes`), cutting Direct MCP suite execution time by **20.0%** (`35m 51s` → `28m 41s`).
+* **Compiler & Clarification Hardening (`SKILL.md`)**: Clarified `match:` block bound `$placeholder` grammar invariants (forbidding raw UDM field paths in `match:`) and enforced echoing both display name and technical `user.userid` upon Turn 2 analyst identity clarification.
+
+### 3. Testing & Live 116-Execution A/B Benchmark Verification
+* **Unit & Submission Suites**: **421 / 421 unit tests passing** (+212 subtests) across 25 test modules; **32 / 32 submission tests passing**; **89 / 89 `secops-regress` unit tests passing**. `SKILL.md` is 20,407 bytes (strictly within the 20,480-byte ceiling).
+* **Live 116-Execution Split-Engine Regression Suite**: Achieved **`58 / 58` (`100.0%`) on `AgentAPI`** and **`58 / 58` (`100.0%`) on `Direct MCP`** (**`116 / 116` combined**), up from `108 / 116` (`93.1%`) on `v1.9.3`.
 
 ---
 
