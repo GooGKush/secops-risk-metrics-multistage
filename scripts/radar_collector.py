@@ -119,7 +119,9 @@ outcome:
   $z_write = (max($s1.write_obs) - max($s1.write_avg)) / if($write_std > 0, $write_std, 1.0)
   $z_create = (max($s1.create_obs) - max($s1.create_avg)) / if($create_std > 0, $create_std, 1.0)
   $z_delete = (max($s1.delete_obs) - max($s1.delete_avg)) / if($delete_std > 0, $delete_std, 1.0)
-  $z = if($z_read >= $z_write and $z_read >= $z_create and $z_read >= $z_delete, $z_read, if($z_write >= $z_create and $z_write >= $z_delete, $z_write, if($z_create >= $z_delete, $z_create, $z_delete)))
+  $z_rw = if($z_read >= $z_write, $z_read, $z_write)
+  $z_cd = if($z_create >= $z_delete, $z_create, $z_delete)
+  $z = if($z_rw >= $z_cd, $z_rw, $z_cd)
 """,
       "Workspace Data Hoarding": """
 // Sector: Workspace & Drive Data

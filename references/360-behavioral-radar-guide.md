@@ -91,14 +91,14 @@ Because MCP clients operate across varied environments (web browsers, IDEs, desk
 ## 🚦 3. Phase 1: Pre-Flight Scoping & Identity Resolution
 
 ### 3.1 Technical Identity Resolution Protocol
-Pre-computed metric tables (`metrics.*`) are indexed strictly by technical logon identifiers (`user.userid` or `asset.hostname`). Because many log sources record an email (`admin@demo.wsexample.org`) in `user.email_addresses` while indexing `user.userid` as the local username (`"admin"`), always include `email_addresses` in the spot-check and run the spot-check over the requested target window (when a historical date/range is given) or the last 14 days otherwise.
+Pre-computed metric tables (`metrics.*`) are indexed strictly by technical logon identifiers (`user.userid` or `asset.hostname`). Because many log sources record an email (`admin@demo.wsexample.org`) in `user.email_addresses` while indexing `user.userid` as the local username (`"admin"`), always include `email_addresses` in the spot-check for human users/emails (standard machine/service accounts `@*.iam.gserviceaccount.com`, `arn:aws:...`, `sa-*`, hosts, and fleet sweeps skip this check) and run the spot-check over the requested target window (when a historical date/range is given) or the last 14 days otherwise.
 
 1. **Spot-Check Query**:
    ```sql
    (target.user.userid = "<InputName>" nocase or principal.user.userid = "<InputName>" nocase or target.user.email_addresses = "<InputName>" nocase or principal.user.email_addresses = "<InputName>" nocase or target.user.user_display_name = /.*<InputName>.*/ nocase or principal.user.user_display_name = /.*<InputName>.*/ nocase)
    ```
    *Time range*: Requested target date window (`startTime: <ISO_TARGET_START>`, `endTime: <ISO_TARGET_END>`), or last 14 days (`startTime: <ISO_14D_AGO>`, `endTime: <ISO_NOW>`) when no target window is specified (`maxEvents: 5`).
-2. **Resolution Gate**: If $\ge 1$ events match, always extract and bind the canonical `user.userid` from `target.user.userid` or `principal.user.userid` in the matched UDM event (e.g., `"Jane Doe"` $\to$ `jdoe`, or `"admin@demo.wsexample.org"` $\to$ `admin`). If 0 events match an unqualified name/alias (no `.` and no `@`), halt immediately and request the user's technical username or email; if 0 events match a qualified `first.last` or `user@domain` in a default window, retain the input as `user.userid`.
+2. **Resolution Gate**: If $\ge 1$ events match, always extract and bind the non-empty canonical `user.userid` from `target.user.userid` or `principal.user.userid` in the matched UDM event (e.g., `"Jane Doe"` $\to$ `jdoe`, or `"admin@demo.wsexample.org"` $\to$ `admin`; if `userid` is empty on that event, extract the local username from `user_display_name` such as `DOMAIN\user` $\to$ `user`), and echo both the full display name (e.g. `Frank Kolzig`) and verified `user.userid` (`frank.kolzig`) in the Pre-Flight card and report (`Frank Kolzig (frank.kolzig)`). If 0 events match an unqualified name/alias (no `.` and no `@`), halt immediately and request the user's technical username or email; if 0 events match an already-qualified `first.last` or `user@domain` in a default window, retain the input as `user.userid` without retrying.
 
 ### 3.2 Standard Pre-Flight Specification Card
 On Turn 1, emit the card and single-representative preview query, then yield the turn:
@@ -285,7 +285,8 @@ stage cloud_risk {
         metadata.vendor_name: metadata.vendor_name,
         metadata.product_name: metadata.product_name
     ))
-    $z_delete = if($delete_days >= 3, ($delete_obs - $delete_avg) / if($delete_std > 0, $delete_std, 1.0), 0.0)
+    $z_delete_raw = ($delete_obs - $delete_avg) / if($delete_std > 0, $delete_std, 1.0)
+    $z_delete = if($delete_days >= 3, $z_delete_raw, 0.0)
 }
 
 $user = $cloud_risk.user
@@ -298,7 +299,9 @@ outcome:
   $z_write = max($cloud_risk.z_write)
   $z_create = max($cloud_risk.z_create)
   $z_delete = max($cloud_risk.z_delete)
-  $z = if($z_read >= $z_write and $z_read >= $z_create and $z_read >= $z_delete, $z_read, if($z_write >= $z_create and $z_write >= $z_delete, $z_write, if($z_create >= $z_delete, $z_create, $z_delete)))
+  $z_rw = if($z_read >= $z_write, $z_read, $z_write)
+  $z_cd = if($z_create >= $z_delete, $z_create, $z_delete)
+  $z = if($z_rw >= $z_cd, $z_rw, $z_cd)
   $observed = sum($cloud_risk.read_obs) + sum($cloud_risk.write_obs) + sum($cloud_risk.create_obs) + sum($cloud_risk.delete_obs)
   $baseline = max($cloud_risk.read_avg) + max($cloud_risk.write_avg) + max($cloud_risk.create_avg) + max($cloud_risk.delete_avg)
   $dispersion = max($cloud_risk.read_std) + max($cloud_risk.write_std) + max($cloud_risk.create_std) + max($cloud_risk.delete_std)

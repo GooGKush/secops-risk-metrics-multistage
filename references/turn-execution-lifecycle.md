@@ -40,7 +40,7 @@ Turn 1 is strictly dedicated to understanding the analyst's intent, verifying te
 When an inquiry specifies an entity or cohort but leaves the behavioral vector open-ended (e.g. *"Check Frank for suspicious behavior"*, *"Audit service account anomalies"*):
 
 1. **Zero Execution**: Call 0 tools and emit 0 candidate code blocks.
-2. **Anti-Auth-Defaulting Mandate**: Do not assume authentication or login failures. Present options across all 8 canonical telemetry families plus an exploratory 360° sweep:
+2. **Consultative Structure & Anti-Auth-Defaulting Mandate**: Do not assume authentication or login failures. Format the response with explicit `### Threat Hypothesis` and `### Summary View` (or `### Recommended Method`) headings (`references/consultative-worksheet.md` §Phase 1A Consultative Response Structure Mandate), presenting options across all 8 canonical telemetry families plus an exploratory 360° sweep:
    - Cloud Infrastructure & Data Access (`metrics.resource_*`)
    - Workspace Document, Drive & Email Access (`metrics.workspace_*`)
    - Network Egress Volume & Flows (`metrics.network_*`)
@@ -70,11 +70,11 @@ An analyst with deep domain knowledge may specify both a mathematical model and 
 
 #### Turn 1 Operational Steps in Phase 1B:
 1. **Identity Disambiguation**:
-   - Single first names (e.g. `"Frank"`), display names with spaces (`"Frank Kolzig"`), or email addresses (`"admin@demo.wsexample.org"`, whose technical `user.userid` in UDM may be the local part `"admin"`) must be verified against UDM telemetry before binding `user.userid`.
+   - Single first names (e.g. `"Frank"`), display names with spaces (`"Frank Kolzig"`), or corporate user email addresses (`"admin@demo.wsexample.org"`, whose technical `user.userid` in UDM may be the local part `"admin"`) must be verified against UDM telemetry before binding `user.userid`. Standard machine/service accounts (`@*.iam.gserviceaccount.com`, `arn:aws:...`, `sa-*`), hosts, and fleet sweeps proceed directly to the 1-shot event-filter probe (skipping this check).
    - Run a UDM spot-check over the requested target window when a historical date/range is given, or the last 14 days (`<ISO_14D_AGO>` to `<ISO_NOW>`) otherwise:
      `udm_search(query='target.user.userid = "<name>" nocase or principal.user.userid = "<name>" nocase or target.user.email_addresses = "<name>" nocase or principal.user.email_addresses = "<name>" nocase or target.user.user_display_name = /.*<name>.*/ nocase or principal.user.user_display_name = /.*<name>.*/ nocase', startTime="<ISO_START_OR_14D_AGO>", endTime="<ISO_END_OR_NOW>", maxEvents=5)`.
-   - If $\ge 1$ events match, always extract and bind the authoritative `user.userid` from `target.user.userid` or `principal.user.userid` in the matched UDM event (even when the input matched on `email_addresses`).
-   - If 0 events match an unqualified name/alias (no `.` and no `@`), halt immediately (0 additional tools called, no Pre-Flight card) and ask for the corporate email or technical username. If 0 events match an already qualified identifier (`first.last` or `user@domain`) in a default window, retain the input as `user.userid` for the Pre-Flight card and probe the event filter without the entity predicate.
+   - If $\ge 1$ events match, always extract and bind the non-empty authoritative `user.userid` from `target.user.userid` or `principal.user.userid` in the matched UDM event (even when the input matched on `email_addresses`; if `userid` is unpopulated on that event, extract the local username stem from `user_display_name` such as `DOMAIN\user` $\to$ `user`), and echo both the full display name (if populated, e.g. `Frank Kolzig`) and verified `user.userid` (`frank.kolzig`) in the Pre-Flight card (`• Target Entity / Scope: Frank Kolzig (Verified User ID: frank.kolzig)`).
+   - If 0 events match an unqualified name/alias (no `.` and no `@`), halt immediately (0 additional tools called, no Pre-Flight card) and ask for the corporate email or technical username. If 0 events match an already qualified identifier (`first.last` or `user@domain`) in a default window, retain the input as `user.userid` for the Pre-Flight card without retrying additional identity queries, and probe the event filter without the entity predicate.
 2. **Single-Event Baseline Probe (Turn 1 Tool Invariant)**:
    - The event-filter probe on every pre-flight turn evaluates exclusively simple single-event filters with `maxEvents: 1` using strict ISO 8601 UTC timestamps:
      `udm_search(query="<single_event_filter>", startTime="<ISO_10M_AGO>", endTime="<ISO_NOW>", maxEvents=1)`
@@ -102,7 +102,7 @@ An analyst with deep domain knowledge may specify both a mathematical model and 
 
 ## 3. Turn 2: Deterministic Multi-Stage Execution & Reporting
 
-Turn 2 executes **strictly after explicit analyst clearance** (*"Mode A"*, *"Mode B"*, *"Mode C"*, *"proceed"*, *"execute"*).
+Turn 2 executes **strictly after explicit analyst clearance** (*"Clearance granted"*, *"Run it"*, *"Mode A"*, *"Mode B"*, *"Mode C"*, *"proceed"*, *"execute"*) following a Turn 1 Pre-Flight card and candidate query preview. Always execute that exact candidate query — never re-emit a new Pre-Flight card or substitute a different query on Turn 2.
 
 ### Step 1: Telemetry Dispatch
 Analyst clearance constitutes an explicit directive to execute the search across Chronicle SIEM to verify the baseline. Always dispatch the approved multi-stage query via `udm_search` (returning `"stats"`), regardless of preliminary spot-check counts. For 360° Radar investigations, dispatch the decoupled sector micro-queries in parallel. When telemetry yields zero events or an empty stats payload (`{}` or `{"stats": []}`), format the response affirmatively as a nominal baseline using the two-pillar Zero-Telemetry Clean Hunt structure below.
