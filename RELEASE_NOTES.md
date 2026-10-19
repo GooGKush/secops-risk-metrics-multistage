@@ -1,10 +1,37 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v2.0.0)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v2.0.1)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v2.0.0 (Major Release) — October 2026  
+**Latest Version**: v2.0.1 (Point Release) — October 2026  
+
+---
+
+## 📢 What's New in v2.0.1 (Point Release) — Mode C 6-Sector 360° Radar Sharding, Email-to-Userid Identity Resolution & 4-Family Cloud CRUD Radar Spoke
+
+A point release resolving 5 root-cause gaps uncovered when profiling corporate email identities (`admin@demo.wsexample.org`) over historical incident windows with Mode C and the 6-sector 360° Behavioral Radar.
+
+### 1. Email-to-`user.userid` Identity Resolution & Historical Window Anchoring (`SKILL.md`, `references/turn-execution-lifecycle.md`, `references/360-behavioral-radar-guide.md`, `references/multi-stage-metrics-guide.md`)
+* **Email-to-Local-Userid Extraction**: Many log sources (such as Google Cloud Audit) record an email address (`admin@demo.wsexample.org`) in `user.email_addresses` while indexing `user.userid` as the local username (`"admin"`). Previously, `@`-containing inputs bypassed the identity spot-check and queried `user.userid = "admin@demo.wsexample.org"` directly, returning zero events.
+* **Expanded Spot-Check Predicate & Historical Window**: The identity spot-check now includes `target.user.email_addresses` and `principal.user.email_addresses`, runs over the requested target historical window (when a target date/range is given) or the last 14 days otherwise, extracts the non-empty canonical `user.userid` from the matched UDM event, and echoes both the full display name and verified `user.userid` in the Pre-Flight card.
+* **Service Account Fast-Path**: Standard machine/service accounts (`@*.iam.gserviceaccount.com`, `arn:aws:...`, `sa-*`), hosts, and fleet sweeps bypass the human-email spot-check so Turn 1 stays strictly within the 1-probe budget.
+
+### 2. Mode C Support for 6-Sector 360° Behavioral Radar (`scripts/timeline_assembler.py`, `references/timeline-modes-guide.md`)
+* **Per-Day Sector Shard Fusion (`--shard YYYY-MM-DD:<sector>=<path>`)**: `scripts/timeline_assembler.py` now accepts `--shard YYYY-MM-DD:<sector>=<path>` (where `<sector>` is `auth`, `cloud`, `workspace`, `network`, `dns`, `web`, `alerts`, or `endpoint`) and fuses per-day sector Z-scores into daily Euclidean threat distance $D_t = \sqrt{\sum_s \max(0, Z_{s,t})^2}$ and $\text{CRI}_t$, reporting each active sector's first breaching day and peak Z-score in the `Sector Onset` column.
+* **Active-Sector Pre-Screening**: Before dispatching daily Mode C shards for a 360° Behavioral Radar, the workflow runs 1 lightweight raw UDM existence check (`maxEvents: 1`) per sector across the full `[D_start 00:00Z, D_end+1d 00:00Z)` window and skips sectors with zero activity across the window.
+
+### 3. 4-Family Cloud CRUD Radar Spoke & Unnested `if(...)` Compiler Safety (`references/360-behavioral-radar-guide.md`, `scripts/radar_collector.py`)
+* **Unified 4-Family Cloud CRUD Spoke**: Sector 2 (`stage cloud_risk`) of the 360° Behavioral Radar previously checked only `RESOURCE_CREATION` (`metrics.resource_creation_total`), missing cloud read, write, and deletion spikes (`RESOURCE_READ`, `USER_RESOURCE_ACCESS`, `RESOURCE_WRITTEN`, `USER_RESOURCE_UPDATE_CONTENT`, `RESOURCE_DELETION`, `USER_RESOURCE_DELETION`). Sector 2 now evaluates all 4 Cloud CRUD families (`resource_read_total`, `resource_written_total`, `resource_creation_total`, `resource_deletion_total`, with a 3-day active baseline floor on deletions) and takes the peak positive Z-score across the 4 families.
+* **Malachite `<field>: <field>` Self-Binding & Unnested `if(...)`**: All 6 radar micro-queries in `references/360-behavioral-radar-guide.md` and `scripts/radar_collector.py` bind `metrics.*()` filter arguments using `<field>: <field>` (`target.user.userid: target.user.userid`, `principal.user.userid: principal.user.userid`, `metadata.vendor_name: metadata.vendor_name`, `metadata.product_name: metadata.product_name`) and express multi-family maximums via flat, unnested `if(...)` assignments (`$z_rw`, `$z_cd`, `$z = if($z_rw >= $z_cd, $z_rw, $z_cd)`), verified live on Chronicle SIEM (`gus-sdl`).
+
+### 4. Two-Phase Chained Hunt Bridge Summary & Turn 2 Clearance Handling (`scripts/ueba_hybrid_engine.py`, `SKILL.md`, `references/turn-execution-lifecycle.md`)
+* `compile_hunt_pipeline()` now includes the **Two-Phase Chained Hunt Specification** (`Phase 1`, `Bridge Contract`, `Phase 2`) inside `preflight_card_markdown` whenever `chained_plan` is compiled.
+* Clarified Turn 2 clearance recognition (`"Clearance granted"`, `"Run it"`, `"Mode A"`, `"Mode B"`, `"Mode C"`, `"proceed"`) and anchored `### Threat Hypothesis` & `### Summary View` in Phase 1A consultative responses.
+
+### 5. Testing & Live 58-Test Dual-Engine Verification
+* **Unit & Submission Suites**: **425 / 425 unit tests passing** (+212 subtests) across 25 test modules (including 4 new Mode C 6-sector shard fusion tests in `tests/test_timeline_assembler.py`); **32 / 32 submission tests passing**. `SKILL.md` is 20,449 bytes (strictly within the 20,480-byte ceiling).
+* **Live 58-Test Dual-Engine Regression Suite**: Achieved **`58 / 58` (`100.0%`) on `AgentAPI`** and **`58 / 58` (`100.0%`) on `Direct MCP`** with 100% dual-engine invariant parity on branch `fix/mode-c-radar-and-identity-resolution`.
 
 ---
 

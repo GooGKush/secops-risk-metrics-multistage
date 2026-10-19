@@ -1,6 +1,6 @@
 # Google SecOps Multi-Stage Risk Metrics Threat Hunter (`secops-risk-metrics-multistage`)
 
-[![Version](https://img.shields.io/badge/version-v2.0.0-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-421%2F421%20passing%20(100%25)-brightgreen.svg)](tests/) [![Submission Tests](https://img.shields.io/badge/submission%20tests-32%2F32%20passing%20(100%25)-brightgreen.svg)](scripts/submission_tests.py)
+[![Version](https://img.shields.io/badge/version-v2.0.1-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-425%2F425%20passing%20(100%25)-brightgreen.svg)](tests/) [![Submission Tests](https://img.shields.io/badge/submission%20tests-32%2F32%20passing%20(100%25)-brightgreen.svg)](scripts/submission_tests.py)
 
 A specialized, production-grade AI agent skill package for **Google Security Operations (SecOps / Chronicle SIEM & SOAR)** that constructs, validates, and executes **Multi-Stage YARA-L 2.0 Directed Acyclic Graph (DAG) statistical threat hunting pipelines**, **360° Entity Behavioral Risk Radars**, and **Progressively Disclosed Consultative Threat Hunting**.
 
@@ -130,10 +130,10 @@ secops-risk-metrics-multistage/
 │   ├── submission_tests.py               # Canonical 32-case compiler verification test harness
 │   ├── sync_malachite_catalog.py         # Re-syncs / drift-checks data/malachite against google3
 │   ├── template_router.py                # Maps natural language intent to .yl2 templates with condition filtering
-│   ├── timeline_assembler.py             # Mode C collator: merges per-day shard results into one timeline report
+│   ├── timeline_assembler.py             # Mode C collator: merges per-day single-query or 6-sector 360° radar shards into one timeline report
 │   ├── triage_formatter.py               # Generates 6-section triage reports, CRI scores & Post-Data Agentic Next Steps
 │   └── ueba_hybrid_engine.py             # Unified Python Hybrid Engine (compile_hunt_pipeline, dispatch_hybrid_handoff, render_forensic_dossier)
-└── tests/                                # Automated unit test suite (421 tests across 25 test modules)
+└── tests/                                # Automated unit test suite (425 tests across 25 test modules)
     ├── test_chart_specifications.py
     ├── test_chronicle_ingest.py
     ├── test_complex_multistage_syntax.py
@@ -180,10 +180,10 @@ secops-risk-metrics-multistage/
    * Analyst clearance unconditionally authorizes immediate execution of the full multi-stage query via `udm_search(query=...)`, completely eliminating secondary clarification stalls.
    * Quiet entities or zero-observation sweeps evaluate natively in Chronicle SIEM and are reported affirmatively as nominal baselines ($Z = 0.00\sigma, \text{CRI} = 0$) under the **Zero-Telemetry Clean Hunt Exemption**.
 4. **360° Entity Behavioral Risk Radar (All-Vectors Profiling)**:
-   * Generates comprehensive behavioral fingerprints across the **6 canonical risk sectors**: Authentication & Access, Cloud Resource CRUD, Workspace & SaaS, Network Egress, DNS Resolution, and Web & Proxy Activity (`radar_360_sector_web_http.yl2`).
-   * Leverages decoupled 2-stage parallel micro-queries to eliminate inner-join drops (`maxJoinCount = 4` protection), synthesizing findings into the Euclidean Threat Distance norm:
+   * Generates comprehensive behavioral fingerprints across the **6 canonical risk sectors**: Authentication & Access, Cloud Resource CRUD (all 4 families: `resource_read_total`, `resource_written_total`, `resource_creation_total`, `resource_deletion_total`), Workspace & SaaS, Network Egress, DNS Resolution, and Web & Proxy Activity (`radar_360_sector_web_http.yl2`).
+   * Leverages decoupled 2-stage parallel micro-queries with `<field>: <field>` self-binding inside `metrics.*()` to eliminate inner-join drops (`maxJoinCount = 4` protection) and case-sensitivity baseline zeroing, synthesizing findings into the Euclidean Threat Distance norm:
      $$D = \sqrt{\sum_{i=1}^{6} \max(0, Z_i)^2}$$
-   * Integrates natively with Chronicle SOAR playbooks (`references/soar-playbook-radar-integration.md`) and generates standalone visual SVG/HTML radar artifacts via `scripts/radar_collector.py`.
+   * Supports **Mode C per-day 6-sector timeline sharding** (`--shard YYYY-MM-DD:<sector>=<path>` in `scripts/timeline_assembler.py`), pre-screening active sectors across the window first and fusing daily sector Z-scores into per-day $D_t$ and $\text{CRI}_t$. Integrates natively with Chronicle SOAR playbooks (`references/soar-playbook-radar-integration.md`) and generates standalone visual SVG/HTML radar artifacts via `scripts/radar_collector.py`.
 5. **Chronicle Malachite Function Factory Modernization (`math.*`) & OIO Inlining**:
    * Natively leverages Chronicle SIEM's namespaced mathematical built-ins (`math.abs`, `math.sqrt`, `math.log`, `math.pow`, `math.floor`, `math.ceil`, `math.round`), expressing general and base-$e$ exponentiation via `math.pow($base, $exp)` / `math.pow(2.718281828, $x)` rather than the unsupported `math.exp()` function identifier.
    * Employs **Outcomes-in-Outcomes (OIO)** in-stage inlining, allowing intermediate outcome variables to directly feed subsequent formulas within the same stage (e.g., `$diff = $obs - $avg`, `$z = $diff / $safe_sd`).
@@ -204,19 +204,19 @@ secops-risk-metrics-multistage/
    * Synthesizes hunt findings into a rigorous 6-pillar forensic triage report:
      1. *Statistical Outlier Report*: Executive headline, active/baseline window summary, and single-surface visual chart (`<agent-embed>` in Jetski, inline `<svg>` in generic MCP, or Unicode `▰▰▰▰▱▱▱▱` bars in CLI).
      2. *Executed Multi-Stage YARA-L Query*: Literal multi-stage YARA-L 2.0 query executed via `udm_search`.
-     3. *Ranked Outlier Summary & Provenance Stamp*: Quantitative tabular breakdown with 24h observed counts, 30-day baseline $\mu, \sigma$, statistical deviation score, Calibrated Risk Index (`CRI [0–100]`) badge, and Unicode magnitude bars (`▰▰▰▰▱▱▱▱`).
-     4. *Forensic Vector Breakdown*: Threat translation, MITRE ATT&CK kill-chain progression, attack scenarios, legitimate confounders, actionable SOC playbook steps, and outcome-driven **Agentic Next Steps (`[A]` / `[B]` / `[C]`)**.
+     3. *Ranked Outlier Summary & Provenance Stamp*: Quantitative tabular breakdown with observed counts, 30-day baseline $\mu, \sigma$, statistical deviation score, Calibrated Risk Index (`CRI [0–100]`) badge, and Unicode magnitude bars (`▰▰▰▰▱▱▱▱`).
+     4. *Forensic Vector Breakdown*: Threat translation, MITRE ATT&CK kill-chain progression, attack scenarios, legitimate confounders, actionable SOC playbook steps, and outcome-driven **Agentic Next Steps (`[1]` / `[2]` / `[3]`)**.
      5. *Chronicle UI Manual Pivot (Triage Reference Only)*: Copy-and-paste raw UDM filter expression for manual Chronicle UI timeline inspection.
      6. *Statistical & Mathematical Appendix*: Collapsible `<details>` derivation of model parameters, degrees of freedom ($N$), and CRI normalization.
-   * **State 3 → Phase 1B Pivot Loop**: Selecting a `[A]` / `[B]` / `[C]` follow-up pivot transitions directly into Phase 1B pre-flight clearance carrying forward the target entity, cohort scope, and evaluation window.
+   * **State 3 → Phase 1B Pivot Loop**: Selecting a `[1]` / `[2]` / `[3]` follow-up pivot transitions directly into Phase 1B pre-flight clearance carrying forward the target entity, cohort scope, and evaluation window.
 9. **Noise Level Tuning & Root-Stage `condition:` Gating**:
    * Employs native Chronicle compiler support for root-stage `condition:` post-aggregation filtering (`HAVING` semantics) placed directly before `order:`.
    * Enables precision sensitivity steering across high-confidence alerting (`$z_score >= 3.0`), investigative drift bands (`$z_score >= 2.0 and $z_score < 3.0`), directional silencing (`$z_score <= -3.0`), and baseline maturity hurdles (`$active_days >= 7`).
 10. **Cloud Infrastructure CRUD & Origin IP Monitoring**:
     * Evaluates cloud repository and data store operations (`resource_read_*`, `resource_written_*`, `resource_deletion_*`, `resource_creation_*` across `total`, `fail`, and `success` modes) across Google Cloud (`GCP_CLOUDAUDIT`), AWS CloudTrail, and Azure Activity logs via dual-branch DAGs (`cloud_repository_scope_dual_branch.yl2`), preventing single-product narrowing traps and capturing origin IP pivots.
 11. **Identity Governance & Zero-Guessing Technical ID Disambiguation Gate**:
-    * Strictly bans heuristic username synthesis. Scopes technical ID disambiguation spot-checks strictly to ambiguous human display names (e.g. "Frank"), while hostnames, technical identifiers (`user_id`), and fleet-wide scopes proceed directly with pre-flight vector formulation.
-    * Uses a 14-day UDM lookback window (`startTime: 14d ago, maxEvents: 5`) across `principal.user` and `target.user`. Halts immediately and prompts the analyst if an ambiguous human identity cannot be resolved from telemetry.
+    * Strictly bans heuristic username synthesis. Resolves human display names (e.g. `"Frank"`, `"Frank Kolzig"`) and corporate user email addresses (`"admin@demo.wsexample.org"`, whose UDM `user.userid` may be indexed as the local username `"admin"`) against UDM telemetry before binding `user.userid`, while standard machine/service accounts (`@*.iam.gserviceaccount.com`, `arn:aws:...`, `sa-*`), hostnames, and fleet-wide scopes proceed directly to the 1-shot event-filter probe.
+    * Anchors the UDM identity spot-check to the requested target historical window (when a target date/range is specified) or the last 14 days (`maxEvents: 5`) across `userid`, `email_addresses`, and `user_display_name` on both `principal.user` and `target.user`. Halts immediately and prompts the analyst if an unqualified human name cannot be resolved from telemetry.
 12. **Comprehensive 38-Metric Extractor Matrix & Stage 2 Math Models**:
     * 100% coverage across 38 Stage 1 extractors (Authentication, Cloud CRUD, File Execution, Network Egress/Flows, DNS Activity, HTTP, Google Workspace, Security/EDR Alerts) and 17 Stage 2 model templates (Standard $Z$, True MAD / Modified $Z$, Relative Deviation, Poisson Rarity, Hourly Temporal $Z$, $CV$, Fano Factor, Asymmetric $Z$, CUSUM, Two-Part Hurdle, Piecewise CRI, Empirical Bayes Gamma, Beta-Binomial, Fleet Shield, Adaptive Thresholds, MACD Momentum Velocity, Circadian von Mises).
     * Every Stage 1 extractor's observed event filter matches what its pre-computed baseline counts, and each carries a note listing the identifier fields valid for that metric.
@@ -293,17 +293,19 @@ For deep domain investigations, the skill references specialized consultative wo
 During the Pre-Flight Clearance gate, analysts choose a temporal evaluation horizon. One search request anchors one 30-day `metrics.*` baseline at its start day (Malachite `query_engine/qesql/ueba.go`), which shapes Modes B and C:
 * **Mode A (Current-Day Snapshot)**: Evaluates today so far (00:00Z to now) against the 30-day historical baseline. Designed for rapid triage, immediate threshold breach identification, and daily operational sweeps. Queries that join the Entity Graph widen the search window to D-2 00:00Z but still score only today's events (see capability 6).
 * **Mode B (Fixed-Baseline Timeline, 2–7 days)**: One query with daily buckets (`by 1d`). Every scored day reuses the baseline anchored at the first day, so later days face an older baseline; the card states the baseline dates. Works in every client. Longitudinal CUSUM is the exception: it wants that fixed reference and may span up to 14 days in one query.
-* **Mode C (Per-Day Baseline Timeline)**: Offered only when the client can run local scripts (`run_command`). Runs the approved query once per UTC day so each day gets its own trailing 30-day baseline, then collates the saved results with `scripts/timeline_assembler.py` (default cap 30 days). See `references/timeline-modes-guide.md`.
+* **Mode C (Per-Day Baseline Timeline)**: Offered only when the client can run local scripts (`run_command`). Runs the approved query once per UTC day so each day gets its own trailing 30-day baseline, then collates the saved results with `scripts/timeline_assembler.py` (default cap 30 days) — supporting both single-vector (`--shard YYYY-MM-DD=<path>`) and 6-sector 360° Behavioral Radar (`--shard YYYY-MM-DD:<sector>=<path>` with active-sector pre-screening) timelines. See `references/timeline-modes-guide.md`.
 
 ### 5. Natural Language Prompt Examples
 
 #### 🧭 Consultative & Open-Ended Inquiries
 * *"I suspect an employee might be preparing to leave with sensitive data, but I don't know which telemetry source to check. Can you help me investigate?"*
 * *"Help me find abnormal behavior for user frank.kolzig that static detection rules usually miss."*
+* *"We saw suspicious privilege escalation attempts around August 29 — can you profile `admin@demo.wsexample.org` across that week to see if any cloud resource writes, creations, or deletions spiked alongside login activity?"* (automatically resolves corporate email `admin@demo.wsexample.org` → `user.userid = "admin"` across the August window and recommends a multi-sector 360° / Cloud CRUD + Auth hunt)
 * *"What kind of behavioral anomaly hunts can we run against our Google Cloud and AWS infrastructure to catch insider privilege abuse?"*
 
 #### 🕸️ 360° Behavioral Risk Radar & Peer Comparisons
 * *"Show me a 360-degree risk metrics view of user Frank Kolzig across all 6 behavioral sectors."*
+* *"Run a Mode C per-day 360° behavioral radar for `admin@demo.wsexample.org` from August 25 to August 31 so each day is scored against its own trailing 30-day baseline across all 6 sectors."*
 * *"Is Frank doing things his teammates don't do? Check his authentication activity against his IT Department peer group roster."*
 * *"Perform a 360 health check on our top executive service accounts to spot cross-silo behavioral dispersion."*
 * *"Compare Frank's logins to his team, and his team to the rest of the company."*
@@ -347,7 +349,7 @@ The skill package ships with two test tiers that anyone can run from a clone:
 pytest tests/
 # or: python3 -m unittest discover tests
 ```
-* **Status**: **421 / 421 passing unit tests** (plus 212 subtests) across 25 test modules (100% pass rate).
+* **Status**: **425 / 425 passing unit tests** (plus 212 subtests) across 25 test modules (100% pass rate).
 * **Scope**: Enforces Chronicle AST grammar rules, KaTeX formatting compliance, prompt guardrail contracts, 20,480-byte budget ceilings, template router permutations across all 38 metrics and the Stage 2 models, metric-sector catalog drift against `data/`, and Entity Graph freshness filters in every graph template.
 
 ### 2. Google SecOps Malachite Compiler Submission Harness
@@ -365,6 +367,13 @@ python3 scripts/submission_tests.py --dump-dir <OUTPUT_DIR>
 ---
 
 ## 📦 Recent Releases
+
+### v2.0.1 (October 2026) — Mode C 6-Sector 360° Radar Sharding, Email-to-Userid Identity Resolution & 4-Family Cloud CRUD Radar Spoke
+* **Email-to-`user.userid` & Historical Window Identity Resolution (`SKILL.md`, `references/identity-governance.md`)**: When an analyst supplies a corporate email address (`*@*`) or display name, the Turn 1 probe tests `principal.user.userid`, `principal.user.email_addresses`, `target.user.userid`, and `target.user.email_addresses` across the user-requested historical evaluation window (`startTime`/`endTime`) and projects `$uid = coalesce(principal.user.userid, target.user.userid)` so `metrics.*` pipelines bind to the exact `user.userid` stored in UDM events (e.g., `admin@demo.wsexample.org` → `user.userid = "admin"`).
+* **4-Family Cloud CRUD Radar Spoke (`scripts/radar_collector.py`, `templates/composite_pipelines/radar_360_spokes.yl2`, `references/360-radar-guide.md`)**: Expands the user 360° Behavioral Radar **Cloud Infrastructure (`cloud`)** spoke (`build_radar_spoke_6_cloud_query`) from a 2-family `writes` + `deletions` join to a full 4-family Cloud CRUD join across `resource_read_success`, `resource_written_success`, `resource_creation_success`, and `resource_deletion_success` (`math.max` across all 4 directional Z-scores), while preserving exact Malachite `query_engine/qesql/metrics.go` (`filterResourceMetric`) compatibility.
+* **Mode C 6-Sector 360° Radar Sharding (`scripts/timeline_assembler.py`, `references/timeline-modes-guide.md`, `references/360-radar-guide.md`)**: Adds multi-sector Mode C support (`--shard YYYY-MM-DD:<sector>=<path>`) with active-sector pre-screening (`N days × K active sectors`), computing per-day composite `max_z`, peak sector attribution, and per-sector Z-score columns in the Markdown timeline table and multi-sector chart.
+* **Strict Numbered Follow-Up Pivot Formatting (`SKILL.md`, `references/reporting-standards.md`, `references/360-radar-guide.md`)**: Enforces `[1]` / `[2]` / `[3]` numbering across all post-hunt and clean-hunt follow-up pivots so follow-up options never collide with `[A]`/`[B]`/`[C]` timeline clearance tokens.
+* **Test Suite & Live Dual-Engine Regression**: **425/425 unit tests** (+212 subtests); **32/32 submission tests**; **`116/116` (`100.0%`)** across `AgentAPI` (`58/58`) and `Direct MCP` (`58/58`). `SKILL.md` is 20,449 bytes.
 
 ### v2.0.0 (October 2026) — Unified Python Hybrid Engine, Native Headless MCP Tools & 24.4% Prompt Compression
 * **Unified Python Hybrid Engine (`scripts/ueba_hybrid_engine.py`)**: Exposes `compile_hunt_pipeline()`, `dispatch_hybrid_handoff()`, and `render_forensic_dossier()` via CLI (`compile`, `handoff`, `render`, `catalog`) and Python API, covering all 12 statistical models, 38 Malachite metrics, 7 pipeline architectures, Turn 1 consultative demarcation handoffs (`secops-threat-hunt-handoff-v1`), and Phase 2 Macro-to-Micro hybrid enrichment with `secops-statistical-hunter`.
