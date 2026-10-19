@@ -91,14 +91,14 @@ Because MCP clients operate across varied environments (web browsers, IDEs, desk
 ## 🚦 3. Phase 1: Pre-Flight Scoping & Identity Resolution
 
 ### 3.1 Technical Identity Resolution Protocol
-Pre-computed metric tables (`metrics.*`) are indexed strictly by technical logon identifiers (`user.userid` or `asset.hostname`).
+Pre-computed metric tables (`metrics.*`) are indexed strictly by technical logon identifiers (`user.userid` or `asset.hostname`). Because many log sources record an email (`admin@demo.wsexample.org`) in `user.email_addresses` while indexing `user.userid` as the local username (`"admin"`), always include `email_addresses` in the spot-check for human users/emails (standard machine/service accounts `@*.iam.gserviceaccount.com`, `arn:aws:...`, `sa-*`, hosts, and fleet sweeps skip this check) and run the spot-check over the requested target window (when a historical date/range is given) or the last 14 days otherwise.
 
 1. **Spot-Check Query**:
    ```sql
-   (target.user.userid = "<InputName>" nocase or principal.user.userid = "<InputName>" nocase or target.user.user_display_name = "<InputName>" nocase or principal.user.user_display_name = "<InputName>" nocase)
+   (target.user.userid = "<InputName>" nocase or principal.user.userid = "<InputName>" nocase or target.user.email_addresses = "<InputName>" nocase or principal.user.email_addresses = "<InputName>" nocase or target.user.user_display_name = /.*<InputName>.*/ nocase or principal.user.user_display_name = /.*<InputName>.*/ nocase)
    ```
-   *Time range*: Last 14 days (`startTime: <ISO_14D_AGO>`, `endTime: <ISO_NOW>`, `maxEvents: 5`).
-2. **Resolution Gate**: If matched, extract canonical `user.userid` (e.g., `"Jane Doe"` $\to$ `jdoe`). If 0 events match, halt and request the user's technical username or email.
+   *Time range*: Requested target date window (`startTime: <ISO_TARGET_START>`, `endTime: <ISO_TARGET_END>`), or last 14 days (`startTime: <ISO_14D_AGO>`, `endTime: <ISO_NOW>`) when no target window is specified (`maxEvents: 5`).
+2. **Resolution Gate**: If $\ge 1$ events match, always extract and bind the non-empty canonical `user.userid` from `target.user.userid` or `principal.user.userid` in the matched UDM event (e.g., `"Jane Doe"` $\to$ `jdoe`, or `"admin@demo.wsexample.org"` $\to$ `admin`; if `userid` is empty on that event, extract the local username from `user_display_name` such as `DOMAIN\user` $\to$ `user`), and echo both the full display name (e.g. `Frank Kolzig`) and verified `user.userid` (`frank.kolzig`) in the Pre-Flight card and report (`Frank Kolzig (frank.kolzig)`). If 0 events match an unqualified name/alias (no `.` and no `@`), halt immediately and request the user's technical username or email; if 0 events match an already-qualified `first.last` or `user@domain` in a default window, retain the input as `user.userid` without retrying.
 
 ### 3.2 Standard Pre-Flight Specification Card
 On Turn 1, emit the card and single-representative preview query, then yield the turn:
@@ -126,8 +126,8 @@ stage auth_risk {
     $user by 1d
   outcome:
     $obs = count(metadata.id)
-    $avg = max(metrics.auth_attempts_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, target.user.userid: "%(entity_id)s"))
-    $std = max(metrics.auth_attempts_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, target.user.userid: "%(entity_id)s"))
+    $avg = max(metrics.auth_attempts_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, target.user.userid: target.user.userid))
+    $std = max(metrics.auth_attempts_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, target.user.userid: target.user.userid))
 }
 
 // Root stage is mandatory: it must declare match/outcome and consume the named stage.
@@ -147,16 +147,16 @@ order:
 ```
 
 *Yield Turn Prompt*:
-> *"Would you like me to proceed with **Mode A (Today vs 30-Day Baseline)** or **Mode B (2–7 Day Fixed-Baseline Timeline)**? (For open-ended fleet sweeps, Mode B is recommended to capture episodic bursts; Mode A is optimal for active incident triage.)"*
+> *"Would you like me to proceed with **Mode A (Today vs 30-Day Baseline)** or **Mode B (2–7 Day Fixed-Baseline Timeline)**[, or **Mode C (Per-Day Baseline)** if `run_command` is present]? (For open-ended fleet sweeps, Mode B is recommended to capture episodic bursts; Mode A is optimal for active incident triage; Mode C evaluates each day against its own trailing 30d baseline by pre-screening active sectors and passing `--shard YYYY-MM-DD:<sector>=<path>` to `scripts/timeline_assembler.py`.)"*
 
 ---
 
 ## 🔍 4. Phase 2: The 6 Invariate Canonical Sector Queries & Z-Score Standard
 
-For 360° behavioral radar profiling, each sector evaluates a single **universal total activity baseline** ($X_{\text{total}}$ vs. $\mu_{\text{total}}$). The only calculation needed per sector is the standard parametric Z-score with conditional zero-dispersion safeguard:
+For 360° behavioral radar profiling, each sector evaluates its **total activity baseline** ($X_{\text{total}}$ vs. $\mu_{\text{total}}$) using the standard parametric Z-score with conditional zero-dispersion safeguard:
 $$Z_i = \frac{\text{Observed}_i - \mu_i}{\max(\sigma_i, 1.0)}$$
 
-Zero conditional event filtering (`security_result.action`) and zero conditional aggregations (`count(if(...))`) are evaluated. Each sector operates as an independent micro-query, and the six sector Z-scores are joined client-side in the report presentation layer to compute the Euclidean distance:
+Always bind `metrics.*` dimension filter arguments using `<field>: <field>` (e.g. `target.user.userid: target.user.userid`, `principal.user.userid: principal.user.userid`, `metadata.vendor_name: metadata.vendor_name`, `metadata.product_name: metadata.product_name`) while constraining the target entity in the stage event filter (`target.user.userid = "%(entity_id)s"`), so Chronicle UI **Case Sensitivity Off** (`LOWER(...)` wrapping) never rejects string literals or bound `$variable` tokens inside `metrics.*()`. Each sector operates as an independent micro-query, and the six sector Z-scores are joined client-side in the report presentation layer to compute the Euclidean distance:
 $$D = \sqrt{\sum_{i=1}^6 \max(0, Z_i)^2}$$
 
 ### 4.1 USER Entity Sector Cookbook
@@ -176,11 +176,11 @@ stage auth_risk {
     $obs = count(metadata.id)
     $avg = max(metrics.auth_attempts_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: avg,
-        target.user.userid: "%(entity_id)s"
+        target.user.userid: target.user.userid
     ))
     $std = max(metrics.auth_attempts_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
-        target.user.userid: "%(entity_id)s"
+        target.user.userid: target.user.userid
     ))
     $z = ($obs - $avg) / if($std > 0, $std, 1.0)
 }
@@ -200,11 +200,20 @@ order:
   $z desc
 ```
 
-#### Sector 2: Cloud Infrastructure & IAM CRUD (`metrics.resource_creation_total`)
+#### Sector 2: Cloud Infrastructure & IAM CRUD (`metrics.resource_read_total`, `metrics.resource_written_total`, `metrics.resource_creation_total`, `metrics.resource_deletion_total`)
 * **Spoke Unit**: `actions` | **Dimension Scope**: `principal.user.userid`, `metadata.vendor_name`, `metadata.product_name`
 ```yara
 stage cloud_risk {
-    (metadata.event_type = "RESOURCE_CREATION" or metadata.event_type = "USER_RESOURCE_CREATION")
+    (
+        metadata.event_type = "RESOURCE_READ" or
+        metadata.event_type = "USER_RESOURCE_ACCESS" or
+        metadata.event_type = "RESOURCE_WRITTEN" or
+        metadata.event_type = "USER_RESOURCE_UPDATE_CONTENT" or
+        metadata.event_type = "RESOURCE_CREATION" or
+        metadata.event_type = "USER_RESOURCE_CREATION" or
+        metadata.event_type = "RESOURCE_DELETION" or
+        metadata.event_type = "USER_RESOURCE_DELETION"
+    )
     principal.user.userid = "%(entity_id)s"
     $user = principal.user.userid
     $vendor = metadata.vendor_name
@@ -212,20 +221,72 @@ stage cloud_risk {
   match:
     $user, $vendor, $product by 1d
   outcome:
-    $obs = count(metadata.id)
-    $avg = max(metrics.resource_creation_total(
+    $read_obs = sum(if(metadata.event_type = "RESOURCE_READ" or metadata.event_type = "USER_RESOURCE_ACCESS", 1, 0))
+    $read_avg = max(metrics.resource_read_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: avg,
-        principal.user.userid: "%(entity_id)s",
-        metadata.vendor_name: $vendor,
-        metadata.product_name: $product
+        principal.user.userid: principal.user.userid,
+        metadata.vendor_name: metadata.vendor_name,
+        metadata.product_name: metadata.product_name
     ))
-    $std = max(metrics.resource_creation_total(
+    $read_std = max(metrics.resource_read_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
-        principal.user.userid: "%(entity_id)s",
-        metadata.vendor_name: $vendor,
-        metadata.product_name: $product
+        principal.user.userid: principal.user.userid,
+        metadata.vendor_name: metadata.vendor_name,
+        metadata.product_name: metadata.product_name
     ))
-    $z = ($obs - $avg) / if($std > 0, $std, 1.0)
+    $z_read = ($read_obs - $read_avg) / if($read_std > 0, $read_std, 1.0)
+
+    $write_obs = sum(if(metadata.event_type = "RESOURCE_WRITTEN" or metadata.event_type = "USER_RESOURCE_UPDATE_CONTENT", 1, 0))
+    $write_avg = max(metrics.resource_written_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+        principal.user.userid: principal.user.userid,
+        metadata.vendor_name: metadata.vendor_name,
+        metadata.product_name: metadata.product_name
+    ))
+    $write_std = max(metrics.resource_written_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+        principal.user.userid: principal.user.userid,
+        metadata.vendor_name: metadata.vendor_name,
+        metadata.product_name: metadata.product_name
+    ))
+    $z_write = ($write_obs - $write_avg) / if($write_std > 0, $write_std, 1.0)
+
+    $create_obs = sum(if(metadata.event_type = "RESOURCE_CREATION" or metadata.event_type = "USER_RESOURCE_CREATION", 1, 0))
+    $create_avg = max(metrics.resource_creation_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+        principal.user.userid: principal.user.userid,
+        metadata.vendor_name: metadata.vendor_name,
+        metadata.product_name: metadata.product_name
+    ))
+    $create_std = max(metrics.resource_creation_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+        principal.user.userid: principal.user.userid,
+        metadata.vendor_name: metadata.vendor_name,
+        metadata.product_name: metadata.product_name
+    ))
+    $z_create = ($create_obs - $create_avg) / if($create_std > 0, $create_std, 1.0)
+
+    $delete_obs = sum(if(metadata.event_type = "RESOURCE_DELETION" or metadata.event_type = "USER_RESOURCE_DELETION", 1, 0))
+    $delete_days = max(metrics.resource_deletion_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+        principal.user.userid: principal.user.userid,
+        metadata.vendor_name: metadata.vendor_name,
+        metadata.product_name: metadata.product_name
+    ))
+    $delete_avg = max(metrics.resource_deletion_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+        principal.user.userid: principal.user.userid,
+        metadata.vendor_name: metadata.vendor_name,
+        metadata.product_name: metadata.product_name
+    ))
+    $delete_std = max(metrics.resource_deletion_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+        principal.user.userid: principal.user.userid,
+        metadata.vendor_name: metadata.vendor_name,
+        metadata.product_name: metadata.product_name
+    ))
+    $z_delete_raw = ($delete_obs - $delete_avg) / if($delete_std > 0, $delete_std, 1.0)
+    $z_delete = if($delete_days >= 3, $z_delete_raw, 0.0)
 }
 
 $user = $cloud_risk.user
@@ -234,10 +295,16 @@ match:
   $user by 1d
 
 outcome:
-  $z = max($cloud_risk.z)
-  $observed = max($cloud_risk.obs)
-  $baseline = max($cloud_risk.avg)
-  $dispersion = max($cloud_risk.std)
+  $z_read = max($cloud_risk.z_read)
+  $z_write = max($cloud_risk.z_write)
+  $z_create = max($cloud_risk.z_create)
+  $z_delete = max($cloud_risk.z_delete)
+  $z_rw = if($z_read >= $z_write, $z_read, $z_write)
+  $z_cd = if($z_create >= $z_delete, $z_create, $z_delete)
+  $z = if($z_rw >= $z_cd, $z_rw, $z_cd)
+  $observed = sum($cloud_risk.read_obs) + sum($cloud_risk.write_obs) + sum($cloud_risk.create_obs) + sum($cloud_risk.delete_obs)
+  $baseline = max($cloud_risk.read_avg) + max($cloud_risk.write_avg) + max($cloud_risk.create_avg) + max($cloud_risk.delete_avg)
+  $dispersion = max($cloud_risk.read_std) + max($cloud_risk.write_std) + max($cloud_risk.create_std) + max($cloud_risk.delete_std)
 
 order:
   $z desc
@@ -257,11 +324,11 @@ stage workspace_risk {
     $obs = count(metadata.id)
     $avg = max(metrics.workspace_total_download_actions(
         period: 1d, window: 30d, metric: event_count_sum, agg: avg,
-        principal.user.userid: "%(entity_id)s"
+        principal.user.userid: principal.user.userid
     ))
     $std = max(metrics.workspace_total_download_actions(
         period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
-        principal.user.userid: "%(entity_id)s"
+        principal.user.userid: principal.user.userid
     ))
     $z = ($obs - $avg) / if($std > 0, $std, 1.0)
 }
@@ -295,11 +362,11 @@ stage egress_risk {
     $obs = sum(network.sent_bytes)
     $avg = max(metrics.network_bytes_outbound(
         period: 1d, window: 30d, metric: value_sum, agg: avg,
-        principal.user.userid: "%(entity_id)s"
+        principal.user.userid: principal.user.userid
     ))
     $std = max(metrics.network_bytes_outbound(
         period: 1d, window: 30d, metric: value_sum, agg: stddev,
-        principal.user.userid: "%(entity_id)s"
+        principal.user.userid: principal.user.userid
     ))
     $z = ($obs - $avg) / if($std > 0, $std, 1.0)
 }
@@ -332,11 +399,11 @@ stage dns_risk {
     $obs = count(metadata.id)
     $avg = max(metrics.dns_queries_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: avg,
-        principal.user.userid: "%(entity_id)s"
+        principal.user.userid: principal.user.userid
     ))
     $std = max(metrics.dns_queries_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
-        principal.user.userid: "%(entity_id)s"
+        principal.user.userid: principal.user.userid
     ))
     $z = ($obs - $avg) / if($std > 0, $std, 1.0)
 }
@@ -369,11 +436,11 @@ stage web_risk {
     $obs = count(metadata.id)
     $avg = max(metrics.http_queries_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: avg,
-        principal.user.userid: "%(entity_id)s"
+        principal.user.userid: principal.user.userid
     ))
     $std = max(metrics.http_queries_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
-        principal.user.userid: "%(entity_id)s"
+        principal.user.userid: principal.user.userid
     ))
     $z = ($obs - $avg) / if($std > 0, $std, 1.0)
 }
@@ -591,8 +658,8 @@ stage auth_risk {
     $user by 1d
   outcome:
     $obs = count(metadata.id)
-    $avg = max(metrics.auth_attempts_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, target.user.userid: "<target_entity_id>"))
-    $std = max(metrics.auth_attempts_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, target.user.userid: "<target_entity_id>"))
+    $avg = max(metrics.auth_attempts_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, target.user.userid: target.user.userid))
+    $std = max(metrics.auth_attempts_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, target.user.userid: target.user.userid))
 }
 
 // Root stage is mandatory: it must declare match/outcome and consume the named stage.

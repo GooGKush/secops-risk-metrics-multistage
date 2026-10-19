@@ -122,12 +122,15 @@ def parse_stats_payload(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def load_shard_spec(spec: str) -> Tuple[str, List[Dict[str, Any]]]:
-  """Parses `YYYY-MM-DD=<path or inline JSON>`."""
+  """Parses `YYYY-MM-DD[:sector]=<path or inline JSON>`."""
   if "=" not in spec:
-    raise ValueError(f"Shard spec must be DAY=PATH_OR_JSON, got '{spec}'")
-  day, source = spec.split("=", 1)
-  day = day.strip()
-  _parse_day(day)
+    raise ValueError(f"Shard spec must be DAY[:SECTOR]=PATH_OR_JSON, got '{spec}'")
+  day_spec, source = spec.split("=", 1)
+  day_spec = day_spec.strip()
+  day_part, sep, sector_part = day_spec.partition(":")
+  _parse_day(day_part.strip())
+  if sep and not sector_part.strip():
+    raise ValueError(f"Shard spec has empty sector after ':': '{spec}'")
   source = source.strip()
   if source.startswith("{"):
     payload = json.loads(source)
@@ -135,7 +138,14 @@ def load_shard_spec(spec: str) -> Tuple[str, List[Dict[str, Any]]]:
     with open(source, "r", encoding="utf-8") as f:
       text = f.read().strip()
     payload = json.loads(text) if text else {}
-  return day, parse_stats_payload(payload)
+  return day_spec, parse_stats_payload(payload)
+
+
+def _normalize_sector_col(sector: str) -> str:
+  clean = sector.strip().lower().replace(" ", "_").replace("-", "_")
+  if clean.startswith(("z_", "sector_z_")):
+    return clean
+  return f"z_{clean}"
 
 
 class TimelineAssembler:
@@ -153,29 +163,63 @@ class TimelineAssembler:
     self.min_baseline_days = min_baseline_days
     self.top_n = top_n
     self.shards: Dict[str, List[Dict[str, Any]]] = {}
+    self.unsectored_days: set[str] = set()
+    self.sector_shards: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
     self.failed: Dict[str, str] = {}
 
-  def add_shard(self, day: str, rows: List[Dict[str, Any]]) -> None:
-    _parse_day(day)
-    if day in self.shards or day in self.failed:
-      raise ValueError(f"Duplicate shard day '{day}'")
-    self.shards[day] = rows
+  def add_shard(
+      self,
+      day: str,
+      rows: List[Dict[str, Any]],
+      sector: Optional[str] = None,
+  ) -> None:
+    day_part, sep, inline_sector = day.partition(":")
+    day_str = day_part.strip()
+    _parse_day(day_str)
+    eff_sector = sector or (inline_sector.strip() if sep else None)
+    if day_str in self.failed:
+      raise ValueError(f"Duplicate shard day '{day_str}'")
+    if eff_sector:
+      sec_col = _normalize_sector_col(eff_sector)
+      if day_str in self.unsectored_days or (day_str, sec_col) in self.sector_shards:
+        raise ValueError(f"Duplicate shard day/sector '{day_str}:{eff_sector}'")
+      self.sector_shards[(day_str, sec_col)] = rows
+      self.shards.setdefault(day_str, [])
+    else:
+      if day_str in self.shards:
+        raise ValueError(f"Duplicate shard day '{day_str}'")
+      self.unsectored_days.add(day_str)
+      self.shards[day_str] = rows
 
   def add_failed(self, day: str, reason: str = "failed after retry") -> None:
-    _parse_day(day)
-    if day in self.shards or day in self.failed:
-      raise ValueError(f"Duplicate shard day '{day}'")
-    self.failed[day] = reason
+    day_part, sep, inline_sector = day.partition(":")
+    day_str = day_part.strip()
+    _parse_day(day_str)
+    if not sep and (day_str in self.shards or day_str in self.failed):
+      raise ValueError(f"Duplicate shard day '{day_str}'")
+    if sep:
+      sec_label = inline_sector.strip() or "sector"
+      prev = self.failed.get(day_str)
+      self.failed[day_str] = f"{prev}; {sec_label}: {reason}" if prev else f"{sec_label}: {reason}"
+    else:
+      self.failed[day_str] = reason
 
   # ---- field resolution -------------------------------------------------------------------
 
+  def _iter_all_rows(self) -> List[Dict[str, Any]]:
+    all_rows: List[Dict[str, Any]] = []
+    for rows in self.shards.values():
+      all_rows.extend(rows)
+    for rows in self.sector_shards.values():
+      all_rows.extend(rows)
+    return all_rows
+
   def _all_columns(self) -> List[str]:
     seen: List[str] = []
-    for rows in self.shards.values():
-      for row in rows:
-        for name in row:
-          if name not in seen:
-            seen.append(name)
+    for row in self._iter_all_rows():
+      for name in row:
+        if name not in seen:
+          seen.append(name)
     return seen
 
   def _resolve_entity_field(self, columns: List[str]) -> Optional[str]:
@@ -184,11 +228,10 @@ class TimelineAssembler:
     for name in ENTITY_CANDIDATES:
       if name in columns:
         return name
-    for rows in self.shards.values():
-      for row in rows:
-        for name, value in row.items():
-          if name not in NON_ENTITY_COLUMNS and isinstance(value, str):
-            return name
+    for row in self._iter_all_rows():
+      for name, value in row.items():
+        if name not in NON_ENTITY_COLUMNS and isinstance(value, str):
+          return name
     return None
 
   def _resolve_score_field(self, columns: List[str]) -> Tuple[Optional[str], bool]:
@@ -197,7 +240,27 @@ class TimelineAssembler:
     for name, squared in SCORE_CANDIDATES:
       if name in columns:
         return name, squared
+    # Fallback for multi-metric sector queries emitting z_<metric> columns (e.g. z_create, z_fail)
+    for name in columns:
+      if name.startswith("z_") and not name.endswith(SECTOR_Z_EXCLUDED_SUFFIXES):
+        return name, False
     return None, False
+
+  @staticmethod
+  def _extract_row_score(
+      row: Dict[str, Any],
+      score_field: Optional[str],
+      squared: bool,
+  ) -> Optional[float]:
+    if score_field and row.get(score_field) is not None:
+      raw = float(row[score_field])
+      return math.sqrt(max(0.0, raw)) if squared else raw
+    z_vals = [
+        float(v)
+        for k, v in row.items()
+        if k.startswith("z_") and not k.endswith(SECTOR_Z_EXCLUDED_SUFFIXES) and v is not None
+    ]
+    return max(z_vals) if z_vals else None
 
   @staticmethod
   def _sector_z_fields(columns: List[str]) -> List[str]:
@@ -227,8 +290,11 @@ class TimelineAssembler:
     entity_field = self._resolve_entity_field(columns)
     score_field, squared = self._resolve_score_field(columns)
     sector_fields = self._sector_z_fields(columns)
+    for _, sec_col in self.sector_shards:
+      if sec_col not in sector_fields:
+        sector_fields.append(sec_col)
     sparse_pairs = self._sparse_pairs(columns)
-    has_rows = any(self.shards.values())
+    has_rows = any(self.shards.values()) or any(self.sector_shards.values())
     if has_rows and (entity_field is None or score_field is None):
       raise ValueError(
           "Could not resolve entity/score columns; pass --entity-field and --score-field. "
@@ -240,11 +306,9 @@ class TimelineAssembler:
     for day, rows in self.shards.items():
       for row in rows:
         entity = str(row.get(entity_field))
-        raw = row.get(score_field)
-        if raw is None:
+        score = self._extract_row_score(row, score_field, squared)
+        if score is None:
           continue
-        raw = float(raw)
-        score = math.sqrt(max(0.0, raw)) if squared else raw
         key = (entity, day)
         if key not in cells or score > cells[key]["score"]:
           cells[key] = {
@@ -261,6 +325,38 @@ class TimelineAssembler:
                 "entity": entity, "day": day, "sector": prefix,
                 "observed": observed, "baseline_days": _compact_number(active),
             })
+
+    # Multi-sector per-day shards (360° Radar Mode C): fuse per-sector Z-scores into D = sqrt(sum max(0, Z_s)^2)
+    if self.sector_shards:
+      sector_cells: Dict[Tuple[str, str], Dict[str, float]] = {}
+      for (day, sec_col), rows in self.sector_shards.items():
+        for row in rows:
+          entity = str(row.get(entity_field))
+          sec_z = self._extract_row_score(row, score_field, squared)
+          if sec_z is None:
+            continue
+          key = (entity, day)
+          ent_sectors = sector_cells.setdefault(key, {})
+          if sec_col not in ent_sectors or sec_z > ent_sectors[sec_col]:
+            ent_sectors[sec_col] = sec_z
+          for prefix, days_col, obs_col in sparse_pairs:
+            active, observed = row.get(days_col), row.get(obs_col)
+            if active is not None and observed and float(observed) > 0 and float(active) < self.min_baseline_days:
+              sparse.append({
+                  "entity": entity, "day": day, "sector": sec_col,
+                  "observed": observed, "baseline_days": _compact_number(active),
+              })
+      for (entity, day), ent_sectors in sector_cells.items():
+        norm_sq = sum(max(0.0, z) ** 2 for z in ent_sectors.values())
+        d_score = math.sqrt(norm_sq) if norm_sq > 0 else max(ent_sectors.values(), default=0.0)
+        cells[(entity, day)] = {
+            "entity": entity,
+            "day": day,
+            "score": d_score,
+            "cri": cri_from_score(d_score),
+            "sectors": {f: ent_sectors.get(f) for f in sector_fields},
+        }
+      squared = True  # Label composite distance column as D in markdown output.
 
     all_days = sorted(set(self.shards) | set(self.failed))
     missing_days = []

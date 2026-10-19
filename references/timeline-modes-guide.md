@@ -50,6 +50,10 @@ Offer Mode C **only** when `run_command` is present (the same signal used for `<
 ### 3.2 Shard specification
 * One shard per UTC day `D` in the requested range: `startTime = D T00:00:00Z`, `endTime = (D+1) T00:00:00Z`. Today's shard uses `endTime = now`.
 * **Byte-identical query**: every shard runs the approved Turn 1 query unchanged. Only `startTime` / `endTime` differ.
+* **360° Behavioral Radar in Mode C (Multi-Sector Shards)**:
+  * Because a 360° Radar evaluates 6 decoupled sector micro-queries (`auth`, `cloud`, `workspace`, `egress`, `dns`, `web`), running all 6 across $N$ days blindly would dispatch $6 \times N$ queries.
+  * **Active-Sector Pre-Screen**: First check which sectors have $>0$ events across the full `[first_day, last_day)` window (or run one Mode B multi-day pass per sector to identify active sectors/days). Sectors with 0 events across the entire window are assigned the deterministic nominal baseline ($Z = 0.00\sigma$) without running $N$ empty daily shards.
+  * **Per-Day Sector Shards**: For each active sector, dispatch daily shards (`D T00:00:00Z` → `(D+1) T00:00:00Z`) and pass them to `scripts/timeline_assembler.py` using the `--shard YYYY-MM-DD:<sector>=<path>` syntax (e.g. `--shard 2026-08-29:cloud=<path> --shard 2026-08-29:workspace=<path>`). The collator fuses per-sector Z-scores on each day `D` into the composite Euclidean Threat Distance $D_t = \sqrt{\sum_s \max(0, Z_{s,t})^2}$.
 * **Default cap**: 30 days. Above 30, state the shard count and estimated run time and require explicit confirmation. Practical ceiling is about one year: UDM retention, and each shard also needs the 30 days before it. Metrics retention has not been verified; if early shards return no baselines, report that instead of treating them as clean.
 * **Freshness**: a today shard dispatched before `04:00Z` gets the baseline ending yesterday `00:00Z` (§1). Say so on the card.
 

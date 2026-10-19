@@ -1105,23 +1105,24 @@ Under the **Hard Pre-Flight Clearance Gate**, this sequence is strictly prohibit
 2. **Immediate Halt on Query Failure**: If the query cannot be probed or compiled, the agent MUST NOT ask for clearance. The agent must halt immediately, state the compilation or data issue, and ask the analyst for clarification.
 
 ### B. Identity Disambiguation & 14-Day UDM Spot-Check
-1. **The Single-Token Trap vs. Qualified Technical User IDs**:
+1. **The Single-Token Trap & Email-to-UserID Canonicalization**:
    Analyst inputs with single unqualified first names (e.g., `"greg"`, `"frank"`) or display names containing spaces (`"Frank Kolzig"`) must NOT be presumed to be valid technical user IDs (`user.userid`).
-   Conversely, qualified identifier strings containing a dot (e.g. `laura.hill`, `frank.kolzig`) or `@` email addresses (`user@company.com`) are already standardized technical `user.userid` values. They require zero display-name resolution and are ready immediately for baseline lookups and 1-shot compiler probing.
-2. **Pre-Execution 14-Day UDM Spot-Check (For Unqualified Names Only)**:
-   Before generating a Pre-Flight Hunting Specification Card for a standalone first name or human display name:
+   Furthermore, when an `@` email address (e.g., `admin@demo.wsexample.org`) is supplied, many identity and Workspace/Cloud log sources populate the full email in `user.email_addresses` while storing only the local username (`"admin"`) in `user.userid` (which is the key indexed by `metrics.*`). Always include `email_addresses` in the spot-check and run the spot-check over the **requested target date window** when a historical range is specified (or the last 14 days otherwise).
+2. **Pre-Execution UDM Spot-Check (Target Window or 14-Day Lookback)**:
+   Before generating a Pre-Flight Hunting Specification Card:
    ```python
    udm_search(
-       query='target.user.userid = "<name>" nocase or principal.user.userid = "<name>" nocase or target.user.user_display_name = "<name>" nocase or principal.user.user_display_name = "<name>" nocase',
-       startTime="<ISO_14D_AGO>",
-       endTime="<ISO_NOW>",
+       query='target.user.userid = "<name>" nocase or principal.user.userid = "<name>" nocase or target.user.email_addresses = "<name>" nocase or principal.user.email_addresses = "<name>" nocase or target.user.user_display_name = /.*<name>.*/ nocase or principal.user.user_display_name = /.*<name>.*/ nocase',
+       startTime="<ISO_TARGET_START_OR_14D_AGO>",
+       endTime="<ISO_TARGET_END_OR_NOW>",
        maxEvents=5
    )
    ```
 3. **Hard Resolution Gate**:
-   - If $\ge 1$ events match: Extract the authoritative `user.userid` and record: `• Target Entity / Scope: <Name> (Verified User ID: <id>)`.
-   - If 0 events match or query fails: **HALT IMMEDIATELY (0 tools called)**. Do NOT guess a username. Do NOT emit a Pre-Flight Card. Ask:
+   - If $\ge 1$ events match: Extract the authoritative `user.userid` from `target.user.userid` or `principal.user.userid` in the matched UDM event (even if the input matched via `email_addresses`) and record: `• Target Entity / Scope: <Name> (Verified User ID: <id>)`.
+   - If 0 events match for an **unqualified name/alias** (no `.` and no `@`, e.g., `"FK"`, `"Frank"`, `"Jane Doe"`): **HALT IMMEDIATELY (0 tools called)**. Do NOT guess a username. Do NOT emit a Pre-Flight Card. Ask:
      > *"I could not resolve an active technical `user.userid` for '<Name>' in recent UDM telemetry. What is their corporate email or technical username?"*
+   - If 0 events match for an already **qualified identifier** (`first.last` or `user@domain`) in a default window: retain the qualified identifier as `user.userid` and probe the stage event filter without the entity predicate so Turn 1 Pre-Flight alignment can proceed cleanly.
 
 ### C. Strict ISO 8601 Timestamps for Compiler Probes
 1. **API Rejection of Relative Time Offsets**:

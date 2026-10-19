@@ -1194,11 +1194,21 @@ def compile_hunt_pipeline(
       "(Thresholds can be tuned first.)"
   )
 
-  preflight_card_markdown = "\n\n".join([
-      preflight_card,
+  md_parts = [preflight_card]
+  if chained_plan:
+    bridge_keys = ", ".join(chained_plan.get("bridge_contract", ("$host", "$user", "$timestamp")))
+    tactics = " -> ".join(chained_plan.get("mitre_tactics", ("Phase 1", "Phase 2")))
+    md_parts.append(
+        f"**Two-Phase Chained Hunt Specification ({tactics})**:\n"
+        f"- **Phase 1**: Execute primary UEBA baseline query below and extract bridge keys.\n"
+        f"- **Bridge Contract**: `{bridge_keys}`\n"
+        f"- **Phase 2**: Pivot into the secondary entity plane using the extracted bridge keys."
+    )
+  md_parts.extend([
       "#### 💻 Candidate Multi-Stage YARA-L 2.0 Query Preview\n\n```yara\n" + compiled_query.strip() + "\n```",
       clearance_question,
   ])
+  preflight_card_markdown = "\n\n".join(md_parts)
 
   return {
       "status": "COMPILED" if not ast_errors else "VALIDATION_FAILED",

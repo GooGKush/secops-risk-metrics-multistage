@@ -185,6 +185,29 @@ class TestAssembly(unittest.TestCase):
       self.assertEqual(is_sq, summary["meta"]["score_is_sqrt_of_field"])
       self.assertAlmostEqual(expected, summary["top"][0]["score"], places=2)
 
+  def test_multi_sector_360_radar_shards_merge_into_euclidean_d(self):
+    asm = ta.TimelineAssembler()
+    # Day 1: Cloud CRUD spike (z=11.49) and minor Workspace activity (z=0.21); other 4 sectors skipped (0 events)
+    asm.add_shard("2026-08-29:cloud", [{"user": "admin", "z": 11.49}])
+    asm.add_shard("2026-08-29:workspace", [{"user": "admin", "z": 0.21}])
+    # Day 2: Empty shard
+    asm.add_shard("2026-08-30:cloud", [])
+    summary = asm.build()
+    expected_d = round(math.sqrt(11.49 ** 2 + 0.21 ** 2), 2)
+    self.assertEqual(["z_cloud", "z_workspace"], summary["meta"]["sector_fields"])
+    self.assertEqual(expected_d, summary["entities"]["admin"]["peak_score"])
+    self.assertEqual("2026-08-29", summary["entities"]["admin"]["peak_day"])
+    self.assertEqual({"z_cloud": "2026-08-29", "z_workspace": "2026-08-29"},
+                     summary["entities"]["admin"]["sector_onsets"])
+    statuses = {d["day"]: d["status"] for d in summary["days"]}
+    self.assertEqual({"2026-08-29": "ok", "2026-08-30": "empty"}, statuses)
+
+  def test_duplicate_sector_shard_rejected(self):
+    asm = ta.TimelineAssembler()
+    asm.add_shard("2026-08-29:cloud", [])
+    with self.assertRaises(ValueError):
+      asm.add_shard("2026-08-29:cloud", [])
+
 
 class TestCli(unittest.TestCase):
 
