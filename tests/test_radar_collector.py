@@ -493,6 +493,52 @@ stage stage_dns {
     self.assertIn("<svg", html_widget)
     self.assertIn("ACUTE TARGETED INTRUSION", html_widget)
 
+  def test_cloud_radar_spoke_unifies_all_four_crud_families_and_field_self_binding(self):
+    """Cloud radar spoke and 360 guide must evaluate all 4 CRUD families and use <field>: <field> in metrics.*()."""
+    import os
+    repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    cloud_query = EntityRadarCollector.USER_SECTOR_QUERIES["Cloud Infrastructure"]
+    for family in (
+        "metrics.resource_read_total",
+        "metrics.resource_written_total",
+        "metrics.resource_creation_total",
+        "metrics.resource_deletion_total",
+    ):
+      self.assertIn(family, cloud_query)
+    self.assertIn("principal.user.userid: principal.user.userid", cloud_query)
+    self.assertIn("metadata.vendor_name: metadata.vendor_name", cloud_query)
+    self.assertIn("metadata.product_name: metadata.product_name", cloud_query)
+
+    guide_path = os.path.join(repo_dir, "references", "360-behavioral-radar-guide.md")
+    with open(guide_path, "r", encoding="utf-8") as f:
+      guide_text = f.read()
+    for family in (
+        "metrics.resource_read_total",
+        "metrics.resource_written_total",
+        "metrics.resource_creation_total",
+        "metrics.resource_deletion_total",
+    ):
+      self.assertIn(family, guide_text)
+    self.assertNotIn('target.user.userid: "%(entity_id)s"', guide_text)
+    self.assertNotIn('principal.user.userid: "%(entity_id)s"', guide_text)
+    self.assertNotIn("metadata.vendor_name: $vendor", guide_text)
+    self.assertNotIn("metadata.product_name: $product", guide_text)
+
+  def test_identity_spotcheck_includes_email_addresses(self):
+    """SKILL.md, lifecycle, multi-stage guide, and 360 guide must include email_addresses in identity spot-checks."""
+    import os
+    repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    for rel in (
+        "SKILL.md",
+        os.path.join("references", "turn-execution-lifecycle.md"),
+        os.path.join("references", "multi-stage-metrics-guide.md"),
+        os.path.join("references", "360-behavioral-radar-guide.md"),
+    ):
+      with open(os.path.join(repo_dir, rel), "r", encoding="utf-8") as f:
+        text = f.read()
+      self.assertIn("target.user.email_addresses", text, f"Missing target.user.email_addresses in {rel}")
+      self.assertIn("principal.user.email_addresses", text, f"Missing principal.user.email_addresses in {rel}")
+
 
 if __name__ == "__main__":
   unittest.main()

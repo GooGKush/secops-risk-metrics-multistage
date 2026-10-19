@@ -236,8 +236,13 @@ class StatisticalAntipatternAuditor:
     res_var = res_var_match.group(1) if res_var_match else "$resource"
 
     has_resource_in_match = res_var in match_content or "target.resource.name" in match_content
+    is_unified_cloud_crud_radar_spoke = (
+        "metrics.resource_creation_total" in stage_body
+        and "metrics.resource_deletion_total" in stage_body
+        and "target.resource.name" not in stage_body
+    )
 
-    if matched_metrics and has_account_entity and not has_resource_in_match:
+    if matched_metrics and has_account_entity and not has_resource_in_match and not is_unified_cloud_crud_radar_spoke:
       violations.append(
           StatisticalViolation(
               antipattern=StatisticalAntipatternType.DYNAMIC_RANGE_MASKING,

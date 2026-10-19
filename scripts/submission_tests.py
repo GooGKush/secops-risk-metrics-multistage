@@ -437,9 +437,9 @@ order:
             test_id="RADAR-02-CLOUD",
             category="Decoupled Radar Spoke",
             name="360° Radar Spoke: Cloud Infrastructure CRUD",
-            description="Decoupled micro-query evaluating resource creation and deletion anomalies.",
-            generator=lambda: EntityRadarCollector.USER_SECTOR_QUERIES["Cloud Infrastructure"] % {"entity_id": test_entity} + "\norder: $z_create desc\n",
-            expected_stages=["s1", "s2"],
+            description="Decoupled micro-query evaluating resource read, write, creation, and deletion anomalies.",
+            generator=lambda: EntityRadarCollector.USER_SECTOR_QUERIES["Cloud Infrastructure"] % {"entity_id": test_entity} + "\norder: $z desc\n",
+            expected_stages=["s1"],
         )
     )
 

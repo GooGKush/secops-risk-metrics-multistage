@@ -78,7 +78,16 @@ outcome:
       "Cloud Infrastructure": """
 // Sector: Cloud Infrastructure CRUD
 stage s1 {
-    (metadata.event_type = "RESOURCE_CREATION" or metadata.event_type = "USER_RESOURCE_CREATION")
+    (
+        metadata.event_type = "RESOURCE_READ" or
+        metadata.event_type = "USER_RESOURCE_ACCESS" or
+        metadata.event_type = "RESOURCE_WRITTEN" or
+        metadata.event_type = "USER_RESOURCE_UPDATE_CONTENT" or
+        metadata.event_type = "RESOURCE_CREATION" or
+        metadata.event_type = "USER_RESOURCE_CREATION" or
+        metadata.event_type = "RESOURCE_DELETION" or
+        metadata.event_type = "USER_RESOURCE_DELETION"
+    )
     principal.user.userid = "%(entity_id)s"
     $user = principal.user.userid
     metadata.vendor_name = $v
@@ -86,31 +95,31 @@ stage s1 {
   match:
     $user, $v, $p by 1d
   outcome:
-    $create_obs = count(metadata.id)
+    $read_obs = sum(if(metadata.event_type = "RESOURCE_READ" or metadata.event_type = "USER_RESOURCE_ACCESS", 1, 0))
+    $read_avg = max(metrics.resource_read_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
+    $read_std = max(metrics.resource_read_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
+    $write_obs = sum(if(metadata.event_type = "RESOURCE_WRITTEN" or metadata.event_type = "USER_RESOURCE_UPDATE_CONTENT", 1, 0))
+    $write_avg = max(metrics.resource_written_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
+    $write_std = max(metrics.resource_written_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
+    $create_obs = sum(if(metadata.event_type = "RESOURCE_CREATION" or metadata.event_type = "USER_RESOURCE_CREATION", 1, 0))
     $create_avg = max(metrics.resource_creation_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
     $create_std = max(metrics.resource_creation_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
-}
-stage s2 {
-    (metadata.event_type = "RESOURCE_DELETION" or metadata.event_type = "USER_RESOURCE_DELETION")
-    principal.user.userid = "%(entity_id)s"
-    $user = principal.user.userid
-    metadata.vendor_name = $v
-    metadata.product_name = $p
-  match:
-    $user, $v, $p by 1d
-  outcome:
-    $delete_obs = count(metadata.id)
+    $delete_obs = sum(if(metadata.event_type = "RESOURCE_DELETION" or metadata.event_type = "USER_RESOURCE_DELETION", 1, 0))
     $delete_avg = max(metrics.resource_deletion_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
     $delete_std = max(metrics.resource_deletion_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
 }
 $user = $s1.user
-$user = $s2.user
 match: $user by 1d
 outcome:
+  $read_std = max($s1.read_std)
+  $write_std = max($s1.write_std)
   $create_std = max($s1.create_std)
-  $delete_std = max($s2.delete_std)
+  $delete_std = max($s1.delete_std)
+  $z_read = (max($s1.read_obs) - max($s1.read_avg)) / if($read_std > 0, $read_std, 1.0)
+  $z_write = (max($s1.write_obs) - max($s1.write_avg)) / if($write_std > 0, $write_std, 1.0)
   $z_create = (max($s1.create_obs) - max($s1.create_avg)) / if($create_std > 0, $create_std, 1.0)
-  $z_delete = (max($s2.delete_obs) - max($s2.delete_avg)) / if($delete_std > 0, $delete_std, 1.0)
+  $z_delete = (max($s1.delete_obs) - max($s1.delete_avg)) / if($delete_std > 0, $delete_std, 1.0)
+  $z = if($z_read >= $z_write and $z_read >= $z_create and $z_read >= $z_delete, $z_read, if($z_write >= $z_create and $z_write >= $z_delete, $z_write, if($z_create >= $z_delete, $z_create, $z_delete)))
 """,
       "Workspace Data Hoarding": """
 // Sector: Workspace & Drive Data

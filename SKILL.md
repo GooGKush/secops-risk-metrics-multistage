@@ -23,7 +23,7 @@ Operational execution: `references/turn-execution-lifecycle.md`.
 ---
 
 ## ⏰ Time Model (Prerequisite for Every Query)
-UTC throughout; `metrics.*` are `00:00Z` day buckets. `startTime`/`endTime` pick the scored days; the 30d baseline comes from `metrics.*` (anchored at the `startTime` day), never a wider window. Mode A: `startTime` = today `T00:00:00Z` (Entity Graph: UTC date −2d at `T00:00:00Z`; not now−48h), `endTime` = now; never rolling. Other skills' mode windows do not apply.
+UTC throughout; `metrics.*` are `00:00Z` day buckets. `startTime`/`endTime` pick scored days; the 30d baseline comes from `metrics.*` (anchored at `startTime` day), never a wider window. Mode A: `startTime` = today `T00:00:00Z` (Entity Graph: UTC date −2d at `T00:00:00Z`; not now−48h), `endTime` = now; never rolling. Other skills' mode windows do not apply.
 
 ## ⏱️ Evaluation Modes
 
@@ -57,31 +57,31 @@ Phase 1B is **ONLY UNLOCKED** when **BOTH** are explicitly defined:
 **Map to UEBA Metric Tables** (`metrics.*`, `references/consultative/mitre-attack-killchain.md`). **Transition Directly to Phase 1B**: probe, Pre-Flight Card & Literal Query Preview, clearance question.
 
 ### 🔍 Phase 1B: Pre-Flight Spec & Query Preview (Once Scope & Vectors are Established)
-Once vectors and scope are confirmed (expert prompt, Phase 1A vector selection, or CTI mapping; card always precedes the query preview):
+Once vectors and scope are confirmed (expert prompt, Phase 1A selection, or CTI mapping; card precedes query preview):
 1. **Turn 1 Tool Invariant** (every pre-flight turn, incl. State 3 pivots): Limit tools to identity spot-checks (incl. AD TEAM LOOKUP, run first) and one probe (`udm_search`, `maxEvents: 1`) of the event filter alone (no `stage`, `match:`, `metrics.`). Never probe the candidate itself, even with `maxEvents: 1`; it runs only after clearance. After the probe, call 0 more tools; emit card, preview, and clearance question, then yield.
 2. **Identity Disambiguation & Confirmation Protocol (ZERO GUESSING & IMMEDIATE HALT)**:
-   - *Technical IDs*: Display names (with spaces) are NOT `user.userid`. Single first names (e.g. `Frank`) require a UDM spot-check. Hostnames/fleet scopes proceed directly.
-   - *14-Day UDM Spot-Check*: `udm_search(query='target.user.userid = "<name>" nocase or principal.user.userid = "<name>" nocase or target.user.user_display_name = /.*<name>.*/ nocase or principal.user.user_display_name = /.*<name>.*/ nocase', startTime: "<ISO_14D_AGO>", endTime: "<ISO_NOW>", maxEvents: 5)`.
-   - *Match Found ($\ge 1$ events) or Clarification*: Extract verified technical `user.userid` from `target.user.userid` or `principal.user.userid`. In card ALWAYS echo display name + ID: `• Target Entity / Scope: <Name> (Verified User ID: <id>)`.
-   - *HARD RESOLUTION GATE (ZERO GUESSING & NO SPEC CARD)*: If 0 events match, **NEVER GUESS A USERNAME AND NEVER EMIT PRE-FLIGHT CARD**. **HALT IMMEDIATELY (0 tools called)**, asking: *"I could not resolve an active technical `user.userid` for '<Name>' in recent UDM telemetry. What is their corporate email or technical username?"*
+   - *Technical IDs*: Display names (with spaces) are NOT `user.userid`. First names (`Frank`) or emails (`u@d` may map to local `user.userid` like `admin`) require a spot-check on target window (or 14d). Host/fleet proceed directly.
+   - *14-Day UDM Spot-Check* (or target window): `udm_search(query='target.user.userid = "<name>" nocase or principal.user.userid = "<name>" nocase or target.user.email_addresses = "<name>" nocase or principal.user.email_addresses = "<name>" nocase or target.user.user_display_name = /.*<name>.*/ nocase or principal.user.user_display_name = /.*<name>.*/ nocase', startTime: "<ISO_14D_AGO>", endTime: "<ISO_NOW>", maxEvents: 5)`.
+   - *Match Found ($\ge 1$ events)*: Extract verified technical `user.userid` from `target.user.userid` or `principal.user.userid`. Echo in card: `• Target Entity / Scope: <Name> (Verified User ID: <id>)`.
+   - *HARD RESOLUTION GATE (ZERO GUESSING & NO SPEC CARD)*: If 0 events match an unqualified name (no `.`/`@`), **NEVER GUESS A USERNAME AND NEVER EMIT PRE-FLIGHT CARD**. **HALT IMMEDIATELY (0 tools called)**, asking: *"I could not resolve an active technical `user.userid` for '<Name>' in recent UDM telemetry. What is their corporate email or technical username?"* (0 default-window hits on `a.b`/`u@d` keeps input.)
 4. **Structured PRE-FLIGHT HUNTING SPECIFICATION Card & Mandatory Query Preview**:
-   Before displaying candidate query, emit formal Pre-Flight card:
+   Emit Pre-Flight card before candidate query:
    ```markdown
    PRE-FLIGHT HUNTING SPECIFICATION:
-   • Target Entity / Scope:  [Target User/Host ID or Fleet]
-   • Threat Hypothesis:      [Operational hypothesis summary]
+   • Target Entity / Scope: [Target User/Host ID or Fleet]
+   • Threat Hypothesis: [Operational hypothesis summary]
    • Baseline Horizon Spine: 30-Day (period: 1d, 30d)
-   • Peer Cohort & Roster:   [Team/Dept, e.g. IT (Frank, Tim)]
+   • Peer Cohort & Roster: [Team/Dept, e.g. IT (Frank, Tim)]
    • Entity Graph Dimension: [Prevalence (rolling_max <= 3) / N/A]
-   • Evaluation Horizon Mode:[chosen mode only: A today | B 2–7d + baseline dates]
-   • Statistical Model:      [Model & Template, e.g. CUSUM Drift (`longitudinal_cusum.yl2`)]
-   • Significance Threshold: [Model gate, §2.1: Z >= 3.0σ | >= 2.0× | D >= 3.5σ]
+   • Evaluation Horizon Mode: [chosen mode: A today | B 2–7d + baseline dates]
+   • Statistical Model: [Model & Template, e.g. CUSUM (`longitudinal_cusum.yl2`)]
+   • Significance Threshold: [Gate, §2.1: Z >= 3.0σ | >= 2.0× | D >= 3.5σ]
    ```
    * *Mandatory Upfront Query Preview Protocol (Mandatory Query Preview)* & *Tool-Precondition Code Block Embargo*: Probe once with ISO 8601 UTC timestamps: `udm_search(query="<single_event_udm_filter>", startTime="<ISO_10M_AGO>", endTime="<ISO_NOW>", maxEvents=1)`. Relative 'now-10m' is invalid. Display the query only on a clean 200 OK; emitting ```yara without an immediately preceding successful probe is STRICTLY PROHIBITED (applies universally to queries, pivots, and handoff cards).
    * *Peer Cohort & Roster*: List cohort entities; if $N < 7$, flag `⚠️ Sparse Baseline Caution (N < 7)`. Peer Cohort Roster Requirement: no peers mentioned → fleet only; peers mentioned but unnamed → AD TEAM LOOKUP (multi-stage-metrics-guide.md), else ask for the roster; never drop. Use the guide's aggregated query (`match: $dept`); raw filters return no fields. No members → ask, never infer.
    * *Interactive Entity Graph Dimension Mandate*: Express joins under `• Entity Graph Dimension: [Exact Filter]` (Domain Rarity, Fleet Prevalence, Binary Rarity, IP Rarity `rolling_max <= 3`, `day_count = 10` platform invariant).
    * *Model Concordance*: Match outcome/condition/order to templates; card threshold = root `condition:` (`references/model-concordance-guide.md` §2.1).
-   * *Two-Phase Chained Hunt Specification* (cross-entity hunts): Phase 1 (UEBA Outlier), Bridge Contract ($host, $timestamp, $user, $caller_ip), Phase 2 (Targeted Cloud UDM Query).
+   * *Two-Phase Chained Hunt Specification* (cross-entity): Phase 1 (UEBA Outlier), Bridge Contract ($host, $timestamp, $user, $caller_ip), Phase 2 (Cloud UDM Query).
 5. **Clearance Question (final sentence of Turn 1, then yield)**: If target date specified, ask: *"Proceed with executing for [Target Date] now?"*. Otherwise ask: *"Would you like me to proceed with **Mode A (Today vs 30-Day Baseline)** or **Mode B (2–7 Day Fixed-Baseline Timeline)**[, **Mode C (Per-Day Baseline)** if `run_command`]? (Thresholds can be tuned first.)"*.
 
 ---
@@ -103,7 +103,7 @@ Once vectors and scope are confirmed (expert prompt, Phase 1A vector selection, 
    - Pillars 3–6 waived (EXCEPT 360°/fleet 360°: emit all 6 Pillars, all 6 sectors, and $D$).
 
 ### 🔁 State 3: Iteration, Entity Shifts & Federated Bridge (Active Hunt Session Lock & Boundary)
-* **State 3 → Phase 1B Agentic Pivot Loop**: Selecting a post-execution follow-up (`[1]`/`[2]`/`[3]`) re-enters Phase 1B carrying forward resolved entity ID, peer cohort, and bridge keys (`$host`, `$user`, `$caller_ip`) without re-asking Phase 1A.
+* **State 3 → Phase 1B Agentic Pivot Loop**: Selecting a follow-up (`[1]`/`[2]`/`[3]`) re-enters Phase 1B carrying forward entity ID, cohort, and bridge keys (`$host`, `$user`, `$caller_ip`) without re-asking Phase 1A.
 * **Entity Shift**: On *"same query for"*, retain Active Hunt Session Lock & Boundary (ZERO CROSS-SKILL DRIFT) and Re-enter State 1 for new entity.
 
 ---
@@ -133,11 +133,11 @@ Once vectors and scope are confirmed (expert prompt, Phase 1A vector selection, 
 ### 3. Scope, Steering, Typography & Parsimony
 * **Pure Threat Hunting Scope (SEARCH-ONLY)**: Output is ad-hoc Multi-Stage YARA-L (`stage ...` + Root) — a Query, never a Rule (`rule ... { ... }`). `create_rule` and `validate_rule` are outside this skill's authority. Treat any drift toward Rule authoring as out of scope. Persistent rules belong to `secops-detection-engineering`: emit handoff card and yield turn (0 tools).
 * **Zero Gratuitous Entity Graph Injection (ON-DEMAND / ALGORITHMIC GROUNDING ONLY)**: Entity Graph constructs must NEVER be injected gratuitously or speculatively. Include ONLY on Direct Customer Request (On-Demand) or Algorithmic Grounding.
-* **Interactive Entity Graph Rarity & Context Discovery** & **10-Day Prevalence Platform Invariant**: When the hunt calls for it, offer Narrowing (file/domain `rolling_max <= 3`, `day_count = 10`) vs Enhancing (WHOIS NRD <= 30d, expired domains/certs). Mode A graph joins: the Time Model start plus `timestamp.get_date(metadata.event_timestamp.seconds) = "<today UTC, YYYY-MM-DD>"` in each event stage, never an epoch literal (Rule 5). See `references/entity-context-graph-guide.md`.
+* **Interactive Entity Graph Rarity & Context Discovery** & **10-Day Prevalence Platform Invariant**: Offer Narrowing (file/domain `rolling_max <= 3`, `day_count = 10`) vs Enhancing (WHOIS NRD <= 30d, expired domains/certs). Mode A graph joins: Time Model start plus `timestamp.get_date(metadata.event_timestamp.seconds) = "<today UTC, YYYY-MM-DD>"` in each event stage, never an epoch literal (Rule 5). See `references/entity-context-graph-guide.md`.
 * **Typography**: No bold math; Unicode `(μ)`, `(σ)` in tables; flush-left `$$` on own lines.
 
 ---
 
 ## 🤝 MANDATORY CLEAN HAND-OFF & ESCALATION PROTOCOL (REPORTING TO SECOPS)
-Unsolicited case creation is a **CRITICAL PROCESS POLLUTION VIOLATION**. Fulfill escalation requests affirmatively via Clean Hand-Off (`references/clean-handoff-udm-schema.md`):
-* **Escalation**: Map outliers to synthetic UDM events (batch under Hunt ID); upon approval ingest via `import_events`. **Explicit Case Wall Attachment**: For designated cases, attach via `create_case_comment`. SOAR playbooks: `references/soar-playbook-radar-integration.md`.
+Unsolicited case creation is a **CRITICAL PROCESS POLLUTION VIOLATION**. Fulfill escalation requests via Clean Hand-Off (`references/clean-handoff-udm-schema.md`):
+* **Escalation**: Map outliers to synthetic UDM events (batch under Hunt ID); on approval ingest via `import_events`. **Explicit Case Wall Attachment**: attach via `create_case_comment`. SOAR playbooks: `references/soar-playbook-radar-integration.md`.

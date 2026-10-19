@@ -70,9 +70,11 @@ An analyst with deep domain knowledge may specify both a mathematical model and 
 
 #### Turn 1 Operational Steps in Phase 1B:
 1. **Identity Disambiguation**:
-   - Single first names (e.g. `"Frank"`) or display names with spaces (`"Frank Kolzig"`) are not technical IDs.
-   - Run a 14-day lookback check: `udm_search(query='target.user.userid = "<name>" nocase or principal.user.userid = "<name>" nocase', maxEvents=5)`.
-   - If resolved, bind the technical `user.userid`. If unresolved, halt (0 tools called) and ask for the technical username.
+   - Single first names (e.g. `"Frank"`), display names with spaces (`"Frank Kolzig"`), or email addresses (`"admin@demo.wsexample.org"`, whose technical `user.userid` in UDM may be the local part `"admin"`) must be verified against UDM telemetry before binding `user.userid`.
+   - Run a UDM spot-check over the requested target window when a historical date/range is given, or the last 14 days (`<ISO_14D_AGO>` to `<ISO_NOW>`) otherwise:
+     `udm_search(query='target.user.userid = "<name>" nocase or principal.user.userid = "<name>" nocase or target.user.email_addresses = "<name>" nocase or principal.user.email_addresses = "<name>" nocase or target.user.user_display_name = /.*<name>.*/ nocase or principal.user.user_display_name = /.*<name>.*/ nocase', startTime="<ISO_START_OR_14D_AGO>", endTime="<ISO_END_OR_NOW>", maxEvents=5)`.
+   - If $\ge 1$ events match, always extract and bind the authoritative `user.userid` from `target.user.userid` or `principal.user.userid` in the matched UDM event (even when the input matched on `email_addresses`).
+   - If 0 events match an unqualified name/alias (no `.` and no `@`), halt immediately (0 additional tools called, no Pre-Flight card) and ask for the corporate email or technical username. If 0 events match an already qualified identifier (`first.last` or `user@domain`) in a default window, retain the input as `user.userid` for the Pre-Flight card and probe the event filter without the entity predicate.
 2. **Single-Event Baseline Probe (Turn 1 Tool Invariant)**:
    - The event-filter probe on every pre-flight turn evaluates exclusively simple single-event filters with `maxEvents: 1` using strict ISO 8601 UTC timestamps:
      `udm_search(query="<single_event_filter>", startTime="<ISO_10M_AGO>", endTime="<ISO_NOW>", maxEvents=1)`
