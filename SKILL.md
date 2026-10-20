@@ -81,7 +81,7 @@ Once vectors and scope are confirmed (expert prompt, Phase 1A selection, or CTI 
    * *Peer Cohort & Roster*: List cohort entities; if $N < 7$, flag `⚠️ Sparse Baseline Caution (N < 7)`. Peer Cohort Roster Requirement: no peers mentioned → fleet only; peers mentioned but unnamed → AD TEAM LOOKUP (multi-stage-metrics-guide.md), else ask for the roster; never drop. Use the guide's aggregated query (`match: $dept`); raw filters return no fields. No members → ask, never infer.
    * *Interactive Entity Graph Dimension Mandate*: Express joins under `• Entity Graph Dimension: [Exact Filter]` (Domain Rarity, Fleet Prevalence, Binary Rarity, IP Rarity `rolling_max <= 3`, `day_count = 10` platform invariant).
    * *Model Concordance*: Match outcome/condition/order to templates; card threshold = root `condition:` (`references/model-concordance-guide.md` §2.1).
-   * *Two-Phase Chained Hunt Specification* (cross-entity): Phase 1 (UEBA Outlier), Bridge Contract ($host, $timestamp, $user, $caller_ip), Phase 2 (Cloud UDM Query).
+   * *Two-Phase Chained Hunt Specification* (cross-entity): Phase 1 (UEBA Outlier executed via `udm_search`), Bridge Contract ($host, $timestamp, $user, $caller_ip), Phase 2 (Cloud UDM Query / `%ueba_hunt_bridge.<column>` emitted in Pillar 4; never call `create_data_table` in Turn 1/2).
 5. **Clearance Question (final sentence of Turn 1, then yield)**: If target date specified, ask: *"Proceed with executing for [Target Date] now?"*. Otherwise ask: *"Would you like me to proceed with **Mode A (Today vs 30-Day Baseline)** or **Mode B (2–7 Day Fixed-Baseline Timeline)**[, **Mode C (Per-Day Baseline)** if `run_command`]? (Thresholds can be tuned first.)"*.
 
 ---

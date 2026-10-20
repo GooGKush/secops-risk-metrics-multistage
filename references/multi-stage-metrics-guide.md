@@ -1340,8 +1340,8 @@ Use the pre-built pipeline in `templates/pipelines/c2_beacon_flow_frequency_2sta
 ## 34. SecOps Data Tables Integration (`%<table_name>.<column>`)
 
 Google SecOps Data Tables (`%<table_name>`) support multi-column relational joins directly inside YARA-L 2.0 stages, complementing single-column Reference Lists:
-1. **Cross-Phase Cohort Materialization (`%ueba_hunt_bridge`)**:
-   In Two-Phase Chained Hunts (`USER` $\leftrightarrow$ `ASSET` $\leftrightarrow$ `Cloud SA`), materialize Phase 1 outlier bridge keys (`$user`, `$host`, `$caller_ip`, `$sha256`) into `%ueba_hunt_bridge` via `create_data_table` / `add_rows_to_data_table`. Phase 2 then joins directly against `%ueba_hunt_bridge` (`principal.asset.hostname = %ueba_hunt_bridge.hostname` or `principal.ip = %ueba_hunt_bridge.caller_ip`) via `templates/pipelines/hybrid_data_table_bridge_2stage.yl2` without giant literal `or` lists.
+1. **Cross-Phase Cohort Bridge Syntax (`%ueba_hunt_bridge.<column>`)**:
+   In Two-Phase Chained Hunts (`USER` $\leftrightarrow$ `ASSET` $\leftrightarrow$ `Cloud SA`), execute **Phase 1** via `udm_search` (`metrics.*`) in State 2 and emit the ready-to-run **Phase 2 Data Table Bridge Query** (`principal.asset.hostname = %ueba_hunt_bridge.hostname` or `principal.user.userid in %ueba_hunt_bridge.entity` via `templates/pipelines/hybrid_data_table_bridge_2stage.yl2`) inside Pillar 4 (`Immediate 1-Click Investigation Queries`). **IMPORTANT (`SEARCH-ONLY` State 1 & State 2 Guard)**: Do NOT call state-mutating `create_data_table` or `add_rows_to_data_table` during Turn 1 or Turn 2 execution; only emit the `%ueba_hunt_bridge.<column>` Phase 2 query in the report (table mutation is gated behind explicit State 3 post-report escalation).
 2. **Entity-Specific Risk Priors & Confounder Allowlists (`%ueba_entity_priors`, `%authorized_scanners`)**:
    Join custom per-entity significance thresholds or VIP/departing-employee risk multipliers (`principal.user.userid = %ueba_entity_priors.entity`) or suppress approved infrastructure scanners (`not principal.asset.hostname in %authorized_scanners.hostname`).
 
