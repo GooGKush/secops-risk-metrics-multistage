@@ -92,7 +92,7 @@ secops-risk-metrics-multistage/
 │   ├── stage1_extractors/                # 37 Stage 1 extractor templates covering all 38 pre-computed behavioral risk metrics
 │   │   ├── alert_event_name_count.yl2
 │   │   ├── auth_attempts_* (fail, success, total)
-│   │   ├── resource_* (creation, deletion, read, written, permissions)
+│   │   ├── resource_* (creation, deletion, read, written)
 │   │   ├── file_executions_* (fail, success, total)
 │   │   ├── network_bytes_* / network_flows_* (inbound, outbound, total)
 │   │   ├── dns_queries_* / dns_bytes_* (fail, success, total)

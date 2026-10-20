@@ -1131,11 +1131,11 @@ Under the **Hard Pre-Flight Clearance Gate**, this sequence is strictly prohibit
    All 1-shot event-filter probes must compute the current UTC timestamp and a 10-minute historical boundary formatted as explicit ISO 8601 strings:
    `udm_search(query="<single_event_filter>", startTime="<ISO_10M_AGO>", endTime="<ISO_NOW>", maxEvents=1)`
 
-### D. Pillar 2 Executed Multi-Stage Query Integrity
-1. **Executed Multi-Stage YARA-L Query Requirement**:
-   In Step 2 of the triage report, Pillar 2 MUST display the literal executed multi-stage YARA-L query passed to `udm_search(query=...)`.
-2. **Prohibition of Raw Event Filters in Pillar 2**:
-   Raw UDM event filters (such as `principal.user.userid = "greg" or target.user.userid = "greg"`) do NOT compute statistical baselines and are strictly prohibited in Pillar 2. For 360 Entity Behavioral Risk Radar hunts, Pillar 2 must present the executed multi-stage sector micro-queries.
+### D. Turn 2 Execution Query Integrity & Pre/Post QA Gate (`QueryIntegrityGate`)
+1. **Pre-Dispatch & Post-Execution Verification**:
+   In Step 2 (after clearance), `QueryIntegrityGate` verifies the approved multi-stage YARA-L query *before* sending it to `udm_search(query=...)` (blocking unresolved `{{placeholders}}`, AST errors, or dropped entity scopes) and verifies the backend response *after* execution (surfacing compiler/API errors for retry rather than returning false-clean `0.00σ`). Because the candidate query was already previewed in State 1 and is locked by `QueryIntegrityGate`, repeating the executed YARA-L query block in the delivered report is unnecessary and omitted.
+2. **Prohibition of Raw Event Filter Substitutions on Turn 2**:
+   Raw UDM event filters (such as `principal.user.userid = "greg" or target.user.userid = "greg"`) do NOT compute statistical baselines and are strictly prohibited as substitutes for the approved multi-stage query on execution turns.
 
 ---
 
@@ -1334,4 +1334,15 @@ $$\text{Payload Concentration} = \frac{\sum \text{network.sent\_bytes}}{\text{co
 
 ### D. Canonical Pipeline Template: `c2_beacon_flow_frequency_2stage.yl2`
 Use the pre-built pipeline in `templates/pipelines/c2_beacon_flow_frequency_2stage.yl2` for out-of-the-box C2 beaconing detection combining flow frequency baselining with target IP persistence analysis.
+
+---
+
+## 34. SecOps Data Tables Integration (`%<table_name>.<column>`)
+
+Google SecOps Data Tables (`%<table_name>`) support multi-column relational joins directly inside YARA-L 2.0 stages, complementing single-column Reference Lists:
+1. **Cross-Phase Cohort Materialization (`%ueba_hunt_bridge`)**:
+   In Two-Phase Chained Hunts (`USER` $\leftrightarrow$ `ASSET` $\leftrightarrow$ `Cloud SA`), materialize Phase 1 outlier bridge keys (`$user`, `$host`, `$caller_ip`, `$sha256`) into `%ueba_hunt_bridge` via `create_data_table` / `add_rows_to_data_table`. Phase 2 then joins directly against `%ueba_hunt_bridge` (`principal.asset.hostname = %ueba_hunt_bridge.hostname` or `principal.ip = %ueba_hunt_bridge.caller_ip`) via `templates/pipelines/hybrid_data_table_bridge_2stage.yl2` without giant literal `or` lists.
+2. **Entity-Specific Risk Priors & Confounder Allowlists (`%ueba_entity_priors`, `%authorized_scanners`)**:
+   Join custom per-entity significance thresholds or VIP/departing-employee risk multipliers (`principal.user.userid = %ueba_entity_priors.entity`) or suppress approved infrastructure scanners (`not principal.asset.hostname in %authorized_scanners.hostname`).
+
 

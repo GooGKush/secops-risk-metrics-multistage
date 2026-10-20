@@ -381,11 +381,11 @@ class TestUEBAHybridEngineDossier(unittest.TestCase):
 
       md = res["dossier_markdown"]
       self.assertIn("#### 1. Statistical Outlier Report", md)
-      self.assertIn("#### 2. Executed Multi-Stage YARA-L Query", md)
-      self.assertIn("#### 3. Ranked Outlier Summary & Provenance Stamp", md)
-      self.assertIn("#### 4. Forensic Vector Breakdown & Impact Analysis", md)
-      self.assertIn("#### 5. Chronicle UI Manual Pivot (Triage Reference Only)", md)
-      self.assertIn("#### 6. Collapsible Technical Appendix", md)
+      self.assertNotIn("Executed Multi-Stage YARA-L Query", md)
+      self.assertIn("#### 2. Ranked Outlier Summary & Provenance Stamp", md)
+      self.assertIn("#### 3. Forensic Vector Breakdown & Impact Analysis", md)
+      self.assertIn("#### 4. Chronicle UI Manual Pivot (Triage Reference Only)", md)
+      self.assertIn("#### 5. Collapsible Technical Appendix", md)
       self.assertIn("**[1]", md)
       self.assertIn("**[2]", md)
       self.assertIn("**[3]", md)

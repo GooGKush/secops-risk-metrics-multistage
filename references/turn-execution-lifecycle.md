@@ -23,7 +23,7 @@ Multi-stage threat hunting requires strict two-turn conversational discipline to
        │
        └─► State 2: Multi-Stage Execution
                  ├─ 1. Dispatch Multi-Stage YARA-L via udm_search (returning "stats")
-                 └─ 2. Present 6-Pillar Report (or 2-Section Clean Hunt Audit)
+                 └─ 2. Present 5-Pillar Report (or Clean Hunt Audit)
 
 [Turn 3+: Entity Shifts / Iteration]
        │
@@ -109,19 +109,17 @@ Analyst clearance constitutes an explicit directive to execute the search across
 
 ### Step 2: Present Findings
 
-#### Standard 6-Pillar Report (When Outliers Detected)
+#### Standard 5-Pillar Report (When Outliers Detected)
 * **#### 1. Statistical Outlier Report: `[Target Metric]` ([Statistical Model]) (`window: 30d`)**: Single visual surface (inline `<svg>` in webview/MCP or `<agent-embed>` in Jetski), metric summary, and Unicode magnitude bars (`▰▰▰▰▱▱▱▱`).
-* **#### 2. Executed Multi-Stage YARA-L Query**: Verbatim mirror of the executed multi-stage query.
-* **#### 3. Ranked Outlier Summary**: Columns: `Entity`, `Observed`, `30d Mean (μ)`, `30d StdDev (σ)`, `Z-Score`, `CRI Score`, `Visual Magnitude`.
-* **#### 4. Forensic Vector Breakdown**: Operational threat interpretation, investigative triage steps, and **Outcome-Driven Agentic Next Steps** (`ACUTE_OUTLIER`, `CLEAN_OR_SUBTHRESHOLD`, `FLEET_WAVE`, or `SPARSE_BASELINE` via `CommonMarkTriageFormatter.build_agentic_next_steps`) proposing three concrete Phase 1B follow-up pivots labeled `[1]`, `[2]`, `[3]` (numbers, so a pick is never mistaken for Mode A/B clearance).
-* **#### 5. Chronicle UI Manual Pivot**: Passive UDM search filter for manual pivot in Chronicle SIEM (never executed automatically by the agent).
-* **#### 6. Statistical & Mathematical Appendix**: Formal KaTeX definitions ($N=30\text{d}$ baseline, CRI normalization, Euclidean norm $D$).
+* **#### 2. Ranked Outlier Summary & Provenance Stamp**: Columns: `Entity`, `Observed`, `30d Mean (μ)`, `30d StdDev (σ)`, `Z-Score`, `CRI Score`, `Visual Magnitude`, plus execution provenance stamp (events scanned, execution time, projected schema). (Do NOT repeat the executed multi-stage YARA-L query block in the delivered report; it was already previewed in State 1 and is verified by `QueryIntegrityGate`.)
+* **#### 3. Forensic Vector Breakdown**: Operational threat interpretation, investigative triage steps, and **Outcome-Driven Agentic Next Steps** (`ACUTE_OUTLIER`, `CLEAN_OR_SUBTHRESHOLD`, `FLEET_WAVE`, or `SPARSE_BASELINE` via `CommonMarkTriageFormatter.build_agentic_next_steps`) proposing three concrete Phase 1B follow-up pivots labeled `[1]`, `[2]`, `[3]` (numbers, so a pick is never mistaken for Mode A/B clearance).
+* **#### 4. Chronicle UI Manual Pivot**: Passive UDM search filter for manual pivot in Chronicle SIEM (never executed automatically by the agent).
+* **#### 5. Statistical & Mathematical Appendix**: Formal KaTeX definitions ($N=30\text{d}$ baseline, CRI normalization, Euclidean norm $D$).
 
 #### Clean Hunt Audit (Zero-Telemetry Exemption & Agentic Next Steps)
 When the executed query returns an empty `stats` payload (`{"stats": []}` or `{}`) on a non-360° hunt:
-* `#### 1. Statistical Outlier Report: [Target Metric] (Nominal Baseline)`: 0 observed events / 0 ranked outlier entities ($Z = 0.00\sigma, D = 0.00\sigma, \text{CRI} = 0$, 🟢 **Nominal Fleet Baseline** — never emit `🚨` on a clean hunt).
-* `#### 2. Executed Multi-Stage YARA-L Query`: Literal query executed, followed immediately inside Pillar 2 by the **Agentic Next Steps** bullet block (`[1]` relaxing the significance gate `1.5σ <= Z < 3.0σ` or switching to `LONGITUDINAL_CUSUM`, `[2]` pivoting to an orthogonal kill-chain vector, or `[3]` running an Omnidirectional 360° Multi-Sector Sweep via `CommonMarkTriageFormatter.format_clean_hunt_report` — never write `"5-spoke radar"`, `"6-spoke radar"`, or `"spider radar"` in fleetwide reports).
-* *Pillars 3 (table), 5, and 6 are waived for non-360° clean hunts. **360° Behavioral Radar / Fleetwide 360° Multi-Sector Threat Fusion Exception**: Single-entity and fleetwide 360° sweeps (`360` / `radar`) are NEVER abbreviated to 2 pillars — even when all 6 sectors return 0 events, always emit all **6 numbered Pillars** (`#### 1.` through `#### 6.`), including `#### 3. Ranked Outlier Summary Table` with all 6 canonical sectors (`Authentication`, `Cloud CRUD`, `Workspace / Endpoint Activity`, `Network Egress`, `DNS Resolution`, `Web & Proxy Activity`) and Euclidean Threat Distance $D = \sqrt{\sum \max(0, Z_i)^2}$.*
+* `#### 1. Statistical Outlier Report: [Target Metric] (Nominal Baseline)`: 0 observed events / 0 ranked outlier entities ($Z = 0.00\sigma, D = 0.00\sigma, \text{CRI} = 0$, 🟢 **Nominal Fleet Baseline** — never emit `🚨` on a clean hunt), followed immediately by the **Agentic Next Steps** bullet block (`[1]` relaxing the significance gate `1.5σ <= Z < 3.0σ` or switching to `LONGITUDINAL_CUSUM`, `[2]` pivoting to an orthogonal kill-chain vector, or `[3]` running an Omnidirectional 360° Multi-Sector Sweep via `CommonMarkTriageFormatter.format_clean_hunt_report` — never write `"5-spoke radar"`, `"6-spoke radar"`, or `"spider radar"` in fleetwide reports).
+* *Pillars 2–5 are waived for non-360° clean hunts. **360° Behavioral Radar / Fleetwide 360° Multi-Sector Threat Fusion Exception**: Single-entity and fleetwide 360° sweeps (`360` / `radar`) are NEVER abbreviated — even when all 6 sectors return 0 events, always emit all **5 numbered Pillars** (`#### 1.` through `#### 5.`), including `#### 2. Ranked Outlier Summary Table` with all 6 canonical sectors (`Authentication`, `Cloud CRUD`, `Workspace / Endpoint Activity`, `Network Egress`, `DNS Resolution`, `Web & Proxy Activity`) and Euclidean Threat Distance $D = \sqrt{\sum \max(0, Z_i)^2}$.*
 
 ---
 

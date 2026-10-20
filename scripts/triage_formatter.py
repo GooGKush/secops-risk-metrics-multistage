@@ -99,6 +99,16 @@ class CommonMarkTriageFormatter:
           "upstream": "TA0002 Binary Execution (`HOST_ALERT_TO_PROCESS_EXECUTION`)",
           "downstream": "TA0010 Exfiltration (`DEFENSE_EVASION_ALERT_TO_EXFILTRATION`)",
       },
+      "recon": {
+          "tactic": "TA0043 Reconnaissance",
+          "upstream": "External Enumeration (`http_error_ratio_surge_2stage.yl2`)",
+          "downstream": "TA0001 Initial Access (`RECON_ENUMERATION_TO_INITIAL_ACCESS`)",
+      },
+      "resource_dev": {
+          "tactic": "TA0042 Resource Development",
+          "upstream": "TA0043 Reconnaissance (`http_queries_fail`)",
+          "downstream": "TA0011 Command and Control (`RESOURCE_DEV_NRD_TO_C2_EGRESS`)",
+      },
   }
 
   @classmethod
@@ -176,14 +186,6 @@ class CommonMarkTriageFormatter:
         f"* **Result**: **0 observed events** (**0 ranked outlier entities**) exceeded the `{anomaly_threshold}σ` significance gate under **{evaluation_mode}** ($Z = 0.00\\sigma, D = 0.00\\sigma, \\text{{CRI}} = 0$, 🟢 **Nominal Fleet Baseline**).",
         "* **Baseline Horizon**: 30-Day Pre-Computed Behavioral Tables (`window: 30d`).",
         "",
-        "---",
-        "",
-        "#### 2. Executed Multi-Stage YARA-L Query",
-        "",
-        "```yara",
-        executed_query,
-        "```",
-        "",
         "> [!IMPORTANT]",
         next_steps,
     ])
@@ -243,14 +245,6 @@ class CommonMarkTriageFormatter:
         f"* **Outliers Detected**: **{total_outliers} entities** exceeded the configured threshold (`> {anomaly_threshold}`).",
         f"* **Active Search Window**: 24-Hour Active Evaluation Window (Today's Observations).",
         f"* **Historical Baseline Horizon**: 30-Day Pre-Computed Behavioral Context (`window: 30d`).",
-        "",
-        "---",
-        "",
-        "#### 💻 Executed Multi-Stage YARA-L Query",
-        "",
-        "```yara",
-        executed_query or f"// Exact query executed for metric: {target_metric}\n// Model: {statistical_model}",
-        "```",
         "",
         "---",
         "",

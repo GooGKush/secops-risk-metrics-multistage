@@ -2039,6 +2039,22 @@ class MultiStageTemplateRouter:
 
   # Canonical MITRE ATT&CK Multi-Stage Kill-Chain Archetypes
   KILLCHAIN_CATALOG: Dict[KillChainArchetype, Dict[str, Any]] = {
+      KillChainArchetype.RECON_ENUMERATION_TO_INITIAL_ACCESS: {
+          "mitre_tactics": ("TA0043 Reconnaissance", "TA0001 Initial Access"),
+          "sector_a": "http_queries_fail",
+          "sector_b": "auth_attempts_success",
+          "supported_entities": (EntityType.ASSET, EntityType.USER),
+          "rare_destination": False,
+          "description": "Web/API failure enumeration surge followed by successful authentication",
+      },
+      KillChainArchetype.RESOURCE_DEV_NRD_TO_C2_EGRESS: {
+          "mitre_tactics": ("TA0042 Resource Development", "TA0011 Command and Control"),
+          "sector_a": "file_executions_total",
+          "sector_b": "http_queries_total",
+          "supported_entities": (EntityType.ASSET, EntityType.USER),
+          "rare_destination": False,
+          "description": "Staged binary tooling execution paired with HTTP C2 communication surge",
+      },
       KillChainArchetype.CREDENTIAL_ACCESS_TO_EXECUTION: {
           "mitre_tactics": ("TA0006 Credential Access", "TA0002 Execution"),
           "sector_a": "file_executions_total",
@@ -2078,6 +2094,14 @@ class MultiStageTemplateRouter:
           "supported_entities": (EntityType.ASSET, EntityType.USER),
           "rare_destination": False,
           "description": "Failed login burst paired with anomalous lateral network connection flows",
+      },
+      KillChainArchetype.EAST_WEST_LATERAL_FANOUT: {
+          "mitre_tactics": ("TA0008 Lateral Movement", "TA0002 Execution"),
+          "sector_a": "network_flows_outbound",
+          "sector_b": "auth_attempts_success",
+          "supported_entities": (EntityType.ASSET, EntityType.USER),
+          "rare_destination": False,
+          "description": "Outbound lateral connection fan-out paired with anomalous authentication success",
       },
       KillChainArchetype.CLOUD_DISCOVERY_TO_COLLECTION: {
           "mitre_tactics": ("TA0007 Discovery", "TA0009 Collection"),

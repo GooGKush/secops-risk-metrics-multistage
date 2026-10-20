@@ -1,5 +1,6 @@
 """Unit tests for MultiStageTemplateRouter and Multi-Database Account Binding."""
 
+from pathlib import Path
 import unittest
 from scripts import malachite_catalog as mc
 from scripts.preflight_validator import EntityType, MatchMode, PipelineArchitecture, StatisticalModel
@@ -459,9 +460,9 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
       self.assertEqual(StatisticalAntipatternAuditor.audit_query(q_alert), [])
 
   def test_all_eight_mitre_killchain_archetypes_render_clean(self):
-    """All 8 MITRE ATT&CK KillChainArchetype combinations must render compiler-clean YARA-L across supported entities."""
-    from scripts.preflight_validator import KillChainArchetype, MalachiteASTValidator
-    self.assertEqual(len(KillChainArchetype), 8)
+    """All 11 MITRE ATT&CK KillChainArchetype combinations must render compiler-clean YARA-L across supported entities."""
+    from scripts.preflight_validator import KillChainArchetype, MalachiteASTValidator, QueryIntegrityGate
+    self.assertEqual(len(KillChainArchetype), 11)
     for archetype in KillChainArchetype:
       spec = MultiStageTemplateRouter.KILLCHAIN_CATALOG[archetype]
       for et in spec["supported_entities"]:
@@ -473,6 +474,31 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
           self.assertEqual(mc.observed_filter_gaps(q), [])
           self.assertEqual(MalachiteASTValidator.validate_query(q), [])
           self.assertEqual(StatisticalAntipatternAuditor.audit_query(q), [])
+          self.assertTrue(QueryIntegrityGate.verify_pre_dispatch(q)["valid"])
+
+  def test_data_table_syntax_and_query_integrity_gate(self):
+    """MalachiteASTValidator must validate %<table_name>.<col> syntax and QueryIntegrityGate must verify pre/post query fidelity."""
+    from scripts.preflight_validator import MalachiteASTValidator, QueryIntegrityGate
+    repo_dir = Path(__file__).resolve().parent.parent
+    dt_template = (repo_dir / "templates" / "pipelines" / "hybrid_data_table_bridge_2stage.yl2").read_text(encoding="utf-8")
+    rendered = dt_template.replace("{{ENTITY_FILTER}}", 'principal.user.userid != ""')
+    self.assertEqual(MalachiteASTValidator.validate_query(rendered), [])
+    pre = QueryIntegrityGate.verify_pre_dispatch(rendered)
+    self.assertTrue(pre["valid"])
+
+    # Invalid bare %table without column should trigger AST error
+    bad_dt = rendered.replace("= %ueba_hunt_bridge.hostname", "= %ueba_hunt_bridge")
+    errors = MalachiteASTValidator.validate_query(bad_dt)
+    self.assertTrue(any("Data Table" in e for e in errors))
+
+    # Post-response check detects backend query substitution
+    ok_post = QueryIntegrityGate.verify_backend_response(rendered, {"events": [], "executed_query": rendered})
+    self.assertTrue(ok_post["valid"])
+    substituted_post = QueryIntegrityGate.verify_backend_response(
+        rendered, {"events": [], "executed_query": 'metadata.event_type = "USER_LOGIN"'}
+    )
+    self.assertFalse(substituted_post["valid"])
+    self.assertTrue(any("DRIFT" in e for e in substituted_post["errors"]))
 
   def test_chained_hunt_router_cross_entity_killchain_plans(self):
     """ChainedHuntRouter.build_cross_entity_killchain_plan must render valid Phase 1 and Phase 2 queries for all 4 paths."""

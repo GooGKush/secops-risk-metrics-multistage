@@ -7,9 +7,9 @@
 
 ---
 
-## 🧭 First Principles: The 6 Behavioral Telemetry Deformations
+## 🧭 First Principles: The 9 Behavioral Telemetry Deformations
 
-Every threat—known, emerging, or zero-day—physically deforms telemetry in one of six distinct ways. When an analyst describes a scenario, classify the underlying deformation to select the optimal statistical model:
+Every threat—known, emerging, or zero-day—physically deforms telemetry in one of nine distinct ways (6 volumetric/temporal + 3 structural/directional/geospatial). When an analyst describes a scenario, classify the underlying deformation to select the optimal statistical model:
 
 ```
 ┌─────────────────────────────┬───────────────────────────────┬──────────────────────────────────────┐
@@ -32,8 +32,27 @@ Every threat—known, emerging, or zero-day—physically deforms telemetry in on
 ├─────────────────────────────┼───────────────────────────────┼──────────────────────────────────────┤
 │ 6. Kinetic Acceleration     │ Runaway velocity departure    │ MACD Dual-Spine Momentum Indicator   │
 │    ("The Runaway Train")    │ breaking historical ceilings  │ (Fast vs Slow Velocity Divergence)   │
+├─────────────────────────────┼───────────────────────────────┼──────────────────────────────────────┤
+│ 7. Bipartite Graph Topology │ 1→N fan-out (lateral scan /   │ East-West Lateral Fan-Out Fusion or  │
+│    ("The Web / Staging Hub")│ spray) or N→1 fan-in staging  │ Privileged Lateral Expansion (Handoff│
+├─────────────────────────────┼───────────────────────────────┼──────────────────────────────────────┤
+│ 8. Directional Flow Ratio   │ Net consumer flips to net     │ Part-of-the-Whole Network Triad or   │
+│    ("Role Inversion")       │ producer (log(out+1)-log(in+1)│ Producer–Consumer Ratio Inversion    │
+├─────────────────────────────┼───────────────────────────────┼──────────────────────────────────────┤
+│ 9. Geospatial Kinematics    │ Consecutive logins exceeding  │ Impossible Travel Geo-Velocity       │
+│    ("Impossible Travel")    │ physical flight speed (>800kmh│ (math.geo_distance / Δt; Handoff)    │
 └─────────────────────────────┴───────────────────────────────┴──────────────────────────────────────┘
 ```
+
+### 👤 Persona-Conditioned Prior Matrix (Condition Before Model Selection)
+Before selecting a mathematical model in Phase 1A/1B, condition the statistical prior on the target actor class:
+* **Interactive Human User**: High diurnal variance and broad process/destination diversity are normal. *Diagnostic Deformations*: Circadian phase shift (`circadian_von_mises_2stage.yl2`), peer-cohort divergence (`part_of_the_whole_multilevel.yl2`), or machine-like low jitter (`CV <= 0.20`).
+* **Service Account / Daemon / Workload Identity**: Near-zero variance (`$stddev == 0`) and fixed origin IP/host are normal. *Diagnostic Deformations*: Origin-IP/host breadth expansion (`> 1` source IP), interactive logon types, or first-time repository access (`cloud_repository_scope_dual_branch.yl2` / `two_part_hurdle.yl2`).
+* **CI/CD Runner / Admin Jump Host / Ephemeral Compute**: High process launch churn is normal; outbound network destinations follow a strict allowlist. *Diagnostic Deformations*: Rare external domain/IP contact (`rare_destination_ecg_3stage.yl2`), parent-child Markov transition surprisal, or Zipfian long-tail binary execution.
+
+### ⏱️ Pre/Post Event-Anchored Changepoint Framing ($T_0$ Regime Shift)
+When an analyst asks *"Did behavior change after event $T_0$?"* (e.g., IAM role grant, credential reset, MFA re-registration, or HR offboarding notice):
+* Anchor the 30-day pre-computed baseline (`period: 1d, window: 30d`) to the pre-event regime $[T_0 - 30\text{d}, T_0)$ and evaluate the post-$T_0$ window $[T_0, \text{now})$ using **Mode B (`TIMELINE_BREAKDOWN`)** or **Longitudinal CUSUM (`longitudinal_cusum.yl2`)** to isolate persistent post-event regime drift.
 
 ---
 
@@ -82,6 +101,13 @@ Analytical rigor strengthens threat hunting when grounded in clear, practical se
 │                                 │                                   │ to discount shared enterprise-wide activities.         │
 └─────────────────────────────────┴───────────────────────────────────┴────────────────────────────────────────────────────────┘
 ```
+
+### 🛠️ Executable Confounder Disambiguation & SecOps Data Table Controls
+Pair each of the 4 Investigative Inquiries with its concrete query-level control or SecOps Data Table (`%<table_name>`) join:
+1. **Innocent Explanation Control**: Exclude known vulnerability scanners or scheduled maintenance windows via Data Table join (`not $entity in %authorized_scanners.hostname`) or VIP/departing-employee risk prior weights (`$entity = %ueba_entity_priors.entity`).
+2. **Quiet Entity Trap Control**: Route dormant accounts ($N < 7$ active baseline days) to `two_part_hurdle.yl2` or `poisson_rarity.yl2` rather than standard Gaussian $Z$-scores.
+3. **Past Noise Camouflage Control**: Route heavy-tailed volumetric vectors to true Median Absolute Deviation (`stage2_math_models/mad.yl2`, `mad_robust_z_4stage.yl2`) with $50\%$ breakdown point.
+4. **Crowd / Patch Tuesday Control**: Apply `hybrid_metric_fleet_prevalence_2stage.yl2` (hyperbolic dampener `1.0 / ($k_fleet + 1.0)`) or `dual_baseline_3stage` ($\Delta Z = Z_{\text{personal}} - Z_{\text{fleet}}$). For cross-phase hunts, materialize Stage 1 suspect cohorts into `%ueba_hunt_bridge` (`hybrid_data_table_bridge_2stage.yl2`).
 
 ---
 
@@ -189,11 +215,11 @@ When the hypothesis touches two or more vectors, do not stop at listing them. Pr
 
 ### Domain 7: MITRE ATT&CK Tactics & Multi-Stage Kill-Chain Progression
 * **Why Static Rules Miss It**: Single-tactic alerts fire on isolated events that adversaries intentionally keep below static thresholds (e.g. $2.5\sigma$ per sector) or split across user identities, endpoints, and cloud service accounts.
-* **Common-Sense Rigor Check**: Verify whether both stages of a multi-stage kill chain share a single entity class (`USER` or `ASSET`) for atomic Euclidean fusion ($D = \sqrt{\sum \max(0, Z_i)^2} \ge 3.5\sigma$), or cross entity boundaries requiring a Two-Phase Chained Bridge (`$user` $\leftrightarrow$ `$host` $\leftrightarrow$ `$caller_ip`).
+* **Common-Sense Rigor Check**: Verify whether both stages of a multi-stage kill chain share a single entity class (`USER` or `ASSET`) for atomic Euclidean fusion ($D = \sqrt{\sum \max(0, Z_i)^2} \ge 3.5\sigma$), or cross entity boundaries requiring a Two-Phase Chained Bridge (`$user` $\leftrightarrow$ `$host` $\leftrightarrow$ `$caller_ip`, optionally materialized into `%ueba_hunt_bridge`).
 * **Summary View Options**:
-  1. *Same-Entity 2-Sector Kill-Chain Fusion*: Score two sequential MITRE tactics on the same entity (`CREDENTIAL_ACCESS_TO_EXECUTION`, `INITIAL_ACCESS_TO_DISCOVERY`, `EXECUTION_TO_C2_DNS`, `EXECUTION_TO_EXFILTRATION`, `CREDENTIAL_ACCESS_TO_LATERAL_MOVEMENT`, `CLOUD_DISCOVERY_TO_COLLECTION`, or `DEFENSE_EVASION_ALERT_TO_EXFILTRATION` via `dual_sector_fusion_3stage.yl2` / `rollup_sector_fusion_4stage.yl2`).
+  1. *Same-Entity 2-Sector Kill-Chain Fusion*: Score two sequential MITRE tactics on the same entity (`RECON_ENUMERATION_TO_INITIAL_ACCESS`, `RESOURCE_DEV_NRD_TO_C2_EGRESS`, `CREDENTIAL_ACCESS_TO_EXECUTION`, `INITIAL_ACCESS_TO_DISCOVERY`, `EXECUTION_TO_C2_DNS`, `EXECUTION_TO_EXFILTRATION`, `CREDENTIAL_ACCESS_TO_LATERAL_MOVEMENT`, `EAST_WEST_LATERAL_FANOUT`, `CLOUD_DISCOVERY_TO_COLLECTION`, or `DEFENSE_EVASION_ALERT_TO_EXFILTRATION` via `dual_sector_fusion_3stage.yl2` / `rollup_sector_fusion_4stage.yl2`).
   2. *C2 Beaconing to Rare Destination Exfiltration*: Fuse outbound byte departures (`network_bytes_outbound`) with HTTP/DNS destination surges (`http_queries_total`) gated by Entity Context Graph rarity (`rolling_max <= 3`, `day_count = 10` via `C2_BEACON_TO_RARE_DESTINATION_EXFIL` / `fusion_rare_destination_3stage.yl2`).
-  3. *Cross-Entity Two-Phase Kill-Chain Bridge*: Execute Phase 1 UEBA outlier detection to extract bridge keys (`$user`, `$host`, `$caller_ip`, `$sha256`), then pivot into Phase 2 across the entity boundary (`USER_CREDENTIAL_TO_HOST_EXECUTION`, `HOST_EXECUTION_TO_CLOUD_SA_ACCESS`, `HOST_ALERT_TO_PROCESS_EXECUTION`, or `USER_WORKSPACE_HOARDING_TO_HOST_EGRESS`).
+  3. *Cross-Entity Two-Phase Kill-Chain Bridge*: Execute Phase 1 UEBA outlier detection to extract bridge keys (`$user`, `$host`, `$caller_ip`, `$sha256` or materialize into `%ueba_hunt_bridge`), then pivot into Phase 2 across the entity boundary (`USER_CREDENTIAL_TO_HOST_EXECUTION`, `HOST_EXECUTION_TO_CLOUD_SA_ACCESS`, `HOST_ALERT_TO_PROCESS_EXECUTION`, or `USER_WORKSPACE_HOARDING_TO_HOST_EGRESS`).
 * *Deep Dive Guide*: `references/consultative/mitre-attack-killchain.md`
 
 ---
