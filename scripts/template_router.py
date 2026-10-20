@@ -1593,9 +1593,9 @@ class MultiStageTemplateRouter:
 
     goal_line = f"// Goal: {hypothesis_goal}\n" if hypothesis_goal else ""
     return (
-        f"{goal_line}// Purpose: Hunt for entities with anomalous failure-to-total ratios in {fail_metric}\n"
+        f"{goal_line}// Purpose: Hunt for entities with anomalous failure-to-total ratios in {fail_metric} (MITRE TA0043 Reconnaissance / T1595 Active Scanning)\n"
         "// ============================================================================\n"
-        "// ARCHITECTURE: 2-STAGE FAILURE RATIO & RECONNAISSANCE SURGE PIPELINE\n"
+        "// ARCHITECTURE: 2-STAGE FAILURE RATIO & MITRE TA0043 RECONNAISSANCE SURGE PIPELINE\n"
         "// ============================================================================\n\n"
         "stage stage1_http_failure_surge {\n"
         f"    {fail_filter_block}\n"

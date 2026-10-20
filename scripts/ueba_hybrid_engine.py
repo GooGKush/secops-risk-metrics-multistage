@@ -1202,7 +1202,7 @@ def compile_hunt_pipeline(
         f"**Two-Phase Chained Hunt Specification ({tactics})**:\n"
         f"- **Phase 1**: Execute primary UEBA baseline query below and extract bridge keys.\n"
         f"- **Bridge Contract**: `{bridge_keys}`\n"
-        f"- **Phase 2**: Pivot into the secondary entity plane using the extracted bridge keys."
+        f"- **Phase 2**: Pivot into the secondary entity plane using the extracted bridge keys or Chronicle Data Table column syntax (`in %ueba_hunt_bridge.entity`)."
     )
   md_parts.extend([
       "#### 💻 Candidate Multi-Stage YARA-L 2.0 Query Preview\n\n```yara\n" + compiled_query.strip() + "\n```",
@@ -1799,11 +1799,17 @@ def render_forensic_dossier(
 
   top_entity = outliers[0]["entity"] if outliers else ("target_user" if ent_enum == EntityType.USER else "target_host")
   ui_pivot_query = " AND ".join(pivot_filters + [f'{target_field} = "{top_entity}"'])
+  bridge_pivot_query = f'{target_field} in %ueba_hunt_bridge.entity'
+  mitre_recon_note = (
+      " (MITRE TA0043 Reconnaissance / T1595 Active Scanning & Directory Probing)"
+      if clean_metric in ("http_queries_fail", "dns_queries_fail")
+      else ""
+  )
 
   if not outliers and radar_payload is None:
     # Build 6-section zero-row dossier that preserves both Clean Hunt markers and all 6 section headers
     dossier_lines = [
-        f"#### 1. Statistical Outlier Report: `{clean_metric}` ({model_label}) (Nominal Baseline)",
+        f"#### 1. Statistical Outlier Report: `{clean_metric}` ({model_label}){mitre_recon_note} (Nominal Baseline)",
         "",
         f"* **Result**: **0 observed events** (**0 ranked outlier entities**) exceeded the `{anomaly_threshold}σ` significance gate under **{eval_mode_str}** ($Z = 0.00\\sigma, D = 0.00\\sigma, \\text{{CRI}} = 0$, 🟢 **Nominal Fleet Baseline**).",
         "* **Baseline Horizon**: 30-Day Pre-Computed Behavioral Tables (`window: 30d`).",
@@ -1828,7 +1834,7 @@ def render_forensic_dossier(
         "#### 3. Forensic Vector Breakdown & Impact Analysis",
         "",
         "> [!IMPORTANT]",
-        f"> **Nominal Baseline Verification: `{clean_metric}` ({model_label})**",
+        f"> **Nominal Baseline Verification: `{clean_metric}` ({model_label}){mitre_recon_note}**",
         f"> * **The Core Finding**: No entities breached the `{anomaly_threshold}σ` gate during the active evaluation window.",
         next_steps_md,
         "",
@@ -1839,6 +1845,7 @@ def render_forensic_dossier(
         "> [!NOTE]",
         "> **Manual Chronicle UI Web Pivot** (Enable **Case Sensitivity On** when running `metrics.*` queries in Chronicle Search UI):",
         f"> `{ui_pivot_query}`",
+        f"> **Cross-Stage Data Table Bridge Filter**: `{bridge_pivot_query}`",
         "",
         "---",
         "",
@@ -1955,7 +1962,7 @@ def render_forensic_dossier(
       "#### 3. Forensic Vector Breakdown & Impact Analysis",
       "",
       "> [!IMPORTANT]",
-      f"> **Threat Translation & Attack Scenarios: `{clean_metric}` ({model_label})**",
+      f"> **Threat Translation & Attack Scenarios: `{clean_metric}` ({model_label}){mitre_recon_note}**",
       f"> * **The Core Finding**: Top entity `{top_entity}` registered `+{outliers[0]['z_score']:.2f}σ` (`CRI = {outliers[0]['cri']}`, {outliers[0]['cri_band_label']}) against its 30-day behavioral baseline (`μ = {outliers[0]['hist_avg']}`, `σ = {outliers[0]['hist_stddev']}`).",
       "> * **Security Significance**: Statistically significant departure from historical entity behavior indicating potential credential compromise, automated staging, or anomalous data movement.",
       "> * **Potential Attack Scenarios**: Credential stuffing, lateral expansion, living-off-the-land execution, or staged exfiltration.",
@@ -1970,6 +1977,7 @@ def render_forensic_dossier(
       "> [!NOTE]",
       "> **Manual Chronicle UI Web Pivot** (Copy & paste into Chronicle Search UI for raw event timeline inspection; enable **Case Sensitivity On** when running `metrics.*` queries):",
       f"> `{ui_pivot_query}`",
+      f"> **Cross-Stage Data Table Bridge Filter**: `{bridge_pivot_query}`",
       "",
       "---",
       "",
