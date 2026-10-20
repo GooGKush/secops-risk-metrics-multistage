@@ -137,6 +137,7 @@ rule secops_risk_metrics_synthetic_alert_catchall {
         "category_details": ["VOLUMETRIC_EGRESS_OUTLIER"],
         "action": ["UNKNOWN_ACTION"],
         "risk_score": 74,
+        "confidence_score": 4.82,
         "severity": "HIGH",
         "summary": "Host host-042 transmitted 10.0 GB outbound, exceeding 30-day baseline by +4.82σ.",
         "description": "Multi-stage baseline evaluation detected an anomalous egress surge exceeding statistical significance threshold (Z >= 3.0σ, CRI >= 50).",
@@ -202,6 +203,7 @@ rule secops_risk_metrics_synthetic_alert_catchall {
         "category_details": ["CREDENTIAL_SPRAY", "BRUTE_FORCE"],
         "action": ["UNKNOWN_ACTION"],
         "risk_score": 92,
+        "confidence_score": 12.4,
         "severity": "CRITICAL",
         "summary": "Source IP 198.51.100.45 generated 1,420 authentication failures across 85 distinct user accounts with super-Poisson clustering.",
         "description": "Dispersion analysis revealed synchronized wave patterns (Fano Factor F=12.4 >> 1.0) indicating automated distributed credential attack.",
@@ -269,6 +271,7 @@ rule secops_risk_metrics_synthetic_alert_catchall {
         "category_details": ["SHADOW_COPY_DELETION", "INHIBIT_SYSTEM_RECOVERY"],
         "action": ["UNKNOWN_ACTION"],
         "risk_score": 82,
+        "confidence_score": 5.6,
         "severity": "HIGH",
         "summary": "Volume shadow copy deletion tool executed 4 times on database server with zero historical baseline.",
         "description": "Poisson rarity calculation identified an arrival probability P(X >= 4) < 1e-6 indicating deliberate recovery inhibition.",
@@ -335,6 +338,7 @@ rule secops_risk_metrics_synthetic_alert_catchall {
         "category_details": ["BAYESIAN_SHRINKAGE_ANOMALY"],
         "action": ["UNKNOWN_ACTION"],
         "risk_score": 68,
+        "confidence_score": 4.3,
         "severity": "MEDIUM",
         "summary": "User frank.kolzig exhibited a confirmed 4.3× Bayesian posterior rate surge above stable 30-day baseline.",
         "description": "Hierarchical empirical Bayesian updating demonstrated a statistically significant shift from prior distribution toward high-frequency failure state.",
@@ -402,6 +406,7 @@ rule secops_risk_metrics_synthetic_alert_catchall {
         "category_details": ["PEER_COHORT_BREAKOUT_ANOMALY"],
         "action": ["UNKNOWN_ACTION"],
         "risk_score": 67,
+        "confidence_score": 4.16,
         "severity": "MEDIUM",
         "summary": "User frank.kolzig performed 103 authentication operations, exceeding IT Department peer norm by +4.16σ.",
         "description": "Cross-sectional comparison against organizational department roster identified isolated outlier behavior relative to peer group baseline.",
@@ -466,6 +471,7 @@ rule secops_risk_metrics_synthetic_alert_catchall {
         "category_details": ["FLEET_NORMALIZED_DELTA_Z"],
         "action": ["UNKNOWN_ACTION"],
         "risk_score": 78,
+        "confidence_score": 5.1,
         "severity": "HIGH",
         "summary": "Host wrk-shasek experienced a +5.1σ isolated anomaly while the general fleet remained quiet.",
         "description": "Dual-baseline subtraction (personal Z minus fleet macro Z) successfully eliminated macro rollout noise, confirming an isolated entity anomaly.",
@@ -536,6 +542,7 @@ rule secops_risk_metrics_synthetic_alert_catchall {
         "category_details": ["MULTI_SECTOR_THREAT_FUSION"],
         "action": ["UNKNOWN_ACTION"],
         "risk_score": 77,
+        "confidence_score": 5.2,
         "severity": "HIGH",
         "summary": "Coordinated multi-sector attack: credential access followed by rare binary execution and high-volume staging.",
         "description": "Multi-sector orthogonal threat vector fusion identified coordinated killchain activity breaching composite Euclidean threshold (D = 5.2σ >= 3.5σ).",
@@ -606,6 +613,7 @@ rule secops_risk_metrics_synthetic_alert_catchall {
         "category_details": ["LONGITUDINAL_CUSUM_DRIFT"],
         "action": ["UNKNOWN_ACTION"],
         "risk_score": 75,
+        "confidence_score": 4.8,
         "severity": "HIGH",
         "summary": "Host acc-win11-5 accumulated +4.8σ of persistent positive egress drift starting on 2026-08-18.",
         "description": "Sequential cumulative sum analysis detected low-and-slow data transfer consistently exceeding daily expected variance.",
@@ -675,6 +683,7 @@ rule secops_risk_metrics_synthetic_alert_catchall {
         "category_details": ["RARE_BINARY_EXECUTION", "INFANT_INFRASTRUCTURE"],
         "action": ["UNKNOWN_ACTION"],
         "risk_score": 77,
+        "confidence_score": 4.96,
         "severity": "HIGH",
         "summary": "Host win-adfs executed binary seen on only 1 host enterprise-wide with a +4.96σ execution spike.",
         "description": "Cross-sectional fleet prevalence analysis confirmed rare execution signature on enterprise infrastructure.",
@@ -691,10 +700,13 @@ rule secops_risk_metrics_synthetic_alert_catchall {
 ```
 
 ### 10. `BEHAVIORAL_RISK_RADAR_360` (Decoupled 6-Sector Threat Distance)
-One event per outlier entity. The agentic UEBA 4-hourly fleet sweep emits this exact shape, so keep the label keys identical:
+One event per outlier entity. The agentic UEBA 4-hourly fleet sweep emits this exact shape, so keep the label keys and `security_result` entries identical:
 * `event_timestamp` is when the hunt query ran (the 30d baseline is evaluated as of that moment). Omit `ingested_timestamp`; Chronicle sets it.
-* Labels are only: `Hunt Campaign ID`, `Evaluated Day` (UTC day scored), `Composite CRI`, `Composite D` (σ), and one label per sector keyed by the sector name with value `CRI <n> | Z <z>`. USER sectors: `AUTH`, `CLOUD`, `WORKSPACE`, `EGRESS`, `DNS`, `WEB`. ASSET sectors: `AUTH`, `EGRESS`, `DNS`, `FLOWS`, `ALERTS`, `WEB`. Sectors with no qualifying activity are `CRI 0 | Z 0.00`.
-* `risk_score` is the Composite CRI. `category` follows the peak sector. Write the entity ID exactly as the source telemetry spells it (no case folding).
+* `target.resource.attribute.labels` carries atomic, unbundled roll-up metadata: `Hunt Campaign ID`, `Evaluated Day` (UTC day scored), `Composite CRI`, `Composite D` (σ), `Peak Vector`, `Peak CRI`, `Peak Z`, and `Breached Vectors` (comma-separated sector names with $Z \ge 3.0\sigma$, or `"none"`).
+* `security_result` is a multi-entry array enabling direct numeric YARA-L and Dashboard queries without string/regex parsing:
+  * `security_result[0]` is the **Composite 360° roll-up** (`rule_name = "360 Behavioral Risk Radar"`, `rule_type = "COMPOSITE_360"`, `risk_score = <Composite CRI>`, `category` from peak sector). It omits `threat_name` and `confidence_score`.
+  * `security_result[1..N]` contains **one entry per non-zero sector vector** sorted descending by Z-score (zero-score vectors with `CRI == 0` are omitted). Each vector entry sets `rule_name = "360 Vector: <SECTOR>"`, `rule_type = "SECTOR_VECTOR"`, `threat_name = "<SECTOR>"` (USER: `AUTH`, `CLOUD`, `WORKSPACE`, `EGRESS`, `DNS`, `WEB`; ASSET: `AUTH`, `EGRESS`, `DNS`, `FLOWS`, `ALERTS`, `WEB`), `risk_score = <Vector CRI>` (`int`), `confidence_score = <Vector Z>` (`float`), `severity` derived from the vector's CRI, and `threat_status = "ACTIVE"` ($Z \ge 3.0\sigma$) or `"CLEARED"` ($0 < Z < 3.0\sigma$).
+* Write the entity ID exactly as the source telemetry spells it (no case folding).
 ```json
 {
   "udm": {
@@ -704,7 +716,7 @@ One event per outlier entity. The agentic UEBA 4-hourly fleet sweep emits this e
       "vendor_name": "Google SecOps",
       "event_type": "GENERIC_EVENT",
       "product_event_type": "BEHAVIORAL_RISK_RADAR_360",
-      "description": "USER jdoe: Composite CRI 92 (D=7.09σ); breached WEB, EGRESS, AUTH; peak WEB CRI 68 (Z 4.25).",
+      "description": "USER jdoe: Composite CRI 92 (D=6.99σ); breached WEB, EGRESS, AUTH; peak WEB CRI 68 (Z 4.25).",
       "ingestion_labels": [
         { "key": "hunt_campaign_id", "value": "hunt-c7f8a91b" },
         { "key": "source_skill", "value": "secops-risk-metrics-multistage" }
@@ -725,13 +737,11 @@ One event per outlier entity. The agentic UEBA 4-hourly fleet sweep emits this e
             { "key": "Hunt Campaign ID", "value": "hunt-c7f8a91b" },
             { "key": "Evaluated Day", "value": "2026-08-26" },
             { "key": "Composite CRI", "value": "92" },
-            { "key": "Composite D", "value": "7.09" },
-            { "key": "AUTH", "value": "CRI 57 | Z 3.45" },
-            { "key": "CLOUD", "value": "CRI 37 | Z 2.10" },
-            { "key": "WORKSPACE", "value": "CRI 17 | Z 0.40" },
-            { "key": "EGRESS", "value": "CRI 62 | Z 3.80" },
-            { "key": "DNS", "value": "CRI 25 | Z 1.15" },
-            { "key": "WEB", "value": "CRI 68 | Z 4.25" }
+            { "key": "Composite D", "value": "6.99" },
+            { "key": "Peak Vector", "value": "WEB" },
+            { "key": "Peak CRI", "value": "68" },
+            { "key": "Peak Z", "value": "4.25" },
+            { "key": "Breached Vectors", "value": "WEB, EGRESS, AUTH" }
           ]
         }
       }
@@ -739,11 +749,60 @@ One event per outlier entity. The agentic UEBA 4-hourly fleet sweep emits this e
     "security_result": [
       {
         "rule_name": "360 Behavioral Risk Radar",
+        "rule_type": "COMPOSITE_360",
         "category": ["NETWORK_SUSPICIOUS"],
         "action": ["UNKNOWN_ACTION"],
         "risk_score": 92,
         "severity": "CRITICAL",
-        "summary": "USER jdoe: Composite CRI 92 (D=7.09σ); breached WEB, EGRESS, AUTH; peak WEB CRI 68 (Z 4.25)."
+        "summary": "USER jdoe: Composite CRI 92 (D=6.99σ); breached WEB, EGRESS, AUTH; peak WEB CRI 68 (Z 4.25)."
+      },
+      {
+        "rule_name": "360 Vector: WEB",
+        "rule_type": "SECTOR_VECTOR",
+        "threat_name": "WEB",
+        "category": ["NETWORK_SUSPICIOUS"],
+        "action": ["UNKNOWN_ACTION"],
+        "risk_score": 68,
+        "confidence_score": 4.25,
+        "severity": "MEDIUM",
+        "threat_status": "ACTIVE",
+        "summary": "Vector WEB: CRI 68 | Z 4.25σ"
+      },
+      {
+        "rule_name": "360 Vector: EGRESS",
+        "rule_type": "SECTOR_VECTOR",
+        "threat_name": "EGRESS",
+        "category": ["DATA_EXFILTRATION"],
+        "action": ["UNKNOWN_ACTION"],
+        "risk_score": 62,
+        "confidence_score": 3.8,
+        "severity": "MEDIUM",
+        "threat_status": "ACTIVE",
+        "summary": "Vector EGRESS: CRI 62 | Z 3.80σ"
+      },
+      {
+        "rule_name": "360 Vector: AUTH",
+        "rule_type": "SECTOR_VECTOR",
+        "threat_name": "AUTH",
+        "category": ["AUTH_VIOLATION"],
+        "action": ["UNKNOWN_ACTION"],
+        "risk_score": 57,
+        "confidence_score": 3.45,
+        "severity": "MEDIUM",
+        "threat_status": "ACTIVE",
+        "summary": "Vector AUTH: CRI 57 | Z 3.45σ"
+      },
+      {
+        "rule_name": "360 Vector: CLOUD",
+        "rule_type": "SECTOR_VECTOR",
+        "threat_name": "CLOUD",
+        "category": ["ACL_VIOLATION"],
+        "action": ["UNKNOWN_ACTION"],
+        "risk_score": 37,
+        "confidence_score": 2.1,
+        "severity": "LOW",
+        "threat_status": "CLEARED",
+        "summary": "Vector CLOUD: CRI 37 | Z 2.10σ"
       }
     ]
   }

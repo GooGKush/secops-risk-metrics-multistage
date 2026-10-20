@@ -1,10 +1,22 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v2.0.1)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v2.0.2)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v2.0.1 (Point Release) — October 2026  
+**Latest Version**: v2.0.2 (Point Release) — October 2026  
+
+---
+
+## 📢 What's New in v2.0.2 (Point Release) — Multi-Entry `BEHAVIORAL_RISK_RADAR_360` UDM Schema & Native Float Vector Scores
+
+A minor point release updating `references/clean-handoff-udm-schema.md` (and `tests/test_guardrail_contracts.py`) so that 360° Behavioral Radar and Clean Hand-Off UDM events expose per-vector CRI and Z-scores as native numeric UDM fields for YARA-L rules and SecOps Native Dashboards.
+
+### 1. Multi-Entry `BEHAVIORAL_RISK_RADAR_360` UDM Schema (`references/clean-handoff-udm-schema.md` §10)
+* **Unbundled Atomic Resource Labels**: Replaced the 6 packed `"CRI <n> | Z <z>"` strings in `target.resource.attribute.labels` with atomic roll-up keys (`Peak Vector`, `Peak CRI`, `Peak Z`, `Breached Vectors`).
+* **Per-Vector `security_result[]` Entries with Native Floats**: `security_result[0]` carries the `COMPOSITE_360` roll-up (`risk_score` = Composite CRI, omitting `threat_name` and `confidence_score`), while `security_result[1..N]` emit one `SECTOR_VECTOR` entry per non-zero sector sorted descending by Z-score (`threat_name = <SECTOR>`, `risk_score = <Vector CRI>`, `confidence_score = <Vector Z>`, `threat_status = "ACTIVE" | "CLEARED"`). Zero-score vectors are omitted, allowing YARA-L rules (`max($e.security_result.confidence_score)`) and SecOps Native Dashboards (`GROUP BY security_result.threat_name`) to query individual vector CRI and Z-scores directly as numbers.
+* **Native `confidence_score` Across All 10 Schemas**: Added `"confidence_score"` (`float`) alongside `"risk_score"` across Schemas 1–9.
+* **Test Suite**: **425 / 425 unit tests passing** (+212 subtests); **32 / 32 submission tests passing**. `SKILL.md` unchanged (20,449 bytes).
 
 ---
 

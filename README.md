@@ -1,6 +1,6 @@
 # Google SecOps Multi-Stage Risk Metrics Threat Hunter (`secops-risk-metrics-multistage`)
 
-[![Version](https://img.shields.io/badge/version-v2.0.1-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-425%2F425%20passing%20(100%25)-brightgreen.svg)](tests/) [![Submission Tests](https://img.shields.io/badge/submission%20tests-32%2F32%20passing%20(100%25)-brightgreen.svg)](scripts/submission_tests.py)
+[![Version](https://img.shields.io/badge/version-v2.0.2-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-425%2F425%20passing%20(100%25)-brightgreen.svg)](tests/) [![Submission Tests](https://img.shields.io/badge/submission%20tests-32%2F32%20passing%20(100%25)-brightgreen.svg)](scripts/submission_tests.py)
 
 A specialized, production-grade AI agent skill package for **Google Security Operations (SecOps / Chronicle SIEM & SOAR)** that constructs, validates, and executes **Multi-Stage YARA-L 2.0 Directed Acyclic Graph (DAG) statistical threat hunting pipelines**, **360° Entity Behavioral Risk Radars**, and **Progressively Disclosed Consultative Threat Hunting**.
 
@@ -367,6 +367,11 @@ python3 scripts/submission_tests.py --dump-dir <OUTPUT_DIR>
 ---
 
 ## 📦 Recent Releases
+
+### v2.0.2 (October 2026) — Multi-Entry `BEHAVIORAL_RISK_RADAR_360` UDM Schema & Native Float Vector Scores
+* **Unbundled Atomic Resource Labels (`references/clean-handoff-udm-schema.md`)**: Replaced the 6 packed `"CRI <n> | Z <z>"` strings in `target.resource.attribute.labels` with atomic roll-up keys (`Peak Vector`, `Peak CRI`, `Peak Z`, `Breached Vectors`).
+* **Per-Vector `security_result[]` Entries with Native Floats**: `security_result[0]` carries the `COMPOSITE_360` roll-up (`risk_score` = Composite CRI, omitting `threat_name` and `confidence_score`), while `security_result[1..N]` emit one `SECTOR_VECTOR` entry per non-zero sector sorted descending by Z-score (`threat_name = <SECTOR>`, `risk_score = <Vector CRI>`, `confidence_score = <Vector Z>`, `threat_status = "ACTIVE" | "CLEARED"`). Zero-score vectors are omitted, allowing YARA-L rules (`max($e.security_result.confidence_score)`) and SecOps Native Dashboards (`GROUP BY security_result.threat_name`) to query individual vector CRI and Z-scores directly as numbers.
+* **Test Suite**: **425/425 unit tests** (+212 subtests); **32/32 submission tests**. `SKILL.md` unchanged (20,449 bytes).
 
 ### v2.0.1 (October 2026) — Mode C 6-Sector 360° Radar Sharding, Email-to-Userid Identity Resolution & 4-Family Cloud CRUD Radar Spoke
 * **Email-to-`user.userid` & Historical Window Identity Resolution (`SKILL.md`, `references/identity-governance.md`)**: When an analyst supplies a corporate email address (`*@*`) or display name, the Turn 1 probe tests `principal.user.userid`, `principal.user.email_addresses`, `target.user.userid`, and `target.user.email_addresses` across the user-requested historical evaluation window (`startTime`/`endTime`) and projects `$uid = coalesce(principal.user.userid, target.user.userid)` so `metrics.*` pipelines bind to the exact `user.userid` stored in UDM events (e.g., `admin@demo.wsexample.org` → `user.userid = "admin"`).

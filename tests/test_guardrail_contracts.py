@@ -436,7 +436,11 @@ class TestGuardrailContracts(unittest.TestCase):
             m.group(1), ladder(risk),
             f'{pet}: severity {m.group(1)} contradicts CRI {risk} (ladder says {ladder(risk)})')
         checked += 1
-    self.assertEqual(checked, 10, f'expected 10 schema severities, checked {checked}')
+    self.assertEqual(checked, 14, f'expected 14 schema severities (9 single + 5 in §10), checked {checked}')
+    self.assertIn('"rule_type": "COMPOSITE_360"', ch_content)
+    self.assertIn('"rule_type": "SECTOR_VECTOR"', ch_content)
+    self.assertIn('"Peak Vector"', ch_content)
+    self.assertIn('"confidence_score":', ch_content)
 
     # The report bands must mirror the same ladder so a finding carries one label.
     tf_path = os.path.join(skill_dir, 'scripts', 'triage_formatter.py')
