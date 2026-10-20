@@ -1,10 +1,195 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v2.0.2)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v2.1.0)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v2.0.2 (Point Release) — October 2026  
+**Latest Version**: v2.1.0 (Major Point Release) — October 2026  
+
+---
+
+## 📢 What's New in v2.1.0 (Major Point Release) — Pre/Post `QueryIntegrityGate`, 10 Consultative Deformations, 14-Tactic MITRE Coverage, SecOps Data Table Bridging & 5-Section Triage Reports
+
+A major point release combining critical query execution integrity safeguards (`QueryIntegrityGate`), expanded consultative behavioral modeling across 10 telemetry deformations, full 14-tactic MITRE ATT&CK Enterprise coverage (11 kill-chains), native SecOps Data Table bridging (`%ueba_hunt_bridge` & `%ueba_entity_priors`), and streamlined 5-section CommonMark triage reporting.
+
+### 1. Pre-Dispatch & Post-Execution `QueryIntegrityGate` (`scripts/preflight_validator.py`, `scripts/ueba_hybrid_engine.py`, `SKILL.md`)
+* **Pre-Dispatch Verification (`QueryIntegrityGate.verify_pre_dispatch`)**: Audits every candidate multi-stage query before `udm_search` execution to block:
+  1. Unresolved `{{placeholder}}` or `<placeholder>` template tokens.
+  2. Missing target entity scoping when a specific `USER`, `ASSET`, or `IP` was requested (preventing accidental fleetwide execution when an entity was specified).
+  3. Malformed SecOps Data Table references (`%<table_name>.<column>`), enforcing valid alphanumeric/underscore identifiers and rejecting `metrics.%table` misuse.
+  4. Malachite AST structural errors (`MalachiteASTValidator.validate_query`).
+* **Post-Execution Backend Verification (`QueryIntegrityGate.verify_backend_response`)**: Inspects raw `udm_search` tool responses for Chronicle compiler, gRPC, HTTP 4xx/5xx, or `INVALID_ARGUMENT` errors. Hard-blocks the agent from reporting a failed or rejected query as a `0.00σ` / `CRI = 0` "Nominal Baseline" under the Zero-Telemetry Clean Hunt Exemption.
+
+### 2. Consultative Model Expansion: 10 Behavioral Telemetry Deformations (`references/consultative-worksheet.md`)
+* Expanded the First-Principles Behavioral Telemetry Deformations from 6 to **10 canonical deformations**:
+  - **Deformation 7 — Graph / Relational Bipartite Fan-Out & Fan-In**: Detects $1 \rightarrow N$ lateral/recon sweeps (`http_target_surge_2stage.yl2`, `part_of_the_whole_triad_multilevel.yl2`) and $N \rightarrow 1$ distributed C2/staging concentration (`rare_destination_ecg_3stage.yl2`).
+  - **Deformation 8 — Producer-Consumer Role Inversion**: Detects workstations/clients shifting from net data consumers to net data producers via directional outbound/inbound byte fusion or federated handoff to `secops-statistical-hunter` (`PRODUCER_CONSUMER_RATIO_INVERSION`).
+  - **Deformation 9 — Geospatial / Physical Velocity (Impossible Travel)**: Routes sub-hour physical travel velocity checks (`math.geo_distance`) to `secops-statistical-hunter` (`IMPOSSIBLE_TRAVEL_GEO_VELOCITY`) or pairs macro login spikes with `DERIVED_CONTEXT` asset age (`hybrid_metric_derived_asset_age_2stage.yl2`).
+  - **Deformation 10 — Persona-Conditioned Priors & Pre/Post Changepoint Framing**: Joins `%ueba_entity_priors` Data Tables for persona-specific sensitivity gates (executives, privileged admins, third-party contractors) and frames before/after change windows around incident timestamps ($T_{\text{event}}$) via `dual_baseline_delta_z_3stage.yl2`.
+* **Executable Disambiguation Controls (`[A]` / `[B]` / `[C]`)**: Standardizes Phase 1A consultative menus so every disambiguation option maps directly to a concrete metric vector, mathematical model, and pipeline architecture.
+
+### 3. Full 14-Tactic MITRE ATT&CK Enterprise Coverage & 11 Kill-Chain Archetypes (`references/consultative/mitre-attack-killchain.md`, `scripts/template_router.py`)
+* Added **Reconnaissance (`TA0043`)** and **Resource Development (`TA0042`)** so the consultative catalog covers **all 14 MITRE ATT&CK Enterprise tactics**.
+* Added 3 new turnkey multi-stage `KillChainArchetype` definitions in `scripts/template_router.py` (bringing the total to **11 kill-chains**):
+  - `RECON_TO_INITIAL_ACCESS` (`TA0043` $\rightarrow$ `TA0001`): `metrics.http_queries_fail` + `metrics.auth_attempts_success` (`principal.asset.ip`).
+  - `RESOURCE_DEV_TO_EXECUTION` (`TA0042` $\rightarrow$ `TA0002`): `metrics.resource_creation_total` + `metrics.file_executions_total` (`principal.user.userid` / roll-up).
+  - `EXFILTRATION_OVER_WEB_SERVICE` (`TA0009` $\rightarrow$ `TA0010`): `metrics.workspace_total_download_actions` + `metrics.http_queries_total` (`principal.user.userid`).
+
+### 4. Native SecOps Data Table Bridging (`templates/pipelines/hybrid_data_table_bridge_2stage.yl2`, `scripts/template_router.py`)
+* Added **`HYBRID_DATA_TABLE_BRIDGE_2STAGE`** (`templates/pipelines/hybrid_data_table_bridge_2stage.yl2`, 33rd pipeline template) and `ChainedHuntRouter.build_data_table_bridge_query()`.
+* In Two-Phase Cross-Entity Chained Hunts (`USER` $\leftrightarrow$ `ASSET` / `IP`), when Phase 1 yields an outlier cohort, the workflow materializes the bridged entities into SecOps Data Table `%ueba_hunt_bridge` (`create_data_table` / `add_rows_to_data_table`) and joins `principal.asset.hostname = %ueba_hunt_bridge.hostname` in Phase 2—eliminating 25-element `in (...)` literal list truncation.
+
+### 5. Streamlined 5-Section CommonMark Triage Reporting (`SKILL.md`, `references/reporting-standards.md`, `scripts/triage_formatter.py`)
+* Removed the redundant **Executed Multi-Stage YARA-L Query** code dump from Turn 2 delivered reports. Because the candidate query is already previewed in Turn 1 Pre-Flight and cryptographically/syntactically verified at execution time by `QueryIntegrityGate`, Turn 2 reports now deliver 5 crisp operational sections:
+  1. *Statistical Outlier Report & Visual Surface*
+  2. *Ranked Outlier Summary & Provenance Stamp* (6 forensic evidence columns)
+  3. *Forensic Vector Breakdown & Agentic Next Steps (`[1]` / `[2]` / `[3]`)*
+  4. *Chronicle UI Manual Pivot (Triage Reference Only)*
+  5. *Statistical & Mathematical Appendix*
+
+### 6. Ready-to-Run v2.1.0 Sample Queries
+
+#### Sample 1: Two-Phase Cross-Entity Data Table Bridge (`HYBRID_DATA_TABLE_BRIDGE_2STAGE`)
+```yara
+// Goal: Score 30-day behavioral metric departures for a bridged cohort stored
+//       in SecOps Data Table %ueba_hunt_bridge (Two-Phase Chained Bridge)
+stage stage1_extract {
+    metadata.event_type = "NETWORK_CONNECTION"
+    network.sent_bytes > 0
+    network.sent_bytes < 1000000000000000
+    principal.asset.hostname = %ueba_hunt_bridge.hostname
+    principal.asset.hostname = $entity
+    $entity != ""
+
+  match:
+    $entity by 1d
+
+  outcome:
+    $observed_val = sum(network.sent_bytes)
+    $historical_avg = max(metrics.network_bytes_outbound(
+        period: 1d, window: 30d,
+        metric: value_sum,
+        agg: avg,
+        principal.asset.hostname: principal.asset.hostname
+    ))
+    $historical_stddev = max(metrics.network_bytes_outbound(
+        period: 1d, window: 30d,
+        metric: value_sum,
+        agg: stddev,
+        principal.asset.hostname: principal.asset.hostname
+    ))
+    $active_baseline_days = max(metrics.network_bytes_outbound(
+        period: 1d, window: 30d,
+        metric: value_sum,
+        agg: count_days_seen,
+        principal.asset.hostname: principal.asset.hostname
+    ))
+}
+
+$entity = $stage1_extract.entity
+
+match:
+  $entity by 1d
+
+outcome:
+  $observed_24h = max($stage1_extract.observed_val)
+  $baseline_mean = max($stage1_extract.historical_avg)
+  $baseline_stddev = max($stage1_extract.historical_stddev)
+  $active_days = max($stage1_extract.active_baseline_days)
+  $safe_stddev = if($baseline_stddev > 0, $baseline_stddev, 1.0)
+  $personal_z = ($observed_24h - $baseline_mean) / $safe_stddev
+
+condition:
+  $active_days >= 7 and $personal_z >= 3.0
+
+order:
+  $personal_z desc
+```
+
+#### Sample 2: Consultative MITRE ATT&CK Kill-Chain (`RECON_TO_INITIAL_ACCESS` — `TA0043` $\rightarrow$ `TA0001`)
+```yara
+// Goal: Detect Reconnaissance (TA0043) progressing to Initial Access (TA0001)
+stage stage1_recon_http_fail {
+    (network.http.method != "" or network.http.user_agent != "" or network.http.response_code != 0 or network.http.referral_url != "")
+    network.http.response_code >= 400
+    principal.asset.ip = $entity
+    $entity != ""
+
+  match:
+    $entity by 1d
+
+  outcome:
+    $obs_s1 = count(metadata.id)
+    $avg_s1 = max(metrics.http_queries_fail(
+        period: 1d, window: 30d,
+        metric: event_count_sum,
+        agg: avg,
+        principal.asset.ip: principal.asset.ip
+    ))
+    $std_s1 = max(metrics.http_queries_fail(
+        period: 1d, window: 30d,
+        metric: event_count_sum,
+        agg: stddev,
+        principal.asset.ip: principal.asset.ip
+    ))
+}
+
+stage stage2_initial_access_auth {
+    metadata.event_type = "USER_LOGIN"
+    security_result.action = "ALLOW"
+    principal.asset.ip = $entity
+    $entity != ""
+
+  match:
+    $entity by 1d
+
+  outcome:
+    $obs_s2 = count(metadata.id)
+    $avg_s2 = max(metrics.auth_attempts_success(
+        period: 1d, window: 30d,
+        metric: event_count_sum,
+        agg: avg,
+        principal.asset.ip: principal.asset.ip
+    ))
+    $std_s2 = max(metrics.auth_attempts_success(
+        period: 1d, window: 30d,
+        metric: event_count_sum,
+        agg: stddev,
+        principal.asset.ip: principal.asset.ip
+    ))
+}
+
+$entity = $stage1_recon_http_fail.entity
+$entity = $stage2_initial_access_auth.entity
+
+match:
+  $entity by 1d
+
+outcome:
+  $recon_obs = max($stage1_recon_http_fail.obs_s1)
+  $recon_avg = max($stage1_recon_http_fail.avg_s1)
+  $recon_std = max($stage1_recon_http_fail.std_s1)
+  $auth_obs = max($stage2_initial_access_auth.obs_s2)
+  $auth_avg = max($stage2_initial_access_auth.avg_s2)
+  $auth_std = max($stage2_initial_access_auth.std_s2)
+  $safe_s1 = if($recon_std > 0, $recon_std, 1.0)
+  $safe_s2 = if($auth_std > 0, $auth_std, 1.0)
+  $z_recon = ($recon_obs - $recon_avg) / $safe_s1
+  $z_auth = ($auth_obs - $auth_avg) / $safe_s2
+  $pos_z1 = if($z_recon > 0, $z_recon, 0.0)
+  $pos_z2 = if($z_auth > 0, $z_auth, 0.0)
+  $threat_distance_sq = ($pos_z1 * $pos_z1) + ($pos_z2 * $pos_z2)
+
+condition:
+  $threat_distance_sq >= 12.25
+
+order:
+  $threat_distance_sq desc
+```
+
+### 7. Testing & Live 60-Scenario Dual-Engine Verification
+* **Unit & Submission Suites**: **426 / 426 unit tests passing** (+212 subtests) across 25 test modules; **32 / 32 submission tests passing**. `SKILL.md` is 20,287 bytes (strictly within the 20,480-byte ceiling).
+* **Live 60-Scenario Dual-Engine Regression Suite**: Achieved **`60 / 60` (`100.0%`) on `AgentAPI`** and **`60 / 60` (`100.0%`) on `Direct MCP`** (`120 / 120` combined runs) on `gus-sdl`.
 
 ---
 
