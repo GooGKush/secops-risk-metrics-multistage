@@ -85,10 +85,10 @@ class TestSkillEfficiencyAndClarity(unittest.TestCase):
     self.assertIn("Clearance Question (final sentence of Turn 1, then yield)", self.skill_content)
 
   def test_step2_six_pillars_hierarchy(self):
-    """SKILL.md must define all 6 required pillars of the Step 2 triage report."""
-    self.assertTrue("MANDATORY STEP 2: PRESENT FULL 6-SECTION REPORT" in self.skill_content or "State 2: Deterministic Multi-Stage Execution" in self.skill_content)
+    """SKILL.md must define all 5 required pillars of the Step 2 triage report (without redundant Executed Query block)."""
+    self.assertTrue("MANDATORY STEP 2: PRESENT FULL 5-SECTION REPORT" in self.skill_content or "State 2: Deterministic Multi-Stage Execution" in self.skill_content)
     self.assertIn("Statistical Outlier Report", self.skill_content)
-    self.assertIn("Executed Multi-Stage YARA-L Query", self.skill_content)
+    self.assertNotIn("Executed Multi-Stage YARA-L Query", self.skill_content)
     self.assertIn("Ranked Outlier Summary", self.skill_content)
     self.assertIn("Forensic Vector Breakdown", self.skill_content)
     self.assertIn("Chronicle UI Manual Pivot", self.skill_content)

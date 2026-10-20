@@ -112,11 +112,14 @@ class PipelineArchitecture(str, Enum):
 
 
 class KillChainArchetype(str, Enum):
+  RECON_ENUMERATION_TO_INITIAL_ACCESS = "RECON_ENUMERATION_TO_INITIAL_ACCESS"
+  RESOURCE_DEV_NRD_TO_C2_EGRESS = "RESOURCE_DEV_NRD_TO_C2_EGRESS"
   CREDENTIAL_ACCESS_TO_EXECUTION = "CREDENTIAL_ACCESS_TO_EXECUTION"
   INITIAL_ACCESS_TO_DISCOVERY = "INITIAL_ACCESS_TO_DISCOVERY"
   EXECUTION_TO_C2_DNS = "EXECUTION_TO_C2_DNS"
   EXECUTION_TO_EXFILTRATION = "EXECUTION_TO_EXFILTRATION"
   CREDENTIAL_ACCESS_TO_LATERAL_MOVEMENT = "CREDENTIAL_ACCESS_TO_LATERAL_MOVEMENT"
+  EAST_WEST_LATERAL_FANOUT = "EAST_WEST_LATERAL_FANOUT"
   CLOUD_DISCOVERY_TO_COLLECTION = "CLOUD_DISCOVERY_TO_COLLECTION"
   DEFENSE_EVASION_ALERT_TO_EXFILTRATION = "DEFENSE_EVASION_ALERT_TO_EXFILTRATION"
   C2_BEACON_TO_RARE_DESTINATION_EXFIL = "C2_BEACON_TO_RARE_DESTINATION_EXFIL"
@@ -971,6 +974,12 @@ class MalachiteASTValidator:
       errors.append(
           "INVALID_DETECTION_RULE_SYNTAX: Multi-stage threat hunting queries must be ad-hoc search queries ('stage name { ... }' + root stage), not continuous detection rules ('rule ... { ... }')."
       )
+    # SecOps Data Table syntax check: %<table_name>.<column_name> is valid when joining columns;
+    # flag bare %<table_name> on equality or 'in' comparisons without a column specifier.
+    for m_dt in re.finditer(r"(?:=|\bin)\s*%([a-zA-Z0-9_]+)(?![.\w])", code_no_literals):
+      errors.append(
+          f"INVALID_DATA_TABLE_COLUMN_SYNTAX: Data Table join '%{m_dt.group(1)}' must specify a column (e.g., '%{m_dt.group(1)}.column_name')."
+      )
 
     # 2. Stage count & naming rules
     stage1_matches, root_body = MalachiteASTValidator._extract_stage_blocks(query_text)
@@ -1460,4 +1469,102 @@ class PostFlightExecutionAuditor:
         remediation_action=remediation_action,
         audit_summary=f"❌ Audit Failed ({len(errors)} violation(s) detected). {remediation_action or ''}"
     )
+
+
+class QueryIntegrityGate:
+  """Pre-Dispatch and Post-Execution QA Gate ensuring executed queries are valid, scoped, and unmasked."""
+
+  BACKEND_ERROR_SIGNATURES: Tuple[str, ...] = (
+      "Request contains an invalid argument",
+      "INVALID_ARGUMENT",
+      "FAILED_PRECONDITION",
+      "syntax error",
+      "parsing:",
+      "semantic analysis:",
+      "400 Client Error",
+      "Internal error encountered",
+      "com.google.chronicle",
+  )
+
+  @staticmethod
+  def normalize_yaral(query: str) -> str:
+    """Strips comments and normalizes whitespace for structural concordance comparison."""
+    if not query:
+      return ""
+    no_line_comments = re.sub(r"//[^\n]*", "", query)
+    no_block_comments = re.sub(r"/\*.*?\*/", "", no_line_comments, flags=re.DOTALL)
+    return " ".join(no_block_comments.split())
+
+  @classmethod
+  def verify_pre_dispatch(
+      cls,
+      query: str,
+      expected_entity: Optional[str] = None,
+      require_metrics: bool = True,
+  ) -> Dict[str, Any]:
+    """Validates a composed YARA-L query BEFORE sending it to the Chronicle API."""
+    errors: List[str] = []
+    if not query or not query.strip():
+      errors.append("EMPTY_QUERY: Cannot dispatch an empty query string to udm_search.")
+      return {"valid": False, "errors": errors}
+
+    unresolved = re.findall(r"\{\{[a-zA-Z0-9_]+\}\}", query)
+    if unresolved:
+      errors.append(f"UNRESOLVED_TEMPLATE_PLACEHOLDERS: Query contains unresolved slot(s): {sorted(set(unresolved))}")
+
+    ast_errors = MalachiteASTValidator.validate_query(query)
+    errors.extend(ast_errors)
+
+    try:
+      from .statistical_validator import StatisticalAntipatternAuditor
+    except ImportError:
+      from statistical_validator import StatisticalAntipatternAuditor  # type: ignore[no-redef]
+    for v in StatisticalAntipatternAuditor.audit_query(query):
+      errors.append(f"{v.antipattern.value}: {v.description}")
+
+    if require_metrics and "stage " in query and "metrics." not in query:
+      errors.append("MISSING_METRICS_CALL: Multi-stage Risk Metrics query lacks a 'metrics.*' baseline function.")
+
+    if expected_entity and expected_entity.strip().lower() not in ("", "fleet", "all", "enterprise", "*"):
+      ent = expected_entity.strip()
+      if ent.lower() not in query.lower():
+        errors.append(
+            f"UNSCOPED_ENTITY_QUERY: Expected target entity '{ent}' is not bound in the query predicates."
+        )
+    return {"valid": len(errors) == 0, "errors": errors}
+
+  @classmethod
+  def verify_backend_response(
+      cls,
+      query_or_response: Any,
+      api_response: Any = None,
+  ) -> Dict[str, Any]:
+    """Inspects raw udm_search responses for backend compiler/API errors and query substitution drift."""
+    errors: List[str] = []
+    if api_response is None:
+      approved_query = None
+      raw_response = query_or_response
+    else:
+      approved_query = str(query_or_response) if query_or_response is not None else None
+      raw_response = api_response
+
+    if raw_response is None:
+      return {"valid": True, "errors": errors}
+    if getattr(raw_response, "isError", False):
+      errors.append("MCP_TOOL_ERROR_FLAG: udm_search returned isError=True.")
+
+    if isinstance(raw_response, dict) and approved_query:
+      exec_q = raw_response.get("executed_query")
+      if exec_q and cls.normalize_yaral(exec_q) != cls.normalize_yaral(approved_query):
+        errors.append(
+            "QUERY_EXECUTION_DRIFT: Executed query differs from approved pre-flight query."
+        )
+
+    text = raw_response if isinstance(raw_response, str) else str(raw_response)
+    for sig in cls.BACKEND_ERROR_SIGNATURES:
+      if sig.lower() in text.lower():
+        errors.append(f"CHRONICLE_BACKEND_QUERY_ERROR: Backend rejected query ({sig}): {text[:300]}")
+        break
+    return {"valid": len(errors) == 0, "errors": errors}
+
 

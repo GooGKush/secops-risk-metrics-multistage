@@ -74,12 +74,20 @@ class StatisticalAntipatternAuditor:
       "workspace_network_bytes_total": "WORKSPACE",
       "workspace_total_change_actions": "WORKSPACE",
       "workspace_total_download_actions": "WORKSPACE",
-      # Network Egress & Web
+      # Network Egress, Web & DNS (distinct sectors per metric-sector-catalog)
       "network_bytes_inbound": "NETWORK",
       "network_bytes_outbound": "NETWORK",
       "network_bytes_total": "NETWORK",
-      "http_queries_total": "NETWORK",
-      "dns_queries_total": "NETWORK",
+      "network_flows_inbound": "NETWORK",
+      "network_flows_outbound": "NETWORK",
+      "network_flows_total": "NETWORK",
+      "http_queries_total": "WEB",
+      "http_queries_success": "WEB",
+      "http_queries_fail": "WEB",
+      "dns_queries_total": "DNS",
+      "dns_queries_success": "DNS",
+      "dns_queries_fail": "DNS",
+      "dns_bytes_outbound": "DNS",
       # Endpoint & Process
       "file_executions_total": "ENDPOINT",
   }

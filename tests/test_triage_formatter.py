@@ -55,29 +55,26 @@ class TestTriageFormatter(unittest.TestCase):
     self.assertIn("Active Search Window", report)
     self.assertIn("Historical Baseline Horizon", report)
 
-    # 2. Executed Multi-Stage YARA-L Query
-    self.assertIn("#### 💻 Executed Multi-Stage YARA-L Query", report)
-    self.assertIn("stage host_hourly", report)
-
-    # 3. Ranked Outlier Summary Table
+    # 2. Ranked Outlier Summary Table (Executed Multi-Stage YARA-L Query is omitted from delivered reports)
+    self.assertNotIn("#### 💻 Executed Multi-Stage YARA-L Query", report)
     self.assertIn("#### 📊 Ranked Outlier Summary", report)
     self.assertIn("dev-win10-14.site.lan", report)
 
-    # 4. Forensic Vector Breakdown & Action Plan
+    # 3. Forensic Vector Breakdown & Action Plan
     self.assertIn("#### 🔍 Forensic Vector Breakdown", report)
     self.assertIn("> [!IMPORTANT]", report)
 
-    # 5. Chronicle UI Manual Pivot (Triage Reference Only)
+    # 4. Chronicle UI Manual Pivot (Triage Reference Only)
     self.assertIn("#### 🎯 Chronicle UI Manual Pivot (Triage Reference Only)", report)
     self.assertIn("principal.user.userid = \"dev-win10-14.site.lan\"", report)
 
-    # 6. Collapsible Technical Appendix
+    # 5. Collapsible Technical Appendix
     self.assertIn("<details open>", report)
     self.assertIn("🔬 <b>Statistical & Mathematical Appendix (Technical Details)</b>", report)
     self.assertIn("</details>", report)
 
-  def test_executed_query_is_preserved_verbatim(self):
-    """Section 2 code block must contain the exact query string provided."""
+  def test_executed_query_is_omitted_from_delivered_report(self):
+    """Delivered report must omit the redundant Executed Multi-Stage YARA-L Query block."""
     custom_query = "// LITERAL_EXECUTION_VERBATIM_CHECK\nmetadata.event_type = \"USER_LOGIN\"\n"
     report = CommonMarkTriageFormatter.format_report(
         reduced_data=self.sample_reduced_data,
@@ -86,7 +83,8 @@ class TestTriageFormatter(unittest.TestCase):
         anomaly_threshold=3.0,
         executed_query=custom_query
     )
-    self.assertIn("// LITERAL_EXECUTION_VERBATIM_CHECK", report)
+    self.assertNotIn("#### 💻 Executed Multi-Stage YARA-L Query", report)
+    self.assertNotIn("// LITERAL_EXECUTION_VERBATIM_CHECK", report)
 
   def test_classify_hunt_outcome_four_shapes(self):
     """classify_hunt_outcome must deterministically classify all 4 outcome shapes."""

@@ -58,11 +58,11 @@ class TestGuardrailContracts(unittest.TestCase):
     )
 
   def test_literal_query_display_mandate_present(self):
-    """SKILL.md must enforce that Section 2 contains the literal query passed to udm_search."""
+    """SKILL.md must enforce Atomic Pipeline Execution Mandate."""
     self.assertIn(
-        "Literal Query Display Mandate (ZERO FAKED YARA-L QUERIES)",
+        "Atomic Pipeline Execution Mandate (ZERO PIECEMEAL FRACTURING & DRIFT)",
         self.skill_content,
-        "SKILL.md must enforce literal query display."
+        "SKILL.md must enforce atomic pipeline execution without drift."
     )
 
   def test_evals_contain_zero_simulation_scenario(self):
@@ -1952,7 +1952,7 @@ class TestGuardrailContracts(unittest.TestCase):
     self.assertIn("user_display_name", catalog_content)
 
   def test_pillar2_query_integrity_contract(self):
-    """SKILL.md and guide must require executed multi-stage queries and forbid raw event filters in Pillar 2."""
+    """SKILL.md and guide must enforce execution query integrity and forbid raw event filter substitutions."""
     skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     skill_path = os.path.join(skill_dir, 'SKILL.md')
     guide_path = os.path.join(skill_dir, 'references', 'multi-stage-metrics-guide.md')
@@ -1963,13 +1963,12 @@ class TestGuardrailContracts(unittest.TestCase):
       guide_content = f.read()
 
     # SKILL.md assertions
-    self.assertIn("Executed Multi-Stage YARA-L Query", skill_content)
-    self.assertIn("For 360 Radar, display executed sector micro-queries", skill_content)
-    self.assertIn("A bare raw-event filter with no `stage`/`match`/`outcome` is PROHIBITED in Pillar 2", skill_content)
+    self.assertNotIn("Executed Multi-Stage YARA-L Query", skill_content)
+    self.assertIn("Raw event filter substitutions are invalid on execution turns", skill_content)
 
     # Guide assertions
-    self.assertIn("Pillar 2 Executed Multi-Stage Query Integrity", guide_content)
-    self.assertIn("Prohibition of Raw Event Filters in Pillar 2", guide_content)
+    self.assertIn("Turn 2 Execution Query Integrity & Pre/Post QA Gate", guide_content)
+    self.assertIn("Prohibition of Raw Event Filter Substitutions on Turn 2", guide_content)
 
 
 
@@ -1984,7 +1983,7 @@ class TestGuardrailContracts(unittest.TestCase):
     """SKILL.md must define the closed 3-state active hunt engine."""
     self.assertIn("THE 3-STATE ACTIVE HUNT LIFECYCLE", self.skill_content)
     self.assertIn("State 1: Pre-Flight Clearance & Specification", self.skill_content)
-    self.assertIn("State 2: Deterministic Multi-Stage Execution & 6-Pillar Report", self.skill_content)
+    self.assertIn("State 2: Deterministic Multi-Stage Execution & 5-Pillar Report", self.skill_content)
     self.assertIn("State 3: Iteration, Entity Shifts & Federated Bridge", self.skill_content)
 
   def test_pillar5_debaiting_contract(self):
@@ -2092,11 +2091,11 @@ class TestGuardrailContracts(unittest.TestCase):
     self.assertIn("Domain 7: MITRE ATT&CK Tactics & Multi-Stage Kill-Chain Progression", worksheet_content)
     self.assertIn("references/consultative/mitre-attack-killchain.md", worksheet_content)
 
-    # All 12 Enterprise MITRE ATT&CK Tactics
-    for tactic_id in ("TA0001", "TA0002", "TA0003", "TA0004", "TA0005", "TA0006", "TA0007", "TA0008", "TA0009", "TA0011", "TA0010", "TA0040"):
+    # All 14 Enterprise MITRE ATT&CK Tactics
+    for tactic_id in ("TA0043", "TA0042", "TA0001", "TA0002", "TA0003", "TA0004", "TA0005", "TA0006", "TA0007", "TA0008", "TA0009", "TA0011", "TA0010", "TA0040"):
       self.assertIn(tactic_id, mitre_guide)
 
-    # All 8 canonical single-query Kill-Chain Fusion Archetypes
+    # All 11 canonical single-query Kill-Chain Fusion Archetypes
     for arch in KillChainArchetype:
       self.assertIn(arch.value, mitre_guide)
       self.assertIn(arch.value, worksheet_content)
@@ -2127,7 +2126,7 @@ class TestVestigialDirectivesRetired(unittest.TestCase):
     self.assertIn("A follow-up pick (`[1]`/`[2]`/`[3]`) is never clearance.", self.skill)
 
   def test_pillar4_names_the_followups(self):
-    line = [l for l in self.skill.splitlines() if l.startswith("#### 4. Forensic Vector Breakdown")][0]
+    line = [l for l in self.skill.splitlines() if l.startswith("#### 3. Forensic Vector Breakdown")][0]
     self.assertIn("`[1]`/`[2]`/`[3]`", line)
 
   def test_no_rolling_24h_column(self):
