@@ -234,7 +234,7 @@ stage cloud_risk {
         metadata.vendor_name: metadata.vendor_name,
         metadata.product_name: metadata.product_name
     ))
-    $z_read = ($read_obs - $read_avg) / if($read_std > 0, $read_std, 1.0)
+    $z_read = ($read_obs - $read_avg) / if($read_std > 0, $read_std, 1000000.0)
 
     $write_obs = sum(if(metadata.event_type = "RESOURCE_WRITTEN" or metadata.event_type = "USER_RESOURCE_UPDATE_CONTENT", 1, 0))
     $write_avg = max(metrics.resource_written_total(
@@ -249,7 +249,7 @@ stage cloud_risk {
         metadata.vendor_name: metadata.vendor_name,
         metadata.product_name: metadata.product_name
     ))
-    $z_write = ($write_obs - $write_avg) / if($write_std > 0, $write_std, 1.0)
+    $z_write = ($write_obs - $write_avg) / if($write_std > 0, $write_std, 1000000.0)
 
     $create_obs = sum(if(metadata.event_type = "RESOURCE_CREATION" or metadata.event_type = "USER_RESOURCE_CREATION", 1, 0))
     $create_avg = max(metrics.resource_creation_total(
@@ -264,7 +264,7 @@ stage cloud_risk {
         metadata.vendor_name: metadata.vendor_name,
         metadata.product_name: metadata.product_name
     ))
-    $z_create = ($create_obs - $create_avg) / if($create_std > 0, $create_std, 1.0)
+    $z_create = ($create_obs - $create_avg) / if($create_std > 0, $create_std, 1000000.0)
 
     $delete_obs = sum(if(metadata.event_type = "RESOURCE_DELETION" or metadata.event_type = "USER_RESOURCE_DELETION", 1, 0))
     $delete_days = max(metrics.resource_deletion_total(
@@ -285,7 +285,7 @@ stage cloud_risk {
         metadata.vendor_name: metadata.vendor_name,
         metadata.product_name: metadata.product_name
     ))
-    $z_delete_raw = ($delete_obs - $delete_avg) / if($delete_std > 0, $delete_std, 1.0)
+    $z_delete_raw = ($delete_obs - $delete_avg) / if($delete_std > 0, $delete_std, 1000000.0)
     $z_delete = if($delete_days >= 3, $z_delete_raw, 0.0)
 }
 

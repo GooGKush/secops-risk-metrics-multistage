@@ -2146,5 +2146,24 @@ class TestVestigialDirectivesRetired(unittest.TestCase):
   def test_radar_rosters_per_entity_type(self):
     self.assertIn("host: Security & EDR Alerts in the Cloud slot", self.skill)
 
+  def test_zero_bigquery_backend_guardrail(self):
+    skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    guide_path = os.path.join(skill_dir, 'references', 'multi-stage-metrics-guide.md')
+    release_path = os.path.join(skill_dir, 'RELEASE_NOTES.md')
+    with open(guide_path, 'r', encoding='utf-8') as f:
+      guide = f.read()
+    with open(release_path, 'r', encoding='utf-8') as f:
+      release_notes = f.read()
+
+    for doc in (self.skill, guide):
+      self.assertIn("leveraging core Google infrastructure", doc)
+      self.assertIn("BigQuery contributes nothing to SecOps UEBA", doc)
+    for doc in (self.skill, guide, release_notes):
+      self.assertNotIn("BigQuery summary tables", doc)
+      self.assertNotIn("BigQuery baseline", doc)
+      self.assertNotIn("BigQuery roll-up", doc)
+      self.assertNotIn("Placer", doc)
+      self.assertNotIn("Colossus", doc)
+
 if __name__ == '__main__':
   unittest.main()

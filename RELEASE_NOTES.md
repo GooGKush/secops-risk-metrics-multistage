@@ -1,10 +1,24 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v2.1.0)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v2.1.1)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v2.1.0 (Major Point Release) — October 2026  
+**Latest Version**: v2.1.1 (Minor Point Release) — October 2026  
+
+---
+
+## 📢 What's New in v2.1.1 (Minor Point Release) — Native SecOps UEBA Architectural Grounding, Silent Zero-BigQuery Guardrail & Cloud CRUD Zero-Dispersion Suppression
+
+### 1. Native SecOps UEBA Architectural Grounding & Silent Zero-BigQuery Guardrail (`SKILL.md`, `references/multi-stage-metrics-guide.md`)
+* **100% Native Google SecOps Data Plane**: Corrected all architectural documentation (`references/multi-stage-metrics-guide.md` §§11 & 21, `RELEASE_NOTES.md`) to accurately reflect that `metrics.*` pre-computed behavioral baselines and the Entity Context Graph (`graph.*`) execute 100% natively within Google SecOps, leveraging core Google infrastructure.
+* **Silent Conditional Zero-BigQuery Guardrail**: Embedded a background anti-hallucination invariant in `SKILL.md` (`Native SecOps Architecture`) and `references/multi-stage-metrics-guide.md` (§11):
+  - **Silent by Default**: Does not volunteer or mention BigQuery unprompted during standard UEBA hunts or architectural overviews.
+  - **Explicit Conditional Trigger**: If asked whether or how BigQuery powers UEBA, states flatly that **BigQuery contributes nothing to SecOps UEBA**—SecOps UEBA is completely native to Google SecOps (BigQuery only ever appears as a monitored customer cloud target in `GCP_CLOUDAUDIT` telemetry, alongside GCS or AWS S3).
+* **Contract Test Enforcement (`tests/test_guardrail_contracts.py`)**: Added `test_zero_bigquery_backend_guardrail` to enforce `"leveraging core Google infrastructure"` and `"BigQuery contributes nothing to SecOps UEBA"` while forbidding any false backend BigQuery claims or internal storage names.
+
+### 2. Cloud CRUD 360° Radar Zero-Dispersion Fallback Suppression (`scripts/radar_collector.py`, `references/360-behavioral-radar-guide.md`)
+* Updated the zero-dispersion fallback divisor in the Cloud CRUD 360° sector query (`if($read_std > 0, $read_std, 1000000.0)` across read/write/create/delete branches) so unestablished or zero-variance cloud CRUD branches do not produce artificial Z-score spikes.
 
 ---
 
@@ -620,7 +634,7 @@ Before this release, multi-sector queries were built from templates with fixed m
 
 ### 1. Security & EDR Alert Sector Decoupled Pipeline (`radar_360_sector_alert.yl2`)
 * **Chronicle Malachite Rule-Scoped Indexing Alignment**:
-  - Aligned the Alert Risk sector against authoritative Malachite source specifications (`google3/googlex/security/malachite/analytics/configs/config.textproto` lines 48–84) and devsite documentation. In Chronicle Malachite, all 4 pre-computed BigQuery roll-up pipelines for `ALERT_EVENT_NAME_COUNT` strictly require partitioning over `SECURITY_RESULT_RULE_NAME`.
+  - Aligned the Alert Risk sector against authoritative Malachite source specifications (`google3/googlex/security/malachite/analytics/configs/config.textproto` lines 48–84) and devsite documentation. In Chronicle Malachite, all 4 native SecOps pre-computed roll-up pipelines for `ALERT_EVENT_NAME_COUNT` strictly require partitioning over `SECURITY_RESULT_RULE_NAME`.
   - Added canonical decoupled 2-stage pipeline template `templates/pipelines/radar_360_sector_alert.yl2` implementing compound dimension matching in Stage 1 (`alerts_risk`: `$host, $rule_name by 1d` under `metadata.event_type = "SCAN_UNCATEGORIZED"`) and projecting peak rule outlier risk to the entity level in the Root Stage (`$host by 1d`, `$z = max($alerts_risk.z)`).
   - Validated template live against Chronicle SIEM backend compiler via `validate_rule` tool call, achieving clean `{"success": true}` compilation.
 
