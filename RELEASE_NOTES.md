@@ -1,10 +1,28 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v2.1.1)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v2.1.2)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v2.1.1 (Minor Point Release) — October 2026  
+**Latest Version**: v2.1.2 (Minor Point Release) — October 2026  
+
+---
+
+## 📢 What's New in v2.1.2 (Minor Point Release) — Full Audit Remediation: Macro-Day/Micro-Hour Burst Localization, Multi-Day Cumulative CUSUM Drift, Rectified Euclidean Fusion, Epoch-Zero ECG Guards & 100% Dual-Engine Parity
+
+### 1. Macro-Day (`period: 1d`) Baseline + Micro-Hour (`by 1h`) Burst Localization (`hourly_temporal_zscore.yl2`, `circadian_von_mises.yl2`, `circadian_von_mises_2stage.yl2`)
+* Preserves Stage 1 `metrics.*` on its only supported `period: 1d, window: 30d` window while normalizing the 24-hour historical baseline to an hourly rate (`$avg_hourly = $hist_avg_daily / 24.0`, `$scaled_hourly_sd = $hist_stddev_daily / 4.899` where $\sqrt{24} \approx 4.899$) when scored against an hourly (`by 1h`) burst stage.
+
+### 2. Multi-Day Cumulative Drift (`longitudinal_cusum.yl2`, `longitudinal_cusum_2stage.yl2`, `scripts/timeline_assembler.py`)
+* Adds an intermediate `stage stage2_daily_drift` (`match: $entity by 1d`) computing daily Z-scores and slack excess (`$daily_excess = if($daily_z > 0.5, $daily_z - 0.5, 0.0)`), feeding an unbucketed root stage (`match: $entity`) that sums multi-day drift (`$cusum_drift = sum($stage2_daily_drift.daily_excess)`, `$drift_days = sum(if($stage2_daily_drift.daily_excess > 0, 1, 0))`) over Mode B horizons.
+* Adds sequential Page's one-sided CUSUM ($S_t = \max(0.0, S_{t-1} + z_t - 0.5)$) to `scripts/timeline_assembler.py` for Mode C per-day timeline collation.
+
+### 3. Rectified Multi-Sector Fusion, Epoch-Zero ECG Guards & Compiler-Safe Outcome `if()` Expressions
+* **Rectified Euclidean Fusion**: Rectifies negative sector Z-scores (`if($z > 0, $z, 0.0)`) before squaring in `multi_sector_fusion_4stage.yl2`, `rollup_sector_fusion_4stage.yl2`, and `rollup_sector_fusion_5stage.yl2` so quiet sectors never inflate $D$.
+* **Epoch-Zero Entity Context Graph Guards**: Guards `$first_seen > 0` and `$created > 0` in `hybrid_metric_derived_file_prevalence_2stage.yl2`, `hybrid_metric_derived_asset_age_2stage.yl2`, and `hybrid_metric_whois_domain_lifecycle_2stage.yl2`, and keeps cross-stage OIO subtraction out of root `condition:` blocks for 100% live Chronicle SIEM compilation.
+* **Data Table Bridge & Metric Semantics**: Standardizes `agg: num_metric_periods` and `%ueba_hunt_bridge.entity` in `hybrid_data_table_bridge_2stage.yl2`, reclassifies `alert_event_name_count` to `PROCESS_UNCATEGORIZED` (`sigma_floor_value: 2.0`), and preserves the `v2.1.1` `1000000.0` Cloud CRUD zero-dispersion divisor.
+* **Python Hybrid Engine & `SKILL.md` Progressive-Loading Ceiling**: Adds `"fusion"` / multi-metric auto-promotion to `compile_hunt_pipeline()` in `scripts/ueba_hybrid_engine.py`, expands the `SKILL.md` ceiling in `tests/test_skill_efficiency_and_clarity.py` to `28.0 KB` (`28,672` bytes) / `275` lines, and tightens 360° Radar single-step synthesis and Consultative Pivot re-keying instructions.
+* **Verification**: **433/433 unit tests** (+218 subtests); **32/32 submission tests**; **`120/120` (`100.0%` Invariant Parity)** across `AgentAPI` (`60/60`) and `Direct MCP` (`60/60`) on `gus-sdl`.
 
 ---
 

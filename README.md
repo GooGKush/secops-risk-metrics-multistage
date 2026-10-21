@@ -1,6 +1,6 @@
 # Google SecOps Multi-Stage Risk Metrics Threat Hunter (`secops-risk-metrics-multistage`)
 
-[![Version](https://img.shields.io/badge/version-v2.1.0-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-426%2F426%20passing%20(100%25)-brightgreen.svg)](tests/) [![Submission Tests](https://img.shields.io/badge/submission%20tests-32%2F32%20passing%20(100%25)-brightgreen.svg)](scripts/submission_tests.py) [![Live Regression](https://img.shields.io/badge/dual--engine%20regression-60%2F60%20live%20passing%20(100%25)-brightgreen.svg)](tests/)
+[![Version](https://img.shields.io/badge/version-v2.1.2-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-433%2F433%20passing%20(100%25)-brightgreen.svg)](tests/) [![Submission Tests](https://img.shields.io/badge/submission%20tests-32%2F32%20passing%20(100%25)-brightgreen.svg)](scripts/submission_tests.py) [![Live Regression](https://img.shields.io/badge/dual--engine%20regression-60%2F60%20live%20passing%20(100%25)-brightgreen.svg)](tests/)
 
 A specialized, production-grade AI agent skill package for **Google Security Operations (SecOps / Chronicle SIEM & SOAR)** that constructs, validates, and executes **Multi-Stage YARA-L 2.0 Directed Acyclic Graph (DAG) statistical threat hunting pipelines**, **360° Entity Behavioral Risk Radars**, and **Progressively Disclosed Consultative Threat Hunting**.
 
@@ -134,7 +134,7 @@ secops-risk-metrics-multistage/
 │   ├── timeline_assembler.py             # Mode C collator: merges per-day single-query or 6-sector 360° radar shards into one timeline report
 │   ├── triage_formatter.py               # Generates 5-section triage reports, CRI scores & Post-Data Agentic Next Steps
 │   └── ueba_hybrid_engine.py             # Unified Python Hybrid Engine (compile_hunt_pipeline, dispatch_hybrid_handoff, render_forensic_dossier)
-└── tests/                                # Automated unit test suite (426 tests across 25 test modules)
+└── tests/                                # Automated unit test suite (433 tests across 25 test modules, 100% pass rate)
     ├── test_chart_specifications.py
     ├── test_chronicle_ingest.py
     ├── test_complex_multistage_syntax.py
@@ -500,8 +500,8 @@ The skill package ships with two test tiers that anyone can run from a clone:
 pytest tests/
 # or: python3 -m unittest discover tests
 ```
-* **Status**: **426 / 426 passing unit tests** (plus 212 subtests) across 25 test modules (100% pass rate).
-* **Scope**: Enforces Chronicle AST grammar rules, `QueryIntegrityGate` pre-dispatch and post-execution validation, `%<table_name>.<column>` Data Table syntax rules, KaTeX formatting compliance, prompt guardrail contracts, 20,480-byte budget ceilings, template router permutations across all 38 metrics and 11 MITRE ATT&CK kill-chains, metric-sector catalog drift against `data/`, and Entity Graph freshness filters in every graph template.
+* **Status**: **433 / 433 passing unit tests** (plus 218 subtests) across 25 test modules (100% pass rate).
+* **Scope**: Enforces Chronicle AST grammar rules, `QueryIntegrityGate` pre-dispatch and post-execution validation, `%<table_name>.<column>` Data Table syntax rules, KaTeX formatting compliance, prompt guardrail contracts, 28,672-byte (28.0 KB) progressive-loading budget ceilings, template router permutations across all 38 metrics and 11 MITRE ATT&CK kill-chains, metric-sector catalog drift against `data/`, and Entity Graph freshness filters in every graph template.
 
 ### 2. Google SecOps Malachite Compiler Submission Harness
 ```bash
@@ -518,6 +518,17 @@ python3 scripts/submission_tests.py --dump-dir <OUTPUT_DIR>
 ---
 
 ## 📦 Recent Releases
+
+### v2.1.2 (October 2026) — Full Audit Remediation: Macro-Day/Micro-Hour Burst Localization, Multi-Day Cumulative CUSUM Drift, Rectified Euclidean Fusion, Epoch-Zero ECG Guards & 28.0 KB Progressive-Loading Ceiling
+* **Macro-Day (`period: 1d`) Baseline + Micro-Hour (`by 1h`) Burst Localization (`hourly_temporal_zscore.yl2`, `circadian_von_mises.yl2`, `circadian_von_mises_2stage.yl2`)**: Keeps Stage 1 `metrics.*` on its only supported `period: 1d, window: 30d` window while scaling the 24h baseline to hourly rates ($\mu_{\text{1h}} = \mu_{\text{1d}} / 24.0$, $\sigma_{\text{1h}} = \sigma_{\text{1d}} / 4.899$) when evaluating hourly `by 1h` burst stages.
+* **Multi-Day Cumulative Drift (`longitudinal_cusum.yl2`, `longitudinal_cusum_2stage.yl2`, `scripts/timeline_assembler.py`)**: Evaluates daily slack excess (`$daily_excess = if($daily_z > 0.5, $daily_z - 0.5, 0.0)`) in an intermediate `by 1d` stage and aggregates multi-day cumulative drift (`$cusum_drift = sum($stage2_daily_drift.daily_excess)`, `$drift_days`) in an unbucketed root stage over Mode B horizons, paired with sequential Page's CUSUM ($S_t = \max(0, S_{t-1} + z_t - 0.5)$) in `scripts/timeline_assembler.py`.
+* **Rectified Multi-Sector Fusion & Epoch-Zero ECG Guards (`multi_sector_fusion_4stage.yl2`, `rollup_sector_fusion_*.yl2`, `hybrid_metric_derived_*.yl2`, `hybrid_metric_whois_domain_lifecycle_2stage.yl2`)**: Rectifies negative Z-scores (`if($z > 0, $z, 0.0)`) before squaring in Euclidean fusion ($D = \sqrt{\sum \max(0, Z_i)^2}$), guards missing `first_seen_time` / WHOIS `creation_time` (`> 0`) against epoch-zero false positives, and enforces `agg: num_metric_periods` + `%ueba_hunt_bridge.entity` in `hybrid_data_table_bridge_2stage.yl2`.
+* **Compiler-Safe Outcome `if()` & Division Guards Across All Templates & Scripts**: Extracted nested expressions from `if()` branches into intermediate OIO variables, added `"fusion"` / multi-metric auto-promotion to `compile_hunt_pipeline()` in `scripts/ueba_hybrid_engine.py`, reclassified `alert_event_name_count` to `PROCESS_UNCATEGORIZED` (`sigma_floor_value: 2.0`), and updated the `SKILL.md` progressive-loading ceiling to `28.0 KB` (`28,672` bytes) / `275` lines.
+* **Test Suite & Live Dual-Engine Regression**: **433/433 unit tests** (+218 subtests); **32/32 submission tests**; **`120/120` (`100.0%` Invariant Parity)** across `AgentAPI` (`60/60`) and `Direct MCP` (`60/60`). `SKILL.md` is 24,450 bytes (142 lines).
+
+### v2.1.1 (October 2026) — Native SecOps UEBA Architectural Grounding, Silent Zero-BigQuery Guardrail & Cloud CRUD Zero-Dispersion Suppression
+* **Native SecOps UEBA Data Plane & Silent Zero-BigQuery Guardrail (`SKILL.md`, `references/multi-stage-metrics-guide.md`)**: Clarifies that `metrics.*` pre-computed behavioral baselines and `graph.*` execute 100% natively within Google SecOps, leveraging core Google infrastructure, and states directly when asked that **BigQuery contributes nothing to SecOps UEBA**.
+* **Cloud CRUD 360° Radar Per-Product Z-Score (`scripts/radar_collector.py`)**: Computes Cloud CRUD directional Z-scores per `(user, vendor, product)` tuple inside Stage 1 before aggregating across products in the root stage.
 
 ### v2.1.0 (October 2026) — Pre/Post `QueryIntegrityGate`, 10 Consultative Deformations, 14-Tactic MITRE Coverage, SecOps Data Table Bridging & 5-Section Triage Reports
 * **Pre/Post Execution `QueryIntegrityGate` (`scripts/preflight_validator.py`, `scripts/ueba_hybrid_engine.py`, `SKILL.md`)**: Adds `QueryIntegrityGate.verify_pre_dispatch()` and `QueryIntegrityGate.verify_backend_response()` to block unresolved template placeholders (`{{...}}`), unscoped target entities, malformed `%<table_name>.<column>` Data Table syntax, or Chronicle backend compiler/RPC errors from silently degrading into false `0.00σ` clean baseline reports.
