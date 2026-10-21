@@ -7,11 +7,11 @@
 // CONCRETE FIELD BINDING & INSTANTIATION GUIDE:
 // entity_field slot: the entity key (default principal.asset.hostname); observed_agg slot: the metric's "Observed value".
 // Slots event_filter / macro_event_filter: the metric's "Observed event filter" lines from references/metric-sector-catalog.md, one per line.
-// 1. Process Launch Volumetric Delta-Z:
-//    - event_filter slot: metadata.event_type = "PROCESS_LAUNCH"
-//    - target_metric_func_avg slot: metrics.file_executions_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, metadata.event_type: "PROCESS_LAUNCH", principal.asset.hostname: principal.asset.hostname, principal.process.file.sha256: principal.process.file.sha256)
-//    - target_metric_func_stddev slot: metrics.file_executions_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, metadata.event_type: "PROCESS_LAUNCH", principal.asset.hostname: principal.asset.hostname, principal.process.file.sha256: principal.process.file.sha256)
-//    - target_metric_func_active_days slot: metrics.file_executions_total(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, metadata.event_type: "PROCESS_LAUNCH", principal.asset.hostname: principal.asset.hostname, principal.process.file.sha256: principal.process.file.sha256)
+// 1. HTTP Query Volumetric Delta-Z (Single-Key Host):
+//    - event_filter slot: (network.http.method != "" or network.http.user_agent != "" or network.http.response_code != 0 or network.http.referral_url != "")
+//    - target_metric_func_avg slot: metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.asset.hostname: principal.asset.hostname)
+//    - target_metric_func_stddev slot: metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.asset.hostname: principal.asset.hostname)
+//    - target_metric_func_active_days slot: metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.asset.hostname: principal.asset.hostname)
 // 2. Network Outbound Bytes Delta-Z:
 //    - event_filter slot: network.sent_bytes > 0 AND network.sent_bytes < 1000000000000000 (network_bytes_outbound)
 //    - target_metric_func_avg slot: metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: avg, principal.asset.hostname: principal.asset.hostname)
@@ -49,6 +49,7 @@ stage fleet_stats {
   outcome:
     $fleet_today_avg = avg($host_extract.observed_24h)
     $fleet_today_stddev = stddev($host_extract.observed_24h)
+    $fleet_z_avg = avg($host_extract.personal_z)
     $active_fleet_hosts = count_distinct($host_extract.host)
 }
 
@@ -69,15 +70,16 @@ outcome:
   $fleet_stddev = max($fleet_stats.fleet_today_stddev)
   $fleet_size = max($fleet_stats.active_fleet_hosts)
 
-  // 1. Fleet Today Cross-Sectional Z-Score
-  $fleet_z = ($obs - $fleet_avg) / if($fleet_stddev > 0, $fleet_stddev, 1.0)
+  // 1. Fleet Today Cross-Sectional Volume Z-Score & Common-Unit Fleet Mean Personal Z
+  $raw_fleet_z = ($obs - $fleet_avg) / if($fleet_stddev > 0, $fleet_stddev, 1.0)
+  $fleet_z = max($fleet_stats.fleet_z_avg)
 
-  // 3. Delta-Z Anomaly Isolation (Targeted anomaly score)
+  // 3. Delta-Z Anomaly Isolation in common within-entity sigma units (Targeted anomaly score)
   $delta_z = $personal_z - $fleet_z
 
 // Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
 condition:
-  $delta_z >= {{anomaly_threshold}}
+  $delta_z >= {{anomaly_threshold}} and $active_days >= {{min_baseline_days}}
 
 order:
   $delta_z desc

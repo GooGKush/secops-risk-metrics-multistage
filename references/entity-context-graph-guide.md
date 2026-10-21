@@ -66,7 +66,7 @@ Curated external intelligence continuously updated by Google Cloud and commercia
 * **The Scenario**: An analyst hunts for Living-off-the-Land (LotL) execution spikes or dropper activity on endpoints. Standard metric baselines (`metrics.file_executions_total`) flag legitimate Microsoft Windows updates, Chrome upgrades, or internal IT packages as massive anomalies.
 * **The Solution (Narrowing)**:
   - Stage 1 extracts individual host/hash execution volume against `metrics.file_executions_total`.
-  - Stage 2 filters on `$file.graph.metadata.source_type = "DERIVED_CONTEXT"` with `prevalence.day_count = 10` and `prevalence.rolling_max <= 3`.
+  - Stage 2 filters on `$file.graph.metadata.source_type = "DERIVED_CONTEXT"` with `prevalence.day_count = 10`, `prevalence.rolling_max <= 3`, and `prevalence.rolling_max > 0`.
   - Root Stage joins `$sha256` and computes personal $Z$-score.
 * **Operational Result**: If an update was pushed to 5,000 machines, its `rolling_max` is 5,000; Stage 2 drops it completely. Only binaries executing on $\le 3$ machines enterprise-wide reach the analyst's screen.
 * **Template**: `templates/pipelines/hybrid_metric_derived_file_prevalence_2stage.yl2`
@@ -77,7 +77,7 @@ Curated external intelligence continuously updated by Google Cloud and commercia
 * **The Solution (Enhancing)**:
   - Stage 1 evaluates outbound query volume or bytes (`metrics.http_queries_total`, `metrics.network_bytes_outbound`) per `$host, $domain by 1d`.
   - Stage 2 extracts `$whois.graph.entity.domain.creation_time.seconds` via `GLOBAL_CONTEXT` WHOIS.
-  - Root Stage calculates `$domain_age_days = ($now - $creation_ts) / 86400.0`. If `$domain_age_days <= 30.0`, it applies a **2.5x threat score multiplier**.
+  - Stage 2 guards `$whois.graph.entity.domain.creation_time.seconds > 0` and Root Stage calculates `$domain_age_days = ($obs_ts - $creation_ts) / 86400.0`. If `$domain_age_days <= 30.0`, it applies a **2.5x threat score multiplier**.
 * **Operational Result**: Benign enterprise CDNs and established SaaS partners maintain high age ($> 1,000$ days) and receive standard $Z$-scores; novel throwaway C2 domains breach the critical threat threshold immediately.
 * **Template**: `templates/pipelines/hybrid_metric_whois_domain_lifecycle_2stage.yl2`
 
@@ -94,7 +94,7 @@ Curated external intelligence continuously updated by Google Cloud and commercia
 * **The Scenario**: Rogue laptops, compromised test VMs, or shadow-IT devices plugged into internal networks frequently exhibit high authentication failure rates or heavy initial egress before security agents are installed.
 * **The Solution (Narrowing)**:
   - Stage 1 monitors host authentication attempts (`metrics.auth_attempts_total` or `auth_attempts_fail`).
-  - Stage 2 checks `$asset.graph.metadata.source_type = "DERIVED_CONTEXT"` and extracts `entity.asset.first_seen_time.seconds`.
+  - Stage 2 checks `$asset.graph.metadata.source_type = "DERIVED_CONTEXT"` with `$asset.graph.entity.asset.first_seen_time.seconds > 0` and extracts `entity.asset.first_seen_time.seconds`.
   - Root Stage restricts output to `$asset_age_days <= 7.0`.
 * **Operational Result**: Mature domain controllers and established workstations are filtered out; only newly onboarded assets undergoing authentication storms are surfaced.
 * **Template**: `templates/pipelines/hybrid_metric_derived_asset_age_2stage.yl2`
@@ -105,21 +105,21 @@ Curated external intelligence continuously updated by Google Cloud and commercia
 
 When authoring multi-stage queries with Entity Context Graph joins, the following rules are strictly enforced by Chronicle's engine and `MalachiteASTValidator`:
 
-### Rule 1: Maximum 1 ECG Alias Per Named Stage (`ECG_LIMIT = 1`)
-Chronicle's F1 distributed memory engine isolates graph traversal. Declaring more than one graph alias (`$alias.graph.*`) inside a single stage block causes memory exhaustion.
-* ❌ **Invalid (Multiple Graph Aliases in One Stage)**:
+### Rule 1: Maximum 1 Entity Graph Stage & 1 ECG Alias Per Query (`SourceCount["entity"] <= 1`)
+Chronicle enforces `SourceCount["entity"] <= 1` across the entire multi-stage query (`get_structured_query_view_utils.cc`) and allows at most 1 graph alias (`$alias.graph.*`) inside that stage. Declaring multiple graph aliases in one stage or declaring two separate graph stages in the same query fails with `Number of ECG events exceeded max limit: 2 > 1`.
+* ❌ **Invalid (Multiple Graph Aliases or Multiple Graph Stages in One Query)**:
   <!-- yara-fragment: intentional invalid stage illustrating multiple ECG alias error -->
   ```yara
   stage bad_stage {
     $whois.graph.metadata.source_type = "GLOBAL_CONTEXT"
-    $seen.graph.metadata.source_type = "DERIVED_CONTEXT" // FAILS: 2 ECG aliases in one stage
+    $seen.graph.metadata.source_type = "DERIVED_CONTEXT" // FAILS: 2 ECG aliases in one query/stage
   }
   ```
-* ✅ **Valid (Decoupled across DAG Stages)**:
-  Place each graph lookup in its own named stage.
+* ✅ **Valid (Single Dedicated Graph Stage per Query)**:
+  Include at most one Entity Graph stage (`$g.graph.*`) per query; if both `DERIVED_CONTEXT` prevalence and `GLOBAL_CONTEXT` WHOIS/VT are needed, run the second lookup as a Phase 1B follow-up pivot.
 
-### Rule 2: Zero Event-Section Arithmetic Above `match:`
-Graph timestamp calculations must **never** perform binary arithmetic (`-`, `+`, `/`) in the event filter section:
+### Rule 2: Zero Top-Level Event-Section Arithmetic Above `match:`
+Top-level binary arithmetic (`-`, `+`, `/`, `*`) in event-section placeholder assignments fails compilation (whereas scalar arithmetic nested inside a function call argument such as `$day_id = cast.as_int(metadata.event_timestamp.seconds / 86400)` compiles). Graph timestamp age calculations must extract the timestamp in `outcome:` and subtract in the downstream/root `outcome:` block:
 * ❌ **Invalid**:
   ```yara
   $age_days = (timestamp.current_seconds() - $whois.graph.entity.domain.creation_time.seconds) / 86400.0 // FAILS
@@ -155,8 +155,9 @@ Measured on GUS-SDL at 2026-10-01T11:50Z with the Playbook 1 shape (`day_count =
 
 **Mode A rule (any query with a `$alias.graph.*` stage):**
 1. Set `startTime` to **two days back at 00:00Z** (D-2, literally `YYYY-MM-DDT00:00:00Z`, not now minus 48 hours) and `endTime` to now. This covers the newest built graph day even early in the UTC day.
-2. Keep the analysis on today: add `timestamp.get_date(metadata.event_timestamp.seconds) = "<today, YYYY-MM-DD>"` to **every event stage**, using today's UTC date. Without it the wider window silently pulls yesterday's events into "today". Use the date string, not an epoch literal: hand-computed epochs came out as tomorrow's midnight or now minus 48 hours, and an epoch above now matches nothing.
-3. Do not add any time predicate to the graph stage; it joins on its key only (`$sha256`, `$domain`, `$host`, `$user`).
+2. **Baseline-Shift Consequence (`[D-32, D-2)`)**: Because Chronicle anchors the 30-day `metrics.*` baseline at `startTime`'s UTC day `D0`, setting `startTime` to `D-2 00:00Z` shifts the 30-day `metrics.*` baseline window to **`[D-32, D-2)`** (two days earlier than a non-graph Mode A query). Disclose `[D-32, D-2)` in the Pre-Flight Card and Pillar 2 Provenance Stamp.
+3. Keep the analysis on today: add `timestamp.get_date(metadata.event_timestamp.seconds) = "<today, YYYY-MM-DD>"` to **every event stage**, using today's UTC date. Without it the wider window silently pulls yesterday's events into "today". Use the date string, not an epoch literal: hand-computed epochs came out as tomorrow's midnight or now minus 48 hours, and an epoch above now matches nothing.
+4. Do not add any time predicate to the graph stage; it joins on its key only (`$sha256`, `$domain`, `$host`, `$user`).
 
 <!-- yara-fragment: event stage only; the graph stage and root are unchanged from Playbook 1 -->
 ```yara
@@ -181,18 +182,18 @@ stage stage1_process_baseline {
 
 ---
 
-## 🗣️ 5. Consultative Dialogue: Engaging Hunters in Phase 1A & Phase 5
+## 🗣️ 5. Consultative Dialogue: Engaging Hunters in Phase 1A & State 2 Pillar 3
 
 When interacting with security analysts, the skill actively leads the conversation to determine whether to Narrow or Enhance:
 
 ### Phase 1A Discovery Script (Offering Context Options):
 When an analyst initiates a hunt, present clear contextual options:
 > *"We can evaluate 30-day behavioral baselines across your fleet. To maximize the value of this hunt, we can layer Chronicle's Entity Context Graph in one of two ways:*
-> 1. ***Narrow the Hunt (The Noise Sieve)***: Filter on enterprise prevalence (`rolling_max <= 3`, `day_count = 10`) to automatically prune standard software rollouts or corporate SaaS destinations.
+> 1. ***Narrow the Hunt (The Noise Sieve)***: Filter on enterprise prevalence (`rolling_max <= 3`, `rolling_max > 0`, `day_count = 10`) to automatically prune standard software rollouts or corporate SaaS destinations.
 > 2. ***Enhance the Hunt (The Threat Magnifier)***: Keep your entire fleet visible, but apply a 2.5x–3.0x risk multiplier if the external destination is a Newly Registered Domain (< 30 days old) or has an expired domain/cert."*
 
-### Phase 5 Triage Script (Next-Action Guidance):
-If the initial hunt was executed as a broad fleet sweep without context, provide immediate drilldowns in Section 5:
-> * **1-Click Drilldown A**: *"Would you like to narrow these results to binaries observed on $\le 3$ endpoints enterprise-wide to eliminate Patch Tuesday noise?"*
-> * **1-Click Drilldown B**: *"Would you like to check the WHOIS registration age and expiration status for the top 5 destination domains?"*
-> * **1-Click Drilldown C**: *"Would you like to isolate infant endpoints (first seen within the last 7 days) exhibiting these authentication spikes?"*
+### State 2 Pillar 3 Triage Script (Agentic Next Steps):
+If the initial hunt was executed as a broad fleet sweep without context, provide numbered follow-up pivots in Pillar 3 (`#### 3. Forensic Vector Breakdown`):
+> * **`[1]` Narrow via Derived Prevalence**: *"Narrow these results to binaries/destinations observed on $\le 3$ endpoints enterprise-wide (`day_count = 10`, `rolling_max <= 3`) to eliminate Patch Tuesday noise."*
+> * **`[2]` Enhance via WHOIS Lifecycle**: *"Check the WHOIS registration age and expiration status for the top destination domains."*
+> * **`[3]` Isolate Infant Assets**: *"Isolate infant endpoints (first seen within the last 7 days) exhibiting these authentication spikes."*

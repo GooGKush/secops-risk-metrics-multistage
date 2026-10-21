@@ -255,7 +255,7 @@ class TestHybridPipelines(unittest.TestCase):
     self.assertIn("$sha256 = $stage2_file_derived_context.sha256", query)
     self.assertIn("$obs_ts = max($stage1_process_baseline.event_timestamp)", query)
     self.assertIn("$binary_age_days = ($obs_ts - $first_seen) / 86400.0", query)
-    self.assertIn("$is_novel_binary = if($binary_age_days <= 7.0 and $binary_age_days >= 0.0, 1.0, 0.0)", query)
+    self.assertIn("$is_novel_binary = if($first_seen > 0 and $binary_age_days <= 7.0 and $binary_age_days >= 0.0, 1.0, 0.0)", query)
     self.assertIn("order:\n  $threat_score desc", query)
 
     # Compiler AST verification
@@ -301,7 +301,7 @@ class TestHybridPipelines(unittest.TestCase):
     self.assertIn("$expiration_ts = min($whois.graph.entity.domain.expiration_time.seconds)", query)
     self.assertIn("$obs_ts = max($stage1_egress_baseline.event_timestamp)", query)
     self.assertIn("$domain_age_days = ($obs_ts - $created) / 86400.0", query)
-    self.assertIn("$is_nrd = if($domain_age_days <= 30.0 and $domain_age_days >= 0.0, 1.0, 0.0)", query)
+    self.assertIn("$is_nrd = if($created > 0 and $domain_age_days <= 30.0 and $domain_age_days >= 0.0, 1.0, 0.0)", query)
     self.assertIn("$is_expired = if($expires <= $obs_ts and $expires > 0, 1.0, 0.0)", query)
     self.assertIn("$days_to_expiration = ($expires - $obs_ts) / 86400.0", query)
     self.assertIn("order:\n  $fused_threat_score desc", query)
@@ -325,7 +325,7 @@ class TestHybridPipelines(unittest.TestCase):
     self.assertIn("$host = $stage2_asset_derived_context.host", query)
     self.assertIn("$obs_ts = max($stage1_asset_baseline.event_timestamp)", query)
     self.assertIn("$asset_age_days = ($obs_ts - $first_seen) / 86400.0", query)
-    self.assertIn("$is_infant_asset = if($asset_age_days <= 7.0 and $asset_age_days >= 0.0, 1.0, 0.0)", query)
+    self.assertIn("$is_infant_asset = if($first_seen > 0 and $asset_age_days <= 7.0 and $asset_age_days >= 0.0, 1.0, 0.0)", query)
     self.assertIn("order:\n  $threat_score desc", query)
 
     ast_errors = MalachiteASTValidator.validate_query(query)

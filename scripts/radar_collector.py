@@ -378,6 +378,7 @@ outcome:
           for prefix, idx in target_map.items():
             if prefix in k:
               canonical[idx].z_score = val
+              canonical[idx].cri_score = 0
               if val > 0:
                 canonical[idx].observed = max(1.0, round(val * 10.0))
                 canonical[idx].baseline_mean = 5.0
@@ -1225,7 +1226,31 @@ def main():
   )
   parser.add_argument("--scale-mode", choices=["zscore", "cri"], default="zscore", help="Radar scale mode")
   parser.add_argument("--output", help="Optional output file path")
+  parser.add_argument(
+      "--execute",
+      action="store_true",
+      help=(
+          "Emit decoupled sector micro-queries for execution. Note: udm_search is invoked via the "
+          "SecOps MCP tool by the agent rather than running an HTTP request directly."
+      ),
+  )
   args = parser.parse_args()
+
+  if args.execute:
+    queries = (
+        EntityRadarCollector.USER_SECTOR_QUERIES
+        if args.entity_type.upper() == "USER"
+        else EntityRadarCollector.ASSET_SECTOR_QUERIES
+    )
+    print(
+        "# NOTE: udm_search is invoked via the SecOps MCP tool by the agent "
+        "rather than running an HTTP request directly from this script.\n"
+    )
+    for sector_name, tpl in queries.items():
+      print(f"// === Sector: {sector_name} ===")
+      print((tpl % {"entity_id": args.entity}).strip())
+      print()
+    return
 
   spokes = []
   if args.scores:

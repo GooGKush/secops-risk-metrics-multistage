@@ -9,8 +9,8 @@ metric.
 | :--- | :--- | :--- |
 | `config_dimensions.textproto` | `googlex/security/malachite/analytics/configs/config.textproto` | Reduced: only `metric_name` and `dimensions` are kept. `query`, `filter_string`, `shard_number` and `has_sum_measure` are dropped because they reference or embed baseline SQL. The upstream CL is recorded in the file header. |
 | `dimension_field_mapping.textproto` | `googlex/security/malachite/rules/yl2/compiler/ueba/dimension_field_mapping.textproto` | Verbatim. Maps each dimension to the UDM fields that populate it. |
-| `config.proto` | `googlex/security/malachite/analytics/configs/config.proto` | Verbatim. Schema of `config.textproto`. |
-| `ueba_metric.proto` | `googlex/security/malachite/rules/proto/ueba_metric.proto` | Verbatim. Schema of the dimension mapping. |
+| `config.proto` | `googlex/security/malachite/analytics/configs/config.proto` | Trimmed (`edition = "2023"`; internal option imports stripped for standalone compilation). Schema of `config.textproto`. |
+| `ueba_metric.proto` | `googlex/security/malachite/rules/proto/ueba_metric.proto` | Trimmed (`edition = "2023"`; internal option imports stripped for standalone compilation). Schema of the dimension mapping. |
 
 Only textproto and proto files are vendored. No `.go` or `.sql` files are
 copied. What the baseline SQL counts is recorded in prose in

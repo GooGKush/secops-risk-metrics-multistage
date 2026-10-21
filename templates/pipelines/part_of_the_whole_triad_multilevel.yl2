@@ -16,8 +16,14 @@
 //   roster only if AD has no team for the subject. Never drop the team comparison silently.
 //   Roster known (named in the request, supplied in a later turn, or resolved from AD) ->
 //   keep the blocks, fill the cohort_filter slot with the peers ($u = "a" or $u = "b"),
-//   delete only the marker lines, and order by $d_vs_team_sq desc. Show the filled query
-//   in the Turn 1 Pre-Flight.
+//   delete only the marker lines, and swap BOTH condition: ($d_vs_team_sq >= {{fusion_threshold_sq}})
+//   AND order: ($d_vs_team_sq desc). Show the filled query in the Turn 1 Pre-Flight.
+//   ADDITIONAL SLOTS: entity_name = entity_var without leading $ (e.g. user or host);
+//   target_entity_filter = subject/cohort filter in root stage (or {{entity_var}} != "" for fleet-wide).
+//   SAMUELSON SMALL-COHORT BOUND: Because the subject is included in the cohort mean/stddev,
+//   max Z_i <= math.sqrt(N - 1) and D^2 <= 3*(N - 1). Lower fusion_threshold_sq when team_size < 6.
+//   TRIAD COLLINEARITY NOTE: Since total = fail + success, the 3 triad Z-scores span 2 linearly
+//   independent degrees of freedom; D^2 = Z1^2 + Z2^2 + Z3^2 weights the sum-axis by 2x.
 //   Path user -> group -> enterprise: $z*_vs_team (one vs group), $z*_team_vs_enterprise and
 //   $d_team_vs_fleet_sq (group mean vs fleet; elevated = team campaign/rollout).
 //

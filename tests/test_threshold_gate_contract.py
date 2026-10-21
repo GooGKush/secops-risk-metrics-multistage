@@ -42,7 +42,7 @@ EXPECTED_DEFAULT_GATES = {
     StatisticalModel.PIECEWISE_CRI: "$clamped_z >= 3.0",
     StatisticalModel.FLEET_PREVALENCE_SHIELD: "$shielded_z >= 3.0",
     StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD: "$sensitivity_excess >= 0.0",
-    StatisticalModel.LONGITUDINAL_CUSUM: "$cusum_drift_score > 0.0",
+    StatisticalModel.LONGITUDINAL_CUSUM: "$cusum_drift_score >= 3.0 and $drift_days >= 2",
     StatisticalModel.TWO_PART_HURDLE: "$active_days <= 2 or $intensity_z >= 3.0",
     StatisticalModel.BAYESIAN_GAMMA: "$bayes_shift_ratio >= 2.0",
     StatisticalModel.BAYESIAN_BETA_BINOMIAL: "$posterior_lift >= 2.0",
@@ -137,7 +137,7 @@ class RouterGateTest(unittest.TestCase):
 
   def test_pipeline_override_replaces_template_gate(self):
     q = self.router.build_pipeline_query(PipelineArchitecture.DUAL_BASELINE_3STAGE, min_threshold=2.5)
-    self.assertEqual(MultiStageTemplateRouter.root_condition(q), "$delta_z >= 2.5")
+    self.assertEqual(MultiStageTemplateRouter.root_condition(q), "$delta_z >= 2.5 and $active_days >= 7")
     q = self.router.build_pipeline_query(PipelineArchitecture.DUAL_SECTOR_FUSION_3STAGE, fusion_threshold_sq=16.0)
     self.assertEqual(MultiStageTemplateRouter.root_condition(q), "$composite_threat_norm_sq >= 16.0")
 

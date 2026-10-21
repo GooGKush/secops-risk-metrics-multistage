@@ -175,5 +175,40 @@ class TestTriageFormatter(unittest.TestCase):
       self.assertIn("**Downstream**:", steps)
 
 
+  def test_non_sigma_ratio_and_fold_change_formatting(self):
+    """CommonMarkTriageFormatter must format non-sigma ratio/fold-change models cleanly."""
+    ratio_data = {
+        "target_metric": "metrics.network_bytes_outbound",
+        "statistical_model": "RELATIVE_DEVIATION",
+        "outlier_count": 1,
+        "primary_score_metric": "fold_change",
+        "top_outliers": [
+            {
+                "entity": "srv-backup-01",
+                "observed": 4500.0,
+                "hist_avg": 1000.0,
+                "hist_stddev": 200.0,
+                "fold_change": 4.5,
+                "ratio": 3.5,
+                "cri": 68,
+                "tier": "ELEVATED",
+            }
+        ],
+    }
+    report = CommonMarkTriageFormatter.format_report(
+        reduced_data=ratio_data,
+        target_metric="metrics.network_bytes_outbound",
+        statistical_model="RELATIVE_DEVIATION",
+        anomaly_threshold=2.0,
+        executed_query=self.sample_query,
+    )
+    self.assertIn("srv-backup-01", report)
+    self.assertEqual(
+        CommonMarkTriageFormatter.classify_hunt_outcome(ratio_data, anomaly_threshold=2.0),
+        "ACUTE_OUTLIER",
+    )
+
+
 if __name__ == '__main__':
+
   unittest.main()

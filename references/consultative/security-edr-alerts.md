@@ -17,15 +17,18 @@ SOC alert queues treat EDR and security detections (`CB_EDR`, `CS_EDR`, `MICROSO
 ```text
 (metadata.log_type = "CB_EDR" or metadata.log_type = "CS_EDR" or metadata.log_type = "MICROSOFT_GRAPH_ALERT" or metadata.log_type = "SENTINELONE_ALERTS")
 ```
-Every stage that calls `metrics.alert_event_name_count` **must** include this exact log-type filter in its event section and pass one of the 3 compiler-valid dimension sets from `config.textproto`:
+Every stage that calls `metrics.alert_event_name_count` **must** include this exact log-type filter in its event section and pass one of the 4 compiler-valid dimension sets from `config.textproto`:
 
 1. **Host + Rule Roll-Up (`PRINCIPAL_DEVICE + SECURITY_RESULT_RULE_NAME`)**:
    * **Filter Fields**: `principal.asset.hostname: principal.asset.hostname, security_result.rule_name: security_result.rule_name`
    * **Use Case**: Host-centric alert surge, novel rule detection (`$d_days = 0`), Host 360° Behavioral Radar Spoke 5 (`radar_360_sector_alert.yl2`), and roll-up sector fusion (`rollup_sector_fusion_4stage.yl2`).
-2. **Host + User + Process Hash + Rule (`PRINCIPAL_DEVICE + PRINCIPAL_USER + PRINCIPAL_PROCESS_FILE_HASH + SECURITY_RESULT_RULE_NAME`)**:
+2. **Host + Process Path + Rule (`PRINCIPAL_DEVICE + PRINCIPAL_PROCESS_FILE_PATH + SECURITY_RESULT_RULE_NAME`)**:
+   * **Filter Fields**: `principal.asset.hostname: principal.asset.hostname, principal.process.file.full_path: principal.process.file.full_path, security_result.rule_name: security_result.rule_name`
+   * **Use Case**: Host + executable path alert baselining when user attribution is unpopulated on endpoint alert telemetry.
+3. **Host + User + Process Hash + Rule (`PRINCIPAL_DEVICE + PRINCIPAL_USER + PRINCIPAL_PROCESS_FILE_HASH + SECURITY_RESULT_RULE_NAME`)**:
    * **Filter Fields**: `principal.asset.hostname: principal.asset.hostname, principal.user.userid: principal.user.userid, principal.process.file.sha256: principal.process.file.sha256, security_result.rule_name: security_result.rule_name`
    * **Use Case**: User-attributed EDR alert surge (`MultiStageTemplateRouter.build_alert_surge_query(entity_type=EntityType.USER)`) tying an account and binary SHA256 directly to an alert breakout on a host.
-3. **Host + User + Process Path + Rule (`PRINCIPAL_DEVICE + PRINCIPAL_USER + PRINCIPAL_PROCESS_FILE_PATH + SECURITY_RESULT_RULE_NAME`)**:
+4. **Host + User + Process Path + Rule (`PRINCIPAL_DEVICE + PRINCIPAL_USER + PRINCIPAL_PROCESS_FILE_PATH + SECURITY_RESULT_RULE_NAME`)**:
    * **Filter Fields**: `principal.asset.hostname: principal.asset.hostname, principal.user.userid: principal.user.userid, principal.process.file.full_path: principal.process.file.full_path, security_result.rule_name: security_result.rule_name`
    * **Use Case**: Path-scoped LotL alert attribution when binary hashes rotate or are unavailable.
 

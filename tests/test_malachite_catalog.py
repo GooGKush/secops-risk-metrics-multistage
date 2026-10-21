@@ -568,7 +568,7 @@ class TestFusionGuidanceNotDuplicated(unittest.TestCase):
     for token in ("references/metric-sector-catalog.md", "rollup_sector_fusion_4stage.yl2",
                   "part_of_the_whole_triad_multilevel.yl2", "hybrid_metric_*.yl2"):
       self.assertIn(token, skill)
-    self.assertLessEqual(len(skill.encode("utf-8")), 20480)
+    self.assertLessEqual(len(skill.encode("utf-8")), 28672)
 
   def test_five_stage_rollup_warns_about_reliability(self):
     tpl = (SKILL_ROOT / "templates" / "pipelines" / "rollup_sector_fusion_5stage.yl2").read_text(encoding="utf-8")

@@ -31,15 +31,15 @@ In multi-stage hunting workflows:
 | 5 | `COEFFICIENT_OF_VARIATION` | CV Predictability & Surge Ratio | `$safe_hist_avg`, `$cv`, `$surge_ratio` | Relative dispersion ($\sigma / \mu$) | `order: $surge_ratio desc` | Standard Gaussian $Z$ without CV stability factor |
 | 6 | `HOURLY_TEMPORAL_ZSCORE` | Intra-Day Hourly Temporal Z-Score | `$observed_hour`, `$avg_hourly`, `$hourly_diff`, `$safe_stddev_hourly`, `$hourly_z`, `$hourly_surge_ratio` | Match `by 1h`, intra-day fold surge ratio | `order: $hourly_z desc` | Daily aggregation (`by 1d`) when hourly profiling is declared |
 | 7 | `BAYESIAN_GAMMA` | Empirical Bayes Poisson-Gamma Conjugate | `$variance_raw`, `$safe_variance`, `$beta_prior`, `$alpha_prior`, `$alpha_post`, `$beta_post`, `$posterior_mean`, `$bayes_shift_ratio` | Method of Moments hyperparameters, posterior conjugate updating | `order: $bayes_shift_ratio desc` | Bare $Z$-score omitting Gamma hyperparameters ($\alpha, \beta$) |
-| 8 | `BAYESIAN_BETA_BINOMIAL` | Beta-Binomial Bayesian Ratio Regularization | `$avg_fail_prob`, `$safe_variance`, `$one_minus_p`, `$sample_factor`, `$alpha_prior`, `$beta_prior`, `$alpha_post`, `$beta_post`, `$posterior_fail_prob` | Binomial variance, sample factor weighting, conjugate update | `order: $posterior_fail_prob desc` | Raw failure counts without Beta prior sample factor |
-| 9 | `LONGITUDINAL_CUSUM` | Longitudinal CUSUM Drift Accumulation | `$raw_drift`, `$safe_stddev`, `$slack_allowance`, `$slack_excess`, `$cusum_drift_score` | Page's CUSUM slack allowance ($0.5\sigma$), half-rectification (`if > 0`) | `order: $cusum_drift_score desc` | Standard $Z$-score omitting slack deduction or rectification |
-| 10 | `TWO_PART_HURDLE` | Two-Part Hurdle Model (Zero-Inflated) | `$is_active_today`, `$dormant_score`, `$diff`, `$safe_stddev`, `$intensity_z`, `$hurdle_threat_score` | Bernoulli hurdle trigger, conditional continuous intensity | `order: $hurdle_threat_score desc` | Single-equation continuous model without dormant penalty |
+| 8 | `BAYESIAN_BETA_BINOMIAL` | Beta-Binomial Bayesian Ratio Regularization | `$denom_scale`, `$scaled_prior`, `$scaled_obs`, `$prior_rate`, `$obs_rate`, `$prior_alpha`, `$prior_beta`, `$post_alpha`, `$post_denom`, `$posterior_rate`, `$safe_prior`, `$posterior_lift` | Proportion normalization into `[0, 1]`, M=10 Beta prior, N=10 conjugate update | `order: $posterior_lift desc` | Unnormalized raw counts (>1.0) causing negative `1.0 - p` |
+| 9 | `LONGITUDINAL_CUSUM` | Longitudinal CUSUM Drift Accumulation | `$raw_drift`, `$safe_stddev`, `$slack_allowance`, `$slack_excess`, `$daily_excess`, `$cusum_drift`, `$cusum_drift_score`, `$drift_days` | Per-day slack excess ($Z_t - 0.5\sigma$), multi-day `sum($stage2_daily_drift.daily_excess)` across window | `order: $cusum_drift_score desc` | Single-bucket Z-score omitting multi-day drift accumulation |
+| 10 | `TWO_PART_HURDLE` | Two-Part Hurdle Model (Zero-Inflated) | `$is_dormant_awakening`, `$raw_diff`, `$safe_stddev`, `$intensity_z`, `$obs_plus_one`, `$log_obs`, `$dormant_score`, `$hurdle_threat_score` | Bernoulli hurdle trigger (`10.0 + math.log($obs_plus_one)`), conditional continuous intensity | `order: $hurdle_threat_score desc` | Single-equation continuous model without dormant penalty |
 | 11 | `ASYMMETRIC_DIRECTIONAL_Z` | Asymmetric Directional Z-Score | `$diff`, `$excess_surge`, `$safe_stddev`, `$upper_tail_z` | ReLU activation (`if($diff > 0, $diff, 0.0)`), upper-tail focus | `order: $upper_tail_z desc` | Two-tailed symmetrical Z-score penalizing activity drops |
 | 12 | `PIECEWISE_CRI` | Winsorized Z-Score & Piecewise CRI | `$diff`, `$safe_stddev`, `$raw_z`, `$clamped_low`, `$clamped_z`, `$cri_tier4`, `$cri_tier3`, `$cri_tier2`, `$cri_score` | Winsorization clamp to $[-4.0, +6.0]$, piecewise tiers [0-100] | `order: $cri_score desc` | Unclamped unbounded Z-score |
-| 13 | `FLEET_PREVALENCE_SHIELD` | Fleet Prevalence Discounting | `$fleet_count`, `$diff`, `$safe_stddev`, `$personal_z`, `$prevalence_factor`, `$shielded_z` | Fleet aggregation (`count`), immunity factor discounting | `order: $shielded_z desc` | Individual Z-score lacking fleet count suppression |
-| 14 | `ADAPTIVE_CONTEXT_THRESHOLD` | Context-Modulated Adaptive Sensitivity | `$diff`, `$safe_stddev`, `$personal_z`, `$is_off_hours`, `$dynamic_threshold`, `$sensitivity_excess` | Off-hours sensitivity tightening ($1.75\sigma$ vs $3.00\sigma$) | `order: $sensitivity_excess desc` | Static uniform threshold across all operating contexts |
-| 15 | `MACD_MOMENTUM_VELOCITY` | MACD Dual-Spine Momentum Indicator | `$fast_diff`, `$safe_stddev`, `$fast_z`, `$slow_diff`, `$slow_z`, `$macd_diff`, `$safe_max`, `$velocity_ratio`, `$scaled_diff`, `$macd_momentum_score` | Fast spine deviation, slow reference anchor, velocity ratio amplification | `order: $macd_momentum_score desc` | Univariate standard Z fallback |
-| 16 | `CIRCADIAN_VON_MISES` | Circadian von Mises Temporal Distance | `$hourly_diff`, `$safe_stddev_hourly`, `$hourly_z`, `$event_hour`, `$raw_diff`, `$inverted_dist`, `$circ_dist`, `$von_mises_arc`, `$temporal_penalty`, `$temporal_multiplier`, `$circadian_threat_score` | Circular distance on 24h clock, quadratic von Mises penalty ($d^2 / 72.0$) | `order: $circadian_threat_score desc` | Linear Euclidean hour subtraction |
+| 13 | `FLEET_PREVALENCE_SHIELD` | Fleet Prevalence Discounting | `$fleet_entities`, `$raw_diff`, `$safe_stddev`, `$personal_z`, `$fleet_count`, `$log_fleet`, `$prevalence_factor`, `$shielded_z` | Cross-entity `stage2_fleet_wave` (`count_distinct`), log-prevalence dampening (`1.0 + math.log($fleet_count)`) | `order: $shielded_z desc` | Per-entity `count()` always equalling 1 or lacking fleet wave stage |
+| 14 | `ADAPTIVE_CONTEXT_THRESHOLD` | Baseline-Maturity Adaptive Sensitivity | `$raw_diff`, `$safe_stddev`, `$personal_z`, `$sparse_threshold`, `$mature_threshold`, `$effective_threshold`, `$sensitivity_excess` | Baseline-maturity thresholding ($3.5\sigma$ for sparse `< 7d` vs $2.5\sigma$ for mature `>= 7d`) | `order: $sensitivity_excess desc` | Static uniform threshold or loosening threshold on noisy sparse baselines |
+| 15 | `MACD_MOMENTUM_VELOCITY` | MACD Dual-Spine Momentum Indicator | `$fast_diff`, `$safe_stddev`, `$fast_z`, `$slow_diff`, `$slow_z`, `$macd_diff`, `$safe_max`, `$velocity_ratio`, `$breakout_boost`, `$breakout_score`, `$macd_momentum_score` | Fast spine deviation, slow reference anchor, monotone ceiling breakout boost (`$fast_z + $breakout_boost`) | `order: $macd_momentum_score desc` | Non-monotone cliff at historical max or univariate Z fallback |
+| 16 | `CIRCADIAN_VON_MISES` | Circadian von Mises Temporal Distance | `$avg_hourly`, `$scaled_hourly_sd`, `$safe_stddev_hourly`, `$hourly_diff`, `$hourly_z`, `$event_hour`, `$raw_hour_diff`, `$abs_hour_diff`, `$wrap_dist`, `$circ_dist`, `$norm_dist`, `$circadian_weight`, `$pos_z`, `$circadian_threat_score` | Hourly baseline normalization (`mean/24`, `sd/4.899`), circular 24h distance, linear off-hours weight (`1.0 + d/12`) | `order: $circadian_threat_score desc` | Comparing 1h count directly against unscaled 24h daily mean |
 | 17 | `RELATIVE_DEVIATION` | Relative Deviation / Fold Change vs 30d Mean | `$dev`, `$safe_hist_avg`, `$ratio` | $(x-\mu)/\mu$ fold change | `order: $ratio desc` | Labelling it MAD (it is mean-anchored, 0% breakdown point) |
 
 ### 2.1 Default Root Significance Gate (the card's `Significance Threshold`)
@@ -58,7 +58,7 @@ Every query carries the model's significance gate as a root `condition:` placed 
 | `FLEET_PREVALENCE_SHIELD` | `$shielded_z` | `$shielded_z >= 3.0` | σ (fleet-discounted) | `Shielded Z >= 3.0σ` | `{{anomaly_threshold}}` |
 | `TWO_PART_HURDLE` | `$active_days`, `$intensity_z` | `$active_days <= 2 or $intensity_z >= 3.0` | dormancy break or σ | `Dormant awakening OR Z >= 3.0σ` | `{{anomaly_threshold}}` |
 | `ADAPTIVE_CONTEXT_THRESHOLD` | `$sensitivity_excess` | `$sensitivity_excess >= 0.0` | σ above the context threshold (1.75σ / 3.00σ) | `Z >= context threshold` | none (built into the score) |
-| `LONGITUDINAL_CUSUM` | `$cusum_drift_score` | `$cusum_drift_score > 0.0` | excess over the 0.5σ slack | `Drift above 0.5σ slack` | none |
+| `LONGITUDINAL_CUSUM` | `$cusum_drift_score`, `$drift_days` | `$cusum_drift_score >= 3.0 and $drift_days >= 2` | cumulative σ excess over 0.5σ slack | `Drift above 0.5σ slack` | `{{anomaly_threshold}}` |
 | `BAYESIAN_GAMMA` | `$bayes_shift_ratio` | `$bayes_shift_ratio >= 2.0` | fold change (posterior / 30d mean) | `>= 2.0× baseline (posterior)` | `{{fold_change_threshold}}` |
 | `BAYESIAN_BETA_BINOMIAL` | `$posterior_lift` | `$posterior_lift >= 2.0` | fold change (posterior / prior) | `>= 2.0× prior failure rate` | `{{fold_change_threshold}}` |
 | `COEFFICIENT_OF_VARIATION` | `$surge_ratio`, `$cv` | `$surge_ratio >= 2.0 and $cv <= 0.5` | fold change on a predictable entity | `>= 2.0× baseline, CV <= 0.5` | `{{fold_change_threshold}}` |
@@ -219,7 +219,7 @@ order:
 ```
 
 ### 6. `HOURLY_TEMPORAL_ZSCORE` (`hourly_temporal_zscore.yl2`)
-* **Hypothesis**: Intra-day burst occurring within a narrow 1-hour window compared against hourly historical norms.
+* **Hypothesis**: Intra-day burst localized to a 1-hour bucket (`by 1h`) compared against the 30-day macro baseline (`period: 1d, window: 30d` — the only `period`/`window` combination supported on `metrics.*`).
 * **Mandatory AST Contract**:
 <!-- yara-fragment: root-stage AST contract excerpt -->
 ```yara
@@ -286,69 +286,90 @@ order:
 ```
 
 ### 8. `BAYESIAN_BETA_BINOMIAL` (`beta_binomial_bayesian.yl2`)
-* **Hypothesis**: Ratio and failure probability regularization under small-sample discrete Bernoulli trials.
-* **Mandatory AST Contract**:
-```yara
-outcome:
-  $observed_fails = max($stage1_extract.observed_val)
-  $avg_fail_prob = max($stage1_extract.historical_avg)
-  $stddev_p = max($stage1_extract.historical_stddev)
-  $active_days = max($stage1_extract.historical_active_days)
-
-  $variance_raw = math.pow($stddev_p, 2)
-  $safe_variance = if($variance_raw > 0, $variance_raw, 0.001)
-  $one_minus_p = 1.0 - $avg_fail_prob
-  $numerator = $avg_fail_prob * $one_minus_p
-  $sample_ratio = $numerator / $safe_variance
-  $raw_sample_factor = $sample_ratio - 1.0
-  $sample_factor = if($raw_sample_factor > 1.0, $raw_sample_factor, 1.0)
-  $alpha_prior = $avg_fail_prob * $sample_factor
-  $beta_prior = $one_minus_p * $sample_factor
-
-  $alpha_post = $alpha_prior + $observed_fails
-  $beta_post = $beta_prior + 1.0
-  $total_post = $alpha_post + $beta_post
-  $safe_total_post = if($total_post > 0, $total_post, 1.0)
-
-  $posterior_fail_prob = $alpha_post / $safe_total_post
-
-  $safe_prior_p = if($avg_fail_prob > 0, $avg_fail_prob, 0.001)
-  $posterior_lift = $posterior_fail_prob / $safe_prior_p
-
-condition:
-  $posterior_lift >= 2.0
-
-order:
-  $posterior_fail_prob desc
-```
-
-### 9. `LONGITUDINAL_CUSUM` (`longitudinal_cusum.yl2`)
-* **Hypothesis**: Slow, low-and-slow creeping drift that evades 3-sigma single-day thresholds.
+* **Hypothesis**: Ratio and failure probability regularization under small-sample discrete Bernoulli trials. Normalizes raw count/volume inputs into `[0, 1]` proportions when paired with count/volume extractors, while preserving exact `[0, 1]` ratios when paired with proportion extractors. *(Note: `metrics.*_fail` tables store daily failure counts via `event_count_sum`; for failure-to-total ratio surges across `*_fail` and `*_total` count metrics, use `http_error_ratio_surge_2stage.yl2` / `build_failure_ratio_surge_query()`.)*
 * **Mandatory AST Contract**:
 ```yara
 outcome:
   $observed = max($stage1_extract.observed_val)
   $hist_avg = max($stage1_extract.historical_avg)
-  $hist_stddev = max($stage1_extract.historical_stddev)
   $active_days = max($stage1_extract.historical_active_days)
-  $hist_max = max($stage1_extract.historical_max)
 
-  $raw_drift = $observed - $hist_avg
-  $safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)
-  $slack_allowance = 0.5 * $safe_stddev
+  $denom_scale = $observed + $hist_avg + 1.0
+  $scaled_prior = $hist_avg / $denom_scale
+  $scaled_obs = $observed / $denom_scale
+  $prior_rate = if($hist_avg <= 1.0 and $observed <= 1.0, $hist_avg, $scaled_prior)
+  $obs_rate = if($hist_avg <= 1.0 and $observed <= 1.0, $observed, $scaled_obs)
 
-  $slack_excess = $raw_drift - $slack_allowance
-  $cusum_drift_score = if($slack_excess > 0, $slack_excess, 0.0)
+  $prior_alpha = $prior_rate * 10.0
+  $prior_beta = (1.0 - $prior_rate) * 10.0
+
+  $post_alpha = $prior_alpha + ($obs_rate * 10.0)
+  $post_denom = $prior_alpha + $prior_beta + 10.0
+  $posterior_rate = $post_alpha / $post_denom
+  $safe_prior = if($prior_rate > 0.001, $prior_rate, 0.001)
+  $posterior_lift = $posterior_rate / $safe_prior
 
 condition:
-  $cusum_drift_score > 0.0
+  $posterior_lift >= 2.0
+
+order:
+  $posterior_lift desc
+```
+
+### 9. `LONGITUDINAL_CUSUM` (`longitudinal_cusum.yl2` & `longitudinal_drift_cusum_2stage.yl2`)
+* **Hypothesis**: Slow, low-and-slow creeping drift that evades 3-sigma single-day thresholds. (`longitudinal_cusum.yl2` extracts per-day positive slack excess in `stage2_daily_drift` and sums it across the multi-day window in the Root Stage; `scripts/timeline_assembler.py` computes true sequential Page's CUSUM $S_t = \max(0, S_{t-1} + Z_t - k)$ across Mode C daily shards.)
+* **Mandatory AST Contract**:
+```yara
+stage stage2_daily_drift {
+    $entity = $stage1_extract.entity
+    $day_ws = $stage1_extract.window_start
+
+  match:
+    $entity, $day_ws by 1d
+
+  outcome:
+    $observed = max($stage1_extract.observed_val)
+    $hist_avg = max($stage1_extract.historical_avg)
+    $hist_stddev = max($stage1_extract.historical_stddev)
+    $active_days = max($stage1_extract.historical_active_days)
+    $hist_max = max($stage1_extract.historical_max)
+
+    $raw_drift = $observed - $hist_avg
+    $safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)
+    $slack_allowance = 0.5 * $safe_stddev
+    $slack_excess = $raw_drift - $slack_allowance
+    $daily_z = $raw_drift / $safe_stddev
+    $z_minus_slack = $daily_z - 0.5
+    $daily_excess = if($z_minus_slack > 0, $z_minus_slack, 0.0)
+}
+
+$entity = $stage2_daily_drift.entity
+
+match:
+  $entity
+
+outcome:
+  $observed = sum($stage2_daily_drift.observed)
+  $peak_daily_observed = max($stage2_daily_drift.observed)
+  $hist_avg = max($stage2_daily_drift.hist_avg)
+  $hist_stddev = max($stage2_daily_drift.hist_stddev)
+  $active_days = max($stage2_daily_drift.active_days)
+  $hist_max = max($stage2_daily_drift.hist_max)
+
+  $cusum_drift = sum($stage2_daily_drift.daily_excess)
+  $cusum_drift_score = $cusum_drift
+  $drift_days = sum(if($stage2_daily_drift.daily_excess > 0, 1, 0))
+  $max_daily_z = max($stage2_daily_drift.daily_z)
+
+condition:
+  $cusum_drift_score >= 3.0 and $drift_days >= 2
 
 order:
   $cusum_drift_score desc
 ```
 
 ### 10. `TWO_PART_HURDLE` (`two_part_hurdle.yl2`)
-* **Hypothesis**: Zero-inflated dormant account reactivation: crossing the zero-hurdle warrants distinct penalty.
+* **Hypothesis**: Zero-inflated dormant account reactivation: crossing the zero-hurdle warrants a log-scaled awakening score (`10.0 + math.log($observed + 1.0)`), while active baseline entities are scored by continuous intensity $Z$.
 * **Mandatory AST Contract**:
 ```yara
 outcome:
@@ -358,13 +379,15 @@ outcome:
   $active_days = max($stage1_extract.historical_active_days)
   $hist_max = max($stage1_extract.historical_max)
 
-  $is_active_today = if($observed > 0, 1.0, 0.0)
-  $dormant_score = $observed * 2.0
+  $is_dormant_awakening = if($active_days <= 2 and $observed > 0, 1.0, 0.0)
 
-  $diff = $observed - $hist_avg
+  $raw_diff = $observed - $hist_avg
   $safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)
-  $intensity_z = $diff / $safe_stddev
+  $intensity_z = $raw_diff / $safe_stddev
 
+  $obs_plus_one = $observed + 1.0
+  $log_obs = math.log($obs_plus_one)
+  $dormant_score = 10.0 + $log_obs
   $hurdle_threat_score = if($active_days <= 2, $dormant_score, $intensity_z)
 
 condition:
@@ -433,19 +456,39 @@ order:
 * **Variant A: Single-Plane Metric Prevalence Shield (`fleet_prevalence_shield.yl2`)**:
   - *Mandatory AST Contract*:
 ```yara
+stage stage2_fleet_wave {
+    $day_ws = $stage1_extract.window_start
+
+  match:
+    $day_ws by 1d
+
+  outcome:
+    $fleet_entities = count_distinct($stage1_extract.entity)
+}
+
+$entity = $stage1_extract.entity
+$ws = $stage1_extract.window_start
+$day_ws = $stage1_extract.window_start
+$day_ws = $stage2_fleet_wave.day_ws
+
+match:
+  $entity, $ws by 1d
+
 outcome:
   $observed = max($stage1_extract.observed_val)
   $hist_avg = max($stage1_extract.historical_avg)
   $hist_stddev = max($stage1_extract.historical_stddev)
   $active_days = max($stage1_extract.historical_active_days)
-  $fleet_count = count($stage1_extract.observed_val)
 
-  $diff = $observed - $hist_avg
+  $raw_diff = $observed - $hist_avg
   $safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)
-  $personal_z = $diff / $safe_stddev
+  $personal_z = $raw_diff / $safe_stddev
 
-  $prevalence_factor = if($fleet_count > 10, 0.15, 1.0)
-  $shielded_z = $personal_z * $prevalence_factor
+  $fleet_count = max($stage2_fleet_wave.fleet_entities)
+
+  $log_fleet = math.log($fleet_count)
+  $prevalence_factor = 1.0 + $log_fleet
+  $shielded_z = $personal_z / $prevalence_factor
 
 condition:
   $shielded_z >= 3.0
@@ -461,7 +504,7 @@ order:
 
 
 ### 14. `ADAPTIVE_CONTEXT_THRESHOLD` (`adaptive_context_threshold.yl2`)
-* **Hypothesis**: Sensitivity should dynamically tighten during off-hours or dormant periods ($1.75\sigma$ vs $3.00\sigma$).
+* **Hypothesis**: Baseline-maturity adaptive thresholding: sparse baselines (`$active_days < 7`) require a stricter $3.5\sigma$ threshold to suppress cold-start noise, whereas mature baselines (`$active_days >= 7`) use a $2.5\sigma$ sensitivity threshold.
 * **Mandatory AST Contract**:
 ```yara
 outcome:
@@ -469,15 +512,16 @@ outcome:
   $hist_avg = max($stage1_extract.historical_avg)
   $hist_stddev = max($stage1_extract.historical_stddev)
   $active_days = max($stage1_extract.historical_active_days)
-  $hist_max = max($stage1_extract.historical_max)
 
-  $diff = $observed - $hist_avg
+  $raw_diff = $observed - $hist_avg
   $safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)
-  $personal_z = $diff / $safe_stddev
+  $personal_z = $raw_diff / $safe_stddev
 
-  $is_off_hours = if($active_days <= 5, 1.0, 0.0)
-  $dynamic_threshold = if($is_off_hours > 0, 1.75, 3.00)
-  $sensitivity_excess = $personal_z - $dynamic_threshold
+  $sparse_threshold = 3.5
+  $mature_threshold = 2.5
+  $effective_threshold = if($active_days < 7, $sparse_threshold, $mature_threshold)
+
+  $sensitivity_excess = $personal_z - $effective_threshold
 
 condition:
   $sensitivity_excess >= 0.0
@@ -487,7 +531,7 @@ order:
 ```
 
 ### 15. `MACD_MOMENTUM_VELOCITY` (`macd_momentum_velocity.yl2`)
-* **Hypothesis**: Detects sudden momentum acceleration where short-term surge diverges from slow baseline anchor and exceeds historical maximum departure.
+* **Hypothesis**: Detects sudden momentum acceleration where short-term surge diverges from slow baseline anchor and breaks out above the 30-day historical maximum (`$fast_z + $breakout_boost` when `$macd_diff > 0`).
 * **Mandatory AST Contract**:
 ```yara
 outcome:
@@ -497,23 +541,21 @@ outcome:
   $active_days = max($stage1_extract.historical_active_days)
   $hist_max = max($stage1_extract.historical_max)
 
-  // 1. Fast Spine: Instantaneous Standardized Deviation (Daily Velocity)
   $fast_diff = $observed - $hist_avg
   $safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)
   $fast_z = $fast_diff / $safe_stddev
 
-  // 2. Slow Spine: Historical Baseline Departure (Reference Anchor)
   $slow_diff = $hist_max - $hist_avg
   $slow_z = $slow_diff / $safe_stddev
 
-  // 3. Momentum Velocity & Divergence (MACD Spread)
   $macd_diff = $fast_z - $slow_z
+
   $safe_max = if($hist_max > 0, $hist_max, 1.0)
   $velocity_ratio = $observed / $safe_max
 
-  // 4. Half-Rectified Acceleration Surge
-  $scaled_diff = $macd_diff * $velocity_ratio
-  $macd_momentum_score = if($macd_diff > 0, $scaled_diff, $fast_z)
+  $breakout_boost = $macd_diff * $velocity_ratio
+  $breakout_score = $fast_z + $breakout_boost
+  $macd_momentum_score = if($macd_diff > 0, $breakout_score, $fast_z)
 
 condition:
   $fast_z >= 3.0
@@ -523,33 +565,32 @@ order:
 ```
 
 ### 16. `CIRCADIAN_VON_MISES` (`circadian_von_mises.yl2`)
-* **Hypothesis**: Evaluates hourly telemetry against a 24-hour circular clock to penalize off-hours deviations using von Mises quadratic arc distance.
+* **Hypothesis**: Evaluates hourly telemetry against a 24-hour circular clock from a heuristic business-hours center (default `14:00 UTC`, yielding `1.917x` at `03:00 UTC` via $1 + 11/12$ and `2.0x` at the `02:00 UTC` antipode), after normalizing the 30-day daily baseline to 1-hour units (`mean/24.0`, `stddev/4.899`).
 * **Mandatory AST Contract**:
 ```yara
 outcome:
   $observed_hour = max($stage1_extract.observed_val)
-  $avg_hourly = max($stage1_extract.historical_avg)
-  $stddev_hourly = max($stage1_extract.historical_stddev)
-  $event_hour = max($stage1_extract.event_hour)
+  $hist_avg_daily = max($stage1_extract.historical_avg)
+  $hist_stddev_daily = max($stage1_extract.historical_stddev)
   $active_days = max($stage1_extract.historical_active_days)
-  $max_hourly = max($stage1_extract.historical_max)
+  $event_hour = max($stage1_extract.event_hour)
 
-  // 1. Hourly Volumetric Z-Score
+  $avg_hourly = $hist_avg_daily / 24.0
+  $scaled_hourly_sd = $hist_stddev_daily / 4.899
+  $safe_stddev_hourly = if($scaled_hourly_sd > 0, $scaled_hourly_sd, 1.0)
   $hourly_diff = $observed_hour - $avg_hourly
-  $safe_stddev_hourly = if($stddev_hourly > 0, $stddev_hourly, 1.0)
   $hourly_z = $hourly_diff / $safe_stddev_hourly
 
-  // 2. Circadian von Mises Circular Distance (24-Hour Circular Clock)
-  // Expected Peak Operating Hour: 14:00 UTC (Anchor)
-  $raw_diff = math.abs($event_hour - 14)
-  $inverted_dist = 24 - $raw_diff
-  $circ_dist = if($raw_diff > 12, $inverted_dist, $raw_diff)
-  $von_mises_arc = math.pow($circ_dist, 2)
-  $temporal_penalty = $von_mises_arc / 72.0
+  $raw_hour_diff = $event_hour - 14.0
+  $abs_hour_diff = math.abs($raw_hour_diff)
+  $wrap_dist = 24.0 - $abs_hour_diff
+  $circ_dist = if($abs_hour_diff > 12.0, $wrap_dist, $abs_hour_diff)
 
-  // 3. Combined Circadian Threat Score: Hourly Volume Surge Scaled by Temporal Deviance
-  $temporal_multiplier = 1.0 + $temporal_penalty
-  $circadian_threat_score = $hourly_z * $temporal_multiplier
+  $norm_dist = $circ_dist / 12.0
+  $circadian_weight = 1.0 + $norm_dist
+
+  $pos_z = if($hourly_z > 0, $hourly_z, 0.0)
+  $circadian_threat_score = $pos_z * $circadian_weight
 
 condition:
   $circadian_threat_score >= 3.0

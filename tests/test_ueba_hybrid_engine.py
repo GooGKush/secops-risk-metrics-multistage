@@ -520,5 +520,31 @@ class TestUEBAHybridEngineCLIAndCatalog(unittest.TestCase):
     self.assertIn("auth_attempts_total", cat_data["metrics"])
 
 
+  def test_compile_cusum_and_mad_mode_b_window_alignment(self):
+    """Verifies LONGITUDINAL_CUSUM multi-day gate and MAD Mode B scoring window alignment."""
+    res_cusum = compile_hunt_pipeline(
+        statistical_model="LONGITUDINAL_CUSUM",
+        metrics="network_bytes_outbound",
+        entity_type="ASSET",
+        mode="A",
+    )
+    self.assertTrue(res_cusum["ast_valid"])
+    self.assertIn("stage stage2_daily_drift", res_cusum["compiled_query"])
+    self.assertIn("$drift_days >= 2", res_cusum["compiled_query"])
+
+    ref_time = datetime.datetime(2026, 10, 17, 12, 0, 0, tzinfo=datetime.timezone.utc)
+    res_mad_b = compile_hunt_pipeline(
+        statistical_model="MAD",
+        metrics="auth_attempts_total",
+        entity_type="USER",
+        mode="B",
+        window_days=5,
+        reference_time=ref_time,
+    )
+    self.assertTrue(res_mad_b["ast_valid"])
+    self.assertIn("$in_scoring_window = 1", res_mad_b["compiled_query"])
+
+
 if __name__ == "__main__":
+
   unittest.main()

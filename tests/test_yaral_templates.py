@@ -231,12 +231,13 @@ class TestYaraLTemplates(unittest.TestCase):
       with open(fpath, "r", encoding="utf-8") as f:
         content = f.read()
 
-      # Local-Baseline Isolation requires 5-tuple match: $sa, $vendor, $product, $resource, $ip by 1d
+      # Local-Baseline Isolation requires 4-tuple baseline dimension match: $sa, $vendor, $product, $resource by 1d
       self.assertIn(
-          "match:\n    $sa, $vendor, $product, $resource, $ip by 1d",
+          "match:\n    $sa, $vendor, $product, $resource by 1d",
           content,
-          f"[{metric_name}] Cloud CRUD extractor must enforce 5-tuple Local-Baseline Isolation match clause",
+          f"[{metric_name}] Cloud CRUD extractor must enforce 4-tuple Local-Baseline Isolation match clause",
       )
+      self.assertIn("$distinct_ips = count_distinct(principal.ip)", content)
       self.assertIn("principal.user.userid: principal.user.userid", content)
       self.assertIn("metadata.vendor_name: metadata.vendor_name", content)
       self.assertIn("metadata.product_name: metadata.product_name", content)

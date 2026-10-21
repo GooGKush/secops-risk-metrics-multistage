@@ -29,8 +29,8 @@ A `metrics.*(period: 1d, window: 30d, ...)` call resolves to **one baseline wind
 ## 2. Mode B: Fixed-Baseline Timeline (2–7 days, one request)
 
 * **Window**: `startTime` = first scored day `00:00Z`; `endTime` = now (or the day after the last scored day, `00:00Z`). Template `match:` stays `$entity, $ws by 1d`.
-* **Card and Pillar 6 must state the baseline dates**: `Baseline: <D0 − 30d> → <D0>, applied to all <N> scored days`.
-* **Known bias** (state the relevant item in Pillar 4):
+* **Card, Pillar 2 Provenance Stamp, and Pillar 5 Appendix must state the baseline dates**: `Baseline: <D0 − 30d> → <D0>, applied to all <N> scored days`.
+* **Known bias** (state the relevant item in Pillar 3):
   1. **Sustained activity keeps scoring high.** A burst never enters the baseline, so day 5 of a burst scores like day 1. Useful for persistence; it inflates ranking.
   2. **Gradual drift is overstated** on later days.
   3. **Entities that first appear inside the window stay gated** (fewer than the minimum baseline days → sector Z = 0) for every scored day.
@@ -80,14 +80,13 @@ python3 scripts/timeline_assembler.py \
 * Register `<artifact_dir>/timeline_ranked.html` via `write_file` (`ArtifactMetadata` with `UserFacing: true`, `RequestFeedback: false`) using the HTML generated at `<scratch>/timeline_ranked.html`. Subprocess writes inside `run_command` do not register Jetski artifacts and will cause `<agent-embed>` to fail with `"invalid embed"`.
 * The collator only reshapes Chronicle output (per-day counts, per-entity onset/persistence, peaks, escalation, lead/lag, sparse-baseline list). It computes no baselines or Z-scores. The one derived value is `D = √(composite_threat_norm_sq)` when a template emits only the squared norm, plus CRI via the canonical sigmoid.
 
-### 3.6 Report (6 pillars, adapted)
-* **Pillar 1**: `<agent-embed src="file:///<artifact_dir>/timeline_ranked.html"></agent-embed>` and `[Open Visual Chart](file:///<artifact_dir>/timeline_ranked.html)` (`src` MUST use the `file:///` URI scheme and an explicit closing tag `</agent-embed>`, never a bare filesystem path or self-closing `<agent-embed ... />`).
-* **Pillar 2**: the approved query once, then a shard table (date, `startTime`, `endTime`, status, rows).
-* **Pillar 3**: the collator's per-day table and top outliers.
-* **Pillar 4**: persistence, onset, escalation, sector lead/lag, and the sparse-baseline list (entities with real volume but too few baseline days to score).
-* **Pillar 5**: manual pivot for the top entity and day.
-* **Pillar 6**: `Each scored day D is compared to [D − 30d, D)`.
-* **All shards empty**: 2-section Clean Hunt Audit, with the shard table in Section 2.
+### 3.6 Report (5 pillars, adapted)
+* **Pillar 1 (`#### 1. Statistical Outlier Report ... — Executive Summary & Calibrated Risk Index (CRI)`)**: Executive headline, piecewise CRI badge, and `<agent-embed src="file:///<artifact_dir>/timeline_ranked.html"></agent-embed>` plus `[Open Visual Chart](file:///<artifact_dir>/timeline_ranked.html)` (`src` MUST use the `file:///` URI scheme and an explicit closing tag `</agent-embed>`, never a bare filesystem path or self-closing `<agent-embed ... />`).
+* **Pillar 2 (`#### 2. Ranked Outlier Summary & Provenance Stamp`)**: The collator's per-day outlier summary table, provenance stamp, and the shard execution table (date, `startTime`, `endTime`, status, rows).
+* **Pillar 3 (`#### 3. Forensic Vector Breakdown`)**: Persistence, onset, escalation, sector lead/lag, the sparse-baseline list (entities with real volume but too few baseline days to score), and numbered `[1]`/`[2]`/`[3]` Agentic Next Steps.
+* **Pillar 4 (`#### 4. Chronicle UI Manual Pivot`)**: Manual UDM pivot for the top entity and day inside a ```` ```text ```` code block.
+* **Pillar 5 (`#### 5. Collapsible Technical Appendix (Statistical & Mathematical Appendix)`)**: Collapsible `<details>` block containing the verbatim executed multi-stage query (` ```yara `), the Mode C baseline anchoring note (`Each scored day D is compared to [D − 30d, D)`), and mathematical derivation.
+* **All shards empty**: 2-pillar Clean Hunt Report (`#### 1. Executive Summary & Baseline Status (CRI: 0 / Nominal)` and `#### 2. Telemetry Provenance, Diagnostic Coverage & Next Steps`), with the shard table and collapsible `<details>` query in Section 2.
 
 ---
 

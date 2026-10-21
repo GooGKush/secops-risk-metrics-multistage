@@ -33,5 +33,5 @@ Every individual action is intentionally tuned to fall below alert thresholds. T
 
 ## 3. Operational Triage SLA & Chronicle Pivot
 When a 360° outlier is surfaced:
-1. **Correlate the Timeline**: Examine the sequential order of actions across sectors (e.g. Off-hours login $	o$ Drive file download $	o$ External network egress).
+1. **Correlate the Timeline**: Examine the sequential order of actions across sectors (e.g. Off-hours login $\to$ Drive file download $\to$ External network egress).
 2. **Identity Context Check**: Verify HR status (e.g., flight risk, upcoming resignation, performance review) through internal channels.

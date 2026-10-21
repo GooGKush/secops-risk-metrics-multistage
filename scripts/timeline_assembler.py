@@ -13,12 +13,13 @@ squared norm, and the canonical CRI sigmoid.
 """
 
 import argparse
+from dataclasses import dataclass, field
 import datetime
 import json
 import math
 import os
 import sys
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 if _SCRIPT_DIR not in sys.path:
@@ -403,6 +404,17 @@ class TimelineAssembler:
           if value is not None and float(value) > 0:
             onsets[field] = c["day"]
             break
+      # Sequential Page one-sided CUSUM (S_t = max(0.0, S_{t-1} + z_t - k), k = 0.5)
+      cusum_s = 0.0
+      peak_cusum_s = 0.0
+      cum_z = 0.0
+      flagged_by_day = {c["day"]: float(c["score"]) for c in flagged}
+      for d in sorted(self.shards):
+        z_t = flagged_by_day.get(d, 0.0)
+        cum_z += z_t
+        cusum_s = max(0.0, cusum_s + z_t - 0.5)
+        peak_cusum_s = max(peak_cusum_s, cusum_s)
+
       entities[entity] = {
           "days_flagged": len(flagged),
           "first_day": flagged[0]["day"],
@@ -411,6 +423,9 @@ class TimelineAssembler:
           "peak_score": round(peak["score"], 2),
           "peak_day": peak["day"],
           "peak_cri": peak["cri"],
+          "cusum_pos": round(cusum_s, 2),
+          "peak_cusum_pos": round(peak_cusum_s, 2),
+          "cumulative_z": round(cum_z, 2),
           "escalating": escalating,
           "sector_onsets": onsets,
       }
@@ -521,6 +536,145 @@ class TimelineAssembler:
              f"({meta['days_requested']} days, {meta['first_day']} → {meta['last_day']})")
     return EntityRadarCollector.generate_ranked_fleet_html(
         TimelineAssembler.ranked_records(summary, top_n), title=title)
+
+
+
+@dataclass
+class TimelinePoint:
+  """Single daily observation point in an entity timeline series."""
+  day: str
+  z_score: float = 0.0
+  observed: float = 0.0
+  baseline_mean: float = 0.0
+  baseline_stddev: float = 1.0
+  cumulative_z: float = 0.0
+  cusum_pos: float = 0.0
+  cri: int = 0
+
+  def __post_init__(self) -> None:
+    if self.cri == 0 and self.z_score != 0.0:
+      self.cri = cri_from_score(self.z_score)
+
+
+@dataclass
+class EntityTimelineSeries:
+  """Time-ordered sequence of TimelinePoint records for an entity with sequential Page CUSUM."""
+  entity: str
+  points: List[TimelinePoint] = field(default_factory=list)
+  slack_k: float = 0.5
+  peak_score: float = 0.0
+  peak_day: str = ""
+  cusum_pos: float = 0.0
+  cumulative_z: float = 0.0
+
+  def __post_init__(self) -> None:
+    self.recompute(self.slack_k)
+
+  def recompute(self, slack_k: float = 0.5) -> None:
+    """Computes sequential cumulative sum and Page one-sided CUSUM (S_t = max(0, S_{t-1} + z_t - k))."""
+    cum_z = 0.0
+    s_t = 0.0
+    peak_z = -math.inf
+    peak_d = ""
+    for pt in self.points:
+      z_val = float(pt.z_score)
+      cum_z += z_val
+      s_t = max(0.0, s_t + z_val - slack_k)
+      pt.cumulative_z = round(cum_z, 4)
+      pt.cusum_pos = round(s_t, 4)
+      if pt.cri == 0:
+        pt.cri = cri_from_score(z_val)
+      if z_val > peak_z:
+        peak_z = z_val
+        peak_d = pt.day
+    self.cumulative_z = round(cum_z, 4)
+    self.cusum_pos = round(s_t, 4)
+    if self.points:
+      self.peak_score = round(peak_z, 4)
+      self.peak_day = peak_d
+
+
+def calculate_page_cusum_series(z_scores: Sequence[Any], slack_k: float = 0.5) -> List[Any]:
+  """Computes sequential Page one-sided upper CUSUM S_t = max(0.0, S_{t-1} + z_t - k)."""
+  out: List[Any] = []
+  s_t = 0.0
+  cum_z = 0.0
+  for item in z_scores:
+    if isinstance(item, TimelinePoint):
+      z_val = float(item.z_score)
+      cum_z += z_val
+      s_t = max(0.0, s_t + z_val - slack_k)
+      item.cumulative_z = round(cum_z, 4)
+      item.cusum_pos = round(s_t, 4)
+      out.append(item)
+    elif isinstance(item, dict):
+      z_val = float(item.get("z_score", item.get("z", item.get("score", 0.0))))
+      cum_z += z_val
+      s_t = max(0.0, s_t + z_val - slack_k)
+      new_d = dict(item)
+      new_d["cumulative_z"] = round(cum_z, 4)
+      new_d["cusum_pos"] = round(s_t, 4)
+      out.append(new_d)
+    else:
+      s_t = max(0.0, s_t + float(item) - slack_k)
+      out.append(round(s_t, 4))
+  return out
+
+
+def format_markdown_table(
+    series_or_points: Union[EntityTimelineSeries, Sequence[Any], Dict[str, Any]],
+    slack_k: float = 0.5,
+) -> str:
+  """Formats an EntityTimelineSeries, list of TimelinePoint/dicts, or assembler summary dict into Markdown."""
+  if isinstance(series_or_points, dict) and "meta" in series_or_points and "days" in series_or_points:
+    return TimelineAssembler.render_markdown(series_or_points)
+
+  if isinstance(series_or_points, EntityTimelineSeries):
+    series_or_points.recompute(slack_k=slack_k)
+    points = series_or_points.points
+    entity_header = f"#### Entity Timeline: `{series_or_points.entity}`\n\n"
+  elif isinstance(series_or_points, (list, tuple)):
+    raw_pts: List[TimelinePoint] = []
+    for item in series_or_points:
+      if isinstance(item, TimelinePoint):
+        raw_pts.append(item)
+      elif isinstance(item, dict):
+        raw_pts.append(
+            TimelinePoint(
+                day=str(item.get("day", item.get("date", ""))),
+                z_score=float(item.get("z_score", item.get("z", item.get("score", 0.0)))),
+                observed=float(item.get("observed", item.get("observed_val", 0.0))),
+                baseline_mean=float(item.get("baseline_mean", item.get("hist_avg", 0.0))),
+                baseline_stddev=float(item.get("baseline_stddev", item.get("hist_stddev", 1.0))),
+                cumulative_z=float(item.get("cumulative_z", 0.0)),
+                cusum_pos=float(item.get("cusum_pos", 0.0)),
+                cri=int(item.get("cri", 0)),
+            )
+        )
+    temp_series = EntityTimelineSeries(entity="target_entity", points=raw_pts, slack_k=slack_k)
+    points = temp_series.points
+    entity_header = ""
+  else:
+    return "*(No timeline points)*"
+
+  if not points:
+    return entity_header + "*(No timeline points)*"
+
+  lines = [
+      entity_header.rstrip() if entity_header else "",
+      "| Date (UTC) | Observed | Daily Z-Score | Cumulative Z | Page CUSUM+ (S_t) | CRI (0-100) |",
+      "| :--- | ---: | ---: | ---: | ---: | ---: |",
+  ]
+  lines = [ln for ln in lines if ln != ""]
+  for pt in points:
+    lines.append(
+        f"| `{pt.day}` | `{pt.observed:.2f}` | `{pt.z_score:+.2f}σ` | "
+        f"`{pt.cumulative_z:+.2f}σ` | `{pt.cusum_pos:.2f}σ` | **`{pt.cri}`** |"
+    )
+  return "\n".join(lines)
+
+
+TimelineAssembler.format_markdown_table = staticmethod(format_markdown_table)
 
 
 def main(argv: Optional[List[str]] = None) -> int:

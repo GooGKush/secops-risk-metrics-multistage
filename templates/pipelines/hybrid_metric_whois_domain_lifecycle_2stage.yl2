@@ -93,9 +93,11 @@ outcome:
   $created = max($stage2_whois_lifecycle.creation_ts)
   $expires = max($stage2_whois_lifecycle.expiration_ts)
 
-  // Domain Age (in days) data-anchored to event telemetry
-  $domain_age_days = ($obs_ts - $created) / 86400.0
-  $is_nrd = if($domain_age_days <= 30.0 and $domain_age_days >= 0.0, 1.0, 0.0)
+  // Domain Age (in days) data-anchored to event telemetry (guarded against missing $created = 0)
+  // Reference formula: $domain_age_days = ($obs_ts - $created) / 86400.0
+  $raw_age_days = ($obs_ts - $created) / 86400.0
+  $domain_age_days = if($created > 0, $raw_age_days, 9999.0)
+  $is_nrd = if($created > 0 and $domain_age_days <= 30.0 and $domain_age_days >= 0.0, 1.0, 0.0)
 
   // Expiration Status (expired registration / lapsed certificate)
   $is_expired = if($expires <= $obs_ts and $expires > 0, 1.0, 0.0)
@@ -107,8 +109,7 @@ outcome:
 
 condition:
   $z_score >= {{anomaly_threshold}}
-  and $active_baseline_days >= {{min_baseline_days}}
-  and ($is_nrd = 1.0 or $is_expired = 1.0)
+  and ($is_nrd = 1.0 or ($is_expired = 1.0 and $active_baseline_days >= {{min_baseline_days}}))
 
 order:
   $fused_threat_score desc

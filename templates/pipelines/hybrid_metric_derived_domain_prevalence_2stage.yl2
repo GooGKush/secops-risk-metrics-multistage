@@ -104,10 +104,12 @@ outcome:
   $prevalence_days = min($stage2_domain_derived_context.enterprise_day_count)
   $first_seen = min($stage2_domain_derived_context.first_seen_ts)
   $obs_ts = max($stage1_query_baseline.event_timestamp)
-  $domain_age_days = ($obs_ts - $first_seen) / 86400.0
+  // Reference formula: $domain_age_days = ($obs_ts - $first_seen) / 86400.0 (guarded against missing $first_seen = 0)
+  $raw_age_days = ($obs_ts - $first_seen) / 86400.0
+  $domain_age_days = if($first_seen > 0, $raw_age_days, 9999.0)
 
   // Rare Domain Multiplier: 2.5x threat score boost for novel destinations seen enterprise-wide on <= 3 hosts or first seen <= 7 days ago
-  $is_novel_domain = if($domain_age_days <= 7.0 and $domain_age_days >= 0.0, 1.0, 0.0)
+  $is_novel_domain = if($first_seen > 0 and $domain_age_days <= 7.0 and $domain_age_days >= 0.0, 1.0, 0.0)
   $rarity_multiplier = if($is_novel_domain = 1.0, 2.5, 1.5)
   $threat_score = $z_score * $rarity_multiplier
 

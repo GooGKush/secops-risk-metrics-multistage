@@ -22,7 +22,7 @@ Traditional authentication alerting centers around account lockout rules:
 ### Strategy B: Dormancy Transition Modeling (Two-Part Hurdle Model)
 * **Target Metric**: `metrics.auth_attempts_success` or `metrics.workspace_auth_attempts_total`
 * **Math Model**: `two_part_hurdle.yl2`
-* **How It Defeats the Blind Spot**: Decomposes the anomaly into two distinct stages: Stage 1 evaluates the binary transition ($0 	o \ge 1$ active days), immediately alerting on previously silent accounts without requiring high volume; Stage 2 scores volume intensity only if the account is normally active.
+* **How It Defeats the Blind Spot**: Decomposes the anomaly into two distinct stages: Stage 1 evaluates the binary transition ($0 \to \ge 1$ active days), immediately alerting on previously silent accounts without requiring high volume; Stage 2 scores volume intensity only if the account is normally active.
 
 ### Strategy C: Volatility Shift (Asymmetric Directional Z)
 * **Target Metric**: `metrics.auth_attempts_total`

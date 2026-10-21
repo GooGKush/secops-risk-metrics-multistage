@@ -1,6 +1,6 @@
 # Statistical Models Taxonomy & Mathematical Foundations
 
-This reference defines the mathematical formulations, operational threat translations, **"Down-to-Earth" pre-flight consultative explanations**, and **post-hunt plain-English cyber impact statements** across all 16 Stage 2 mathematical models and Multi-Stage DAG Pipeline architectures (2-Stage, 3-Stage, and 4-Stage).
+This reference defines the mathematical formulations, operational threat translations, **"Down-to-Earth" pre-flight consultative explanations**, and **post-hunt plain-English cyber impact statements** across all 17 Stage 2 mathematical models and Multi-Stage DAG Pipeline architectures (2-Stage, 3-Stage, and 4-Stage).
 
 ---
 
@@ -157,10 +157,10 @@ Before running a multi-stage statistical hunt, explain the approach to the secur
 
 ---
 
-## 6. Diurnal Circadian Rhythm Monitoring (`HOURLY_TEMPORAL_ZSCORE`)
-* **Security Problem Solved**: Detects off-hours spikes by comparing the current hour against 30 days of that *exact same hour* (e.g. comparing 3:00 AM today against 30 days of 3:00 AM history), eliminating circadian daytime false positives.
+## 6. Intra-Day Hourly Burst Localization (`HOURLY_TEMPORAL_ZSCORE`)
+* **Security Problem Solved**: Pinpoints the exact 1-hour window (`by 1h`) of an intra-day volumetric burst while anchoring against the entity's 30-day macro baseline (`period: 1d, window: 30d` — the only `period`/`window` granularity supported by `metrics.*`). For true 24-hour clock phase-shift scoring around peak operating hours, pair with `CIRCADIAN_VON_MISES` (`circadian_von_mises_2stage.yl2`).
 * **Mathematical Formulation**:
-  $$Z_{\text{hourly}} = \frac{x - \mu_{\text{hour}}}{\sigma_{\text{hour, safe}}}, \quad \text{Surge Ratio} = \frac{x}{\mu_{\text{hour, safe}}}$$
+  $$Z_{\text{hourly}} = \frac{x_{\text{hour}} - \mu_{\text{baseline}}}{\sigma_{\text{baseline, safe}}}, \quad \text{Surge Ratio} = \frac{x_{\text{hour}}}{\mu_{\text{baseline, safe}}}$$
 * **Post-Hunt Plain-English Cyber Impact Statement Template**:
 ```markdown
 > [!IMPORTANT]
@@ -189,10 +189,10 @@ Before running a multi-stage statistical hunt, explain the approach to the secur
 ---
 
 ## 8. Beta-Binomial Bayesian Conjugacy (`BAYESIAN_BETA_BINOMIAL`)
-* **Security Problem Solved**: Prevents false alarms on low-sample failure ratios (e.g. 1 failure out of 1 login = 100% failure rate) by regularizing observed failure probabilities against historical sample variance.
+* **Security Problem Solved**: Prevents false alarms on low-sample failure probabilities by regularizing observed failure rates against historical prior stability. *(Note: Pre-computed `metrics.*_fail` tables store daily failure counts (`event_count_sum`) rather than pre-normalized $[0, 1]$ probabilities; when baselining failure-to-total ratios across `*_fail` and `*_total` metric families, use `http_error_ratio_surge_2stage.yl2` / `build_failure_ratio_surge_query()` or clamp $\bar{p} \in (0, 1)$ before Method-of-Moments prior estimation.)*
 * **Mathematical Formulation**:
-  $$S = \frac{\bar{p}(1-\bar{p})}{\sigma_p^2} - 1, \quad \alpha_0 = \bar{p} \cdot S, \quad \beta_0 = (1-\bar{p}) \cdot S$$
-  $$\hat{p}_{\text{posterior}} = \frac{\alpha_0 + k_{\text{fails}}}{\alpha_0 + \beta_0 + 1.0}$$
+  $$S = \max\left(1.0, \frac{\bar{p}(1-\bar{p})}{\sigma_p^2} - 1\right), \quad \alpha_0 = \bar{p} \cdot S, \quad \beta_0 = (1-\bar{p}) \cdot S$$
+  $$\hat{p}_{\text{posterior}} = \frac{\alpha_0 + k_{\text{fails}}}{\alpha_0 + \beta_0 + n_{\text{trials}}}$$
 * **Post-Hunt Plain-English Cyber Impact Statement Template**:
 ```markdown
 > [!IMPORTANT]
@@ -204,13 +204,14 @@ Before running a multi-stage statistical hunt, explain the approach to the secur
 ---
 
 ## 9. Longitudinal CUSUM Drift Accumulation (`LONGITUDINAL_CUSUM`)
-* **Security Problem Solved**: Catches low-and-slow data exfiltration, stealth credential accumulation, or slow permission creep where daily activity stays below daily alert thresholds ($Z \approx 1.5\sigma$) but steadily bleeds data across many days (one CUSUM request covers up to 14 days, the multi-stage search limit).
-* **Mathematical Formulation (Page's Half-Rectified CUSUM)**:
-  $$\text{Raw Drift} = x - \mu, \quad \text{Slack } k = 0.5 \cdot \sigma_{\text{safe}}$$
-  $$\text{CUSUM Increment } S_t = \max(0, (x - \mu) - k)$$
-* **Where**:
-  * $k = 0.5\sigma$ allows nominal enterprise fluctuation without accumulation.
-  * Any daily excess above $k$ permanently increments the cumulative drift score.
+* **Security Problem Solved**: Catches low-and-slow data exfiltration, stealth credential accumulation, or slow permission creep where daily activity stays below single-day alert thresholds ($Z \approx 1.5\sigma$) but steadily bleeds data across multiple days (one YARA-L CUSUM request covers up to 14 days, the multi-stage search limit).
+* **Mathematical Formulation**:
+  * **Single-Stage / Per-Bucket Slack Excess (`templates/stage2_math_models/longitudinal_cusum.yl2`)**:
+    $$\text{Raw Drift} = x - \mu, \quad \text{Slack } k = 0.5 \cdot \sigma_{\text{safe}}, \quad \text{Daily Slack Excess} = \max(0, (x - \mu) - k)$$
+  * **Multi-Day Windowed Slack Sum (`templates/pipelines/longitudinal_drift_cusum_2stage.yl2`)**:
+    $$Z_d = \frac{x_d - \mu}{\sigma_{\text{safe}}}, \quad \Delta_d = \max(0, Z_d - 0.5), \quad S_{\text{window}} = \sum_{d=1}^{D} \Delta_d \quad (\text{via } \texttt{window.sum(\$daily\_drift)})$$
+  * **Sequential Page's CUSUM in Mode C (`scripts/timeline_assembler.py`)**:
+    $$S_t^+ = \max(0, S_{t-1}^+ + Z_t - k) \quad \text{across ordered daily shards}$$
 * **Post-Hunt Plain-English Cyber Impact Statement Template**:
 ```markdown
 > [!IMPORTANT]
@@ -263,9 +264,9 @@ Before running a multi-stage statistical hunt, explain the approach to the secur
   * **Step 1 (Parametric Z)**: $Z_{\text{raw}} = (x - \mu) / \sigma_{\text{safe}}$
   * **Step 2 (Winsorization Clamp)**: Clamps extreme values to $[-4.0, +6.0]$:
     $$Z_{\text{clamped}} = \max(-4.0, \min(6.0, Z_{\text{raw}}))$$
-  * **Step 3 (Piecewise Linear CRI Mapping)**: This model emits CRI on the same universal $0–100$ scale as every other model, so its severity is read from the canonical ladder (`clean-handoff-udm-schema.md` Phase 2), never from a vocabulary private to this model:
-    $$\text{CRI} = \begin{cases} 95 & \text{if } Z_{\text{clamped}} \ge 4.0 \quad (\text{CRITICAL}) \\ 85 & \text{if } Z_{\text{clamped}} \ge 3.0 \quad (\text{CRITICAL}) \\ 65 & \text{if } Z_{\text{clamped}} \ge 2.0 \quad (\text{HIGH}) \\ 40 & \text{if } Z_{\text{clamped}} \ge 1.0 \quad (\text{MEDIUM}) \\ 15 & \text{otherwise} \quad (\text{INFORMATIONAL}) \end{cases}$$
-    Tiers 95 and 85 are distinct scores that share the `CRITICAL` severity. That is the ladder working as intended — severity is a function of CRI alone, so two scores in the same band must carry the same label.
+  * **Step 3 (Piecewise Linear CRI Mapping)**: This model emits discrete midpoint scores on the same universal $0–100$ scale as every other model, so each tier maps 1-to-1 onto the 5 canonical CRI severity bands (`clean-handoff-udm-schema.md` Phase 2):
+    $$\text{CRI} = \begin{cases} 95 & \text{if } Z_{\text{clamped}} \ge 4.0 \quad (\text{CRI } 90\text{–}100: \text{CRITICAL}) \\ 85 & \text{if } 3.0 \le Z_{\text{clamped}} < 4.0 \quad (\text{CRI } 70\text{–}89: \text{HIGH}) \\ 65 & \text{if } 2.0 \le Z_{\text{clamped}} < 3.0 \quad (\text{CRI } 46\text{–}69: \text{MEDIUM}) \\ 40 & \text{if } 1.0 \le Z_{\text{clamped}} < 2.0 \quad (\text{CRI } 26\text{–}45: \text{LOW}) \\ 15 & \text{if } Z_{\text{clamped}} < 1.0 \quad (\text{CRI } 0\text{–}25: \text{INFORMATIONAL / NOMINAL}) \end{cases}$$
+    *(Note: In post-query Python reporting, `CRI(Z)` applies the continuous logistic curve with zero-floor $\text{CRI}(Z) = 0$ for $Z \le 0$.)*
 * **Post-Hunt Plain-English Cyber Impact Statement Template**:
 ```markdown
 > [!IMPORTANT]
@@ -365,7 +366,14 @@ Before running a multi-stage statistical hunt, explain the approach to the secur
 
 ---
 
-## 17. Advanced Multi-Stage DAG Pipeline Architectures
+## 17. Relative Deviation / Fold Change (`RELATIVE_DEVIATION`)
+* **Security Problem Solved**: Computes a scale-free relative deviation $(x - \mu)/\mu$ and fold change $x/\mu$ ("3.2× the 30-day average") for straightforward executive and SOC communication when standard deviation is noisy or unintuitive. *(Formerly mislabelled MAD prior to v1.8.3; mean-anchored with 0% breakdown point.)*
+* **Mathematical Formulation**:
+  $$\text{Relative Deviation} = \frac{x - \mu}{\mu_{\text{safe}}}, \quad \text{Fold Change} = \frac{x}{\mu_{\text{safe}}}, \quad \mu_{\text{safe}} = \text{if}(\mu > 0, \mu, 1.0)$$
+
+---
+
+## 18. Advanced Multi-Stage DAG Pipeline Architectures
 
 Beyond 2-stage models, the engine provides pre-composed multi-stage DAG pipelines for composite multi-sector attacks:
 
@@ -376,7 +384,7 @@ Beyond 2-stage models, the engine provides pre-composed multi-stage DAG pipeline
 
 ### 2. Multi-Sector Threat Vector Fusion (`MULTI_SECTOR_FUSION_4STAGE`)
 * **Pipeline Architecture**: 4 Stages (Sector A [UDM #1] $\to$ Sector B [UDM #2] $\to$ Cross-Sectional Fleet Normalization [Stage-to-Stage] $\to$ Root Join, respecting `SourceCount["udm"] <= 2`). Sectors are any two fusion-capable metrics that share the same entity identifier (see `references/metric-sector-catalog.md`); the router default is `auth_attempts_fail` + `network_bytes_outbound`.
-* **Formulation**: Rectified Euclidean Threat Distance $D^2 = Z_A^2 + Z_B^2 + \max(0, \Delta Z_A)^2 + \max(0, \Delta Z_B)^2$
+* **Formulation**: Rectified Euclidean Threat Distance $D^2 = \max(0, Z_A)^2 + \max(0, Z_B)^2 + \max(0, \Delta Z_A)^2 + \max(0, \Delta Z_B)^2$
 * **Outcome**: Correlates two attack steps on the same entity (e.g. DNS failures + HTTP volume, HTTP volume + outbound bytes, auth failures + outbound bytes) with cross-sectional fleet normalization into a unified incident score. User and host sectors are never mixed.
 
 ### 3. Hierarchical Empirical Bayes (`EMPIRICAL_BAYES_3STAGE`)
@@ -395,7 +403,7 @@ Beyond 2-stage models, the engine provides pre-composed multi-stage DAG pipeline
 
 ---
 
-## 18. Operational & Statistical Assumptions Guide
+## 19. Operational & Statistical Assumptions Guide
 
 When communicating with analysts, SOC managers, or threat hunters, use this guide to clarify foundational assumptions:
 

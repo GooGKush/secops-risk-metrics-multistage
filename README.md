@@ -1,6 +1,6 @@
 # Google SecOps Multi-Stage Risk Metrics Threat Hunter (`secops-risk-metrics-multistage`)
 
-[![Version](https://img.shields.io/badge/version-v2.1.0-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-426%2F426%20passing%20(100%25)-brightgreen.svg)](tests/) [![Submission Tests](https://img.shields.io/badge/submission%20tests-32%2F32%20passing%20(100%25)-brightgreen.svg)](scripts/submission_tests.py) [![Live Regression](https://img.shields.io/badge/dual--engine%20regression-60%2F60%20live%20passing%20(100%25)-brightgreen.svg)](tests/)
+[![Version](https://img.shields.io/badge/version-v2.1.2-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-433%2F433%20passing%20(100%25)-brightgreen.svg)](tests/) [![Submission Tests](https://img.shields.io/badge/submission%20tests-32%2F32%20passing%20(100%25)-brightgreen.svg)](scripts/submission_tests.py) [![Live Regression](https://img.shields.io/badge/dual--engine%20regression-60%2F60%20live%20passing%20(100%25)-brightgreen.svg)](tests/)
 
 A specialized, production-grade AI agent skill package for **Google Security Operations (SecOps / Chronicle SIEM & SOAR)** that constructs, validates, and executes **Multi-Stage YARA-L 2.0 Directed Acyclic Graph (DAG) statistical threat hunting pipelines**, **360° Entity Behavioral Risk Radars**, and **Progressively Disclosed Consultative Threat Hunting**.
 
@@ -134,7 +134,7 @@ secops-risk-metrics-multistage/
 │   ├── timeline_assembler.py             # Mode C collator: merges per-day single-query or 6-sector 360° radar shards into one timeline report
 │   ├── triage_formatter.py               # Generates 5-section triage reports, CRI scores & Post-Data Agentic Next Steps
 │   └── ueba_hybrid_engine.py             # Unified Python Hybrid Engine (compile_hunt_pipeline, dispatch_hybrid_handoff, render_forensic_dossier)
-└── tests/                                # Automated unit test suite (426 tests across 25 test modules)
+└── tests/                                # Automated unit test suite (433 tests across 25 test modules, 100% pass rate)
     ├── test_chart_specifications.py
     ├── test_chronicle_ingest.py
     ├── test_complex_multistage_syntax.py
@@ -202,13 +202,13 @@ secops-risk-metrics-multistage/
    * Inquiries involving sub-second C2 timing jitter, packet-level regularity, raw UDM log spikes, or non-metrics telemetry automatically emit the Markdown Skill Handoff Card and yield the turn (0 tools called).
    * Strictly enforces the **Zero-Code Handoff Invariant**: handoff cards provide conceptual architectural guidance and parameters, leaving YARA-L code generation strictly to the destination skill.
 8. **Standardized 5-Section CommonMark Triage Reporting, `QueryIntegrityGate` & Post-Data Agentic Loop**:
-   * Every executed query passes through `QueryIntegrityGate.verify_pre_dispatch()` and `QueryIntegrityGate.verify_backend_response()` (`scripts/preflight_validator.py`) to block unresolved `{{slot}}` placeholders, unscoped entity queries, malformed `%<table_name>.<column>` Data Table joins, or backend query rejections before synthesizing a report.
-   * Synthesizes hunt findings into a streamlined 5-section forensic triage report (omitting redundant `Executed Multi-Stage YARA-L Query` code dumps since the verbatim query is presented in Turn 1 Pre-Flight and verified at dispatch):
-     1. *Statistical Outlier Report*: Executive headline, active/baseline window summary, and single-surface visual chart (`<agent-embed>` in Jetski, inline `<svg>` in generic MCP, or Unicode `▰▰▰▰▱▱▱▱` bars in CLI).
-     2. *Ranked Outlier Summary & Provenance Stamp*: Quantitative tabular breakdown with observed counts, 30-day baseline $\mu, \sigma$, statistical deviation score, Calibrated Risk Index (`CRI [0–100]`) badge, and Unicode magnitude bars (`▰▰▰▰▱▱▱▱`).
+   * When invoked via the Python hybrid engine (`scripts/ueba_hybrid_engine.py`) or validator CLI (`scripts/preflight_validator.py`), `QueryIntegrityGate.verify_pre_dispatch()` and `QueryIntegrityGate.verify_backend_response()` block unresolved `{{slot}}` placeholders, unscoped entity queries, malformed `%<table_name>.<column>` Data Table joins, or backend query rejections before synthesizing a report.
+   * Synthesizes hunt findings into a standardized 5-section forensic triage report:
+     1. *Statistical Outlier Report: `[Target Metric] ([Statistical Model]) — Executive Summary & Calibrated Risk Index (CRI)`*: Executive headline, active/baseline window summary, and single-surface visual chart (`<agent-embed>` in Jetski, inline `<svg>` in generic MCP, or Unicode `▰▰▰▰▱▱▱▱` bars in CLI).
+     2. *Ranked Outlier Summary & Provenance Stamp*: Quantitative tabular breakdown (`Entity`, `Observed`, `30d Mean (μ)`, `30d StdDev (σ)`, `Z-Score / Metric`, `CRI [0-100]`) with provenance stamp (executed window, baseline window, rows returned, entity filter, data-source status) and Unicode magnitude bars (`▰▰▰▰▱▱▱▱`).
      3. *Forensic Vector Breakdown*: Threat translation, MITRE ATT&CK kill-chain progression, attack scenarios, legitimate confounders, actionable SOC playbook steps, and outcome-driven **Agentic Next Steps (`[1]` / `[2]` / `[3]`)**.
-     4. *Chronicle UI Manual Pivot (Triage Reference Only)*: Copy-and-paste raw UDM filter expression for manual Chronicle UI timeline inspection.
-     5. *Statistical & Mathematical Appendix*: Collapsible `<details>` derivation of model parameters, degrees of freedom ($N$), and CRI normalization.
+     4. *Chronicle UI Manual Pivot (Triage Reference Only)*: Copy-and-paste raw UDM filter expression in a ```` ```text ```` code block for manual Chronicle UI timeline inspection.
+     5. *Collapsible Technical Appendix (Statistical & Mathematical Appendix)*: Collapsible `<details>` containing the verbatim executed multi-stage query (` ```yara `), model parameter derivation, degrees of freedom ($N$), and CRI normalization.
    * **State 3 → Phase 1B Pivot Loop**: Selecting a `[1]` / `[2]` / `[3]` follow-up pivot transitions directly into Phase 1B pre-flight clearance carrying forward the target entity, cohort scope, and evaluation window.
 9. **Noise Level Tuning & Root-Stage `condition:` Gating**:
    * Employs native Chronicle compiler support for root-stage `condition:` post-aggregation filtering (`HAVING` semantics) placed directly before `order:`.
@@ -223,7 +223,7 @@ secops-risk-metrics-multistage/
     * Every Stage 1 extractor's observed event filter matches what its pre-computed baseline counts, and each carries a note listing the identifier fields valid for that metric.
     * Pre-composed in 33 pipeline templates in `templates/pipelines/` (including `hybrid_data_table_bridge_2stage.yl2`).
 13. **Calibrated Risk Index (CRI [0–100])**:
-    * Standardizes multi-dimensional statistics onto a unified, logistic sigmoid 0–100 scale anchoring $3.0\sigma$ at CRI 50 across 5 operational triage bands: 🟢 Nominal (0–25), 🟡 Low Drift (26–45), 🟠 Medium Outlier (46–69), 🔴 High Threat (70–89), and 🚨 Critical Outlier (90–100).
+    * Standardizes multi-dimensional statistics onto a unified piecewise logistic sigmoid 0–100 scale ($\text{CRI}(Z) = 0$ for $Z \le 0$; $\text{CRI}(Z) = \text{round}(100 / (1 + e^{-0.6(Z - 3.0)}))$ for $Z > 0$), anchoring $3.0\sigma$ at CRI 50 across 5 operational triage bands: 🟢 Nominal (0–25), 🟡 Low Drift (26–45), 🟠 Medium Outlier (46–69), 🔴 High Threat (70–89), and 🚨 Critical Outlier (90–100).
 14. **Adaptive Multi-Surface Single-Surface Visualizations**:
     * Renders client-optimized visual surfaces: `<agent-embed>` standalone HTML widgets for Jetski Web / Antigravity, inline `<svg>` for headless MCP webviews, and ASCII progress bars for CommonMark tables, strictly maintaining the Single-Surface Guarantee to eliminate redundant visual clutter.
 15. **Lossless Clean Hand-Off Protocol & Direct API Ingestion**:
@@ -239,7 +239,7 @@ secops-risk-metrics-multistage/
     * When the analyst mentions a team without naming members, the agent looks the team up in Active Directory via the Entity Graph (the subject's department, else their smallest AD group excluding Domain Users) and shows the roster in the Pre-Flight card. It asks for a roster only when no AD team is found.
 18. **Full 14-Tactic MITRE ATT&CK Kill-Chain Archetypes, Cross-Entity Bridges & SecOps Data Table Joins**:
     * `KillChainArchetype` (`scripts/template_router.py`) maps **11 MITRE ATT&CK kill-chains** covering **all 14 Enterprise tactics** (`TA0043` Reconnaissance, `TA0042` Resource Development, `TA0001` Initial Access, `TA0002` Execution, `TA0003` Persistence, `TA0004` Privilege Escalation, `TA0005` Defense Evasion, `TA0006` Credential Access, `TA0007` Discovery, `TA0008` Lateral Movement, `TA0009` Collection, `TA0011` Command and Control, `TA0010` Exfiltration, `TA0040` Impact) directly to turnkey multi-stage YARA-L pipelines.
-    * `ChainedHuntRouter.build_cross_entity_killchain_plan()` automates two-query sequential bridges across Chronicle's single-identifier-type-per-DAG boundary (`HOST_TO_USER`, `USER_TO_HOST`, and `CLOUD_TO_HOST`), persisting Phase 1 outlier cohorts into SecOps Data Table `%ueba_hunt_bridge` (`create_data_table` / `add_rows_to_data_table`) and joining them in Phase 2 via `HYBRID_DATA_TABLE_BRIDGE_2STAGE` (`%ueba_hunt_bridge.hostname` / `%ueba_hunt_bridge.entity`).
+    * `ChainedHuntRouter.build_cross_entity_killchain_plan()` automates two-query sequential bridges across Chronicle's single-identifier-type-per-DAG boundary (`HOST_TO_USER`, `USER_TO_HOST`, and `CLOUD_TO_HOST`). When a cohort exceeds 25 entities or requires persistent cohort bridging, upon explicit analyst approval in **State 3** the workflow materializes Phase 1 outlier cohorts into SecOps Data Table `%ueba_hunt_bridge` (`create_data_table` / `add_rows_to_data_table`) and joins them via `templates/pipelines/hybrid_data_table_bridge_2stage.yl2` (`ChainedHuntRouter.build_data_table_bridge_query()`).
 19. **Unified Python Hybrid Engine (`scripts/ueba_hybrid_engine.py`) & Dual-Surface MCP Tooling**:
     * Consolidates pipeline compilation (`compile_hunt_pipeline`), cross-skill federated handoffs (`dispatch_hybrid_handoff`), and 5-section forensic dossier rendering (`render_forensic_dossier`) into a single composable Python engine (`compile`, `handoff`, `render`, `catalog` CLI subcommands).
     * Exposes the same three primitives as native Gemini `FunctionDeclaration` tools in headless MCP clients (`DirectMCPEngine`, `agentic_ueba`), offloading `24.4%` (`177.6 KB` per turn) of static reference/template prose while preserving full combinatorial flexibility across all 12 statistical models, 38 Malachite metrics, and 8 `secops-statistical-hunter` hybrid enrichment topologies.
@@ -312,7 +312,7 @@ During the Pre-Flight Clearance gate, analysts choose a temporal evaluation hori
 
 #### 🧩 Sample Compilable Queries from the Consultative Model
 
-##### Example A: Two-Phase Cross-Entity Cohort Bridge via SecOps Data Table (`HYBRID_DATA_TABLE_BRIDGE_2STAGE`)
+##### Example A: Two-Phase Cross-Entity Cohort Bridge via SecOps Data Table (`templates/pipelines/hybrid_data_table_bridge_2stage.yl2`)
 When an investigation crosses entity types (e.g., Phase 1 identifies compromised `USER` accounts and extracts the `ASSET` hostnames they authenticated to into Data Table `%ueba_hunt_bridge`), Phase 2 joins `principal.asset.hostname = %ueba_hunt_bridge.hostname` directly inside Stage 1:
 
 ```yara
@@ -346,7 +346,7 @@ stage stage1_extract {
     $active_baseline_days = max(metrics.network_bytes_outbound(
         period: 1d, window: 30d,
         metric: value_sum,
-        agg: count_days_seen,
+        agg: num_metric_periods,
         principal.asset.hostname: principal.asset.hostname
     ))
 }
@@ -500,8 +500,8 @@ The skill package ships with two test tiers that anyone can run from a clone:
 pytest tests/
 # or: python3 -m unittest discover tests
 ```
-* **Status**: **426 / 426 passing unit tests** (plus 212 subtests) across 25 test modules (100% pass rate).
-* **Scope**: Enforces Chronicle AST grammar rules, `QueryIntegrityGate` pre-dispatch and post-execution validation, `%<table_name>.<column>` Data Table syntax rules, KaTeX formatting compliance, prompt guardrail contracts, 20,480-byte budget ceilings, template router permutations across all 38 metrics and 11 MITRE ATT&CK kill-chains, metric-sector catalog drift against `data/`, and Entity Graph freshness filters in every graph template.
+* **Status**: **433 / 433 passing unit tests** (plus 218 subtests) across 25 test modules (100% pass rate).
+* **Scope**: Enforces Chronicle AST grammar rules, `QueryIntegrityGate` pre-dispatch and post-execution validation, `%<table_name>.<column>` Data Table syntax rules, KaTeX formatting compliance, prompt guardrail contracts, 28,672-byte (28.0 KB) progressive-loading budget ceilings, template router permutations across all 38 metrics and 11 MITRE ATT&CK kill-chains, metric-sector catalog drift against `data/`, and Entity Graph freshness filters in every graph template.
 
 ### 2. Google SecOps Malachite Compiler Submission Harness
 ```bash
@@ -519,12 +519,23 @@ python3 scripts/submission_tests.py --dump-dir <OUTPUT_DIR>
 
 ## 📦 Recent Releases
 
+### v2.1.2 (October 2026) — Full Audit Remediation: Macro-Day/Micro-Hour Burst Localization, Multi-Day Cumulative CUSUM Drift, Rectified Euclidean Fusion, Epoch-Zero ECG Guards & 28.0 KB Progressive-Loading Ceiling
+* **Macro-Day (`period: 1d`) Baseline + Micro-Hour (`by 1h`) Burst Localization (`hourly_temporal_zscore.yl2`, `circadian_von_mises.yl2`, `circadian_von_mises_2stage.yl2`)**: Keeps Stage 1 `metrics.*` on its only supported `period: 1d, window: 30d` window while scaling the 24h baseline to hourly rates ($\mu_{\text{1h}} = \mu_{\text{1d}} / 24.0$, $\sigma_{\text{1h}} = \sigma_{\text{1d}} / 4.899$) when evaluating hourly `by 1h` burst stages.
+* **Multi-Day Cumulative Drift (`longitudinal_cusum.yl2`, `longitudinal_cusum_2stage.yl2`, `scripts/timeline_assembler.py`)**: Evaluates daily slack excess (`$daily_excess = if($daily_z > 0.5, $daily_z - 0.5, 0.0)`) in an intermediate `by 1d` stage and aggregates multi-day cumulative drift (`$cusum_drift = sum($stage2_daily_drift.daily_excess)`, `$drift_days`) in an unbucketed root stage over Mode B horizons, paired with sequential Page's CUSUM ($S_t = \max(0, S_{t-1} + z_t - 0.5)$) in `scripts/timeline_assembler.py`.
+* **Rectified Multi-Sector Fusion & Epoch-Zero ECG Guards (`multi_sector_fusion_4stage.yl2`, `rollup_sector_fusion_*.yl2`, `hybrid_metric_derived_*.yl2`, `hybrid_metric_whois_domain_lifecycle_2stage.yl2`)**: Rectifies negative Z-scores (`if($z > 0, $z, 0.0)`) before squaring in Euclidean fusion ($D = \sqrt{\sum \max(0, Z_i)^2}$), guards missing `first_seen_time` / WHOIS `creation_time` (`> 0`) against epoch-zero false positives, and enforces `agg: num_metric_periods` + `%ueba_hunt_bridge.entity` in `hybrid_data_table_bridge_2stage.yl2`.
+* **Compiler-Safe Outcome `if()` & Division Guards Across All Templates & Scripts**: Extracted nested expressions from `if()` branches into intermediate OIO variables, added `"fusion"` / multi-metric auto-promotion to `compile_hunt_pipeline()` in `scripts/ueba_hybrid_engine.py`, reclassified `alert_event_name_count` to `PROCESS_UNCATEGORIZED` (`sigma_floor_value: 2.0`), and updated the `SKILL.md` progressive-loading ceiling to `28.0 KB` (`28,672` bytes) / `275` lines.
+* **Test Suite & Live Dual-Engine Regression**: **433/433 unit tests** (+218 subtests); **32/32 submission tests**; **`120/120` (`100.0%` Invariant Parity)** across `AgentAPI` (`60/60`) and `Direct MCP` (`60/60`). `SKILL.md` is 24,450 bytes (142 lines).
+
+### v2.1.1 (October 2026) — Native SecOps UEBA Architectural Grounding, Silent Zero-BigQuery Guardrail & Cloud CRUD Zero-Dispersion Suppression
+* **Native SecOps UEBA Data Plane & Silent Zero-BigQuery Guardrail (`SKILL.md`, `references/multi-stage-metrics-guide.md`)**: Clarifies that `metrics.*` pre-computed behavioral baselines and `graph.*` execute 100% natively within Google SecOps, leveraging core Google infrastructure, and states directly when asked that **BigQuery contributes nothing to SecOps UEBA**.
+* **Cloud CRUD 360° Radar Per-Product Z-Score (`scripts/radar_collector.py`)**: Computes Cloud CRUD directional Z-scores per `(user, vendor, product)` tuple inside Stage 1 before aggregating across products in the root stage.
+
 ### v2.1.0 (October 2026) — Pre/Post `QueryIntegrityGate`, 10 Consultative Deformations, 14-Tactic MITRE Coverage, SecOps Data Table Bridging & 5-Section Triage Reports
 * **Pre/Post Execution `QueryIntegrityGate` (`scripts/preflight_validator.py`, `scripts/ueba_hybrid_engine.py`, `SKILL.md`)**: Adds `QueryIntegrityGate.verify_pre_dispatch()` and `QueryIntegrityGate.verify_backend_response()` to block unresolved template placeholders (`{{...}}`), unscoped target entities, malformed `%<table_name>.<column>` Data Table syntax, or Chronicle backend compiler/RPC errors from silently degrading into false `0.00σ` clean baseline reports.
 * **Consultative Model Expansion (`references/consultative-worksheet.md`)**: Expands the consultative framework to **10 Behavioral Telemetry Deformations** (adding Graph/Relational Bipartite Fan-Out/Fan-In, Producer-Consumer Role Inversion, Geospatial Physical Velocity Handoffs, Persona-Conditioned Priors via `%ueba_entity_priors`, and Pre/Post Event Changepoint Framing) with **Executable Disambiguation Controls (`[A]` / `[B]` / `[C]`)**.
 * **Full 14-Tactic MITRE ATT&CK Enterprise Coverage (`references/consultative/mitre-attack-killchain.md`, `scripts/template_router.py`)**: Adds `TA0043` (Reconnaissance) and `TA0042` (Resource Development) plus 3 new `KillChainArchetype` definitions (`RECON_TO_INITIAL_ACCESS`, `RESOURCE_DEV_TO_EXECUTION`, `EXFILTRATION_OVER_WEB_SERVICE`) for **11 turnkey multi-stage kill-chains** spanning all 14 Enterprise tactics.
-* **Native SecOps Data Table Bridging (`templates/pipelines/hybrid_data_table_bridge_2stage.yl2`, `scripts/template_router.py`, `scripts/preflight_validator.py`)**: Adds `HYBRID_DATA_TABLE_BRIDGE_2STAGE` (`%ueba_hunt_bridge.hostname` / `%ueba_hunt_bridge.entity`) and `ChainedHuntRouter.build_data_table_bridge_query()` so Two-Phase Cross-Entity Chained Hunts (`USER` $\leftrightarrow$ `ASSET` / `IP`) materialize intermediate cohorts into Chronicle Data Tables rather than overflowing 25-item literal `in (...)` lists.
-* **Streamlined 5-Section CommonMark Triage Reporting (`SKILL.md`, `references/reporting-standards.md`, `scripts/triage_formatter.py`)**: Removes the redundant `Executed Multi-Stage YARA-L Query` code block from Turn 2 delivered reports (since the verbatim query is shown in Turn 1 Pre-Flight and verified by `QueryIntegrityGate`), keeping reports concise while preserving all 6 forensic evidence pillars and numbered `[1]` / `[2]` / `[3]` agentic pivots.
+* **Native SecOps Data Table Bridging (`templates/pipelines/hybrid_data_table_bridge_2stage.yl2`, `scripts/template_router.py`, `scripts/preflight_validator.py`)**: Adds `templates/pipelines/hybrid_data_table_bridge_2stage.yl2` (`%ueba_hunt_bridge.hostname` / `%ueba_hunt_bridge.entity`) and `ChainedHuntRouter.build_data_table_bridge_query()` so Two-Phase Cross-Entity Chained Hunts (`USER` $\leftrightarrow$ `ASSET` / `IP`) can materialize intermediate cohorts into Chronicle Data Tables upon explicit State 3 analyst approval rather than overflowing 25-item literal `in (...)` lists.
+* **Streamlined 5-Section CommonMark Triage Reporting (`SKILL.md`, `scripts/triage_formatter.py`)**: Consolidates Turn 2 reports into 5 sections (`#### 1.` Executive Summary & CRI through `#### 5.` Collapsible Technical Appendix containing the verbatim executed multi-stage query), keeping reports concise while preserving all forensic evidence columns and numbered `[1]` / `[2]` / `[3]` agentic pivots.
 * **Test Suite & Live Dual-Engine Regression**: **426/426 unit tests** (+212 subtests); **32/32 submission tests**; **`120/120` (`100.0%`)** across `AgentAPI` (`60/60`) and `Direct MCP` (`60/60`). `SKILL.md` is 20,287 bytes.
 
 ### v2.0.2 (October 2026) — Multi-Entry `BEHAVIORAL_RISK_RADAR_360` UDM Schema & Native Float Vector Scores

@@ -10,10 +10,11 @@
 //    - event_filter slot: metadata.event_type = "USER_LOGIN" AND not security_result.action = "ALLOW", entity_field slot: target.user.userid
 //    - observed_aggregation slot: count(metadata.id), target_metric_name slot: auth_attempts_fail
 //    - dimension_key slot: target.user.userid
-// 2. Rare Failed File Executions:
-//    - event_filter slot: metadata.event_type = "PROCESS_LAUNCH" AND not security_result.action = "ALLOW", entity_field slot: principal.asset.hostname
-//    - Companion Dimension: principal.process.file.sha256 = $sha (CRITICAL: NEVER target.process.file.sha256)
-//    - target_metric_name slot: file_executions_fail (requires metadata.event_type: $event_type, principal.asset.hostname: $entity, principal.process.file.sha256: $sha)
+// 2. Rare DNS Query Failures (Single-Key Host):
+//    - event_filter slot: (network.dns.questions.name != "" or network.dns.answers.name != "" or network.dns.id != 0) AND network.dns.response_code != 0, entity_field slot: principal.asset.hostname
+//    - observed_aggregation slot: count(metadata.id), target_metric_name slot: dns_queries_fail
+//    - dimension_key slot: principal.asset.hostname
+//    (Note: composite-only metrics like file_executions_fail require binding all companion keys in match: and extra_dimensions)
 // ============================================================================
 
 // Stage 1: Rare Telemetry Extraction & 30d Historical Lambda Lookup
@@ -66,6 +67,11 @@ outcome:
   // Discrete Poisson Rarity Z-Score
   $poisson_sigma = math.sqrt($lambda)
   $poisson_z = ($k - $lambda) / if($poisson_sigma > 0, $poisson_sigma, 1.0)
+
+  // Model Concordance variable aliases
+  $observed = $k
+  $hist_avg = $lambda
+  $z_score = $poisson_z
 
 // Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
 condition:

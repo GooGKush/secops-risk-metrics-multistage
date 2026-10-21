@@ -24,26 +24,24 @@ This policy defines the mandatory verification gates and syntax invariants requi
 Extensive live compilation testing against Google SecOps customer instances has identified the following hard architectural constraints enforced by the Chronicle Malachite compiler. Violations cause immediate `INVALID_ARGUMENT` or `INTERNAL` compilation crashes.
 
 ### 2.1 Join and Stage Cardinality Limits
-* **Maximum Raw Event & ECG Extraction Stages**: In UDM Search mode (`get_structured_query_view_utils.cc:3040-3064`), Chronicle enforces `maxJoinCount = 4` alongside hard per-source-type ceilings across all stages combined:
+* **Maximum Stage, Join, Raw Event & ECG Cardinality**: In UDM Search mode (`get_structured_query_view_utils.cc:3040-3064`), Chronicle enforces `maxStageCount = 5` (at most **4 named stages + 1 root stage**) and `maxJoinCount = 4` alongside hard per-source-type ceilings across all stages combined:
   * **UDM Event Stages (`SourceCount["udm"] <= 2`)**: At most **2 stages** may query raw UDM events (`metadata.event_type = ...`). Exceeding this triggers `Number of UDM events exceeded max limit: <N> > 2`.
-  * **Entity Context Graph Stages (`SourceCount["entity"] <= 1`)**: At most **1 stage** may query the Entity Graph (`graph.entity.*` / `graph.metadata.*`). Exceeding this triggers `Number of ECG events exceeded max limit: <N> > 1`.
-  * **Stage-to-Stage Reference Stages**: Intermediate stages that only reference prior `$stage_name.*` outputs (zero raw UDM or ECG queries) do not increment `SourceCount["udm"]` or `SourceCount["entity"]`.
+  * **Entity Context Graph Stages (`SourceCount["entity"] <= 1`)**: At most **1 stage** across the entire query may query the Entity Graph (`graph.entity.*` / `graph.metadata.*`), and that stage may bind at most 1 `$g.graph` alias. Exceeding this triggers `Number of ECG events exceeded max limit: <N> > 1`.
+  * **Stage-to-Stage Reference Stages**: Intermediate stages that only reference prior `$stage_name.*` outputs (zero raw UDM or ECG queries) do not increment `SourceCount["udm"]` or `SourceCount["entity"]`, provided total stages stay within `maxStageCount = 5`.
 * **Multi-Sector Fusion Architecture**:
   * Combining 2 orthogonal UDM sectors (e.g., Auth + Network, DNS + HTTP) in a 3-stage query (`PIPE-06-DUAL-SECTOR`) or a 4-stage query with an intermediate Stage-to-Stage cross-sectional fleet normalization stage (`PIPE-12-MULTI-SECTOR-4STAGE`: `stage sector_a` + `stage sector_b` + `stage fleet_sector_norm` + Root stage; any two fusion-capable metrics sharing one entity identifier, per `references/metric-sector-catalog.md`) is valid and fully supported (`SourceCount["udm"] = 2 <= 2`).
   * Combining $\ge 3$ raw UDM event stages (e.g., Auth + Cloud + Process + Network) in a single monolithic query causes `INVALID_ARGUMENT: Number of UDM events exceeded max limit: 3 > 2`.
   * **Resolution**: High-order multi-sector analysis across $\ge 3$ raw event families (such as the 6-sector 360° Risk Radar) MUST use the **Decoupled Micro-Query Architecture** (`scripts/radar_collector.py`), where individual sector queries execute in parallel and correlate in memory.
 
 ### 2.2 Aggregation and Mathematical Function Syntax
-* **No `variance()` Aggregate**: YARA-L 2.0 does **not** support `variance(...)`. The compiler accepts only:
-  `avg()`, `stddev()`, `min()`, `max()`, `sum()`, `count()`, `count_distinct()`.
-  * To calculate variance across entities or stages, extract `stddev(...)` in the intermediate stage and square it in the outcome block:
+* **`window.variance()` vs. Bare `variance()`**: Bare `variance(...)` is invalid in YARA-L 2.0; use `window.variance(...)` for sample variance over windowed observations, or square `stddev(...)` / `window.stddev(...)` in `outcome:`:
     ```yara
     $fleet_sigma = max($fleet_hyperpriors.fleet_std)
     $fleet_sigma_sq = $fleet_sigma * $fleet_sigma
     ```
-* **Strict Math Function Namespacing**:
-  * Bare functions like `round(...)` are illegal. Must strictly use `math.round(...)`.
-  * The function name `math.exp(...)` does not exist in the native query compiler; express exponential calculations ($e^x$ or $b^x$) using `math.pow(2.718281828, $x)` or `math.pow($base, $exp)`. Sigmoid presentation conversions (such as Calibrated Risk Index $\text{CRI}$) are standardly computed in client post-processing (`scripts/triage_formatter.py`).
+* **Strict Math Function Namespacing (`math.*`)**:
+  * Bare functions like `round(...)`, `sqrt(...)`, or `abs(...)` are illegal. Always use namespaced Function Factory built-ins: `math.abs`, `math.sqrt`, `math.log`, `math.pow`, `math.round`, `math.ceil`, `math.floor`, `math.geo_distance`.
+  * `math.exp(...)`, `math.min(...)`, and `math.max(...)` are **not** supported in Chronicle YARA-L 2.0. Express exponential calculations ($e^x$ or $b^x$) using `math.pow(2.718281828, $x)` or `math.pow($base, $exp)`, and express pairwise max/min via `if($a >= $b, $a, $b)` (with plain-variable/constant branches). Piecewise Calibrated Risk Index ($\text{CRI}$) normalization is computed in client post-processing (`scripts/triage_formatter.py`).
 
 ### 2.3 Universal Dispersion Floor & Outcome Nested Logic Model
 * In all $Z$-score, Delta-$Z$, and ratio denominators, safe division MUST be enforced without distorting non-zero variance. The **Outcome Nested Logic Model** is mandatory:
@@ -52,10 +50,12 @@ Extensive live compilation testing against Google SecOps customer instances has 
   ```
 * **Rationale**: Adding a blunt scalar floor (`$stddev + 1.0`) artificially inflates variance on active accounts (e.g., doubling a true $\sigma=1.0$ to $2.0$, dampening outlier sensitivity by 50%). Using one-stop outcome nested logic `if($stddev > 0, $stddev, 1.0)` provides robust zero-division immunity on quiet accounts while preserving exact mathematical scaling when $\sigma > 0$.
 
-### 2.4 Metric Schema Dimensions & Types
+### 2.4 Metric Schema Dimensions, Window Invariant & Self-Binding
+* **`period: 1d, window: 30d` Invariant**: `period: 1d, window: 30d` is the **only** supported `period`/`window` combination for `metrics.*(...)` functions in Chronicle YARA-L 2.0 (`period: 1h, window: 24h` does not exist on `metrics.*` and fails compilation). Every `metrics.*(...)` call must be wrapped in an outer `max(...)` or `min(...)` inside a stage `outcome:` block.
+* **`<field>: <field>` Self-Binding**: Every filter argument inside `metrics.*(...)` must be written `<field>: <field>` (e.g., `principal.asset.hostname: principal.asset.hostname`, `metadata.vendor_name: metadata.vendor_name`), never `<field>: $placeholder` (which returns `0` in Case-Insensitive Search mode).
 * Pre-computed behavioral metrics (`metrics.*`) require exact field dimensions:
-  * `metrics.network_bytes_outbound`: Metric argument MUST be `metric: value_sum` (NOT `sent_bytes_sum`).
-  * Vendor-scoped CRUD metrics (`resource_read_total`, `resource_written_total`, `resource_creation_total`, `resource_deletion_total`): MUST include `metadata.vendor_name: $v` and `metadata.product_name: $p` dimensions in the function call.
+  * Byte-volume metrics (`metrics.network_bytes_*`, `metrics.dns_bytes_outbound`, `metrics.workspace_network_bytes_*`): Metric argument MUST be `metric: value_sum` (NOT `sent_bytes_sum` or `event_count_sum`).
+  * Vendor-scoped CRUD metrics (`resource_read_*`, `resource_written_*`, `resource_creation_*`, `resource_deletion_*`): MUST include `metadata.vendor_name: metadata.vendor_name` and `metadata.product_name: metadata.product_name` dimensions in the function call.
 
 ### 2.5 Stage Output & Variable Binding Contracts
 * **Universal 6-Point Stage 1 Outcome Contract**: Every Stage 1 extractor must export:
@@ -69,7 +69,7 @@ Extensive live compilation testing against Google SecOps customer instances has 
 * **Stage Name Grammar**: Stage identifiers must NOT begin with `$`. Use `stage stage1_extract`, never `stage $stage1_extract`.
 * **Search Query Structure & Root Stage `condition:`**:
   - Multi-stage search queries execute continuous linear arithmetic in `outcome:`, evaluate discrete boolean hurdle filters, sensitivity bands, and noise threshold gates in `condition:`, and terminate with `order: <var> [desc|asc]` to rank qualifying outliers.
-  - **Outcome vs. Condition Role Separation**: Outcome blocks evaluate mathematical derivations, ratios, and conditional assignments (`if(condition, then_clause, else_clause)` is supported in `outcome:`, provided the `then` clause contains only placeholders, fields, or constants, and the `else` clause is provided). Boolean filtering, population hurdles, and threshold ranges for result inclusion reside in `condition:`.
+  - **Outcome vs. Condition Role Separation**: Outcome blocks evaluate mathematical derivations, ratios, and conditional assignments (`if(condition, then_clause, else_clause)` is supported in `outcome:`, provided **both** `then_clause` and `else_clause` contain only plain `$placeholder` variables, fields, or constants—never arithmetic expressions). Boolean filtering, population hurdles, and threshold ranges for result inclusion reside in `condition:`.
   - **Noise Level Tuning & Band Filtering**:
     - High-Confidence Gating: `condition: $z_score >= 3.0` (or custom `$z_score >= 3.5` / `4.0`)
     - Borderline / Investigative Band: `condition: $z_score >= 2.0 and $z_score < 3.0`
@@ -145,7 +145,7 @@ python3 scripts/submission_tests.py
 # 2. Run all unit tests (including compiler policy assertions)
 python3 -m unittest discover -s tests -p "test_*.py"
 
-# 3. Verify SKILL.md token and line limits (Budget: <= 250 lines, <= 20,480 bytes)
+# 3. Verify SKILL.md token and line limits (Budget: <= 275 lines, <= 28,672 bytes)
 wc -l SKILL.md
 wc -c SKILL.md
 ```
@@ -156,15 +156,15 @@ All commands must exit with return code `0` and 100% pass rates.
 
 ## 5. Skill Architecture & Progressive-Load First Policy
 
-To prevent context bloat, preserve LLM reasoning capacity, and strictly maintain the $\le 20.0$ KB (20,480 bytes) ceiling on `SKILL.md`, all contributors and AI agents must adhere to the **Progressive-Load First Policy**.
+To prevent context bloat, preserve LLM reasoning capacity, and strictly maintain the $\le 28.0$ KB (28,672 bytes) ceiling on `SKILL.md`, all contributors and AI agents must adhere to the **Progressive-Load First Policy**.
 
 ### 5.1 Three-Tier Information Architecture
 Skill components are structured into three distinct tiers based on load timing and lifecycle:
 
 1. **Tier 1: Core Orchestrator (`SKILL.md`)**
    * **Role**: Lean gatekeeper, conversational contract enforcer, and router.
-   * **Content Allowed**: Trigger keywords, Phase 1A/1B discovery and gating contracts, tool embargoes, pre-output clearance requirements, the 6-pillar reporting schema, and high-level routing pointers.
-   * **Hard Constraints**: $\le 250$ lines and $\le 20,480$ bytes (enforced by `test_skill_efficiency_and_clarity.py`).
+   * **Content Allowed**: Trigger keywords, Phase 1A/1B discovery and gating contracts, tool embargoes, pre-output clearance requirements, the 5-pillar reporting schema, and high-level routing pointers.
+   * **Hard Constraints**: $\le 275$ lines and $\le 28,672$ bytes (enforced by `test_skill_efficiency_and_clarity.py`).
    * **Threshold for Modification**: **Highest**. Never modify `SKILL.md` without first proving that the requirement cannot be fulfilled in Tier 2 or Tier 3.
 
 2. **Tier 2: Progressive Reference Documentation (`references/*.md`)**

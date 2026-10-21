@@ -58,9 +58,10 @@ stage sector_a_detail {
 // --- STAGE 2: Sector A roll-up (stage-to-stage): one row per entity ---
 stage sector_a {
     $entity = $sector_a_detail.entity
+    $ws = $sector_a_detail.window_start
 
   match:
-    $entity by 1d
+    $entity, $ws by 1d
 
   outcome:
     $a_obs = sum($sector_a_detail.d_obs)
@@ -102,9 +103,11 @@ stage sector_b {
 // --- ROOT STAGE: Roll-Up Sector Fusion & Distance Scoring ---
 $entity = $sector_a.entity
 $entity = $sector_b.entity
+$ws = $sector_a.window_start
+$ws = $sector_b.window_start
 
 match:
-  $entity by 1d
+  $entity, $ws by 1d
 
 outcome:
   $a_observed = max($sector_a.a_obs)

@@ -89,7 +89,7 @@ elsewhere still fails if the combined set is not listed. Example: `auth_attempts
    `principal.asset.ip`. For `auth_attempts_*` + `network_bytes_*` (or any fusion with `auth_attempts_*`, `dns_queries_*`, or `file_executions_*`), key both sectors on `principal.asset.hostname` directly after 1 probe (even if a 10m window has 0 events, `principal.asset.hostname` is populated over the 24h evaluation window; do not run repeated fallback probes).
 8. **At most two UDM event stages per query** (compiler limit; Entity Graph stages do not count). Two
    sectors fit; a third event sector does not compile. For three metrics of one family use the sibling
-   triad (one stage); for three families use the 360 radar's decoupled micro-queries (for fleet sweeps, always include `limit: 20` after `order: $z desc` in each micro-query so each sector returns at most 20 rows, and render the complete 6-Pillar report `#### 1.` through `#### 6.`). Never three event
+   triad (one stage); for three families use the 360 radar's decoupled micro-queries (for fleet sweeps, always include `limit: 20` after `order: $z desc` in each micro-query so each sector returns at most 20 rows, and render the complete 5-Pillar report `#### 1.` through `#### 5.`). Never three event
    stages.
 9. **Rare-destination filter.** An Entity Graph prevalence filter attaches to the stage keyed by the
    destination (see *Entity Graph filters* below): `rare_destination_ecg_3stage.yl2` (one sector + rare

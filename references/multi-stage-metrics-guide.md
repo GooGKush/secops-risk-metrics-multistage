@@ -70,26 +70,26 @@ The compiler evaluates this via **AST Expression Inlining** (`substituteOutcomeV
 
 ---
 
-## 2. Temporal Windowing: Intra-Day vs. 30-Day Baselines
+## 2. Daily vs. Hourly Match Granularity
 
-Multi-stage DAG queries support two distinct temporal evaluation modes:
+While `metrics.*(...)` function calls always require the fixed `period: 1d, window: 30d` parameter pair, multi-stage DAG `match:` clauses support two temporal aggregation granularities:
 
-### Mode A: Cross-Sectional Fleet Outlier (Daily Bucket)
-* **Stage 1:** `match: $entity by 1d` -> Evaluates the full 24-hour total per entity.
-* **Stage 2:** `match: ` (empty group-by) -> Aggregates across the entire fleet population.
-* **Root Stage:** `match: $entity, $window_start by 1d` -> Compares each entity against both its 30-day baseline and the fleet distribution.
+### Pattern 1: Daily Bucket Match (`by 1d`)
+* **Stage 1:** `match: $entity by 1d` -> Evaluates `00:00Z`-aligned UTC daily totals per entity against `metrics.*(period: 1d, window: 30d, ...)`.
+* **Stage 2 (Optional Fleet / Cohort Rollup):** `match: $window_start by 1d` -> Aggregates cross-sectional fleet or cohort statistics for that UTC day.
+* **Root Stage:** `match: $entity, $window_start by 1d` (or `match: $entity by 1d`) -> Compares each entity's daily observation against its 30-day baseline and/or peer distribution.
 
-### Mode B: Intra-Day Temporal Surge (1h Hourly Bucket)
-* **Stage 1:** `match: $entity by 1h` -> Yields 24 distinct hourly observations per entity.
-* **Stage 2:** `match: $entity` -> Aggregates intra-day statistics (`avg`, `stddev`, `window.median`) across all 24 hours for that entity.
-* **Root Stage:** `match: $entity, $window_start by 1h` -> Pinpoints the specific anomalous hour within the 24-hour timeline.
+### Pattern 2: Intra-Day Hourly Bucket Match (`by 1h`)
+* **Stage 1 (`macro_daily_baseline`):** `match: $entity by 1d` -> Queries `metrics.*(period: 1d, window: 30d, ...)` and derives the expected hourly rate ($\mu_{1\text{h}} = \mu_{1\text{d}} / 24.0$, $\sigma_{1\text{h}} = \sigma_{1\text{d}} / 4.898979$).
+* **Stage 2 (`micro_hourly_burst`):** `match: $entity by 1h` -> Aggregates raw events into 1-hour buckets within the evaluated UTC day.
+* **Root Stage:** Joins `$entity` across both stages (`templates/stage2_math_models/hourly_z_score.yl2`) to score the peak hourly burst `$max_hourly_observed` against the derived hourly baseline (`$hourly_z`).
 
 ---
 
-## 3. Hourly Metrics Compiler Constraints (`period: 1h`)
+## 3. Metric Period & Window Compiler Invariant (`period: 1d, window: 30d`)
 
-1. **Window Lock:** When using `period: 1h`, the `window` parameter **must be `today`**.
-2. **Mandatory Daily Metric Join:** Any query utilizing `period: 1h, window: today` **must also bind a daily metric (`period: 1d, window: 30d`)** for that entity in the same query.
+1. **Universal `period: 1d, window: 30d` Invariant:** Across all 38 pre-computed `metrics.*` functions in Google SecOps, `period: 1d, window: 30d` is the **only** valid `(period, window)` combination (`validatePeriodAndWindow`). Passing `period: 1h`, `window: 24h`, or `window: today` inside `metrics.*(...)` is rejected by the Malachite compiler.
+2. **Hourly Volatility via Two-Stage Scaling (`HOURLY_TEMPORAL_ZSCORE`):** Never pass `period: 1h` to `metrics.*()`. Instead, use the 2-stage Macro-Day (`by 1d` + `metrics.*(period: 1d, window: 30d)`) + Micro-Hour (`by 1h`) pattern in `templates/stage2_math_models/hourly_z_score.yl2`.
 
 ---
 
@@ -108,7 +108,7 @@ Multi-stage DAG queries support two distinct temporal evaluation modes:
 | Direct literal filter without match variable (`target.user.userid = "name"` with `match: $user`) | `target.user.userid = "name"`<br>`$user = target.user.userid` | Any placeholder variable in `match:` must be explicitly assigned to a UDM field in that stage's event predicates (`$user = target.user.userid`). |
 | Assigning literal string to match variable (`$sa = "ola.burch"`) | Direct UDM field filter with field-to-variable binding:<br>`principal.user.userid = "ola.burch"`<br>`$sa = principal.user.userid` | In YARA-L, match variables (`$var`) represent event fields or upstream stage outcomes; they cannot be assigned string literals directly (`$var = "literal"`). Entity filters must always be declared directly on canonical UDM attributes in the event predicates, then bound to variables. |
 | Direct string literal in metric dimension argument (`principal.user.userid: "sa-storage-sync"`) | Filter the UDM field in stage predicates and pass the direct UDM `EventField` path inside `metrics.*(...)`:<br>`principal.user.userid = "sa-storage-sync"`<br>`$sa = principal.user.userid`<br>`metrics.resource_read_total(..., principal.user.userid: principal.user.userid)` | Dimension arguments in `metrics.*` accept only direct UDM `EventField` paths (or bound match variables), never string literals. Literal strings cause live Chronicle compiler rejection (`Request contains an invalid argument`). |
-| Passing lowered stage placeholders (`principal.asset.hostname: $host`, `network.http.user_agent: $ua`, `metadata.vendor_name: $vendor`) inside `metrics.*(...)` when running in SecOps Search UI | Always pass direct UDM `EventField` paths (`<field>: <field>`) inside every `metrics.*(...)` call:<br>`principal.asset.hostname: principal.asset.hostname,`<br>`network.http.user_agent: network.http.user_agent,`<br>`metadata.vendor_name: metadata.vendor_name,`<br>`metadata.product_name: metadata.product_name`<br>(and enable **Case Sensitivity On** when running in the SecOps Search UI) | When a query is pasted into the SecOps Search UI with the default **Case Sensitivity Off** toggle (`case_insensitive_query: true`), `parser.CaseInsensitiveQuery` rewrites every stage string placeholder binding (`$var = field`) to `strings.to_lower(field)`. Because pre-computed `metrics.*` tables preserve original mixed-case values (e.g. `"MUGATU"`, `"Mozilla/5.0..."`, `"Google"`, `"Security Command Center"`) and join via case-sensitive `=`, passing `$var` placeholders into `metrics.*(...)` silently zeroes out 30-day baselines (`$historical_days = 0`, `$mu = 0`) and triggers false-positive dormant/first-seen hits. Direct `EventField` arguments (`<field>: <field>`) in `outcome:` bypass placeholder lowering across all 38 metrics. |
+| Passing lowered stage placeholders (`principal.asset.hostname: principal.asset.hostname`, `network.http.user_agent: $ua`, `metadata.vendor_name: $vendor`) inside `metrics.*(...)` when running in SecOps Search UI | Always pass direct UDM `EventField` paths (`<field>: <field>`) inside every `metrics.*(...)` call:<br>`principal.asset.hostname: principal.asset.hostname,`<br>`network.http.user_agent: network.http.user_agent,`<br>`metadata.vendor_name: metadata.vendor_name,`<br>`metadata.product_name: metadata.product_name`<br>(and enable **Case Sensitivity On** when running in the SecOps Search UI) | When a query is pasted into the SecOps Search UI with the default **Case Sensitivity Off** toggle (`case_insensitive_query: true`), `parser.CaseInsensitiveQuery` rewrites every stage string placeholder binding (`$var = field`) to `strings.to_lower(field)`. Because pre-computed `metrics.*` tables preserve original mixed-case values (e.g. `"MUGATU"`, `"Mozilla/5.0..."`, `"Google"`, `"Security Command Center"`) and join via case-sensitive `=`, passing `$var` placeholders into `metrics.*(...)` silently zeroes out 30-day baselines (`$historical_days = 0`, `$mu = 0`) and triggers false-positive dormant/first-seen hits. Direct `EventField` arguments (`<field>: <field>`) in `outcome:` bypass placeholder lowering across all 38 metrics. |
 
 ---
 
@@ -301,14 +301,15 @@ When generating multi-stage search queries, determine the analyst's analytical i
 | **📈 Timeline / Charting Mode** | *"Show trend", "Plot over time", "Break out by day", "When did the spike occur?", "Timeline"* | `match: $entity by 1d`<br>*(or `match: $entity by day`)* | **Line Charts, Time-Series Bar Graphs** (1 row per calendar day). |
 | **🏆 Rollup / Leaderboard Mode** | *"Top 10 bursty hosts", "Which machines spiked?", "Fleet summary", "Rank by anomalies"* | `match: $entity`<br>*(unwindowed)* | **Tabular Leaderboards, Summary Ranking Cards** (1 row per host across the full month). |
 
-### 2. Recommended Search Time Ranges by Query Archetype
+### 2. Recommended Search Time Ranges by Query Archetype (`timeline-modes-guide.md`)
 
-* **📅 Multi-Day Baseline Trend Analysis**: **30 Days** *(e.g., Full Month, July 1 - July 31)* with `by 1d`.
-  * *Why:* Provides enough daily data points to visually see the calm baseline vs the sudden surge day.
-* **⏱️ Intra-Day Hourly Volatility Hunting**: **24 to 72 Hours** with `by 1h`.
-  * *Why:* Captures granular hourly shifts without overloading the query engine with thousands of time buckets.
-* **🔍 Fleet Outlier Discovery / Rollup**: **7 to 30 Days** with unwindowed `match: $entity`.
-  * *Why:* Gathers sufficient multi-day evidence to count how many distinct days breached thresholds.
+* **⚡ Mode A — Single-Day Snapshot (Default for Active Triage)**: **`[D0 00:00Z, now]`** (1 UTC day; or `[D-2 00:00Z, now]` + `timestamp.get_date(...) = "<D0>"` when joining `DERIVED_CONTEXT` / `GLOBAL_CONTEXT`).
+  * *Why:* Anchors the 30-day baseline strictly to `[D-31, D-1)` (or `[D-32, D-2)` for graph-joined queries) with zero self-contamination.
+* **📅 Mode B — Fixed-Baseline Timeline**: **`2 to 7 Days`** (`[D0 00:00Z, endTime]`, hard engine ceiling `<= 14d` for multi-stage queries) with `by 1d`.
+  * *Why:* Evaluates each UTC day in the 2–7d window against one shared 30-day baseline `[D0 - 30d, D0)` in a single `udm_search` call.
+* **🔁 Mode C — Per-Day Baseline Timeline (`run_command` present)**: **`2 to 14+ Days`** via 1-day `udm_search` shards collated by `scripts/timeline_assembler.py`.
+  * *Why:* Gives every scored day `d_k` its own uncontaminated trailing 30-day baseline `[d_k - 30d, d_k)`.
+* **📐 Exception — `MAD` (`mad_robust_z_4stage.yl2` / `mad.yl2`)**: **`14 to 30 Days`** raw search window (1 event stage, so the 14-day multi-stage UDM join limit does not block a 30-day scan), gated by `$in_scoring_window = 1` in root `condition:`.
 
 ---
 
@@ -519,7 +520,7 @@ For automated threat hunting and headless pipeline execution, the agent and quer
 
 ## 18. Pre-Composed Multi-Stage Pipeline Library
 
-To prevent runtime syntactic improvisation and avoid streaming rule syntax confusion, the skill maintains 32 complete composite pipeline templates in `templates/pipelines/`:
+To prevent runtime syntactic improvisation and avoid streaming rule syntax confusion, the skill maintains 33 complete composite pipeline templates in `templates/pipelines/`:
 
 | Pipeline Template File | Stages | Analytical Model | Primary Use Case |
 | :--- | :--- | :--- | :--- |
@@ -555,6 +556,7 @@ To prevent runtime syntactic improvisation and avoid streaming rule syntax confu
 | **`hybrid_metric_raw_enrichment_2stage.yl2`** | 2 Stages | Metric Baseline + Raw Forensic Enrichment | Projects distinct command lines, URIs, and IPs onto 30-day metric outliers. |
 | **`rare_destination_ecg_3stage.yl2`** | 3 Stages + Root (2 UDM + graph) | Sector $Z$ filtered to Entity Graph-rare destinations | "Unusual outbound bytes / DNS / HTTP to low-prevalence domains or IPs" (domain via `target.hostname` or `network.dns.questions.name`; IP via `target.ip`). |
 | **`fusion_rare_destination_3stage.yl2`** | 3 Stages + Root (2 UDM + graph) | Dual-sector rectified $D$ through rare destinations | Two sectors on one host where the second is per (host, destination) and the destination is rare (e.g. DNS volume + HTTP to rare domains). |
+| **`hybrid_data_table_bridge_2stage.yl2`** | 2 Stages | Data Table Cohort Bridge (`%<table_name>.<column>`) | Phase 2 cross-entity drilldown joining a SecOps Data Table (`%ueba_hunt_bridge`) with 30-day behavioral metrics. |
 
 ---
 
@@ -689,7 +691,7 @@ A critical architectural boundary exists between Google SecOps skills that emit 
 
 | Architectural Dimension | `secops-risk-metrics-multistage` (This Skill) | `secops-statistical-hunter` (Ad-Hoc Hunter) |
 | :--- | :--- | :--- |
-| **Underlying Data Plane** | Native SecOps pre-computed daily/hourly behavioral metrics (`metrics.*`) leveraging core Google infrastructure | Raw telemetry logs (`UDM_EVENTS`) & detections (`RULE_DETECTIONS`) |
+| **Underlying Data Plane** | Native SecOps pre-computed daily behavioral metrics (`metrics.*`, `period: 1d, window: 30d`) leveraging core Google infrastructure | Raw telemetry logs (`UDM_EVENTS`) & detections (`RULE_DETECTIONS`) |
 | **Lookback Horizon** | **Fixed Rolling 30-Day Windows** (`window: 30d`, `period: 1d`) with $O(1)$ pre-aggregated lookups | **Arbitrary Time Slices**: Any custom timestamp range (e.g., 2h, 7d, 14d, 30d) |
 | **Join Model & Limits** | Subject to Chronicle `maxJoinCount = 4` (each `metrics.*` function consumes 1 join) | Join-free single-event or multi-stage event correlation without UEBA table joins |
 | **Primary Use Case** | 30-day baseline deviations, team/peer department cohorts, 360° health checks, longitudinal CUSUM drift | Ad-hoc threat hunting across un-baselined TTPs (C2 timing jitter, DGA, raw volume bursts, Tukey fences) |
@@ -788,8 +790,8 @@ Threat hunting follows a two-tier investigative lifecycle:
 * **Execution**: Single atomic multi-stage YARA-L query (Mode A current-day snapshot or Mode B 2–7d fixed-baseline timeline); Mode C runs that same query once per day (`timeline-modes-guide.md`).
 * **Reporting Standard**:
   * **Pillar 1**: Renders the distribution or timeline of the *target hunt itself* (e.g., bar chart of observed vs baseline $\mu$ for Mode A, or multi-day inception curve for Mode B).
-  * **Pillars 2–5**: Query, ranked fleet summary, forensic threat breakdown, and 1-click investigation queries.
-  * **Pillar 4 Pivot**: Concludes with the **Consultative 360° Pivot Card**.
+  * **Pillars 2–5**: Ranked outlier summary & provenance stamp (Pillar 2), forensic vector breakdown & `[1]`/`[2]`/`[3]` next steps (Pillar 3), Chronicle UI manual pivot in `text` fence (Pillar 4), and collapsible technical appendix with the verbatim executed query (Pillar 5).
+  * **Pillar 3 Pivot**: Concludes with the **Consultative 360° Pivot Card**.
 
 ### Tier 2: 360° Multi-Sector Entity Deep-Dive (Targeted Verification)
 * **Trigger**: Triggered **only** upon:
@@ -799,7 +801,7 @@ Threat hunting follows a two-tier investigative lifecycle:
 * **Reporting Standard**: Pillar 1 renders the full 360° Behavioral Risk Radar (`<agent-embed>` or Markdown Data-URI SVG) with all 6 sector scores.
 
 ### The Consultative 360° Pivot Card Pattern
-When a Tier 1 fleet hunt discovers an entity with severe statistical anomalies ($Z \ge 3.0\sigma$, $\text{CRI} \ge 50$, or acute novelty departure), Pillar 4 must proactively suggest a 360° health check:
+When a Tier 1 fleet hunt discovers an entity with severe statistical anomalies ($Z \ge 3.0\sigma$, $\text{CRI} \ge 50$, or acute novelty departure), Pillar 3 must proactively suggest a 360° health check:
 
 ```markdown
 > [!TIP]
@@ -824,7 +826,7 @@ Under no circumstances should the assistant treat a follow-up query as a prompt 
    * Pre-computed 30-day baselines (`metrics.*`).
    * Multi-stage YARA-L 2.0 DAG constructs (`stage ...` + Root Stage).
    * Statistical outlier formulation ($Z$-score, MAD, Poisson rarity, or $\Delta Z$).
-   * Canonical 6-Pillar triage report structure upon clearance.
+   * Canonical 5-Pillar triage report structure upon clearance.
 
 2. **Entity Parameter Substitution**:
    * Replace the previous target entity with the new target (`principal.user.userid = "admin"` or designated service account).
@@ -910,13 +912,28 @@ Before outputting any candidate multi-stage YARA-L query in the Phase 1B Pre-Fli
 To eliminate runtime syntax failures and semantic distortions, assemble every multi-stage query from the canonical templates below rather than authoring one from scratch. Open the chosen `.yl2` with `view_file` and fill in its placeholders — the template files are the authoritative source, and no script needs to be read or run to select one:
 1. **Stage 1 Extractors (`templates/stage1_extractors/`)**: Provide guaranteed 6-point outcome tuples (`$observed_val`, `$historical_avg`, `$historical_stddev`, `$historical_active_days`, `$historical_max`, `$historical_sum`) with immutable entity bindings.
 2. **Stage 2 Math Models (`templates/stage2_math_models/`)**: Provide clean AST implementations of all 17 models: Standard $Z$, True MAD / Modified $Z$ (attachable to any extractor, `references/model-concordance-guide.md` §2), Relative Deviation (fold change), Discrete Poisson Rarity, Fano Factor Dispersion, Coefficient of Variation, Hourly Temporal $Z$, Bayesian Gamma & Beta-Binomial, Longitudinal CUSUM, Two-Part Hurdle, Asymmetric Directional ReLU, Piecewise Winsorized CRI, Fleet Prevalence Shield, Adaptive Context Sensitivity, MACD Momentum Velocity, and Circadian von Mises Temporal Distance.
-3. **Pre-Composed Pipelines (`templates/pipelines/`)**: End-to-end validated pipelines for complex multi-stage hunts (e.g. `cloud_repository_scope_dual_branch.yl2`, `mad_robust_z_4stage.yl2`).
+3. **Pre-Composed Pipelines (`templates/pipelines/`)**: End-to-end validated pipelines for complex multi-stage hunts (all 33 listed in §18 above). Quick scenario-to-template routing:
+   - *Single-sector volumetric / count Z-score*: `standard_z_score_2stage.yl2` (or `stage1_extractors/<metric>.yl2` + `stage2_math_models/<model>.yl2`)
+   - *Heavy-tailed / burst-contaminated MAD*: `mad_robust_z_4stage.yl2` (or `stage2_math_models/mad.yl2`)
+   - *Rare binary / low-$\lambda$ Poisson*: `poisson_rarity_2stage.yl2`
+   - *Multi-day low-and-slow drift*: `longitudinal_cusum_2stage.yl2`
+   - *Dual-spine velocity / acceleration*: `macd_momentum_velocity_2stage.yl2`
+   - *Off-hours / circadian anomaly*: `circadian_von_mises_2stage.yl2`
+   - *Outbound flow-frequency C2 beaconing*: `c2_beacon_flow_frequency_2stage.yl2`
+   - *HTTP 4xx/5xx error ratio or target surge*: `http_error_ratio_surge_2stage.yl2`, `http_target_surge_2stage.yl2`
+   - *Service account 4-CRUD repository + caller IP scope*: `cloud_repository_scope_dual_branch.yl2`
+   - *Fleet rollout / Patch Tuesday subtraction*: `dual_baseline_delta_z_3stage.yl2` or `hybrid_metric_fleet_prevalence_2stage.yl2`
+   - *Peer cohort / department comparison*: `part_of_the_whole_multilevel.yl2`, `part_of_the_whole_triad_multilevel.yl2`, `hierarchical_empirical_bayes_3stage.yl2`
+   - *2-sector Euclidean fusion*: `dual_sector_fusion_3stage.yl2`, `multi_sector_fusion_4stage.yl2`, `rollup_sector_fusion_4stage.yl2`
+   - *6-sector 360° Behavioral Risk Radar*: `radar_360_decoupled_sector.yl2`, `radar_360_sector_web_http.yl2`, `radar_360_sector_alert.yl2`
+   - *Entity Graph rarity / novelty / WHOIS fusion*: `hybrid_metric_derived_file_prevalence_2stage.yl2`, `hybrid_metric_derived_domain_prevalence_2stage.yl2`, `hybrid_metric_derived_asset_age_2stage.yl2`, `hybrid_metric_whois_domain_lifecycle_2stage.yl2`, `rare_destination_ecg_3stage.yl2`, `fusion_rare_destination_3stage.yl2`
+   - *Macro baseline + micro raw telemetry enrichment / concentration / orthogonal breadth / Data Table bridge*: `hybrid_metric_raw_enrichment_2stage.yl2`, `hybrid_metric_entropy_concentration_2stage.yl2`, `hybrid_metric_orthogonal_space_2stage.yl2`, `hybrid_metric_http_ua_prevalence_2stage.yl2`, `hybrid_data_table_bridge_2stage.yl2`
 
 ### B. The `RAW_LOG_DUMP_DETECTED` Post-Flight Inspection Rule
 Before generating any report, audit which responses the analysis rests on. Two things separate a legitimate call from a violation: its position in the hunt lifecycle, and whether it carries its own aggregation.
 
 * **Scoping probes** precede the analytical query. Bare UDM filters that resolve an identity, confirm an asset exists, or establish that a telemetry vector is populated (e.g. `principal.user.userid = "j.doe" nocase`, `metadata.event_type = "USER_LOGIN"`). These legitimately return `"events"` and are never flagged.
-* **Analytical queries** are multi-stage queries carrying `metrics.*` lookups in `outcome:`, whose results populate the 6-Pillar report or the 360° Radar.
+* **Analytical queries** are multi-stage queries carrying `metrics.*` lookups in `outcome:`, whose results populate the 5-Pillar report or the 360° Radar.
 * **Once the analysis is under way, every query carries its own `match:` / `outcome:` aggregation.** A stage whose *events section* selects raw rows is entirely normal — every YARA-L query selects rows, and `match:` / `outcome:` are what turn them into statistics. What is forbidden is a query with no aggregation at all, whose rows land in context to be counted by hand.
 
 **Worked example — a permitted hybrid.** Stage 1 baselines outbound network bytes against `metrics.network_bytes_outbound`. Stage 2 hands off to the `secops-statistical-hunter` plane to characterise observed user-agent strings: its events section selects the raw HTTP rows, `match:` buckets them by entity and agent string, and `outcome:` aggregates them into counts and a concentration score. That stage returns `"stats"` and is fully compliant. It would only become a violation if the same user-agent rows were fetched with no `match:` / `outcome:` and tallied in the agent's head.
@@ -928,7 +945,7 @@ Before generating any report, audit which responses the analysis rests on. Two t
 
 Statistics are computed by the F1 data plane and read from `"stats"`. Deriving a mean, standard deviation, entropy, or Z-score from returned `"events"` rows — in Python or by inspection — is the failure this rule exists to catch. Where a baseline is genuinely unavailable from `metrics.*`, the sanctioned route is the `secops-statistical-hunter` interface, which aggregates inside the query; it is not a licence to pull rows into context.
 
-On detection, `CommonMarkTriageFormatter` aborts 6-Pillar report generation, presents an auto-corrected canonical template (or initiates the Consultative Pivot Protocol), and prompts the analyst for execution clearance.
+On detection, `CommonMarkTriageFormatter` aborts 5-Pillar report generation, presents an auto-corrected canonical template (or initiates the Consultative Pivot Protocol), and prompts the analyst for execution clearance.
 
 ### C. Clean Hand-Off & SOAR Playbook Integration
 * **Clean Hand-Off Schema**: See `references/clean-handoff-udm-schema.md` for the synthetic UDM event structure used to promote outliers ($Z \ge 3.0\sigma$, $\text{CRI} \ge 50$) to Chronicle alerts and cases.
@@ -962,9 +979,9 @@ When an analyst's hypothesis crosses physical entity boundaries (such as correla
 * If the probe returns an invalid argument or syntax error, withhold the preview and correct the filter, or present the Two-Phase Consultative Pivot.
 
 ### C. Data Provenance & Execution Stamping
-To prevent fabricated results or recycled numbers, reports must stamp execution provenance directly from the Chronicle API response:
-* Scanned event volume.
-* Engine query execution timestamp.
+To prevent fabricated results or recycled numbers, reports must stamp execution provenance directly from the Chronicle API response (never report "events scanned", which `udm_search` does not return):
+* Returned row count and active entities ($N$).
+* Evaluation mode and requested `startTime` / `endTime` UTC window (plus baseline window).
 * Projected schema columns from the `stats` payload.
 
 ### D. The Zero-Code Handoff Invariant & Dual-Layer Trickle Defense
@@ -996,33 +1013,33 @@ To provide maximum analytical value without compromising mathematical integrity,
    ```yara
    // Stage 1: Measure outbound network connection activity and 30-day baseline per host and external IP
    stage host_egress {
-       $net.network.sent_bytes > 0
-       $net.network.sent_bytes < 1000000000000000
-       timestamp.get_date($net.metadata.event_timestamp.seconds) = "<today UTC, YYYY-MM-DD>"   // Mode A only
-       $net.principal.asset.hostname = $host
-       $net.target.ip = $dst_ip
+       network.sent_bytes > 0
+       network.sent_bytes < 1000000000000000
+       timestamp.get_date(metadata.event_timestamp.seconds) = "<today UTC, YYYY-MM-DD>"   // Mode A only
+       principal.asset.hostname = $host
+       target.ip = $dst_ip
 
        // Exclude internal RFC 1918 traffic
-       not net.ip_in_range_cidr($dst_ip, "10.0.0.0/8")
-       not net.ip_in_range_cidr($dst_ip, "172.16.0.0/12")
-       not net.ip_in_range_cidr($dst_ip, "192.168.0.0/16")
+       not net.ip_in_range_cidr(target.ip, "10.0.0.0/8")
+       not net.ip_in_range_cidr(target.ip, "172.16.0.0/12")
+       not net.ip_in_range_cidr(target.ip, "192.168.0.0/16")
 
      match:
        $host, $dst_ip by 1d
 
      outcome:
-       $observed_bytes = sum($net.network.sent_bytes)
+       $observed_bytes = sum(network.sent_bytes)
        $hist_avg = max(metrics.network_bytes_outbound(
            period: 1d, window: 30d, metric: value_sum, agg: avg,
-           principal.asset.hostname: $host
+           principal.asset.hostname: principal.asset.hostname
        ))
        $hist_stddev = max(metrics.network_bytes_outbound(
            period: 1d, window: 30d, metric: value_sum, agg: stddev,
-           principal.asset.hostname: $host
+           principal.asset.hostname: principal.asset.hostname
        ))
        $hist_active_days = max(metrics.network_bytes_outbound(
            period: 1d, window: 30d, metric: value_sum, agg: num_metric_periods,
-           principal.asset.hostname: $host
+           principal.asset.hostname: principal.asset.hostname
        ))
    }
 
@@ -1058,18 +1075,21 @@ To provide maximum analytical value without compromising mathematical integrity,
      $destination_prevalence_10d = max($destination_prevalence.fleet_prevalence)
      $z_score = ($actual_bytes - $historical_mean) / if($historical_stddev > 0, $historical_stddev, 1.0)
 
+   condition:
+     $z_score >= 3.0
+
    order:
      $z_score desc
    ```
 3. **Mandatory Prevalence Assumption Callout**:
-   In Pillar 4 (Forensic Vector Breakdown), the report MUST explicitly state:
+   In Pillar 3 (Forensic Vector Breakdown), the report MUST explicitly state:
    > [!NOTE]
    > **⚠️ Prevalence Screening Assumption**:  
    > This query specifically isolates external destinations with low enterprise prevalence ($\le 3$ internal hosts over a 10-day lookback). It effectively detects rogue VPS drop points, isolated C2 servers, and unapproved staging endpoints. **However, it assumes the adversary is not using high-prevalence public cloud infrastructure.**
 
 ### B. Answer 2: Consultative Bridge for High-Prevalence / Living-Off-The-Cloud Targets
 1. **The Consultative Gate**:
-   In Pillar 6 (or Next Steps), the agent proactively asks the hunter:
+   In Pillar 3 (Agentic Next Steps), the agent proactively asks the hunter:
    > *"Would you also like to evaluate automated exfiltration targeting **high-prevalence public cloud infrastructure** (e.g., AWS S3, Google Cloud Storage, Cloudflare Workers, GitHub, Box, Dropbox) where destination prevalence filtering cannot be used? That analysis runs in `secops-statistical-hunter`, which tests cron timing regularity on raw event timestamps."*
 2. **The Structured Skill Handoff Card (Zero-Code Handoff Invariant)**:
    When the hunter requests cloud exfiltration coverage, the agent emits a **Skill Handoff Card** steering to `secops-statistical-hunter`:
@@ -1116,7 +1136,7 @@ Under the **Hard Pre-Flight Clearance Gate**, this sequence is strictly prohibit
        query='target.user.userid = "<name>" nocase or principal.user.userid = "<name>" nocase or target.user.email_addresses = "<name>" nocase or principal.user.email_addresses = "<name>" nocase or target.user.user_display_name = /.*<name>.*/ nocase or principal.user.user_display_name = /.*<name>.*/ nocase',
        startTime="<ISO_TARGET_START_OR_14D_AGO>",
        endTime="<ISO_TARGET_END_OR_NOW>",
-       maxEvents=5
+       maxEvents=1
    )
    ```
 3. **Hard Resolution Gate**:
@@ -1134,7 +1154,7 @@ Under the **Hard Pre-Flight Clearance Gate**, this sequence is strictly prohibit
 
 ### D. Turn 2 Execution Query Integrity & Pre/Post QA Gate (`QueryIntegrityGate`)
 1. **Pre-Dispatch & Post-Execution Verification**:
-   In Step 2 (after clearance), `QueryIntegrityGate` verifies the approved multi-stage YARA-L query *before* sending it to `udm_search(query=...)` (blocking unresolved `{{placeholders}}`, AST errors, or dropped entity scopes) and verifies the backend response *after* execution (surfacing compiler/API errors for retry rather than returning false-clean `0.00σ`). Because the candidate query was already previewed in State 1 and is locked by `QueryIntegrityGate`, repeating the executed YARA-L query block in the delivered report is unnecessary and omitted.
+   In CLI / Headless MCP harness integrations (`scripts/preflight_validator.py`), `QueryIntegrityGate` verifies the approved multi-stage YARA-L query *before* sending it to `udm_search(query=...)` (blocking unresolved `{{placeholders}}`, AST errors, or dropped entity scopes) and verifies the backend response *after* execution (surfacing compiler/API errors for retry rather than returning false-clean `0.00σ`). In interactive agent sessions, place the verbatim executed multi-stage query inside **Pillar 5 (Collapsible Technical Appendix)**.
 2. **Prohibition of Raw Event Filter Substitutions on Turn 2**:
    Raw UDM event filters (such as `principal.user.userid = "greg" or target.user.userid = "greg"`) do NOT compute statistical baselines and are strictly prohibited as substitutes for the approved multi-stage query on execution turns.
 
@@ -1150,7 +1170,7 @@ Threat actors frequently leverage automated scripts or tools (`curl`, `python-re
 ### B. Pattern A: Intra-Query Golden Template (`hybrid_metric_raw_enrichment_2stage.yl2`)
 When the exfiltration channel is known in advance to be HTTP, both planes can be joined in a single YARA-L 2.0 query:
 * **Stage 1 (Macro Baseline)**: Scopes to `NETWORK_CONNECTION`, queries `metrics.network_bytes_outbound`, and groups by `$entity by 1d`.
-* **Stage 2 (Micro Signature)**: Scopes to `NETWORK_HTTP`, groups by `$entity by 1d`, and aggregates `distinct_signatures = count_distinct(target.user_agent)`.
+* **Stage 2 (Micro Signature)**: Scopes to `NETWORK_HTTP`, groups by `$entity by 1d`, and aggregates `distinct_signatures = count_distinct(network.http.user_agent)`.
 * **Root Stage (Fusion)**: Inner-joins `$entity by 1d` and enforces `$macro_z_score >= 3.0 and $signature_diversity <= 2`.
 * **Join Budget**: 1 metric lookup + 1 stage join = **2 joins total** (safe under Chronicle limit $\le 4$).
 
@@ -1203,15 +1223,15 @@ To operationalize advanced statistical models without tripping Chronicle's join 
       $observed_intensity = sum(network.sent_bytes)
       $hist_mean = max(metrics.network_bytes_outbound(
           period: 1d, window: 30d, metric: value_sum, agg: avg,
-          principal.asset.hostname: $host
+          principal.asset.hostname: principal.asset.hostname
       ))
       $hist_stddev = max(metrics.network_bytes_outbound(
           period: 1d, window: 30d, metric: value_sum, agg: stddev,
-          principal.asset.hostname: $host
+          principal.asset.hostname: principal.asset.hostname
       ))
       $hist_active_days = max(metrics.network_bytes_outbound(
           period: 1d, window: 30d, metric: value_sum, agg: num_metric_periods,
-          principal.asset.hostname: $host
+          principal.asset.hostname: principal.asset.hostname
       ))
 
       $z_intensity = ($observed_intensity - $hist_mean) / if($hist_stddev > 0, $hist_stddev, 1.0)
@@ -1341,8 +1361,8 @@ Use the pre-built pipeline in `templates/pipelines/c2_beacon_flow_frequency_2sta
 ## 34. SecOps Data Tables Integration (`%<table_name>.<column>`)
 
 Google SecOps Data Tables (`%<table_name>`) support multi-column relational joins directly inside YARA-L 2.0 stages, complementing single-column Reference Lists:
-1. **Cross-Phase Cohort Bridge Syntax (`%ueba_hunt_bridge.<column>`)**:
-   In Two-Phase Chained Hunts (`USER` $\leftrightarrow$ `ASSET` $\leftrightarrow$ `Cloud SA`), execute **Phase 1** via `udm_search` (`metrics.*`) in State 2 and emit the ready-to-run **Phase 2 Data Table Bridge Query** (`principal.asset.hostname = %ueba_hunt_bridge.hostname` or `principal.user.userid in %ueba_hunt_bridge.entity` via `templates/pipelines/hybrid_data_table_bridge_2stage.yl2`) inside Pillar 4 (`Immediate 1-Click Investigation Queries`). **IMPORTANT (`SEARCH-ONLY` State 1 & State 2 Guard)**: Do NOT call state-mutating `create_data_table` or `add_rows_to_data_table` during Turn 1 or Turn 2 execution; only emit the `%ueba_hunt_bridge.<column>` Phase 2 query in the report (table mutation is gated behind explicit State 3 post-report escalation).
+1. **Cross-Phase Cohort Bridge Syntax (`%ueba_hunt_bridge.entity` / `%ueba_hunt_bridge.<column>`)**:
+   In Two-Phase Chained Hunts (`USER` $\leftrightarrow$ `ASSET` $\leftrightarrow$ `Cloud SA`), execute **Phase 1** via `udm_search` (`metrics.*`) in State 2 and emit the ready-to-run **Phase 2 Data Table Bridge Query** (always explicitly include `%ueba_hunt_bridge.entity`, e.g., `principal.asset.hostname in %ueba_hunt_bridge.entity` or `principal.user.userid in %ueba_hunt_bridge.entity`, alongside `templates/pipelines/hybrid_data_table_bridge_2stage.yl2`) inside Pillar 3 (`Agentic Next Steps`) or Pillar 4 (`Chronicle UI Manual Pivot`). **IMPORTANT (`SEARCH-ONLY` State 1 & State 2 Guard)**: Do NOT call state-mutating `create_data_table` or `add_rows_to_data_table` during Turn 1 or Turn 2 execution; only emit the `%ueba_hunt_bridge.<column>` Phase 2 query in the report (table mutation is gated behind explicit State 3 post-report escalation).
 2. **Entity-Specific Risk Priors & Confounder Allowlists (`%ueba_entity_priors`, `%authorized_scanners`)**:
    Join custom per-entity significance thresholds or VIP/departing-employee risk multipliers (`principal.user.userid = %ueba_entity_priors.entity`) or suppress approved infrastructure scanners (`not principal.asset.hostname in %authorized_scanners.hostname`).
 

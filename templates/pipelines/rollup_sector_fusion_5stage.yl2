@@ -146,12 +146,14 @@ outcome:
   $delta_z_a = if($dz_a_raw > 0, $dz_a_raw, 0.0)
   $delta_z_b = if($dz_b_raw > 0, $dz_b_raw, 0.0)
 
-  // Euclidean Vector Threat Norm D^2 = Z_a^2 + Z_b^2 + dZ_a^2 + dZ_b^2
+  // Euclidean Vector Threat Norm D^2 = dZ_a^2 + dZ_b^2 (with personal_norm_sq tracked separately to avoid collinear double-counting)
+  // Legacy reference: $composite_threat_norm_sq = $z_a_sq + $z_b_sq + $dz_a_sq + $dz_b_sq
   $z_a_sq = $z_a * $z_a
   $z_b_sq = $z_b * $z_b
   $dz_a_sq = $delta_z_a * $delta_z_a
   $dz_b_sq = $delta_z_b * $delta_z_b
-  $composite_threat_norm_sq = $z_a_sq + $z_b_sq + $dz_a_sq + $dz_b_sq
+  $personal_norm_sq = $z_a_sq + $z_b_sq
+  $composite_threat_norm_sq = $dz_a_sq + $dz_b_sq
 
 // Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
 condition:

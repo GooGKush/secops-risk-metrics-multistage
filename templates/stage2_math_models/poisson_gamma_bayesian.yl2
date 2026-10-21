@@ -1,3 +1,4 @@
+// Domain note: count-based model (metric: event_count_sum); do not apply to byte-volume metrics (value_sum) where variance scales quadratically.
 // Root Stage: Poisson-Gamma Bayesian Conjugate Updating & Credibility Shrinkage
 $entity = $stage1_extract.entity
 $ws = $stage1_extract.window_start

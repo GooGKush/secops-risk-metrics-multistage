@@ -3,21 +3,26 @@
 //   You may swap `principal.user.userid` for another PRINCIPAL_USER (principal.user.userid | email_addresses | employee_id | product_object_id | windows_sid) field, in the event binding
 //   AND in every metrics call; keep every companion field (the set must match exactly). Sets keyed on
 //   other entities: references/metric-sector-catalog.md (this metric's row).
+//   Composite-key note: when paired with a single-entity Stage 2 model, either keep the companion
+//   match keys ($vendor, $product, $resource) in the Root Stage match: or compute per-key Z in
+//   Stage 1 before rolling up (see rollup_sector_fusion_4stage.yl2).
 stage stage1_extract {
     (metadata.event_type = "RESOURCE_WRITTEN" or metadata.event_type = "USER_RESOURCE_UPDATE_CONTENT")
     $sa = principal.user.userid
     $vendor = metadata.vendor_name
     $product = metadata.product_name
     $resource = target.resource.name
-    $ip = principal.ip
-    $resource != ""
     $sa != ""
+    $vendor != ""
+    $product != ""
+    $resource != ""
 
   match:
-    $sa, $vendor, $product, $resource, $ip by 1d
+    $sa, $vendor, $product, $resource by 1d
 
   outcome:
     $observed_val = count(metadata.id)
+    $distinct_ips = count_distinct(principal.ip)
     $historical_avg = max(metrics.resource_written_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: avg,
         principal.user.userid: principal.user.userid,

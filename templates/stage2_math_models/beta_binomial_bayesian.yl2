@@ -1,4 +1,6 @@
-// Root Stage: Beta-Binomial Bayesian Ratio Regularization (Preserving Daily Timeline)
+// Stage 2 (Root Stage): Beta-Binomial Empirical Bayes Proportion Shrinkage
+// Normalizes raw count/volume inputs into [0, 1] proportions when paired with count/volume extractors,
+// while preserving exact [0, 1] ratios when paired with proportion extractors.
 $entity = $stage1_extract.entity
 $ws = $stage1_extract.window_start
 
@@ -6,38 +8,31 @@ match:
   $entity, $ws by 1d
 
 outcome:
-  $observed_fails = max($stage1_extract.observed_val)
-  $avg_fail_prob = max($stage1_extract.historical_avg)
-  $stddev_p = max($stage1_extract.historical_stddev)
+  $observed = max($stage1_extract.observed_val)
+  $hist_avg = max($stage1_extract.historical_avg)
   $active_days = max($stage1_extract.historical_active_days)
 
-  // 1. Beta Prior Parameterization via Method of Moments
-  $variance_raw = math.pow($stddev_p, 2)
-  $safe_variance = if($variance_raw > 0, $variance_raw, 0.001)
-  $one_minus_p = 1.0 - $avg_fail_prob
-  $numerator = $avg_fail_prob * $one_minus_p
-  $sample_ratio = $numerator / $safe_variance
-  $raw_sample_factor = $sample_ratio - 1.0
-  $sample_factor = if($raw_sample_factor > 1.0, $raw_sample_factor, 1.0)
-  $alpha_prior = $avg_fail_prob * $sample_factor
-  $beta_prior = $one_minus_p * $sample_factor
+  // Normalize to [0, 1] when inputs exceed 1.0 (e.g. count or volume Stage 1 extractors)
+  $denom_scale = $observed + $hist_avg + 1.0
+  $scaled_prior = $hist_avg / $denom_scale
+  $scaled_obs = $observed / $denom_scale
+  $prior_rate = if($hist_avg <= 1.0 and $observed <= 1.0, $hist_avg, $scaled_prior)
+  $obs_rate = if($hist_avg <= 1.0 and $observed <= 1.0, $observed, $scaled_obs)
 
-  // 2. Conjugate Posterior Updating with Daily Evidence
-  $alpha_post = $alpha_prior + $observed_fails
-  $beta_post = $beta_prior + 1.0
-  $total_post = $alpha_post + $beta_post
-  $safe_total_post = if($total_post > 0, $total_post, 1.0)
+  // Beta Prior Parameters (M = 10 equivalent pseudo-trials, bounded in [0, 10])
+  $prior_alpha = $prior_rate * 10.0
+  $prior_beta = (1.0 - $prior_rate) * 10.0
 
-  // 3. Regularized Posterior Failure Probability
-  $posterior_fail_prob = $alpha_post / $safe_total_post
-
-  // 4. Posterior lift over the 30-day prior (fold-change significance gate)
-  $safe_prior_p = if($avg_fail_prob > 0, $avg_fail_prob, 0.001)
-  $posterior_lift = $posterior_fail_prob / $safe_prior_p
+  // Posterior Mean Rate after N = 10 pseudo-trial observations
+  $post_alpha = $prior_alpha + ($obs_rate * 10.0)
+  $post_denom = $prior_alpha + $prior_beta + 10.0
+  $posterior_rate = $post_alpha / $post_denom
+  $safe_prior = if($prior_rate > 0.001, $prior_rate, 0.001)
+  $posterior_lift = $posterior_rate / $safe_prior
 
 // Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
 condition:
   $posterior_lift >= {{fold_change_threshold}}
 
 order:
-  $posterior_fail_prob desc
+  $posterior_lift desc

@@ -82,12 +82,14 @@ def main():
   entity_type = siemplify.extract_action_param("Entity Type", default_value="USER")
   threshold = float(siemplify.extract_action_param("Anomaly Threshold", default_value=3.0))
 
-  # 2. Initialize Collector with Chronicle SIEM API Client
+  # 2. Initialize Collector & Parse Spoke Scores from Decoupled Sector Queries
+  # (Sector micro-query templates are defined on EntityRadarCollector.USER_SECTOR_QUERIES / ASSET_SECTOR_QUERIES)
   collector = EntityRadarCollector(secops_client=siemplify)
+  scores_str = siemplify.extract_action_param("Sector Scores", default_value="auth=0.0,cloud=0.0,workspace=0.0,net=0.0,dns=0.0,web=0.0")
+  spokes = EntityRadarCollector.parse_scores_argument(scores_str, entity_type=entity_type)
 
-  # 3. Execute Fan-Out & Aggregate Radar
-  # (In production, execute_sector_query calls Chronicle udm_search via Siemplify / SecOps API)
-  radar_data = collector.collect_360_radar(entity_id=entity_id)
+  # 3. Build Complete Radar Payload (SVG, Markdown Table, Chart.js Spec, Composite Risk)
+  radar_data = collector.build_radar_payload(entity_id=entity_id, entity_type=entity_type, spokes=spokes)
 
   composite_d = radar_data["composite_distance_d"]
   cri = radar_data["calibrated_risk_index"]
@@ -188,7 +190,7 @@ $user = $s5_dns.user
 $user = $s6_web.user
 match: $user by 1d
 outcome:
-  $d_sq = ($s1_auth.z)^2 + ($s2_cloud.z)^2 + ($s3_work.z)^2 + ($s4_net.z)^2 + ($s5_dns.z)^2 + ($s6_web.z)^2
+  $d_sq = max(0, $s1_auth.z)^2 + max(0, $s2_cloud.z)^2 + max(0, $s3_work.z)^2 + max(0, $s4_net.z)^2 + max(0, $s5_dns.z)^2 + max(0, $s6_web.z)^2
 ```
 
 This constructs two fatal failure modes:
@@ -221,9 +223,9 @@ When conducting a 360° Entity Behavioral Risk Radar hunt:
 2. **Strict Probe Requirement**: Before displaying ````yara in markdown, the event-filter probe must succeed via `udm_search` with ISO 8601 timestamps (`startTime="<ISO_10M_AGO>"`, `endTime="<ISO_NOW>"`). Relative strings like `"now-10m"` are forbidden.
 3. **Hard Pre-Flight Clearance Gate**: If the query cannot be probed or compiled, the clearance question (Step 5) MUST NOT be asked. The agent must halt immediately and report what blocked query compilation.
 
-### B. Turn 2 Execution Integrity (Prohibition of Raw UDM Filters in Pillar 2)
-1. **Executed Multi-Stage Micro-Queries**: In Step 2 (Pillar 2), the agent must display the literal executed multi-stage YARA-L micro-queries passed into `udm_search(query=...)`.
-2. **Raw Filter Prohibition**: Replacing multi-stage YARA-L with a raw event filter (e.g., `principal.user.userid = "greg" or target.user.userid = "greg"`) violates Pillar 2 integrity and produces meaningless all-zero visual coordinates.
+### B. Turn 2 Execution Integrity (Prohibition of Raw UDM Filters in Pillar 5)
+1. **Executed Multi-Stage Micro-Queries**: In Pillar 5 (Collapsible Technical Appendix), the agent must display the literal executed multi-stage YARA-L representative micro-query passed into `udm_search(query=...)`.
+2. **Raw Filter Prohibition**: Replacing multi-stage YARA-L with a raw event filter (e.g., `principal.user.userid = "greg" or target.user.userid = "greg"`) violates Pillar 5 integrity and produces meaningless all-zero visual coordinates.
 
 ---
 *Created and maintained by Greg Kushmerek for Google SecOps Chronicle SIEM threat hunting workflows.*

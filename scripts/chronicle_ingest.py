@@ -36,7 +36,7 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 # Chronicle rejects the entire batch if any single event is malformed, so these
 # are checked locally before the request is built.
@@ -277,6 +277,63 @@ def _load_events(path: str) -> List[Dict[str, Any]]:
     # A Clean Hand-Off batch: [{"udm": {...}}, ...] or [{...}, ...].
     return [e["udm"] if isinstance(e, dict) and "udm" in e else e for e in data]
   raise IngestionError(f"{path}: expected a JSON object or array.")
+
+
+
+DEFAULT_FORWARDER_ID = "projects/gus-sdl/locations/us/instances/8cbac5ae-8267-4da7-b405-cdbc6fa3f1d5/forwarders/default"
+
+
+def build_import_logs_payload(
+    logs: Sequence[Union[str, Dict[str, Any]]],
+    log_type: str = "UDM",
+    forwarder_id: str = DEFAULT_FORWARDER_ID,
+) -> Dict[str, Any]:
+  """Builds an ImportLogs-compatible payload including forwarder_id for legacy log ingestion callers."""
+  import base64
+  encoded_logs = []
+  for entry in logs:
+    raw_str = json.dumps(entry) if isinstance(entry, dict) else str(entry)
+    b64_data = base64.b64encode(raw_str.encode("utf-8")).decode("ascii")
+    encoded_logs.append({"data": b64_data})
+  return {
+      "forwarder_id": forwarder_id,
+      "log_type": log_type,
+      "inline_source": {
+          "forwarder": forwarder_id,
+          "logs": encoded_logs,
+      },
+  }
+
+
+def generate_catchall_yaral_rule(
+    rule_name: str = "secops_risk_metrics_synthetic_alert_catchall",
+) -> str:
+  """Generates the canonical Catch-All YARA-L 2.0 promotion rule with allow_zero_values = true."""
+  return (
+      f"rule {rule_name} {{\n"
+      "  meta:\n"
+      '    author = "Google SecOps Risk Metrics Hunter"\n'
+      '    description = "Promotes Clean Hand-Off synthetic UDM findings (CRI >= 50) into SIEM alerts."\n'
+      '    severity = "HIGH"\n'
+      "\n"
+      "  events:\n"
+      '    $e.metadata.vendor_name = "Google SecOps"\n'
+      '    $e.metadata.product_name = "SecOps Risk Metrics Hunter"\n'
+      "    $e.security_result.risk_score >= 50\n"
+      "\n"
+      "  outcome:\n"
+      "    $risk_score = max($e.security_result.risk_score)\n"
+      "\n"
+      "  condition:\n"
+      "    $e\n"
+      "\n"
+      "  options:\n"
+      "    allow_zero_values = true\n"
+      "}\n"
+  )
+
+
+build_catchall_rule = generate_catchall_yaral_rule
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:

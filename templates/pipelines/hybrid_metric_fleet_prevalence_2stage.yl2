@@ -29,16 +29,8 @@
 //    - raw_token_field slot: principal.process.file.sha256
 //    - fleet_entity_field slot: principal.asset.hostname
 //
-// 2. HTTP User-Agent Adoption Surge:
-//    - macro_entity_field slot: principal.asset.hostname (or principal.user.userid)
-//    - macro_token_field slot: network.http.user_agent
-//    - macro_observed_agg slot: count(metadata.id)
-//    - target_metric_func_avg slot: metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.asset.hostname: principal.asset.hostname, network.http.user_agent: network.http.user_agent)
-//    - target_metric_func_stddev slot: metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.asset.hostname: principal.asset.hostname, network.http.user_agent: network.http.user_agent)
-//    - target_metric_func_active_days slot: metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.asset.hostname: principal.asset.hostname, network.http.user_agent: network.http.user_agent)
-//    - raw_event_type slot: "NETWORK_HTTP"
-//    - raw_token_field slot: network.http.user_agent
-//    - fleet_entity_field slot: principal.asset.hostname
+// (For HTTP User-Agent adoption surges, use hybrid_metric_http_ua_prevalence_2stage.yl2,
+//  as Stage 2 here joins against FILE entity graph records keyed on file.sha256.)
 // ============================================================================
 
 // Stage 1: Individual Entity Baseline Surge & Micro-Token Extraction (metrics.*)
@@ -120,7 +112,7 @@ outcome:
 condition:
   // Personal host must breach historical baseline
   $personal_z >= {{personal_threshold}}
-  and $active_baseline_days >= {{min_baseline_days}}
+  and ($active_baseline_days >= {{min_baseline_days}} or $active_baseline_days = 0)
   // Fleet Prevalence Filter: Binary/token must NOT be an enterprise-wide rollout
   and $fleet_adopters <= {{max_fleet_adopters}}
 

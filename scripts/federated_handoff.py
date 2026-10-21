@@ -16,7 +16,30 @@ import sys
 import uuid
 from typing import Any, Dict, Optional
 
+from enum import Enum
+
 SUPPORTED_PROTOCOL = "secops-threat-hunt-handoff-v1"
+
+
+class HandoffReason(str, Enum):
+  """Canonical handoff reasons and intents for cross-skill delegation."""
+  SCHEDULED_EXFILTRATION_TIMING = "SCHEDULED_EXFILTRATION_TIMING"
+  C2_BEACONING_JITTER = "C2_BEACONING_JITTER"
+  POISSON_BURST_CLUSTERING = "POISSON_BURST_CLUSTERING"
+  POISSON_RARE_SURGE = "POISSON_RARE_SURGE"
+  ZSCORE_PROCESS_SURGE = "ZSCORE_PROCESS_SURGE"
+  DATA_EXFILTRATION_SPIKE = "DATA_EXFILTRATION_SPIKE"
+  DUAL_BASELINE_DELTA_Z = "DUAL_BASELINE_DELTA_Z"
+  RAW_TELEMETRY_ENRICHMENT = "RAW_TELEMETRY_ENRICHMENT"
+  DIVERSITY_DEFICIT = "DIVERSITY_DEFICIT"
+  ELEPHANT_FLOW_CONCENTRATION = "ELEPHANT_FLOW_CONCENTRATION"
+  ORTHOGONAL_THREAT_SPACE = "ORTHOGONAL_THREAT_SPACE"
+  BAYESIAN_JOINT_ODDS = "BAYESIAN_JOINT_ODDS"
+  TWO_PART_HURDLE = "TWO_PART_HURDLE"
+  FLEET_PREVALENCE_NORMALIZATION = "FLEET_PREVALENCE_NORMALIZATION"
+  PRIVILEGED_LATERAL_EXPANSION = "PRIVILEGED_LATERAL_EXPANSION"
+  OFF_HOURS_BURST = "off_hours_activity"
+
 
 SUPPORTED_INTENTS = [
     "SCHEDULED_EXFILTRATION_TIMING",
@@ -39,20 +62,25 @@ SUPPORTED_INTENTS = [
 
 def build_handoff_payload(
     intent: str,
-    entity_type: str,
-    entity_value: str,
+    entity_type: str = "HOSTNAME",
+    entity_value: str = "",
     lookback: str = "24h",
     sensitivity: str = "BALANCED",
     justification: Optional[str] = None,
     parameters: Optional[Dict[str, Any]] = None,
     request_id: Optional[str] = None,
+    reason: Optional[Any] = None,
 ) -> Dict[str, Any]:
   """Constructs a strictly-typed federated handoff payload."""
+  if not entity_value and entity_type and entity_type.upper() not in ("HOSTNAME", "ASSET", "USER", "IP", "SERVICE_ACCOUNT", "DOMAIN"):
+    entity_value = entity_type
+    entity_type = "HOSTNAME"
   if not request_id:
     request_id = f"req-{uuid.uuid4().hex[:8]}"
 
   model_params = parameters or {}
-  intent_upper = intent.upper()
+  reason_str = (reason.value if hasattr(reason, "value") else str(reason or "")).upper()
+  intent_upper = f"{intent.upper()} {reason_str}".strip()
   if not justification:
     if any(kw in intent_upper for kw in ["DIVERSITY", "ENTROPY"]):
       justification = (
@@ -83,6 +111,11 @@ def build_handoff_payload(
       justification = (
           "Bipartite user-to-host machine access history and destination expansion require "
           "ad-hoc bounded lookback over raw USER_LOGIN events; delegating to statistical hunter."
+      )
+    elif any(kw in intent_upper for kw in ["OFF_HOURS", "CIRCADIAN"]):
+      justification = (
+          "Macro 30-day baseline flagged off-hours activity; delegating to micro-temporal "
+          "burst analysis to isolate non-business-hour execution surges."
       )
     elif any(kw in intent_upper for kw in ["ENRICHMENT", "RAW_TELEMETRY", "DUAL_PLANE"]):
       justification = (
@@ -150,6 +183,7 @@ def build_handoff_payload(
           "parameters": model_params,
       },
       "justification": justification,
+      "handoff_justification": justification,
       "status": "PENDING_DISPATCH",
   }
   return payload
@@ -371,6 +405,14 @@ def dispatch_to_endpoint(
   ]
 
   res = subprocess.run(cmd, capture_output=True, text=True)
+  if res.returncode != 0 and not res.stdout.strip():
+    return {
+        "status": "HANDOFF_ACK_REJECTED",
+        "action": "ENDPOINT_CRASH",
+        "stdout": res.stdout,
+        "stderr": res.stderr,
+        "returncode": res.returncode,
+    }
   try:
     ack_data = json.loads(res.stdout)
     return ack_data

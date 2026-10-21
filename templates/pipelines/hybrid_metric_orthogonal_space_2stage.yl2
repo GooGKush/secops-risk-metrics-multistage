@@ -76,10 +76,12 @@ outcome:
   // Standardized Micro Breadth Score (Zero-dispersion safe)
   $z_breadth = ($breadth_count - 1.0) / (2.0 + 1.0)
 
-  // Model 5: 2D Euclidean Threat Distance Norm (Squared distance)
-  // D_squared = (Z_intensity * Z_intensity) + (Z_breadth * Z_breadth)
-  $intensity_sq = $z_intensity * $z_intensity
-  $breadth_sq = $z_breadth * $z_breadth
+  // Model 5: 2D Euclidean Threat Distance Norm (Rectified positive excesses so negative Z cannot inflate norm)
+  // D_squared = (pos_Z_intensity * pos_Z_intensity) + (pos_Z_breadth * pos_Z_breadth)
+  $pos_z_intensity = if($z_intensity > 0, $z_intensity, 0.0)
+  $pos_z_breadth = if($z_breadth > 0, $z_breadth, 0.0)
+  $intensity_sq = $pos_z_intensity * $pos_z_intensity
+  $breadth_sq = $pos_z_breadth * $pos_z_breadth
   $threat_distance_sq = $intensity_sq + $breadth_sq
 
   // Model 3: Joint Bayesian Additive Log-Odds Score
@@ -88,11 +90,11 @@ outcome:
 condition:
   // Evaluates either Sub-Threshold Joint Odds, Hurdle Awakening, or Euclidean Distance
   (
-    // Path A: 2D Euclidean Threshold
-    $threat_distance_sq >= {{min_threat_distance_sq}}
+    // Path A: 2D Euclidean Threshold (requires mature baseline)
+    $threat_distance_sq >= {{min_threat_distance_sq}} and $hist_days >= 7
   ) or (
-    // Path B: Sub-threshold multi-evidence fusion
-    $joint_odds_score >= {{min_joint_odds}} and $raw_hits >= {{min_raw_hits}}
+    // Path B: Sub-threshold multi-evidence fusion (requires mature baseline)
+    $joint_odds_score >= {{min_joint_odds}} and $raw_hits >= {{min_raw_hits}} and $hist_days >= 7
   ) or (
     // Path C: Two-Part Hurdle (Dormant entity awakening with high-impact activity)
     $hist_days <= {{max_dormant_days}} and $breadth_count >= {{min_breadth_count}} and $raw_hits >= 1
