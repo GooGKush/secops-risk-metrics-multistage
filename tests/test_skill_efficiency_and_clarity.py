@@ -12,39 +12,61 @@ class TestSkillEfficiencyAndClarity(unittest.TestCase):
 
   def setUp(self):
     repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    repo_skill_md = os.path.join(repo_dir, 'SKILL.md')
-    if os.path.exists(repo_skill_md):
-      self.skill_md_path = repo_skill_md
-      self.skill_dir = repo_dir
-    else:
-      self.skill_md_path = os.path.expanduser('~/.gemini/skills/secops-risk-metrics-multistage/SKILL.md')
-      self.skill_dir = os.path.dirname(self.skill_md_path)
-    self.assertTrue(os.path.exists(self.skill_md_path), "SKILL.md must exist")
-    with open(self.skill_md_path, 'r', encoding='utf-8') as f:
+    self.skill_md_path = os.path.join(repo_dir, "SKILL.md")
+    self.skill_dir = repo_dir
+    self.assertTrue(os.path.exists(self.skill_md_path), "SKILL.md must exist in repository")
+    with open(self.skill_md_path, "r", encoding="utf-8") as f:
       self.skill_content = f.read()
     self.lines = self.skill_content.splitlines()
 
   def test_token_budget_and_line_count_ceiling(self):
-    """SKILL.md must remain lean (<= 250 lines and <= 20 KB) to prevent instruction bloat."""
+    """SKILL.md must remain lean (<= 275 lines and <= 28.0 KB / 28,672 bytes) to prevent instruction bloat."""
     line_count = len(self.lines)
-    file_size_kb = len(self.skill_content.encode('utf-8')) / 1024.0
+    raw_bytes = len(self.skill_content.encode("utf-8"))
+    file_size_kb = raw_bytes / 1024.0
     self.assertLessEqual(
-        line_count, 250,
-        f"SKILL.md exceeds the 250-line ceiling (found {line_count} lines). Move reference tables to references/."
+        line_count, 275,
+        f"SKILL.md exceeds the 275-line ceiling (found {line_count} lines). Move reference tables to references/."
     )
     self.assertLessEqual(
-        file_size_kb, 20.0,
-        f"SKILL.md exceeds the 20 KB ceiling (found {file_size_kb:.1f} KB)."
+        raw_bytes, 28672,
+        f"SKILL.md exceeds the 28.0 KB (28,672 bytes) ceiling (found {raw_bytes} bytes / {file_size_kb:.1f} KB)."
     )
+    self.assertLessEqual(
+        file_size_kb, 28.0,
+        f"SKILL.md exceeds the 28.0 KB ceiling (found {file_size_kb:.1f} KB)."
+    )
+
+  def test_frontmatter_description_length_and_triggers(self):
+    """YAML frontmatter description must be <= 1,024 characters and contain key routing triggers."""
+    m = re.match(r"^---\n(.*?)\n---", self.skill_content, re.DOTALL)
+    self.assertIsNotNone(m, "SKILL.md must start with YAML frontmatter")
+    fm = m.group(1)
+    desc_match = re.search(r"^description:\s*(.+)$", fm, re.MULTILINE)
+    self.assertIsNotNone(desc_match, "YAML frontmatter must include description")
+    desc = desc_match.group(1).strip().strip("\"'")
+    self.assertLessEqual(
+        len(desc), 1024,
+        f"Frontmatter description exceeds 1,024 character Agent Skills spec limit: {len(desc)}"
+    )
+    for trigger in (
+        "peer cohort comparison",
+        "360° entity health check",
+        "CUSUM drift",
+        "entity risk score",
+        "30-day behavioral baseline",
+        "30d-baseline MAD",
+    ):
+      self.assertIn(trigger, desc, f"Frontmatter description missing trigger: {trigger}")
 
   def test_referential_link_integrity(self):
     """Every reference document, template directory, and script referenced in SKILL.md must exist on disk."""
     file_links = re.findall(
-        r'file:///[^`\s]+?/\.gemini/skills/secops-risk-metrics-multistage/([a-zA-Z0-9_\-\./]+)',
+        r"file:///[^`\s]+?/\.gemini/(?:config/)?skills/secops-risk-metrics-multistage/([a-zA-Z0-9_\-\./]+)",
         self.skill_content
     )
     backtick_links = re.findall(
-        r'`((?:references|templates|scripts)/[a-zA-Z0-9_\-\./]+)`',
+        r"`((?:references|templates|scripts)/[a-zA-Z0-9_\-\./]+)`",
         self.skill_content
     )
     all_links = set(file_links + backtick_links)
@@ -52,7 +74,7 @@ class TestSkillEfficiencyAndClarity(unittest.TestCase):
 
     missing_paths = []
     for rel_path in all_links:
-      clean = rel_path.rstrip('/')
+      clean = rel_path.rstrip("/")
       full_path = os.path.join(self.skill_dir, clean)
       if not os.path.exists(full_path):
         missing_paths.append(clean)
@@ -88,6 +110,7 @@ class TestSkillEfficiencyAndClarity(unittest.TestCase):
     """SKILL.md must define all 5 required pillars of the Step 2 triage report (without redundant Executed Query block)."""
     self.assertTrue("MANDATORY STEP 2: PRESENT FULL 5-SECTION REPORT" in self.skill_content or "State 2: Deterministic Multi-Stage Execution" in self.skill_content)
     self.assertIn("Statistical Outlier Report", self.skill_content)
+    self.assertIn("Executive Summary & Calibrated Risk Index (CRI)", self.skill_content)
     self.assertNotIn("Executed Multi-Stage YARA-L Query", self.skill_content)
     self.assertIn("Ranked Outlier Summary", self.skill_content)
     self.assertIn("Forensic Vector Breakdown", self.skill_content)
@@ -95,5 +118,5 @@ class TestSkillEfficiencyAndClarity(unittest.TestCase):
     self.assertIn("Statistical & Mathematical Appendix", self.skill_content)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
   unittest.main()

@@ -7,9 +7,9 @@
 
 ---
 
-## 🧭 First Principles: The 9 Behavioral Telemetry Deformations
+## 🧭 First Principles: The 10 Behavioral Telemetry Deformations
 
-Every threat—known, emerging, or zero-day—physically deforms telemetry in one of nine distinct ways (6 volumetric/temporal + 3 structural/directional/geospatial). When an analyst describes a scenario, classify the underlying deformation to select the optimal statistical model:
+Every threat—known, emerging, or zero-day—physically deforms telemetry in one of ten distinct ways (6 volumetric/temporal + 4 structural/directional/geospatial/contextual). When an analyst describes a scenario, classify the underlying deformation to select the optimal statistical model:
 
 ```
 ┌─────────────────────────────┬───────────────────────────────┬──────────────────────────────────────┐
@@ -41,6 +41,9 @@ Every threat—known, emerging, or zero-day—physically deforms telemetry in on
 ├─────────────────────────────┼───────────────────────────────┼──────────────────────────────────────┤
 │ 9. Geospatial Kinematics    │ Consecutive logins exceeding  │ Impossible Travel Geo-Velocity       │
 │    ("Impossible Travel")    │ physical flight speed (>800kmh│ (math.geo_distance / Δt; Handoff)    │
+├─────────────────────────────┼───────────────────────────────┼──────────────────────────────────────┤
+│ 10. Persona & Event Priors  │ Sensitivity conditioned on    │ Data Table Priors (%ueba_entity_     │
+│    ("Role / T0 Changepoint")│ actor class or T0 regime shift│ priors) + Dual-Baseline Delta-Z      │
 └─────────────────────────────┴───────────────────────────────┴──────────────────────────────────────┘
 ```
 
@@ -107,7 +110,7 @@ Pair each of the 4 Investigative Inquiries with its concrete query-level control
 1. **Innocent Explanation Control**: Exclude known vulnerability scanners or scheduled maintenance windows via Data Table join (`not $entity in %authorized_scanners.hostname`) or VIP/departing-employee risk prior weights (`$entity = %ueba_entity_priors.entity`).
 2. **Quiet Entity Trap Control**: Route dormant accounts ($N < 7$ active baseline days) to `two_part_hurdle.yl2` or `poisson_rarity.yl2` rather than standard Gaussian $Z$-scores.
 3. **Past Noise Camouflage Control**: Route heavy-tailed volumetric vectors to true Median Absolute Deviation (`stage2_math_models/mad.yl2`, `mad_robust_z_4stage.yl2`) with $50\%$ breakdown point.
-4. **Crowd / Patch Tuesday Control**: Apply `hybrid_metric_fleet_prevalence_2stage.yl2` (hyperbolic dampener `1.0 / ($k_fleet + 1.0)`) or `dual_baseline_3stage` ($\Delta Z = Z_{\text{personal}} - Z_{\text{fleet}}$). For cross-phase hunts, materialize Stage 1 suspect cohorts into `%ueba_hunt_bridge` (`hybrid_data_table_bridge_2stage.yl2`).
+4. **Crowd / Patch Tuesday Control**: Apply `hybrid_metric_fleet_prevalence_2stage.yl2` (hyperbolic dampener `1.0 / ($k_fleet + 1.0)`) or `dual_baseline_3stage` ($\Delta Z = Z_{\text{personal}} - Z_{\text{fleet}}$). For cross-phase hunts (> 25 entities or persistent cohort bridging), upon explicit analyst approval in State 3 materialize Stage 1 suspect cohorts into `%ueba_hunt_bridge` (`hybrid_data_table_bridge_2stage.yl2`).
 
 ---
 
@@ -128,7 +131,7 @@ The consultative dialogue adapts dynamically to the analyst's background while m
 
 ---
 
-## 📋 The 6 Canonical Hunting Domains & Summary View Menus
+## 📋 The 7 Canonical Hunting Domains & Summary View Menus
 
 When engaging the analyst during Phase 1A, use the **Summary View** templates below to present 2–3 targeted hypotheses mapped to the failure modes of static detection rules.
 
@@ -232,15 +235,12 @@ Once the analyst selects an option (or agrees to a proposed hypothesis), formula
 PRE-FLIGHT HUNTING SPECIFICATION:
 • Target Entity / Scope:  [Target User/Host ID, Team Cohort, or Fleet]
 • Threat Hypothesis:      [Specific abnormal behavior under investigation, e.g. Low-and-Slow Exfiltration]
-• Rule-Out Condition:     [Innocent explanation criteria, e.g. fleet concurrence > 5 or approved maintenance]
-• Context Strategy:       [Narrow: Derived Prevalence (rolling_max <= 3) | Enhance: WHOIS NRD (< 30d) / Expired | Narrow: Infant Asset (< 7d) | None: Broad Sweep]
-• Baseline Integrity:    [Distortion-Proof (Median/MAD) | Standard Average (Z-score) | Hurdle (Tripwire)]
-• Activity Profile:       [Active Daily Baseline vs. Dormant Account Tripwire]
-• Crowd Shield:           [Active (dampens fleet-wide spikes) | N/A (isolated target)]
-• Recommended Method:     [Model Name, e.g. Longitudinal CUSUM Drift (Solves threshold evasion)]
-• Baseline Horizon Spine: 30-Day Pre-Computed (period: 1d, window: 30d)
-• Significance Threshold: [Model gate (model-concordance-guide.md §2.1): High Confidence (Z >= 3.0σ) | Investigative Band (2.0σ <= Z < 3.0σ) | Fold Change (>= 2.0× baseline) | D >= 3.5σ | N/A (Fano)]
-• Evaluation Horizon:     Fleet Ranking Today (Option A) vs. 30-Day Daily Timeline (Option B)
+• Baseline Horizon Spine: 30-Day (period: 1d, 30d)
+• Peer Cohort & Roster:   [Team/Dept, e.g. IT (Frank, Tim) / N/A]
+• Entity Graph Dimension: [Prevalence (day_count = 10, rolling_max <= 3) | WHOIS NRD (< 30d) | Infant Asset (< 7d) | N/A]
+• Evaluation Horizon Mode:[chosen mode only: A today | B 2–7d + baseline dates | C per-day shards]
+• Statistical Model:      [Model & Template, e.g. CUSUM Drift (`longitudinal_cusum.yl2`)]
+• Significance Threshold: [Model gate (model-concordance-guide.md §2.1): Z >= 3.0σ | 2.0σ <= Z < 3.0σ | >= 2.0× baseline | D >= 3.5σ | N/A (Fano)]
 ```
 
 ---

@@ -45,7 +45,7 @@ $$\text{CRI}(Z) = \begin{cases}
 
 | Raw $Z$-Score | Mathematical Derivation ($\frac{100}{1 + e^{-0.6(Z - 3.0)}}$) | CRI Score | Severity Tier | Visual Badge |
 | :---: | :--- | :---: | :--- | :---: |
-| $\le 0.0\sigma$ | $\frac{100}{1 + e^{1.8}} = \frac{100}{1 + 6.05} \to 0$ (clamped) | **0** | **Nominal** | 🟢 `[CRI: 0]` |
+| $\le 0.0\sigma$ | $\frac{100}{1 + e^{1.8}} = \frac{100}{1 + 6.05} = 14.2 \to 0$ (zero-floor for $Z \le 0$) | **0** | **Nominal** | 🟢 `[CRI: 0]` |
 | $+1.0\sigma$ | $\frac{100}{1 + e^{1.2}} = \frac{100}{1 + 3.32} = 23.1$ | **23** | **Nominal** | 🟢 `[CRI: 23]` |
 | $+1.5\sigma$ | $\frac{100}{1 + e^{0.9}} = \frac{100}{1 + 2.46} = 28.9$ | **29** | **Low Drift** | 🟡 `[CRI: 29]` |
 | $+2.0\sigma$ | $\frac{100}{1 + e^{0.6}} = \frac{100}{1 + 1.82} = 35.4$ | **35** | **Low Drift** | 🟡 `[CRI: 35]` |
@@ -77,21 +77,23 @@ $$\text{CRI}(Z) = \begin{cases}
 ```
 
 ### Operational Guidance:
-1. **Tier 1 (CRI 0–25) — Nominal Behavior**:
-   * **Interpretation**: The observed activity is well within the entity baseline envelope or peer group norm.
+1. **Tier 1 (CRI 0–25) — Nominal Behavior ($Z < 1.2\sigma$; $\text{CRI} = 0$ for $Z \le 0$)**:
+   * **Interpretation**: The observed activity is at or below baseline ($\text{CRI} = 0$) or within ordinary day-to-day fluctuation ($0 < Z < 1.2\sigma$).
    * **Action**: Suppress alert; no SOC investigation required.
-2. **Tier 2 (CRI 26–45) — Low Drift / Early Warning**:
-   * **Interpretation**: Moderate elevation above baseline ($1.5\sigma \le Z < 3.0\sigma$). Often represents normal operational spikes (e.g. end-of-quarter reporting, large downloads).
+2. **Tier 2 (CRI 26–45) — Low Drift / Early Warning ($1.2\sigma \le Z < 2.7\sigma$)**:
+   * **Interpretation**: Moderate elevation above baseline. Often represents normal operational variance (e.g. end-of-quarter reporting, bulk transfers).
    * **Action**: Include in longitudinal CUSUM tracking; do not page analysts.
-3. **Tier 3 (CRI 46–69) — Medium Outlier (Alertable)**:
-   * **Interpretation**: **True Statistical Anomaly**. The probability that this activity occurred by random chance is $p < 0.0013$ ($Z \ge 3.0\sigma$).
+3. **Tier 3 (CRI 46–69) — Medium Outlier (Alertable, $2.7\sigma \le Z < 4.4\sigma$, with $3.0\sigma \mapsto \text{CRI } 50$)**:
+   * **Interpretation**: **True Statistical Anomaly** centered on the $Z = 3.0\sigma$ ($\text{CRI} = 50$) alertable anchor.
    * **Action**: Create Tier 1 SOC investigation ticket. Cross-reference Active Directory peers and check for secondary tool execution.
-4. **Tier 4 (CRI 70–89) — High Threat**:
-   * **Interpretation**: Severe anomaly ($4.5\sigma \le Z < 7.0\sigma$). Strong multi-vector divergence from both personal history and direct peer group.
+4. **Tier 4 (CRI 70–89) — High Threat ($4.4\sigma \le Z < 6.7\sigma$)**:
+   * **Interpretation**: Severe multi-sigma anomaly. Strong divergence from both personal history and direct peer group.
    * **Action**: Immediate analyst intervention. Inspect process execution lineage and network destinations.
-5. **Tier 5 (CRI 90–100) — Critical Outlier**:
-   * **Interpretation**: Massive breakout ($Z \ge 7.0\sigma$) or dormant zero-baseline awakening. The entity is exhibiting behavior completely alien to its historical profile.
+5. **Tier 5 (CRI 90–100) — Critical Outlier ($Z \ge 6.7\sigma$)**:
+   * **Interpretation**: Massive breakout or dormant zero-baseline awakening. The entity is exhibiting behavior completely alien to its historical profile.
    * **Action**: High-priority incident response escalation. Isolate host or suspend user credentials if paired with suspicious command-line artifacts.
+
+> **In-Query Discrete Step Ladder (`templates/stage2_math_models/piecewise_cri.yl2`)**: When a query computes a discrete step-function approximation directly inside YARA-L (`$cri_score`), it maps the same 5 operational tiers onto representative midpoint scores: `95` (`CRITICAL`, $Z \ge 6.0$), `85` (`HIGH`, $4.5 \le Z < 6.0$), `65` (`MEDIUM`, $3.0 \le Z < 4.5$), `40` (`LOW`, $2.0 \le Z < 3.0$), `15` (`INFORMATIONAL`, $0.0 < Z < 2.0$), and `0` (`NOMINAL`, $Z \le 0.0$).
 
 ---
 

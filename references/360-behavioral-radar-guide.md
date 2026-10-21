@@ -37,10 +37,10 @@ Execute independent decoupled sector queries, retrieve the observed metrics per 
 * **Fleetwide 360° Threat Fusion (Multi-Entity Sweep / Fleet Audit)**:
   - **Objective**: Audit $N$ entities across an organization or peer group to identify who exhibited anomalous activity across any of the 6 sectors.
   - **Pillar 1 Surface**: **Multi-Sector Fleet Heatmap Matrix** (`radar_fleet_heatmap.html`) or **Ranked Fleet Outlier Bar Chart** (`radar_fleet_ranking.html`). Linear and matrix layouts provide clean, readable comparisons without radial centroid collapse. Never use the phrases `5-spoke radar`, `6-spoke radar`, or `spider radar` in a fleetwide review.
-  - **Mandatory 6-Pillar Report on All Outcomes (Including 0-Event Sweeps)**: Fleetwide and single-entity 360° sweeps are NEVER abbreviated to a 2-pillar Clean Hunt summary. Even when all 6 sectors return 0 events across the fleet, you MUST render all **6 numbered Pillars** (`#### 1.` through `#### 6.`), including `#### 3. Ranked Outlier Summary Table` with columns or rows covering all 6 canonical sectors (`Authentication`, `Cloud Infrastructure`, `Workspace / Endpoint Activity`, `Network Egress`, `DNS Resolution`, `Web & Proxy Activity`) and the composite Euclidean Threat Distance ($D = \sqrt{\sum_{i=1}^6 \max(0, Z_i)^2}$, e.g. `D = 0.00σ`).
-  - **Fleetwide Micro-Query Row Cap (`limit: 20`) & Zero Local Python Scripts (`NATIVE_EXECUTION_GUARANTEE`)**: Every fleetwide decoupled sector micro-query (`$host != ""` or `$user != ""`) MUST end with `order:\n  $z desc\nlimit:\n  20` so each `udm_search` call returns at most the top 20 anomalous entity×day rows in `"stats"`. Never write or execute any Python script in `scratch/` or via `run_command` to parse `udm_search` outputs or compute $D$ and CRI — compute $D = \sqrt{\sum_{i=1}^6 \max(0, Z_i)^2}$ and CRI directly in your response or HTML visual artifact.
+  - **Mandatory 5-Pillar Report on All Outcomes (Including 0-Event Sweeps)**: Fleetwide and single-entity 360° sweeps are NEVER abbreviated to a 2-pillar Clean Hunt summary. Even when all 6 sectors return 0 events across the fleet, you MUST render all **5 numbered Pillars** (`#### 1.` through `#### 5.`), including `#### 2. Ranked Outlier Summary & Provenance Stamp` with columns or rows covering all 6 canonical sectors (`Authentication`, `Cloud Infrastructure`, `Workspace / Endpoint Activity`, `Network Egress`, `DNS Resolution`, `Web & Proxy Activity`) and the composite Euclidean Threat Distance ($D = \sqrt{\sum_{i=1}^6 \max(0, Z_i)^2}$, e.g. `D = 0.00σ`, `CRI = 0`).
+  - **Fleetwide Micro-Query Row Cap (`limit: 20`) & Post-Search Collation (`NATIVE_EXECUTION_GUARANTEE`)**: Every fleetwide decoupled sector micro-query (`$host != ""` or `$user != ""`) MUST end with `order:\n  $z desc\nlimit:\n  20` so each `udm_search` call returns at most the top 20 anomalous entity×day rows in `"stats"`. Never write ad-hoc scratch scripts in `scratch/` or substitute local scripts for live `udm_search` calls; sanctioned repository utilities (`scripts/radar_collector.py`, `scripts/ueba_hybrid_engine.py`, `scripts/chart_generator.py`) may be invoked strictly after `udm_search` completes under the Post-Search Execution Exemption to collate scores and render SVG/HTML visual artifacts.
   - **Recommended Horizon**: **Mode B (2–7 Day Fixed-Baseline Timeline)**, run at the 7-day maximum. Because security anomalies and data exfiltration are bursty, episodic events, a multi-day window surfaces recent bursts that a single-day snapshot misses. All scored days share one baseline anchored at the first day (`timeline-modes-guide.md`).
-  - **Sector Consistency & Euclidean Join Mandate**: Both single-entity and fleetwide threat fusion evaluate and report across all 6 canonical sectors: `Authentication`, `Cloud Infrastructure` (`Cloud CRUD`), `Workspace / Endpoint Activity`, `Network Egress`, `DNS Resolution`, and `Web & Proxy Activity`. Outlier ranking and multi-sector fusion MUST join sector Z-scores via the composite Euclidean Threat Distance formula ($D = \sqrt{\sum_{i=1}^6 \max(0, Z_i)^2}$) and Calibrated Risk Index ($\text{CRI} = \text{round}\left(\frac{100}{1 + e^{-0.6(D - 3.0)}}\right)$). Pillar 1, 3 (`#### 3. Ranked Outlier Summary Table`), and 6 MUST report composite Threat Distance $D$, and Pillar 6 (Statistical & Mathematical Appendix) MUST provide the Euclidean formulation.
+  - **Sector Consistency & Euclidean Join Mandate**: Both single-entity and fleetwide threat fusion evaluate and report across all 6 canonical sectors: `Authentication`, `Cloud Infrastructure` (`Cloud CRUD`), `Workspace / Endpoint Activity`, `Network Egress`, `DNS Resolution`, and `Web & Proxy Activity`. Outlier ranking and multi-sector fusion MUST join sector Z-scores via the composite Euclidean Threat Distance formula ($D = \sqrt{\sum_{i=1}^6 \max(0, Z_i)^2}$) and piecewise Calibrated Risk Index ($\text{CRI}(D) = 0$ for $D \le 0$, else $\text{round}\left(\frac{100}{1 + e^{-0.6(D - 3.0)}}\right)$). Pillar 1, Pillar 2 (`#### 2. Ranked Outlier Summary & Provenance Stamp`), and Pillar 5 MUST report composite Threat Distance $D$, and Pillar 5 (Collapsible Technical Appendix) MUST provide the representative executed micro-query and Euclidean formulation.
   - **Interactive Drill-Down**: Offer an individual entity behavioral profile as a 1-click drill-down when the analyst selects a specific high-risk entity from the Ranked Outlier Summary Table.
   - **Drill-Down Query Construction**: When transitioning from a fleetwide sweep to an individual drilldown, constrain the target entity directly on the canonical UDM attribute in the stage predicates (e.g., `target.user.userid = "ola.burch"` with `$user = target.user.userid`). Variables bind to UDM fields rather than string literals, ensuring valid YARA-L compiler syntax.
 
@@ -81,8 +81,10 @@ Because MCP clients operate across varied environments (web browsers, IDEs, desk
 ### Tier 3: Pure Headless / Command-Line Client & Programmatic Environments (agentapi, generic MCP)
 * **Execution**: In programmatic or terminal environments without local shell execution (`agentapi`, headless MCP), the agent renders directly in Markdown:
   - **Pillar 1**: Inline `<svg viewBox="0 0 620 480">` radar chart (Surface Option B). 360° behavioral radar profiles evaluate all 6 sectors and render the 6-spoke visual radar even when all sectors reflect nominal baseline activity ($D = 0.00\sigma, \text{CRI} = 0$).
-  - **Pillar 2**: The canonical decoupled representative micro-query (`stage auth_risk` with `order: $z desc`).
-  - **Pillars 3–6**: Grounded 6-sector matrix, CRI summary, and forensic vector breakdown across all 6 canonical sectors.
+  - **Pillar 2**: Grounded 6-sector Ranked Outlier Summary & Provenance Stamp across all 6 canonical sectors.
+  - **Pillar 3**: Forensic Vector Breakdown and numbered `[1]`/`[2]`/`[3]` Agentic Next Steps.
+  - **Pillar 4**: Chronicle UI Manual Pivot (`text` fence).
+  - **Pillar 5**: Collapsible Technical Appendix containing the canonical decoupled representative micro-query (`stage auth_risk` with `order: $z desc`) and step-by-step math derivations.
   *(Alternatively, in text-only terminals without SVG capability, the agent presents the Deterministic 6-Sector Terminal Scorecard evaluating discrete event counts and a $k$-of-6 Sector Hurdle).*
 * **Benefit**: Zero external shell dependencies, fully compliant with programmatic and zero-auth execution models.
 
@@ -97,7 +99,7 @@ Pre-computed metric tables (`metrics.*`) are indexed strictly by technical logon
    ```sql
    (target.user.userid = "<InputName>" nocase or principal.user.userid = "<InputName>" nocase or target.user.email_addresses = "<InputName>" nocase or principal.user.email_addresses = "<InputName>" nocase or target.user.user_display_name = /.*<InputName>.*/ nocase or principal.user.user_display_name = /.*<InputName>.*/ nocase)
    ```
-   *Time range*: Requested target date window (`startTime: <ISO_TARGET_START>`, `endTime: <ISO_TARGET_END>`), or last 14 days (`startTime: <ISO_14D_AGO>`, `endTime: <ISO_NOW>`) when no target window is specified (`maxEvents: 5`).
+   *Time range*: Requested target date window (`startTime: <ISO_TARGET_START>`, `endTime: <ISO_TARGET_END>`), or last 14 days (`startTime: <ISO_14D_AGO>`, `endTime: <ISO_NOW>`) when no target window is specified (`maxEvents: 1`).
 2. **Resolution Gate**: If $\ge 1$ events match, always extract and bind the non-empty canonical `user.userid` from `target.user.userid` or `principal.user.userid` in the matched UDM event (e.g., `"Jane Doe"` $\to$ `jdoe`, or `"admin@demo.wsexample.org"` $\to$ `admin`; if `userid` is empty on that event, extract the local username from `user_display_name` such as `DOMAIN\user` $\to$ `user`), and echo both the full display name (e.g. `Frank Kolzig`) and verified `user.userid` (`frank.kolzig`) in the Pre-Flight card and report (`Frank Kolzig (frank.kolzig)`). If 0 events match an unqualified name/alias (no `.` and no `@`), halt immediately and request the user's technical username or email; if 0 events match an already-qualified `first.last` or `user@domain` in a default window, retain the input as `user.userid` without retrying.
 
 ### 3.2 Standard Pre-Flight Specification Card
@@ -234,7 +236,7 @@ stage cloud_risk {
         metadata.vendor_name: metadata.vendor_name,
         metadata.product_name: metadata.product_name
     ))
-    $z_read = ($read_obs - $read_avg) / if($read_std > 0, $read_std, 1000000.0)
+    $z_read = ($read_obs - $read_avg) / if($read_std > 0, $read_std, 1.0)
 
     $write_obs = sum(if(metadata.event_type = "RESOURCE_WRITTEN" or metadata.event_type = "USER_RESOURCE_UPDATE_CONTENT", 1, 0))
     $write_avg = max(metrics.resource_written_total(
@@ -249,7 +251,7 @@ stage cloud_risk {
         metadata.vendor_name: metadata.vendor_name,
         metadata.product_name: metadata.product_name
     ))
-    $z_write = ($write_obs - $write_avg) / if($write_std > 0, $write_std, 1000000.0)
+    $z_write = ($write_obs - $write_avg) / if($write_std > 0, $write_std, 1.0)
 
     $create_obs = sum(if(metadata.event_type = "RESOURCE_CREATION" or metadata.event_type = "USER_RESOURCE_CREATION", 1, 0))
     $create_avg = max(metrics.resource_creation_total(
@@ -264,7 +266,7 @@ stage cloud_risk {
         metadata.vendor_name: metadata.vendor_name,
         metadata.product_name: metadata.product_name
     ))
-    $z_create = ($create_obs - $create_avg) / if($create_std > 0, $create_std, 1000000.0)
+    $z_create = ($create_obs - $create_avg) / if($create_std > 0, $create_std, 1.0)
 
     $delete_obs = sum(if(metadata.event_type = "RESOURCE_DELETION" or metadata.event_type = "USER_RESOURCE_DELETION", 1, 0))
     $delete_days = max(metrics.resource_deletion_total(
@@ -285,7 +287,7 @@ stage cloud_risk {
         metadata.vendor_name: metadata.vendor_name,
         metadata.product_name: metadata.product_name
     ))
-    $z_delete_raw = ($delete_obs - $delete_avg) / if($delete_std > 0, $delete_std, 1000000.0)
+    $z_delete_raw = ($delete_obs - $delete_avg) / if($delete_std > 0, $delete_std, 1.0)
     $z_delete = if($delete_days >= 3, $z_delete_raw, 0.0)
 }
 
@@ -474,7 +476,7 @@ When the entity is a Host (`ASSET`), telemetry scope maps across the 6 canonical
 | **DNS Resolution** | `metrics.dns_queries_total` | `principal.asset.hostname` |
 | **Web & Proxy Activity** | `metrics.http_queries_total` | `principal.asset.hostname` |
 
-*(Note on Host-Level Multi-Sector Fusion & Endpoint Telemetry: For fleet-wide sweeps across all hosts—such as multi-sector threat fusion calculating composite threat distance $D$ across hosts—deploy the orthogonal single-dimension host vectors: **Authentication** (`metrics.auth_attempts_total` or `metrics.auth_attempts_fail`), **Network Egress** (`metrics.network_bytes_outbound`), and **DNS Resolution** (`metrics.dns_queries_total`), which natively bind directly to `principal.asset.hostname: $host`, and always append `limit: 20` after `order: $z desc` on fleetwide sector micro-queries. In endpoint investigations, pair `metrics.file_executions_total` with its companion process hash and event type (`principal.process.file.sha256: $sha`, `$event_type = metadata.event_type`, `metadata.event_type = "PROCESS_LAUNCH"`, with Stage 1 `match: $host, $event_type, $sha by 1d` rolling up to `$host by 1d`). For security rule and EDR alert baselining, `metrics.alert_event_name_count` operates as a rule-scoped compound metric pairing the entity with `security_result.rule_name: $rule_name`; its baseline selects events by EDR `metadata.log_type` (see `references/metric-sector-catalog.md`), not by `metadata.event_type` (`templates/pipelines/radar_360_sector_alert.yl2` and `templates/stage1_extractors/alert_event_name_count.yl2`). In 2-stage queries, stage 1 (`alerts_risk`) matches `$host, $rule_name by 1d` to calculate rule-level Z-scores, and the root stage matches `$host by 1d` projecting peak risk via `$z = max($alerts_risk.z)`. All 6 canonical sector labels (**Authentication**, **Cloud Infrastructure**, **Workspace / Endpoint Activity**, **Network Egress**, **DNS Resolution**, **Web & Proxy Activity**) MUST appear explicitly in `#### 3. Ranked Outlier Summary Table` and Pillar 4. For Host/Asset scopes where Cloud Infrastructure or Workspace Data is quiet or unobserved, assign the Deterministic Nominal Baseline ($Z = 0.00\sigma$) so all 6 canonical sector names are always fully represented. All 6 sectors synthesize client-side into composite Euclidean Threat Distance $D = \sqrt{\sum_{i=1}^6 \max(0, Z_i)^2}$ with zero local Python scripts in `scratch/`.*
+*(Note on Host-Level Multi-Sector Fusion & Endpoint Telemetry: For fleet-wide sweeps across all hosts—such as multi-sector threat fusion calculating composite threat distance $D$ across hosts—deploy the orthogonal single-dimension host vectors: **Authentication** (`metrics.auth_attempts_total` or `metrics.auth_attempts_fail`), **Network Egress** (`metrics.network_bytes_outbound`), and **DNS Resolution** (`metrics.dns_queries_total`), which natively bind directly to `principal.asset.hostname: $host`, and always append `limit: 20` after `order: $z desc` on fleetwide sector micro-queries. In endpoint investigations, pair `metrics.file_executions_total` with its companion process hash and event type (`principal.process.file.sha256: $sha`, `$event_type = metadata.event_type`, `metadata.event_type = "PROCESS_LAUNCH"`, with Stage 1 `match: $host, $event_type, $sha by 1d` rolling up to `$host by 1d`). For security rule and EDR alert baselining, `metrics.alert_event_name_count` operates as a rule-scoped compound metric pairing the entity with `security_result.rule_name: $rule_name`; its baseline selects events by EDR `metadata.log_type` (see `references/metric-sector-catalog.md`), not by `metadata.event_type` (`templates/pipelines/radar_360_sector_alert.yl2` and `templates/stage1_extractors/alert_event_name_count.yl2`). In 2-stage queries, stage 1 (`alerts_risk`) matches `$host, $rule_name by 1d` to calculate rule-level Z-scores, and the root stage matches `$host by 1d` projecting peak risk via `$z = max($alerts_risk.z)`. All 6 canonical sector labels (**Authentication**, **Cloud Infrastructure**, **Workspace / Endpoint Activity**, **Network Egress**, **DNS Resolution**, **Web & Proxy Activity**) MUST appear explicitly in `#### 2. Ranked Outlier Summary & Provenance Stamp` and Pillar 3. For Host/Asset scopes where Cloud Infrastructure or Workspace Data is quiet or unobserved, assign the Deterministic Nominal Baseline ($Z = 0.00\sigma$) so all 6 canonical sector names are always fully represented. All 6 sectors synthesize client-side into composite Euclidean Threat Distance $D = \sqrt{\sum_{i=1}^6 \max(0, Z_i)^2}$ with zero local Python scripts in `scratch/`.*
 
 ---
 
@@ -498,7 +500,7 @@ When a sector micro-query returns **$\ge 1$ matching rows**:
 ### 5.3 Analytical Pipeline Flow & Progressive Telemetry Discipline
 * **Sequential Sector Execution**: Execute the 6 canonical decoupled multi-stage micro-queries in direct succession. When any sector query returns 0 events (`{}` or empty `stats`), record the standardized nominal baseline assignment ($Z = 0.00\sigma, \text{Observed} = 0, \mu = 0.0, \sigma = 0.0$) and proceed immediately to execute the subsequent sector micro-query.
 * **Hermetic Multi-Stage Telemetry Scope**: The 360° behavioral radar derives all behavioral insights strictly from the structured statistical outcomes of the 6 canonical micro-queries. Every query dispatched during Phase 2 execution adheres strictly to the multi-stage YARA-L architecture (`stage ... match: ... outcome: ...`).
-* **Placement of Qualitative Drill-Downs**: Ad-hoc raw event searches and unstructured entity lookups belong exclusively to the post-report investigative pivot in Pillar 5 (Chronicle UI Manual Pivot) after the complete 6-pillar forensic report and radar visualization are rendered for the analyst.
+* **Placement of Qualitative Drill-Downs**: Ad-hoc raw event searches and unstructured entity lookups belong exclusively to the post-report investigative pivot in Pillar 4 (Chronicle UI Manual Pivot) after the complete 5-pillar forensic report and radar visualization are rendered for the analyst.
 
 ---
 
@@ -509,11 +511,12 @@ For $k = 6$ orthogonal sectors:
 
 1. **Euclidean Threat Distance ($D$)**:
    $$D = \sqrt{\sum_{i=1}^{6} \max(0, Z_i)^2}$$
-2. **Calibrated Risk Index (CRI $[0–100]$)**:
-   $$\text{CRI} = \min\left(100, \max\left(0, \text{round}\left(\frac{100}{1 + e^{-0.6(D - 3.0)}}\right)\right)\right)$$
-   * $D = 0.0\sigma \implies \text{CRI} \approx 14$
+2. **Calibrated Risk Index (CRI $[0–100]$ — Piecewise Zero-Floor)**:
+   $$\text{CRI}(D) = \begin{cases} 0 & \text{if } D \le 0 \\ \min\left(100, \max\left(0, \text{round}\left(\frac{100}{1 + e^{-0.6(D - 3.0)}}\right)\right)\right) & \text{if } D > 0 \end{cases}$$
+   * $D = 0.0\sigma \implies \text{CRI} = 0$ (Zero Deviation / Quiet Baseline)
+   * $D = 0.68\sigma \implies \text{CRI} = 18$ (Nominal Baseline)
    * $D = 3.0\sigma \implies \text{CRI} = 50$ (Anomaly Boundary)
-   * $D \ge 4.5\sigma \implies \text{CRI} \ge 70$ (Critical High Threat)
+   * $D \ge 4.5\sigma \implies \text{CRI} \ge 71$ (High Threat)
 
 ---
 
@@ -546,7 +549,7 @@ For web and Electron MCP clients, embed this self-contained script. The client b
   const D = Math.sqrt(sumSquares);
 
   // 3. Compute Sigmoid Calibrated Risk Index
-  const CRI = Math.min(100, Math.max(0, Math.round(100 / (1 + Math.exp(-0.6 * (D - 3.0))))));
+  const CRI = D <= 0 ? 0 : Math.min(100, Math.max(0, Math.round(100 / (1 + Math.exp(-0.6 * (D - 3.0))))));
 
   // 4. Render Dynamic SVG Radar
   const svg = document.getElementById("radar-svg");
@@ -615,20 +618,20 @@ And embeds in chat:
 
 ---
 
-## 📋 7. Complete Deterministic 6-Pillar Report Template
+## 📋 7. Complete Deterministic 5-Pillar Report Template
 
 > [!IMPORTANT]
 > **Risk Metrics Volumetric Baseline Scope**:
 > Pre-computed metric baseline tables (`metrics.*`) model pre-aggregated volumetric counts and byte sums over rolling 30-day horizons.
-> Behavioral Threat Translation in Pillar 4 is grounded in multi-sector volumetric deviations ($Z$-scores, $\mu$, $\sigma$, $D$, CRI). Qualitative inspection of specific process launches or command lines is conducted through ad-hoc Phase 2 UDM drill-down or SOAR playbook handoff.
+> Behavioral Threat Translation in Pillar 3 is grounded in multi-sector volumetric deviations ($Z$-scores, $\mu$, $\sigma$, $D$, CRI). Qualitative inspection of specific process launches or command lines is conducted through ad-hoc Phase 2 UDM drill-down or SOAR playbook handoff.
 
 ### 7.1 Complete Forensic Report Template
 
 ````markdown
-#### 1. Statistical Outlier Report: 360° Entity Behavioral Risk Radar (Multi-Sector Fusion) (window: 30d)
+#### 1. Statistical Outlier Report (Multi-Stage Risk Metrics) — Executive Summary & Calibrated Risk Index (CRI)
 
 <!-- Single-Surface Visual Routing:
-     - In Jetski Web workspace: generate HTML artifact via write_to_file and embed:
+     - In Jetski Web workspace: generate HTML artifact via write_file and embed:
        <agent-embed src="file:///path/to/artifacts/radar_<entity_id>.html"></agent-embed>
        [📊 Open 360° Risk Radar (SVG/HTML)](file:///path/to/artifacts/radar_<entity_id>.html)
      - In MCP clients / webviews: render inline <svg viewBox="0 0 620 480" width="100%" height="480" ...>
@@ -638,17 +641,74 @@ And embeds in chat:
 
 * **Target Entity**: `<target_entity_id>` (Information Technology)
 * **Composite Threat Distance**: $D = 0.68\sigma$
-* **Calibrated Risk Index**: $\text{CRI} = 20 / 100$ (🟢 Nominal Volumetric Baseline)
+* **Calibrated Risk Index**: $\text{CRI} = 18 / 100$ (🟢 Nominal Volumetric Baseline)
 * **Evaluated Horizon**: Mode A (Today `00:00Z`→now vs. 30-Day Pre-Computed Baseline)
 
 ---
 
-#### 2. Executed Multi-Stage YARA-L Query Architecture
+#### 2. Ranked Outlier Summary & Provenance Stamp
 
-*(The 360° evaluation architecture decouples orthogonal behavioral sectors into independent micro-queries against their respective 30-day pre-computed metric tables. For both Mode A and Mode B, Pillar 2 displays exclusively the single representative sector micro-query; remaining sectors evaluate via identical decoupled parallel queries. Declare event predicates directly in the stage body without section headers.)*
+| Sector / Spoke | 24h Observed | 30d Mean (μ) | 30d StdDev (σ) | Z-Score | CRI Score | Visual Magnitude | Status |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **IAM & Authentication** | 6 logins | 4.2 logins | 1.8 logins | $+0.64\sigma$ | 20 | `▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱` | 🟢 Nominal |
+| **DNS Resolution** | 4 queries | 3.5 queries | 1.2 queries | $+0.23\sigma$ | 16 | `▰▱▱▱▱▱▱▱▱▱▱▱▱▱▱` | 🟢 Nominal |
+| **Web & Proxy Activity** | 0 requests | 0.0 requests | 0.0 requests | $+0.00\sigma$ | 0 | `▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱` | 🟢 Nominal |
+| **Cloud Infrastructure** | 0 events | 0.0 events | 0.0 events | $+0.00\sigma$ | 0 | `▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱` | 🟢 Nominal |
+| **Workspace Data** | 0 actions | 0.0 actions | 0.0 actions | $+0.00\sigma$ | 0 | `▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱` | 🟢 Nominal |
+| **Network Egress** | 0 bytes | 0.0 bytes | 0.0 bytes | $+0.00\sigma$ | 0 | `▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱` | 🟢 Nominal |
+| **Composite Threat Distance** | — | — | — | $D = 0.68\sigma$ | **18 / 100** | `▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱` | 🟢 **Nominal Baseline** |
+
+```markdown
+PROVENANCE STAMP:
+• Statistical Model:         6-Sector Decoupled 360° Behavioral Risk Radar
+• Evaluation Window:         Current-day window (today 00:00Z → now, Mode A)
+• Baseline Window:           Rolling 30-Day Pre-Computed (period: 1d, window: 30d)
+• Chronicle Target Customer: 8cbac5ae-8267-4da7-b405-cdbc6fa3f1d5 (Region: us, Project: gus-sdl)
+• Sector Join Runtime:       Client-Side Euclidean Join (radar_collector.py / browser V8)
+• Output Dimensions:         [entity_id, observed, baseline_mean, baseline_stddev, z_score, D, CRI]
+```
+
+---
+
+#### 3. Forensic Vector Breakdown
+
+##### Behavioral Threat Translation
+All six evaluated behavioral sectors remain within expected historical variance ($\pm 1.0\sigma$). The target entity exhibits nominal volumetric activity consistent with historical 30-day baseline profiles:
+* **IAM & Authentication**: 6 observed logins vs. 30d baseline mean of 4.2 ($\sigma = 1.8$, $Z = +0.64\sigma$), representing normal routine access.
+* **DNS Resolution**: 4 queries vs. 30d baseline mean of 3.5 ($\sigma = 1.2$, $Z = +0.23\sigma$), within expected lookup volume.
+* **Web & Proxy Activity**: 0 requests vs. 30d baseline mean of 0.0 ($Z = +0.00\sigma$), nominal web browsing traffic.
+* **Cloud, Workspace, and Network Planes**: Zero observed actions across the current-day window matching zero-baseline history ($Z = +0.00\sigma$).
+* **Composite Threat Distance**: Multi-sector Euclidean distance $D = 0.68\sigma$ ($\text{CRI} = 18 / 100$) indicates volumetric quiescence across all vectors with zero acute surges.
+
+##### SOC Playbook & Immediate Remediation Recommendations
+* **Nominal Hygiene**: Routine baseline monitoring remains active based on 30-day volumetric baseline telemetry.
+* **Baseline Health**: Entity maintains healthy operational baseline alignment across cloud, SaaS, authentication, and network telemetry.
+* **External Alert Handoff**: If this entity is flagged by an independent external alert (e.g. EDR/SIEM detection), pivot to raw event telemetry via Phase 2 UDM hunting or host memory triage.
+
+##### Agentic Next Steps (`CLEAN_OR_SUBTHRESHOLD`)
+* **[1] Probe Sub-Threshold Drift**: Re-run the highest-Z sector with the gate relaxed to `1.5σ <= Z < 3.0σ`, or as `LONGITUDINAL_CUSUM` over 7–14 days.
+* **[2] Two-Sector Fusion on the Top Pair**: Fuse the two highest-Z sectors for this entity (`dual_sector_fusion_3stage.yl2`) to catch coordinated sub-threshold movement.
+* **[3] Peer Cohort Comparison**: Compare the entity's busiest sector against its team cohort (`part_of_the_whole_triad_multilevel.yl2`).
+
+Every 360° report (single-entity or fleet) ends Pillar 3 with three follow-ups labeled `[1]`/`[2]`/`[3]`, fitted to the outcome profile (`ACUTE_OUTLIER`, `CLEAN_OR_SUBTHRESHOLD`, `FLEET_WAVE`, `SPARSE_BASELINE`). A selected follow-up re-enters Phase 1B; it is never clearance.
+
+---
+
+#### 4. Chronicle UI Manual Pivot (Triage Reference Only)
+
+```text
+(target.user.userid = "<target_entity_id>" or principal.user.userid = "<target_entity_id>")
+```
+
+---
+
+#### 5. Collapsible Technical Appendix (Statistical & Mathematical Appendix)
+
+<details>
+<summary>Click to view Mathematical & Statistical Formulation and Representative Executed Sector Micro-Query</summary>
 
 ```yara
-// Representative Sector Micro-Query: IAM & Authentication
+// Goal: Representative Sector Micro-Query — IAM & Authentication
 // (Evaluated alongside Cloud, Workspace, Network, DNS, and Web decoupled micro-queries)
 stage auth_risk {
     metadata.event_type = "USER_LOGIN"
@@ -680,69 +740,7 @@ order:
 
 > [!NOTE]
 > **Single-Sector Micro-Query Standard (Mode A & Mode B)**:
-> Chronicle SIEM evaluates orthogonal telemetry planes independently. In both Mode A (current-day snapshot) and Mode B (2–7d fixed-baseline timeline), the 360° report displays exclusively this single representative micro-query (`stage auth_risk` with `order: $z desc`) in Pillar 2. All 6 sector Z-scores are joined in the report presentation layer (Pillars 1, 3, 4, and 6) to compute Euclidean distance $D$ and CRI.
-
-
----
-
-#### 3. Ranked Outlier Summary & Provenance Stamp
-
-| Sector / Spoke | 24h Observed | 30d Mean (μ) | 30d StdDev (σ) | Z-Score | CRI Score | Visual Magnitude | Status |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **IAM & Authentication** | 6 logins | 4.2 logins | 1.8 logins | $+0.64\sigma$ | 19 | `▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱` | 🟢 Nominal |
-| **DNS Resolution** | 4 queries | 3.5 queries | 1.2 queries | $+0.23\sigma$ | 16 | `▰▱▱▱▱▱▱▱▱▱▱▱▱▱▱` | 🟢 Nominal |
-| **Web & Proxy Activity** | 0 requests | 0.0 requests | 0.0 requests | $+0.00\sigma$ | 14 | `▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱` | 🟢 Nominal |
-| **Cloud Infrastructure** | 0 events | 0.0 events | 0.0 events | $+0.00\sigma$ | 14 | `▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱` | 🟢 Nominal |
-| **Workspace Data** | 0 actions | 0.0 actions | 0.0 actions | $+0.00\sigma$ | 14 | `▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱` | 🟢 Nominal |
-| **Network Egress** | 0 bytes | 0.0 bytes | 0.0 bytes | $+0.00\sigma$ | 14 | `▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱` | 🟢 Nominal |
-| **Composite Threat Distance** | — | — | — | $D = 0.68\sigma$ | **20 / 100** | `▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱` | 🟢 **Nominal Baseline** |
-
-```markdown
-PROVENANCE STAMP:
-• Telemetry Events Scanned:  100 events across the current-day window (today 00:00Z → now)
-• Chronicle Target Customer: 8cbac5ae-8267-4da7-b405-cdbc6fa3f1d5 (Region: us, Project: gus-sdl)
-• Sector Join Runtime:       Client-Side Euclidean Join (radar_collector.py / browser V8)
-• Output Dimensions:         [entity_id, observed, baseline_mean, baseline_stddev, z_score, D, CRI]
-```
-
----
-
-#### 4. Forensic Vector Breakdown
-
-##### Behavioral Threat Translation
-All six evaluated behavioral sectors remain within expected historical variance ($\pm 1.0\sigma$). The target entity exhibits nominal volumetric activity consistent with historical 30-day baseline profiles:
-* **IAM & Authentication**: 6 observed logins vs. 30d baseline mean of 4.2 ($\sigma = 1.8$, $Z = +0.64\sigma$), representing normal routine access.
-* **DNS Resolution**: 4 queries vs. 30d baseline mean of 3.5 ($\sigma = 1.2$, $Z = +0.23\sigma$), within expected lookup volume.
-* **Web & Proxy Activity**: 0 requests vs. 30d baseline mean of 0.0 ($Z = +0.00\sigma$), nominal web browsing traffic.
-* **Cloud, Workspace, and Network Planes**: Zero observed actions across the current-day window matching zero-baseline history ($Z = +0.00\sigma$).
-* **Composite Threat Distance**: Multi-sector Euclidean distance $D = 0.68\sigma$ ($\text{CRI} = 18 / 100$) indicates volumetric quiescence across all vectors with zero acute surges.
-
-##### SOC Playbook & Immediate Remediation Recommendations
-* **Nominal Hygiene**: Routine baseline monitoring remains active based on 30-day volumetric baseline telemetry.
-* **Baseline Health**: Entity maintains healthy operational baseline alignment across cloud, SaaS, authentication, and network telemetry.
-* **External Alert Handoff**: If this entity is flagged by an independent external alert (e.g. EDR/SIEM detection), pivot to raw event telemetry via Phase 2 UDM hunting or host memory triage.
-
-##### Agentic Next Steps (`CLEAN_OR_SUBTHRESHOLD`)
-* **[1] Probe Sub-Threshold Drift**: Re-run the highest-Z sector with the gate relaxed to `1.5σ <= Z < 3.0σ`, or as `LONGITUDINAL_CUSUM` over 7–14 days.
-* **[2] Two-Sector Fusion on the Top Pair**: Fuse the two highest-Z sectors for this entity (`dual_sector_fusion_3stage.yl2`) to catch coordinated sub-threshold movement.
-* **[3] Peer Cohort Comparison**: Compare the entity's busiest sector against its team cohort (`part_of_the_whole_triad_multilevel.yl2`).
-
-Every 360° report (single-entity or fleet) ends Pillar 4 with three follow-ups labeled `[1]`/`[2]`/`[3]`, fitted to the outcome profile (`ACUTE_OUTLIER`, `CLEAN_OR_SUBTHRESHOLD`, `FLEET_WAVE`, `SPARSE_BASELINE`). A selected follow-up re-enters Phase 1B; it is never clearance.
-
----
-
-#### 5. Chronicle UI Manual Pivot (Triage Reference Only)
-
-```sql
-(target.user.userid = "<target_entity_id>" or principal.user.userid = "<target_entity_id>")
-```
-
----
-
-#### 6. Collapsible Technical Appendix (Statistical & Mathematical Appendix)
-
-<details>
-<summary>Click to view Mathematical & Statistical Formulation</summary>
+> Chronicle SIEM evaluates orthogonal telemetry planes independently. In both Mode A (current-day snapshot) and Mode B (2–7d fixed-baseline timeline), the 360° report displays exclusively this single representative micro-query (`stage auth_risk` with `order: $z desc`) in Pillar 5. All 6 sector Z-scores are joined in the report presentation layer (Pillars 1, 2, 3, and 5) to compute Euclidean distance $D$ and CRI.
 
 ##### 1. Multi-Sector Euclidean Threat Distance ($D$)
 $$D = \sqrt{\sum_{i=1}^{k} \max(0, Z_i)^2} = \sqrt{(0.64)^2 + (0.23)^2 + 0^2 + 0^2 + 0^2 + 0^2} \approx 0.68\sigma$$
@@ -761,7 +759,7 @@ $$Z_i = \frac{\text{Obs}_i - \mu_i}{\max(\sigma_i, 1.0)}$$
 
 ---
 
-### 7.2 Tier 3 Headless / Text CLI Report (Deterministic Scorecard)
+### 7.2 Tier 3 Headless / Text CLI Report (Deterministic 6-Sector Terminal Scorecard)
 
 When running in a pure command-line terminal without webview or shell calculation tools:
 

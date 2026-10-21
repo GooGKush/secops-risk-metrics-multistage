@@ -7,7 +7,8 @@
 // Telemetry Metric Mappings:
 //   - Authentication Attempts: metrics.auth_attempts_total (metric: event_count_sum, obs: count(metadata.id))
 //   - Network Bytes (Outbound): metrics.network_bytes_outbound (metric: value_sum, obs: sum(network.sent_bytes))
-//   - Resource Reads: metrics.resource_read_total (metric: event_count_sum, obs: count(metadata.id))
+//   - DNS Query Volume: metrics.dns_queries_total (metric: event_count_sum, obs: count(metadata.id))
+// Note: 14:00 UTC is a heuristic business-day center (antipode at 02:00 UTC = 3.0x multiplier; at 03:00 UTC = 2.68x).
 // ============================================================================
 
 // Stage 1: Hourly Standardized Deviation Tracker & Baseline Metric Extraction
@@ -55,8 +56,12 @@ match:
 
 outcome:
   $observed_hour = max($stage1_extract.observed_val)
-  $avg_hourly = max($stage1_extract.historical_avg)
-  $stddev_hourly = max($stage1_extract.historical_stddev)
+  $hist_avg_daily = max($stage1_extract.historical_avg)
+  $hist_stddev_daily = max($stage1_extract.historical_stddev)
+  // Scale 24h baseline (period: 1d, window: 30d) to 1-hour expectation (dividing mean by 24 and stddev by math.sqrt(24) = 4.899)
+  $avg_hourly = $hist_avg_daily / 24.0
+  $scaled_hourly_sd = $hist_stddev_daily / 4.899
+  $stddev_hourly = $scaled_hourly_sd
   $event_hour = max($stage1_extract.event_hour)
   $active_days = max($stage1_extract.historical_active_days)
   $max_hourly = max($stage1_extract.historical_max)

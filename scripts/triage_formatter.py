@@ -22,25 +22,12 @@ class CommonMarkTriageFormatter:
       anomaly_threshold: float = 3.0,
   ) -> str:
     """Deterministically classifies post-execution hunt results into one of 4 outcome shapes."""
+    if isinstance(reduced_data, list):
+      reduced_data = {"top_outliers": reduced_data}
     outliers = reduced_data.get("top_outliers", [])
     total_outliers = reduced_data.get("outlier_count", len(outliers))
     if total_outliers == 0 or not outliers:
       return "CLEAN_OR_SUBTHRESHOLD"
-
-    if reduced_data.get("fleet_wave") is True or total_outliers >= 10 or len(outliers) >= 10:
-      return "FLEET_WAVE"
-
-    active_days_vals = []
-    for r in outliers:
-      for k in ("active_days", "hist_active_days", "historical_active_days", "active_baseline_days"):
-        if k in r and r[k] is not None:
-          try:
-            active_days_vals.append(float(r[k]))
-          except (TypeError, ValueError):
-            pass
-          break
-    if active_days_vals and all(days < 7.0 for days in active_days_vals):
-      return "SPARSE_BASELINE"
 
     score_key = reduced_data.get("primary_score_metric", "anomaly_score")
     scores = []
@@ -55,6 +42,22 @@ class CommonMarkTriageFormatter:
         pass
     if scores and max(scores) < anomaly_threshold:
       return "CLEAN_OR_SUBTHRESHOLD"
+
+    qualifying_count = sum(1 for s in scores if s >= anomaly_threshold) if scores else len(outliers)
+    if reduced_data.get("fleet_wave") is True or qualifying_count >= 10:
+      return "FLEET_WAVE"
+
+    active_days_vals = []
+    for r in outliers:
+      for k in ("active_days", "hist_active_days", "historical_active_days", "active_baseline_days"):
+        if k in r and r[k] is not None:
+          try:
+            active_days_vals.append(float(r[k]))
+          except (TypeError, ValueError):
+            pass
+          break
+    if active_days_vals and all(days < 7.0 for days in active_days_vals):
+      return "SPARSE_BASELINE"
 
     return "ACUTE_OUTLIER"
 
@@ -130,6 +133,8 @@ class CommonMarkTriageFormatter:
   ) -> str:
     """Generates outcome-driven agentic follow-up recommendations for Pillar 4 or Clean Hunt reports."""
     outcome = cls.classify_hunt_outcome(reduced_data, anomaly_threshold)
+    if isinstance(reduced_data, list):
+      reduced_data = {"top_outliers": reduced_data}
     outliers = reduced_data.get("top_outliers", [])
     top_entity = outliers[0].get("entity", "target_entity") if outliers else "target_entity"
     mitre = cls.get_mitre_progression(target_metric)
@@ -224,6 +229,8 @@ class CommonMarkTriageFormatter:
             f"> **Action Taken**: 6-Pillar Triage Report generation was aborted to prevent presenting unverified ad-hoc calculations as 30-day UEBA baselines.\n"
         )
 
+    if isinstance(reduced_data, list):
+      reduced_data = {"top_outliers": reduced_data}
     outliers = reduced_data.get("top_outliers", [])
     total_outliers = reduced_data.get("outlier_count", 0)
     score_key = reduced_data.get("primary_score_metric", "anomaly_score")
@@ -331,3 +338,5 @@ class CommonMarkTriageFormatter:
     ])
 
     return "\n".join(report)
+
+classify_hunt_outcome = CommonMarkTriageFormatter.classify_hunt_outcome

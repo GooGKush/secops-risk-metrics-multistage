@@ -73,6 +73,9 @@ rule secops_risk_metrics_synthetic_alert_catchall {
     $commands = array_distinct($e.security_result.detection_fields["sample_commands"])
     $hashes = array_distinct($e.principal.process.file.sha256)
 
+  options:
+    allow_zero_values = true
+
   condition:
     $e
 }
@@ -93,7 +96,7 @@ rule secops_risk_metrics_synthetic_alert_catchall {
       "vendor_name": "Google SecOps",
       "event_type": "GENERIC_EVENT",
       "product_event_type": "VOLUMETRIC_BASELINE_ANOMALY",
-      "description": "Volumetric Egress Anomaly: host-042 breached 30d baseline by +4.82σ (CRI: 74)",
+      "description": "Volumetric Egress Anomaly: host-042 breached 30d baseline by +4.82σ (CRI: 75)",
       "ingestion_labels": [
         { "key": "hunt_campaign_id", "value": "hunt-c7f8a91b" },
         { "key": "source_skill", "value": "secops-risk-metrics-multistage" }
@@ -123,7 +126,7 @@ rule secops_risk_metrics_synthetic_alert_catchall {
             { "key": "Historical 30d Mean", "value": "120.4 MB" },
             { "key": "Historical 30d StdDev", "value": "20.1 MB" },
             { "key": "Z-Score", "value": "4.82" },
-            { "key": "CRI Score", "value": "74" },
+            { "key": "CRI Score", "value": "75" },
             { "key": "Active Baseline Days", "value": "30" }
           ]
         }
@@ -136,7 +139,7 @@ rule secops_risk_metrics_synthetic_alert_catchall {
         "category": ["DATA_EXFILTRATION"],
         "category_details": ["VOLUMETRIC_EGRESS_OUTLIER"],
         "action": ["UNKNOWN_ACTION"],
-        "risk_score": 74,
+        "risk_score": 75,
         "confidence_score": 4.82,
         "severity": "HIGH",
         "summary": "Host host-042 transmitted 10.0 GB outbound, exceeding 30-day baseline by +4.82σ.",
@@ -258,7 +261,7 @@ rule secops_risk_metrics_synthetic_alert_catchall {
             { "key": "Observed Invocations k", "value": "4" },
             { "key": "Expected Daily Arrival λ", "value": "0.03" },
             { "key": "Poisson Z-Score", "value": "5.6" },
-            { "key": "CRI Score", "value": "82" }
+            { "key": "CRI Score", "value": "83" }
           ]
         }
       }
@@ -270,7 +273,7 @@ rule secops_risk_metrics_synthetic_alert_catchall {
         "category": ["SUSPICIOUS_ACTIVITY", "POLICY_VIOLATION"],
         "category_details": ["SHADOW_COPY_DELETION", "INHIBIT_SYSTEM_RECOVERY"],
         "action": ["UNKNOWN_ACTION"],
-        "risk_score": 82,
+        "risk_score": 83,
         "confidence_score": 5.6,
         "severity": "HIGH",
         "summary": "Volume shadow copy deletion tool executed 4 times on database server with zero historical baseline.",
@@ -497,7 +500,7 @@ rule secops_risk_metrics_synthetic_alert_catchall {
       "vendor_name": "Google SecOps",
       "event_type": "GENERIC_EVENT",
       "product_event_type": "MULTI_SECTOR_THREAT_FUSION",
-      "description": "Coordinated Killchain: win-server breached 30d baseline with multi-sector threat distance D = 5.2σ (CRI: 77)",
+      "description": "Coordinated Killchain: win-server breached 30d baseline with multi-sector threat distance D = 5.2σ (CRI: 79)",
       "ingestion_labels": [
         { "key": "hunt_campaign_id", "value": "hunt-c7f8a91b" },
         { "key": "source_skill", "value": "secops-risk-metrics-multistage" }
@@ -529,7 +532,7 @@ rule secops_risk_metrics_synthetic_alert_catchall {
             { "key": "Auth Sector Z-Score", "value": "3.1" },
             { "key": "Process Sector Z-Score", "value": "4.9" },
             { "key": "Network Sector Z-Score", "value": "2.8" },
-            { "key": "CRI Score", "value": "77" }
+            { "key": "CRI Score", "value": "79" }
           ]
         }
       }
@@ -541,7 +544,7 @@ rule secops_risk_metrics_synthetic_alert_catchall {
         "category": ["CREDENTIAL_ACCESS", "DATA_EXFILTRATION"],
         "category_details": ["MULTI_SECTOR_THREAT_FUSION"],
         "action": ["UNKNOWN_ACTION"],
-        "risk_score": 77,
+        "risk_score": 79,
         "confidence_score": 5.2,
         "severity": "HIGH",
         "summary": "Coordinated multi-sector attack: credential access followed by rare binary execution and high-volume staging.",
@@ -670,7 +673,7 @@ rule secops_risk_metrics_synthetic_alert_catchall {
             { "key": "Prevalence Rolling Max (10d)", "value": "1" },
             { "key": "First Seen Age", "value": "2 Days" },
             { "key": "Process Execution Z-Score", "value": "4.96" },
-            { "key": "CRI Score", "value": "77" }
+            { "key": "CRI Score", "value": "76" }
           ]
         }
       }
@@ -682,7 +685,7 @@ rule secops_risk_metrics_synthetic_alert_catchall {
         "category": ["SOFTWARE_MALICIOUS", "SUSPICIOUS_ACTIVITY"],
         "category_details": ["RARE_BINARY_EXECUTION", "INFANT_INFRASTRUCTURE"],
         "action": ["UNKNOWN_ACTION"],
-        "risk_score": 77,
+        "risk_score": 76,
         "confidence_score": 4.96,
         "severity": "HIGH",
         "summary": "Host win-adfs executed binary seen on only 1 host enterprise-wide with a +4.96σ execution spike.",

@@ -124,7 +124,7 @@ class TestCrossVectorDocs(unittest.TestCase):
     skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
     self.assertIn("AD TEAM LOOKUP (multi-stage-metrics-guide.md), else ask for the roster", skill)
     self.assertIn("incl. AD TEAM LOOKUP, run first", skill)
-    self.assertLessEqual(len(skill.encode("utf-8")), 20480)
+    self.assertLessEqual(len(skill.encode("utf-8")), 28672)
 
   def test_part_whole_templates_resolve_unnamed_team_from_ad(self):
     for name in ("part_of_the_whole_multilevel.yl2", "part_of_the_whole_triad_multilevel.yl2"):

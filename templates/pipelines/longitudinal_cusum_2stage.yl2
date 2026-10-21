@@ -45,14 +45,17 @@ stage stage1_extract {
         period: 1d, window: 30d, metric: {{metric_type_val}}, agg: sum,
         {{dimension_key}}: {{dimension_key}} {{extra_dimensions}}
     ))
+    // Per-day standardized CUSUM slack excess (k = 0.5 sigma)
+    $daily_z = ($observed_val - $historical_avg) / if($historical_stddev > 0, $historical_stddev, 1.0)
+    $deviation = $daily_z - 0.5
+    $daily_excess = if($deviation > 0.0, $deviation, 0.0)
 }
 
 // Stage 2 (Root Stage): Longitudinal Drift Score & Timeline Breakdown
 $entity = $stage1_extract.entity
-$ws = $stage1_extract.window_start
 
 match:
-  $entity, $ws by 1d
+  $entity
 
 outcome:
   $observed_val = max($stage1_extract.observed_val)
@@ -60,19 +63,18 @@ outcome:
   $baseline_stddev = max($stage1_extract.historical_stddev)
   $active_days = max($stage1_extract.historical_active_days)
 
-  // 1. Daily Standardized Shift: Z_daily = (Observed - Baseline_Mean) / if(Baseline_StdDev > 0, Baseline_StdDev, 1.0)
-  $daily_z = ($observed_val - $baseline_mean) / if($baseline_stddev > 0, $baseline_stddev, 1.0)
+  // 1. Peak Daily Standardized Shift across the multi-day window
+  $daily_z = max($stage1_extract.daily_z)
 
-  // 2. Reference Allowance Slack (k = 0.5 sigma) to absorb routine baseline fluctuations
-  $deviation = $daily_z - 0.5
-
-  // 3. Positive Drift Increments (Half-Rectified Page's CUSUM Slack: max(0, slack))
-  $slack_excess = if($deviation > 0.0, $deviation, 0.0)
-  $cusum_drift_score = $slack_excess
+  // 2. Multi-day Cumulative Sum of Positive Drift Increments across days
+  $slack_excess = sum($stage1_extract.daily_excess)
+  $cusum_drift = $slack_excess
+  $cusum_drift_score = $cusum_drift
+  $drift_days = sum(if($stage1_extract.daily_excess > 0.0, 1, 0))
 
 // Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
 condition:
-  $cusum_drift_score > 0.0
+  $cusum_drift_score > 0.0 and $drift_days >= 2
 
 order:
   $cusum_drift_score desc

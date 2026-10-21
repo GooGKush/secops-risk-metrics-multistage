@@ -22,9 +22,12 @@ The Chronicle Malachite Common Compiler features a rich standard library ("Funct
 | **`math.floor`** | `math.floor(number)` | ❌ | ✅ | Floor function $\lfloor x \rfloor$. |
 | **`math.ceil`** | `math.ceil(number)` | ❌ | ✅ | Ceiling function $\lceil x \rceil$. |
 | **`math.round`** | `math.round(number, [scale])` | ❌ | ✅ | 1-arg rounds to integer; 2-arg rounds to specified decimal scale (e.g. `math.round($z, 2)`). |
+| **`math.geo_distance`** | `math.geo_distance(lon1, lat1, lon2, lat2)` | ✅ | ✅ | Computes geodesic distance in meters between coordinate pairs. |
+| **`math.exp / min / max`** | *(Unsupported)* | ❌ | ❌ | `math.exp()`, `math.min()`, and `math.max()` are **not** supported in Chronicle YARA-L 2.0. Use `math.pow(2.718281828, $x)` for $e^x$ and `if($a >= $b, $a, $b)` for pairwise max/min. |
 | **`window.variance`**| `window.variance(event_field)` | ❌ | ✅ | Computes sample variance across matched window events. Bare `variance()` is rejected. |
 | **`cast.as_int`** | `cast.as_int(number\|string)` | ✅ | ✅ | Casts numeric float or string timestamp to integer (e.g. `cast.as_int(ts / 86400)`). |
 | **`cast.as_float`** | `cast.as_float(string)` | ✅ | ✅ | Parses string representation into float. Expects type `string` (fails if passed `int`). |
+| **`re.regex`** | `re.regex(field, pattern)` | ✅ | ❌ | Regular expression match in `events:`. (`regex.match()` does not exist.) |
 | **`arrays.max/min`**| `arrays.max(array)` | ❌ | ❌ (Literals) | Literal array notation `[...]` in `outcome:` causes compiler syntax error. |
 
 ---
@@ -37,10 +40,10 @@ The Chronicle Malachite Common Compiler features a rich standard library ("Funct
     ```yara
     $day_id = cast.as_int(metadata.event_timestamp.seconds / 86400)
     ```
-  * String functions: `strings.to_lower()`, `strings.concat()`, `regex.match()`.
+  * String & regex functions: `strings.to_lower()`, `strings.concat()`, `re.regex()`.
   * Spatial functions: `math.geo_distance()`.
 * **Prohibited**:
-  * Binary variable-to-variable arithmetic (`$a - $b`, `$a / $b`) above `match:`. All placeholder arithmetic must occur in `outcome:`.
+  * Top-level binary arithmetic in placeholder assignments (`$x = $a - $b`, `$x = a / 86400`) above `match:` fails compilation (whereas scalar arithmetic nested inside a function call argument such as `$day_id = cast.as_int(metadata.event_timestamp.seconds / 86400)` compiles). Perform placeholder arithmetic in `outcome:`.
   * Aggregation functions (`count`, `max`, `sum`, `avg`, `window.variance`).
 
 ### B. The `outcome:` Section
@@ -51,7 +54,7 @@ The Chronicle Malachite Common Compiler features a rich standard library ("Funct
   * Conditional assignments: `if(condition, then_val, else_val)`.
 * **Prohibited**:
   * **Literal Array Notation**: `arrays.max([0.0, $val])` or any `[...]` literal syntax in `outcome:` fails compiler parsing.
-  * **Compound Arithmetic in `then` Clause**: `if(cond, $a - $b, 0)` is invalid; must compute `$diff = $a - $b` and use `if(cond, $diff, 0)`.
+  * **Compound Arithmetic in `if()` Branches**: Both the `then` and `else` clauses of `if(cond, then_val, else_val)` must be plain `$placeholder` variables, fields, or constants. Expressions like `if(cond, $a - $b, 0)` or `if(cond, 0, $a - $b)` fail compilation; bind `$diff = $a - $b` first and write `if(cond, $diff, 0)`.
   * **Unaggregated Event Attributes in Match Windows**: When a match window is declared (`by 1d`), all raw event attributes in `outcome:` must use an aggregation function (`max()`, `min()`, `array_distinct()`, `count()`).
 
 ---

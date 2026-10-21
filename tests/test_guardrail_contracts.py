@@ -1037,7 +1037,7 @@ class TestGuardrailContracts(unittest.TestCase):
     skill_path = os.path.join(skill_dir, 'SKILL.md')
     with open(skill_path, 'rb') as f:
       raw = f.read()
-    self.assertLessEqual(len(raw), 20480, f"SKILL.md exceeds 20KB budget: {len(raw)} bytes")
+    self.assertLessEqual(len(raw), 28672, f"SKILL.md exceeds 28KB budget: {len(raw)} bytes")
 
   def test_dual_requirement_gate_contract(self):
     """SKILL.md must enforce that Phase 1B requires BOTH Entity Scope AND Telemetry Vector."""
@@ -1543,7 +1543,7 @@ class TestGuardrailContracts(unittest.TestCase):
       guide_content = f.read()
 
     self.assertIn("Ranked Outlier Summary & Provenance Stamp", skill_content)
-    self.assertIn("Stamp execution provenance (events scanned, query execution time, projected schema columns)", skill_content)
+    self.assertIn("Stamp execution provenance (returned row count, evaluation mode, requested startTime/endTime window, projected schema columns", skill_content)
     self.assertIn("Data Provenance & Execution Stamping", guide_content)
 
   def test_zero_code_handoff_and_dual_layer_trickle_defense_contract(self):

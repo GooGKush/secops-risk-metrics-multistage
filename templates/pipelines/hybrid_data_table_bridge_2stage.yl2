@@ -5,9 +5,9 @@
 // ============================================================================
 
 stage stage1_extract {
-    metadata.event_type = "NETWORK_CONNECTION"
     network.sent_bytes > 0
     network.sent_bytes < 1000000000000000
+    // Canonical Data Table Bridge column syntax: %ueba_hunt_bridge.entity (or = %ueba_hunt_bridge.hostname)
     principal.asset.hostname = %ueba_hunt_bridge.hostname
     principal.asset.hostname = $entity
     $entity != ""
@@ -32,7 +32,7 @@ stage stage1_extract {
     $active_baseline_days = max(metrics.network_bytes_outbound(
         period: 1d, window: 30d,
         metric: value_sum,
-        agg: count_days_seen,
+        agg: num_metric_periods,
         principal.asset.hostname: principal.asset.hostname
     ))
 }

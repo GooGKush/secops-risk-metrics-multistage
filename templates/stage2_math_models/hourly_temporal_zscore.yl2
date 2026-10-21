@@ -1,4 +1,8 @@
-// Root Stage: Intra-Day Hourly Surge Isolation (Preserving Hourly Timeline)
+// Stage 2 (Root Stage): Intra-Day Hourly Temporal Z-Score & Burst Ratio
+// Normalizes 30-day daily baseline (period: 1d, window: 30d) to 1-hour buckets:
+//   expected_hourly_mean = hist_avg_daily / 24.0
+//   expected_hourly_sd   = hist_stddev_daily / math.sqrt(24)  (math.sqrt(24) ≈ 4.899)
+// Requires Stage 1 extractor to bucket by 1h for true intra-day hourly burst localization.
 $entity = $stage1_extract.entity
 $ws = $stage1_extract.window_start
 
@@ -7,22 +11,29 @@ match:
 
 outcome:
   $observed_hour = max($stage1_extract.observed_val)
+  $daily_observed = sum($stage1_extract.observed_val)
   $hist_avg_daily = max($stage1_extract.historical_avg)
   $hist_stddev_daily = max($stage1_extract.historical_stddev)
   $active_days = max($stage1_extract.historical_active_days)
+  $hist_max = max($stage1_extract.historical_max)
 
-  $avg_hourly = max($stage1_extract.historical_avg)
-  $stddev_hourly = max($stage1_extract.historical_stddev)
-  $max_hourly = max($stage1_extract.historical_max)
+  // Normalize 24-hour baseline into 1-hour expectation (mean / 24.0, stddev / math.sqrt(24))
+  $expected_hourly_mean = $hist_avg_daily / 24.0
+  $avg_hourly = $expected_hourly_mean
+  $scaled_hourly_sd = $hist_stddev_daily / 4.899
+  $stddev_hourly = $scaled_hourly_sd
 
-  // 1. Intra-Day Hourly Z-Score
+  // Conditional zero-dispersion floor
+  $expected_hourly_sd = if($stddev_hourly > 0, $stddev_hourly, 1.0)
+  $safe_stddev_hourly = $expected_hourly_sd
   $hourly_diff = $observed_hour - $avg_hourly
-  $safe_stddev_hourly = if($stddev_hourly > 0, $stddev_hourly, 1.0)
   $hourly_z = $hourly_diff / $safe_stddev_hourly
 
-  // 2. Intra-Day Fold Surge Ratio
+  // Intra-day burst ratio and hourly share of daily volume
   $safe_avg_hourly = if($avg_hourly > 0, $avg_hourly, 1.0)
   $hourly_surge_ratio = $observed_hour / $safe_avg_hourly
+  $safe_daily_obs = if($daily_observed > 0, $daily_observed, 1.0)
+  $hourly_share = $observed_hour / $safe_daily_obs
 
 // Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
 condition:

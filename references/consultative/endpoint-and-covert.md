@@ -17,7 +17,7 @@ EDR rules are predominantly binary and signature-oriented:
 ### Strategy A: Time-of-Day Contextualization (Hourly Temporal Z-Score)
 * **Target Metric**: `metrics.file_executions_total`
 * **Math Model**: `hourly_temporal_zscore.yl2`
-* **How It Defeats the Blind Spot**: Replaces broad daily baselines with hour-of-day expectations ($H = \text{timestamp.hour}$). A process launch that is completely normal during the workday triggers a massive anomaly score when executed during an entity's historically dead hours.
+* **How It Defeats the Blind Spot**: Couples the 30-day macro daily baseline (`period: 1d, window: 30d`, scaled to an hourly expectation $\mu_{\text{hr}} = \mu_{\text{day}} / 24.0, \sigma_{\text{hr}} = \sigma_{\text{day}} / \sqrt{24}$) with micro-hour (`by 1h`) Stage 1 bucket localization (`timestamp.get_hour`), pinpointing the exact hour an anomalous execution spike occurred.
 
 ### Strategy B: Rare Process Prevalence (Poisson Rarity / Fleet Prevalence Shield)
 * **Target Metric**: `metrics.file_executions_success`
@@ -27,7 +27,7 @@ EDR rules are predominantly binary and signature-oriented:
 ### Strategy C: Stealth Alert Frequency Drift (Longitudinal CUSUM)
 * **Target Metric**: `metrics.alert_event_name_count`
 * **Math Model**: `longitudinal_cusum.yl2`
-* **How It Defeats the Blind Spot**: Accumulates subtle daily counts of low-severity alerts fired on an endpoint over 30 days, detecting the gradual operational footprint of an active adversary before high-severity alerts trip.
+* **How It Defeats the Blind Spot**: Accumulates subtle daily counts of low-severity alerts fired on an endpoint over up to 14 days (the multi-stage search limit), detecting the gradual operational footprint of an active adversary before high-severity alerts trip.
 
 ---
 

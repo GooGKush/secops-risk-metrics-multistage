@@ -56,6 +56,7 @@ from scripts.preflight_validator import (
     MatchMode,
     PipelineArchitecture,
     PostFlightExecutionAuditor,
+    QueryIntegrityGate,
     PreFlightValidator,
     StatisticalModel,
     default_significance_threshold,
@@ -1461,11 +1462,23 @@ def _normalize_single_row(raw_row: Dict[str, Any]) -> Dict[str, Any]:
 
   score = _first_float((
       "z_score",
-      "personal_z",
-      "anomaly_score",
-      "delta_z",
-      "eb_z_score",
       "modified_z",
+      "delta_z",
+      "shielded_z",
+      "circadian_threat_score",
+      "hourly_z",
+      "cusum_drift_score",
+      "hurdle_threat_score",
+      "upper_tail_z",
+      "sensitivity_excess",
+      "macd_momentum_score",
+      "bayes_shift_ratio",
+      "posterior_fail_prob",
+      "posterior_lift",
+      "surge_ratio",
+      "fold_change",
+      "fano_factor",
+      "eb_z_score",
       "poisson_z",
       "cusum_s",
       "hurdle_z",
@@ -1477,6 +1490,7 @@ def _normalize_single_row(raw_row: Dict[str, Any]) -> Dict[str, Any]:
       "threat_norm",
       "threat_score",
       "normalized_odds_score",
+      "target_risk_score",
       "recon_score",
       "beacon_score",
       "alert_z",
@@ -1485,13 +1499,18 @@ def _normalize_single_row(raw_row: Dict[str, Any]) -> Dict[str, Any]:
       "flow_z",
       "macro_z_score",
       "macro_z",
-      "z_vs_enterprise",
       "z_vs_team",
+      "z_vs_enterprise",
+      "raw_z",
+      "clamped_z",
+      "personal_z",
+      "anomaly_score",
+      "ratio",
       "z",
   ))
 
   if score is None:
-    sq_val = _first_float(("threat_distance_sq", "d_vs_fleet_sq", "d_vs_team_sq", "norm_sq"))
+    sq_val = _first_float(("threat_distance_sq", "composite_threat_norm_sq", "d_vs_fleet_sq", "d_vs_team_sq", "d_sq", "norm_sq"))
     if sq_val is not None:
       score = math.sqrt(max(0.0, sq_val))
     elif observed is not None and hist_avg is not None:
@@ -1622,21 +1641,54 @@ def render_forensic_dossier(
   stat_model_enum = resolve_statistical_model(statistical_model)
   model_label = stat_model_enum.value
 
+  # Guard against unparseable non-empty string responses
+  unparseable_str_error = None
+  if isinstance(rows, str) and rows.strip():
+    try:
+      json.loads(rows.strip())
+    except json.JSONDecodeError as exc:
+      unparseable_str_error = f"UNPARSEABLE_BACKEND_RESPONSE: Could not parse rows string as JSON: {exc}"
+
   outliers, raw_envelope = _extract_and_normalize_rows(rows)
   mode_clean = (mode or "A").strip().upper().replace("MODE", "").strip() or "A"
 
-  # 1. Post-Flight Execution Audit
+  # 1. Post-Flight Execution Audit & QueryIntegrityGate Verification (runs before zero-row return)
   audit_result = None
-  if not skip_postflight_audit and "metrics." in (executed_query or ""):
-    audit_result = PostFlightExecutionAuditor.audit_execution(
-        executed_query=executed_query,
-        api_response=raw_envelope,
-        target_metric=clean_metric if clean_metric in METRIC_CATALOG else None,
-        entity_type=ent_enum,
-        statistical_model=stat_model_enum,
-        anomaly_threshold=anomaly_threshold,
+  if not skip_postflight_audit:
+    gate_res = QueryIntegrityGate.verify_backend_response(
+        executed_query or "",
+        rows if isinstance(rows, dict) else raw_envelope,
     )
-    if not audit_result.is_valid and "RAW_LOG_DUMP_DETECTED" in " ".join(audit_result.errors):
+    if executed_query:
+      audit_result = PostFlightExecutionAuditor.audit_execution(
+          executed_query=executed_query,
+          api_response=raw_envelope,
+          target_metric=clean_metric if clean_metric in METRIC_CATALOG else None,
+          entity_type=ent_enum,
+          statistical_model=stat_model_enum,
+          anomaly_threshold=anomaly_threshold,
+      )
+    blocking_errors: List[str] = []
+    if unparseable_str_error:
+      blocking_errors.append(unparseable_str_error)
+    if not gate_res.get("valid", True):
+      blocking_errors.extend(gate_res.get("errors", []))
+    if audit_result is not None and not audit_result.is_valid:
+      for err in audit_result.errors:
+        if any(tag in err for tag in ("RAW_LOG_DUMP_DETECTED", "NO_METRICS_FUNCTION", "ANTI-PATTERN 7")):
+          if err not in blocking_errors:
+            blocking_errors.append(err)
+    if blocking_errors:
+      if audit_result is None or audit_result.is_valid:
+        from scripts.preflight_validator import AuditStatus, PostFlightAuditResult
+        audit_result = PostFlightAuditResult(
+            status=AuditStatus.FAILED,
+            is_valid=False,
+            errors=blocking_errors,
+            recommended_query=None,
+            remediation_action="Abort non-compliant execution.",
+            audit_summary=f"❌ Audit Failed ({len(blocking_errors)} violation(s) detected).",
+        )
       blocked_md = CommonMarkTriageFormatter.format_report(
           reduced_data={"outlier_count": 0, "top_outliers": []},
           target_metric=clean_metric,
@@ -1662,11 +1714,12 @@ def render_forensic_dossier(
           "audit_result": audit_result,
       }
 
+  qualifying_outliers = [r for r in outliers if r.get("z_score", 0.0) >= anomaly_threshold]
   reduced_data: Dict[str, Any] = {
       "outlier_count": len(outliers),
       "top_outliers": outliers,
       "primary_score_metric": "z_score",
-      "fleet_wave": len(outliers) >= 10,
+      "fleet_wave": len(qualifying_outliers) >= 10,
   }
 
   outcome_class = CommonMarkTriageFormatter.classify_hunt_outcome(reduced_data, anomaly_threshold)
@@ -1710,10 +1763,16 @@ def render_forensic_dossier(
       timeline_markdown = TimelineAssembler.render_markdown(summary)
     elif outliers:
       by_day: Dict[str, List[Dict[str, Any]]] = {}
-      base_day = datetime.date.today()
-      for idx, r in enumerate(outliers):
-        d_str = str(r.get("day") or (base_day - datetime.timedelta(days=idx)).isoformat())
-        by_day.setdefault(d_str, []).append(r)
+      for r in outliers:
+        d_val = r.get("day") or r.get("date")
+        if not d_val:
+          ws_val = r.get("ws") or r.get("window_start")
+          if isinstance(ws_val, (int, float)) and ws_val > 0:
+            d_val = datetime.datetime.fromtimestamp(float(ws_val), tz=datetime.timezone.utc).strftime("%Y-%m-%d")
+          elif isinstance(ws_val, str) and len(ws_val) >= 10:
+            d_val = ws_val[:10]
+        if d_val:
+          by_day.setdefault(str(d_val), []).append(r)
       for d_str, d_rows in sorted(by_day.items()):
         try:
           assembler.add_shard(d_str, d_rows)
@@ -2088,6 +2147,180 @@ def get_metric_catalog_summary(
 # ---------------------------------------------------------------------------
 
 
+
+
+# ---------------------------------------------------------------------------
+# Mathematical & Sector Selection Helpers
+# ---------------------------------------------------------------------------
+
+SECTOR_HYBRID_MODELS: Dict[str, List[str]] = {
+    "USER_CREDENTIAL_SIGNALS": [
+        "standard_z_score",
+        "circadian_von_mises",
+        "two_part_hurdle",
+        "asymmetric_directional_z",
+        "adaptive_context_threshold",
+    ],
+    "HOST_ENDPOINT_HEALTH": [
+        "standard_z_score",
+        "poisson",
+        "fleet_prevalence_shield",
+        "two_part_hurdle",
+        "mad",
+    ],
+    "CLOUD_API_OPERATIONS": [
+        "standard_z_score",
+        "poisson",
+        "two_part_hurdle",
+        "longitudinal_cusum",
+        "relative_deviation",
+    ],
+    "NETWORK_TRAFFIC_FLOWS": [
+        "standard_z_score",
+        "mad",
+        "longitudinal_cusum",
+        "macd_momentum_velocity",
+        "coefficient_of_variation",
+    ],
+    "WEB_PROXY_TELEMETRY": [
+        "standard_z_score",
+        "bayesian_beta_binomial",
+        "coefficient_of_variation",
+        "fleet_prevalence_shield",
+        "mad",
+    ],
+    "DNS_RESOLUTION_TELEMETRY": [
+        "standard_z_score",
+        "poisson",
+        "variance",
+        "mad",
+        "bayesian_gamma",
+    ],
+    "WORKSPACE_SAAS_ACTIVITY": [
+        "standard_z_score",
+        "longitudinal_cusum",
+        "asymmetric_directional_z",
+        "two_part_hurdle",
+        "relative_deviation",
+    ],
+    "SECURITY_EDR_ALERTS": [
+        "standard_z_score",
+        "poisson",
+        "bayesian_gamma",
+        "two_part_hurdle",
+    ],
+}
+
+
+def select_hybrid_models(sector: str) -> List[str]:
+  """Returns recommended hybrid statistical models for any of the 7+ metric catalog sectors."""
+  key = (sector or "").strip().upper().replace("-", "_").replace(" ", "_")
+  if key in SECTOR_HYBRID_MODELS:
+    return list(SECTOR_HYBRID_MODELS[key])
+  if any(k in key for k in ("USER", "CREDENTIAL", "AUTH", "IAM", "LOGIN")):
+    return list(SECTOR_HYBRID_MODELS["USER_CREDENTIAL_SIGNALS"])
+  if any(k in key for k in ("HOST", "ENDPOINT", "PROCESS", "EXEC", "FILE")):
+    return list(SECTOR_HYBRID_MODELS["HOST_ENDPOINT_HEALTH"])
+  if any(k in key for k in ("CLOUD", "API", "RESOURCE", "CRUD")):
+    return list(SECTOR_HYBRID_MODELS["CLOUD_API_OPERATIONS"])
+  if any(k in key for k in ("NET", "FLOW", "EGRESS", "BYTES")):
+    return list(SECTOR_HYBRID_MODELS["NETWORK_TRAFFIC_FLOWS"])
+  if any(k in key for k in ("WEB", "HTTP", "PROXY")):
+    return list(SECTOR_HYBRID_MODELS["WEB_PROXY_TELEMETRY"])
+  if "DNS" in key:
+    return list(SECTOR_HYBRID_MODELS["DNS_RESOLUTION_TELEMETRY"])
+  if any(k in key for k in ("WORKSPACE", "DRIVE", "SAAS", "DOC")):
+    return list(SECTOR_HYBRID_MODELS["WORKSPACE_SAAS_ACTIVITY"])
+  if any(k in key for k in ("ALERT", "EDR", "SECURITY")):
+    return list(SECTOR_HYBRID_MODELS["SECURITY_EDR_ALERTS"])
+  return ["standard_z_score", "mad", "poisson"]
+
+
+def calculate_part_whole_ratio(current_val: float, baseline_mean: float) -> float:
+  """Computes the fold-change ratio against baseline_mean with zero-baseline fallback to float(current_val)."""
+  cur = float(current_val)
+  base = float(baseline_mean)
+  if cur <= 0.0:
+    return 0.0
+  if base <= 0.0:
+    return cur
+  return round(cur / base, 4)
+
+
+def calculate_two_part_hurdle(
+    observed_val: float,
+    baseline_mean: float,
+    baseline_stddev: float = 1.0,
+    active_days: int = 0,
+    min_active_days: int = 1,
+) -> float:
+  """Computes the Two-Part Hurdle anomaly score separating zero-baseline cold starts from active surges."""
+  obs = float(observed_val)
+  if obs <= 0.0:
+    return 0.0
+  mean = float(baseline_mean)
+  std = float(baseline_stddev)
+  is_dormant = (active_days < min_active_days and mean == 0.0)
+  if is_dormant:
+    return round(10.0 + math.log(max(obs, 1.0) + 1.0), 4)
+  safe_std = std if std > 0.0 else 1.0
+  return round(max(0.0, (obs - mean) / safe_std), 4)
+
+
+def calculate_bayesian_joint_odds(
+    *signals: Any,
+    prior_log_odds: float = -4.595,
+    **kwargs: Any,
+) -> float:
+  """Computes posterior log-odds from independent anomaly signals with default prior_log_odds = -4.595 (p0 ≈ 0.01)."""
+  vals: List[float] = []
+  for item in signals:
+    if isinstance(item, (list, tuple, set)):
+      vals.extend(float(x) for x in item)
+    elif isinstance(item, (int, float)):
+      vals.append(float(item))
+  for k in ("z_scores", "log_likelihood_ratios", "signals"):
+    if k in kwargs and isinstance(kwargs[k], (list, tuple, set)):
+      vals.extend(float(x) for x in kwargs[k])
+  for k in ("z_a", "z_b", "z_primary", "z_secondary"):
+    if k in kwargs and isinstance(kwargs[k], (int, float)):
+      vals.append(float(kwargs[k]))
+  return round(float(prior_log_odds) + sum(max(0.0, v) for v in vals), 4)
+
+
+def calculate_macd_momentum(
+    observed_val: float,
+    hist_avg: float,
+    hist_stddev: float,
+    hist_max: float = 0.0,
+) -> float:
+  """Computes the MACD momentum & velocity crossover score."""
+  obs = float(observed_val)
+  avg = float(hist_avg)
+  std = float(hist_stddev)
+  hmax = float(hist_max) if hist_max and float(hist_max) > 0.0 else max(avg, 1.0)
+  safe_std = std if std > 0.0 else 1.0
+  fast_diff = obs - avg
+  fast_z = fast_diff / safe_std
+  slow_diff = hmax - avg
+  slow_z = slow_diff / safe_std
+  macd_diff = fast_z - slow_z
+  safe_max = hmax if hmax > 0.0 else 1.0
+  velocity_ratio = obs / safe_max
+  scaled_diff = macd_diff * velocity_ratio
+  return round(scaled_diff if macd_diff > 0.0 else fast_z, 4)
+
+
+def calculate_hourly_zscore(
+    observed_hour: float,
+    avg_hourly: float,
+    stddev_hourly: float,
+) -> float:
+  """Computes the Hourly Temporal Z-Score."""
+  safe_std = float(stddev_hourly) if float(stddev_hourly) > 0.0 else 1.0
+  return round((float(observed_hour) - float(avg_hourly)) / safe_std, 4)
+
+
 class UEBAHybridEngine:
   """Object-oriented facade over compile_hunt_pipeline, dispatch_hybrid_handoff, and render_forensic_dossier."""
 
@@ -2095,6 +2328,12 @@ class UEBAHybridEngine:
   dispatch_hybrid_handoff = staticmethod(dispatch_hybrid_handoff)
   render_forensic_dossier = staticmethod(render_forensic_dossier)
   get_metric_catalog_summary = staticmethod(get_metric_catalog_summary)
+  select_hybrid_models = staticmethod(select_hybrid_models)
+  calculate_part_whole_ratio = staticmethod(calculate_part_whole_ratio)
+  calculate_two_part_hurdle = staticmethod(calculate_two_part_hurdle)
+  calculate_bayesian_joint_odds = staticmethod(calculate_bayesian_joint_odds)
+  calculate_macd_momentum = staticmethod(calculate_macd_momentum)
+  calculate_hourly_zscore = staticmethod(calculate_hourly_zscore)
 
 
 # ---------------------------------------------------------------------------

@@ -26,7 +26,7 @@ In an enterprise SecOps environment, threat hunting across massive telemetry req
      │ • 30-day UEBA baselines │ ──────────────────► │ • Raw math (MAD, CV,    │
      │ • Peer group comparison │                     │   Poisson, Tukey)       │
      │ • CUSUM drift detection │ ◄────────────────── │ • Unsupervised outliers │
-     │ • 360° Risk Radar (6P)  │  "Roll up to 30d"   │ • Beaconing intervals   │
+     │ • 360° Risk Radar (5P)  │  "Roll up to 30d"   │ • Beaconing intervals   │
      └─────────────────────────┘                     └─────────────────────────┘
 ```
 
@@ -65,7 +65,7 @@ To prevent the accumulation of rigid negative prohibitions, workflows are struct
  ┌───────────────────────┐       Clearance Granted       ┌───────────────────────┐
  │  STATE 1: CLEARANCE   │ ────────────────────────────► │  STATE 2: EXECUTION   │
  │ • Spot-check entity   │                               │ • Run collector CLI   │
- │ • Run compiler probe  │                               │ • Render 6 Pillars    │
+ │ • Run compiler probe  │                               │ • Render 5 Pillars    │
  │ • Present spec table  │                               │ • Generate Radar SVG  │
  └───────────────────────┘                               └───────────┬───────────┘
              ▲                                                       │
@@ -79,20 +79,19 @@ To prevent the accumulation of rigid negative prohibitions, workflows are struct
 ```
 
 ### State 1: Pre-Flight Clearance & Specification
-* **Identifier Qualification**: Standalone first names (`greg`, `frank`, `admin`) are probed via a 14-day UDM spot-check (`udm_search` with 5 events max). If unresolved, halt and ask for technical ID.
-* **Compiler Syntax Probe**: Every candidate query must be probed via a live 10-minute compile probe (`startTime="<ISO_10M_AGO>"`, `endTime="<ISO_NOW>"`).
+* **Identifier Qualification**: Standalone first names (`greg`, `frank`, `admin`) are probed via a 14-day UDM spot-check (`udm_search` with `maxEvents: 1`). If unresolved, halt and ask for technical ID.
+* **Single-Event-Filter Probe**: Before displaying the candidate query, run a single-event-filter `udm_search` probe (`maxEvents: 1`, `<ISO_1H_AGO>` to `<ISO_NOW>`) of the event filter alone (no `stage`, `match:`, `metrics.`).
 * **Pre-Flight Spec Card**: Present the structured specification card and probed query preview.
 * **Hard Clearance Gate**: Ask the explicit clearance question and yield the turn (0 additional tools called).
 
-### State 2: Deterministic Execution & 6-Pillar Reporting
-* **Execution**: Run the validated multi-stage query or decoupled sector micro-queries via `radar_collector.py`.
-* **The 6 Pillars**:
-  1. *Statistical Outlier Report* (Visual surface + Unicode magnitude bars).
-  2. *Executed Multi-Stage YARA-L Query* (The literal executed syntax; raw event filters strictly forbidden).
-  3. *Ranked Outlier Summary & Provenance Stamp* (Observed, Mean, StdDev, Z, CRI).
-  4. *Forensic Vector Breakdown* (SOC playbook & threat scenario).
-  5. *Chronicle UI Manual Pivot (Triage Reference Only)* (Passive UDM filter string for manual browser copy-paste into Chronicle UI; tool execution of this string is strictly prohibited).
-  6. *Statistical & Mathematical Appendix* (Formulas and baselines).
+### State 2: Deterministic Execution & 5-Pillar Reporting
+* **Execution**: Run the validated multi-stage query or decoupled sector micro-queries natively via `udm_search` (and collate visual outputs post-search via `radar_collector.py`).
+* **The 5 Pillars**:
+  1. *Statistical Outlier Report (Multi-Stage Risk Metrics) — Executive Summary & Calibrated Risk Index (CRI)* (Visual surface + CRI summary).
+  2. *Ranked Outlier Summary & Provenance Stamp* (Observed, Mean, StdDev, Z, CRI, Unicode magnitude bars).
+  3. *Forensic Vector Breakdown* (SOC playbook, threat scenario, and numbered `[1]`, `[2]`, `[3]` Agentic Next Steps).
+  4. *Chronicle UI Manual Pivot (Triage Reference Only)* (Passive UDM filter string in a ```` ```text ```` fence for manual browser copy-paste into Chronicle UI; tool execution of this string is strictly prohibited).
+  5. *Collapsible Technical Appendix (Statistical & Mathematical Appendix)* (Contains `<details>` with the verbatim executed Multi-Stage YARA-L Query in ```` ```yara ```` and step-by-step math derivations).
 
 ### State 3: Iteration, Entity Shifts & Federated Bridge
 * **Entity Shift**: When the analyst asks to *"run same for user Y"*, immediately loop back to **State 1** for the new entity.
@@ -120,7 +119,7 @@ All behaviors in the cooperative framework are bound by two absolute invariants:
 ## 5. De-Baiting the Lexicon: Removing Homonym Traps
 
 Prompt bloat and fall-through frequently stem from semantic homonym traps:
-* **The Pillar 5 Trap**: Naming Pillar 5 *"Immediate 1-Click Investigation Queries"* baited the model into executing raw UDM searches when asked for the *"same query"*.
+* **The Pillar 4 Trap**: Naming Pillar 4 *"Immediate 1-Click Investigation Queries"* baited the model into executing raw UDM searches when asked for the *"same query"*.
 * **The Fix**: Renaming to *"Chronicle UI Manual Pivot (Triage Reference Only)"* and formatting filters as non-executable reference strings eliminates the bait at the lexical level without requiring defensive negative rules.
 
 ---
@@ -250,8 +249,8 @@ When the exfiltration protocol is known in advance (e.g. hunting specifically fo
     match:
       $entity by 1d
     outcome:
-      $distinct_signatures = count_distinct(target.user_agent)
-      $sample_signatures = array_distinct(target.user_agent)
+      $distinct_signatures = count_distinct(network.http.user_agent)
+      $sample_signatures = array_distinct(network.http.user_agent)
   }
   ```
 * **Root Stage (Fusion)**:

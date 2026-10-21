@@ -113,7 +113,7 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
         min_threshold=2.0,
         max_threshold=3.5,
     )
-    self.assertIn("condition:\n  $composite_risk >= 2.0 and $composite_risk < 3.5", query)
+    self.assertIn("condition:\n  ($composite_risk >= 2.0 and $composite_risk < 3.5) and ($dest_days >= 7 or $dest_days = 0 or $obs_deletes > 0 or $obs_writes > 0)", query)
     self.assertIn("order:\n  $composite_risk desc", query)
 
   def test_stage2_new_models_routing_and_antipattern_cleanliness(self):

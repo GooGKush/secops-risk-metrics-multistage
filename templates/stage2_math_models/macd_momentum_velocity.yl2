@@ -1,4 +1,4 @@
-// Root Stage: MACD Dual-Spine Momentum Indicator (Preserving Daily Timeline)
+// Stage 2 (Root Stage): MACD Multi-Horizon Momentum & Velocity Crossover
 $entity = $stage1_extract.entity
 $ws = $stage1_extract.window_start
 
@@ -12,23 +12,26 @@ outcome:
   $active_days = max($stage1_extract.historical_active_days)
   $hist_max = max($stage1_extract.historical_max)
 
-  // 1. Fast Spine: Instantaneous Standardized Deviation (Daily Velocity)
+  // 1. Fast Impulse Z-Score (Current 24h vs 30d Mean)
   $fast_diff = $observed - $hist_avg
   $safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)
   $fast_z = $fast_diff / $safe_stddev
 
-  // 2. Slow Spine: Historical Baseline Departure (Reference Anchor)
+  // 2. Slow Envelope Z-Score (30d Historical Ceiling vs 30d Mean)
   $slow_diff = $hist_max - $hist_avg
   $slow_z = $slow_diff / $safe_stddev
 
-  // 3. Momentum Velocity & Divergence (MACD Spread)
+  // 3. MACD Momentum Crossover (Positive when current impulse breaks 30-day historical ceiling)
   $macd_diff = $fast_z - $slow_z
+
+  // 4. Velocity Ratio (Observed vs Historical Max Envelope)
   $safe_max = if($hist_max > 0, $hist_max, 1.0)
   $velocity_ratio = $observed / $safe_max
 
-  // 4. Half-Rectified Acceleration Surge
-  $scaled_diff = $macd_diff * $velocity_ratio
-  $macd_momentum_score = if($macd_diff > 0, $scaled_diff, $fast_z)
+  // 5. Monotone Composite MACD Momentum Score: ceiling breakouts add velocity-scaled boost above fast_z
+  $breakout_boost = $macd_diff * $velocity_ratio
+  $breakout_score = $fast_z + $breakout_boost
+  $macd_momentum_score = if($macd_diff > 0, $breakout_score, $fast_z)
 
 // Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
 condition:

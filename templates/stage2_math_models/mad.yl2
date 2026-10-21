@@ -23,7 +23,9 @@
 //   (historical_max / historical_sum), so a MAD query makes 3 metrics lookups per entity-day, not 5.
 //
 // CAVEATS
-//   - Zero-activity days produce no stage1 row: median/MAD are over ACTIVE days only (biased upward
+//   - Active-day sample semantics: Zero-activity days produce no stage1 row, so median/MAD are computed
+//     over ACTIVE days only ($raw_active_days), whereas the 30d metrics.* cross-check ($personal_z)
+//     uses the pre-computed 30d Malachite baseline (biased upward
 //     for sparse entities). $raw_active_days reports the sample size.
 //   - The scored day(s) are included in their own median/MAD (robust to this up to 50% contamination).
 //   - Saturation: if the history is flat except the scored day, MAD = 0 and meanAD = |x - median| / N,

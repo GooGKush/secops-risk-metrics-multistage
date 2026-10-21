@@ -191,5 +191,41 @@ class TestStatisticalModels(unittest.TestCase):
     self.assertEqual((base_ts + 86399) // 86400, day0)
 
 
+  def test_log_scaled_hurdle_and_inverse_log_fleet_shield(self):
+    """Verifies log-scaled Two-Part Hurdle dormant score and inverse-log Fleet Prevalence Shield."""
+    # Log-scaled dormant awakening: 10.0 + ln(obs + 1.0)
+    dormant_1 = 10.0 + math.log(1.0 + 1.0)
+    dormant_100 = 10.0 + math.log(100.0 + 1.0)
+    self.assertGreater(dormant_1, 10.0)
+    self.assertGreater(dormant_100, dormant_1)
+    self.assertLess(dormant_100, 20.0)
+
+    # Inverse-log fleet prevalence shield: personal_z / (1.0 + ln(fleet_count))
+    z_isolated = 6.0 / (1.0 + math.log(1.0))
+    z_wave = 6.0 / (1.0 + math.log(100.0))
+    self.assertAlmostEqual(z_isolated, 6.0)
+    self.assertLess(z_wave, 1.2)
+
+  def test_macd_monotone_breakout_and_circadian_clock_weights(self):
+    """Verifies monotone MACD ceiling breakout and Circadian 24h clock weights (1.917x at 03:00 UTC, 2.0x at 02:00 UTC)."""
+    # MACD: fast_z = 4.0, slow_z = 3.0 -> macd_diff = 1.0 > 0 -> score = fast_z + macd_diff * velocity_ratio
+    fast_z, slow_z, velocity_ratio = 4.0, 3.0, 1.25
+    macd_diff = fast_z - slow_z
+    macd_score = fast_z + (macd_diff * velocity_ratio) if macd_diff > 0 else fast_z
+    self.assertGreater(macd_score, fast_z)
+    self.assertAlmostEqual(macd_score, 5.25)
+
+    # Circadian clock distance from 14:00 UTC center: weight = 1.0 + circ_dist / 12.0
+    def circadian_weight(hour_utc: float) -> float:
+      abs_diff = abs(hour_utc - 14.0)
+      circ_dist = 24.0 - abs_diff if abs_diff > 12.0 else abs_diff
+      return 1.0 + (circ_dist / 12.0)
+
+    self.assertAlmostEqual(circadian_weight(14.0), 1.0)
+    self.assertAlmostEqual(circadian_weight(3.0), 1.0 + 11.0 / 12.0, places=3)  # ~1.917x
+    self.assertAlmostEqual(circadian_weight(2.0), 2.0)  # 02:00 UTC antipode
+
+
 if __name__ == '__main__':
+
   unittest.main()

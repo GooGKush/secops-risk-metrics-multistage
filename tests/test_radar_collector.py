@@ -540,6 +540,17 @@ stage stage_dns {
       self.assertIn("principal.user.email_addresses", text, f"Missing principal.user.email_addresses in {rel}")
 
 
+  def test_parse_chronicle_row_supports_composite_risk_and_z(self):
+    """EntityRadarCollector must unify all 4 Cloud CRUD Z-scores into $z and evaluate $z on Security & EDR Alerts."""
+    cloud_query = EntityRadarCollector.USER_SECTOR_QUERIES["Cloud Infrastructure"]
+    self.assertIn("$z_rw = if($z_read >= $z_write, $z_read, $z_write)", cloud_query)
+    self.assertIn("$z_cd = if($z_create >= $z_delete, $z_create, $z_delete)", cloud_query)
+    self.assertIn("$z = if($z_rw >= $z_cd, $z_rw, $z_cd)", cloud_query)
+    alert_query = EntityRadarCollector.ASSET_SECTOR_QUERIES["Security & EDR Alerts"]
+    self.assertIn("$z =", alert_query)
+
+
 if __name__ == "__main__":
+
   unittest.main()
 

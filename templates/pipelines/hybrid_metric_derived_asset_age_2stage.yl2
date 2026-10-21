@@ -83,10 +83,12 @@ outcome:
 
   $first_seen = min($stage2_asset_derived_context.first_seen_ts)
   $obs_ts = max($stage1_asset_baseline.event_timestamp)
-  $asset_age_days = ($obs_ts - $first_seen) / 86400.0
+  // Reference formula: $asset_age_days = ($obs_ts - $first_seen) / 86400.0 (guarded against missing $first_seen = 0)
+  $raw_age_days = ($obs_ts - $first_seen) / 86400.0
+  $asset_age_days = if($first_seen > 0, $raw_age_days, 9999.0)
 
   // Infant Asset Multiplier: 2.5x threat score boost for machines first seen <= 7 days ago
-  $is_infant_asset = if($asset_age_days <= 7.0 and $asset_age_days >= 0.0, 1.0, 0.0)
+  $is_infant_asset = if($first_seen > 0 and $asset_age_days <= 7.0 and $asset_age_days >= 0.0, 1.0, 0.0)
   $threat_multiplier = if($is_infant_asset = 1.0, 2.5, 1.0)
   $threat_score = $z_score * $threat_multiplier
 

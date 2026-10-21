@@ -15,7 +15,12 @@
 //   roster only if AD has no team for the subject. Never drop the team comparison silently.
 //   Roster known (named in the request, supplied in a later turn, or resolved from AD) ->
 //   keep the blocks, fill cohort_filter ($u = "a" or $u = "b"), delete only the marker
-//   lines, and order by $z_vs_team desc. Show the filled query in the Turn 1 Pre-Flight.
+//   lines, and swap BOTH condition: ($z_vs_team >= {{anomaly_threshold}}) AND order: ($z_vs_team desc).
+//   Show the filled query in the Turn 1 Pre-Flight.
+//   ADDITIONAL SLOTS: entity_name = entity_var without leading $ (e.g. user or host);
+//   target_entity_filter = subject/cohort filter in root stage (or {{entity_var}} != "" for fleet-wide).
+//   SAMUELSON SMALL-COHORT BOUND: Because the subject is included in the cohort mean/stddev,
+//   max Z <= math.sqrt(N - 1). A 3.0-sigma threshold requires N >= 11 peers; lower anomaly_threshold for smaller teams.
 //   Path user -> group -> enterprise: $z_vs_team (one vs group), $z_team_vs_enterprise
 //   (group mean vs fleet, in fleet std units; elevated = team campaign/rollout).
 //

@@ -21,7 +21,7 @@ outcome:
   $clamped_low = if($raw_z < -4.0, -4.0, $raw_z)
   $clamped_z = if($clamped_low > 6.0, 6.0, $clamped_low)
 
-  // 3. Piecewise Linear Calibrated Risk Index (CRI [0 - 100])
+  // 3. 5-Tier Step-Function Calibrated Risk Index (CRI tiers: {15, 40, 65, 85, 95} in [0 - 100])
   $cri_tier4 = if($clamped_z >= 4.0, 95.0, 85.0)
   $cri_tier3 = if($clamped_z >= 3.0, $cri_tier4, 65.0)
   $cri_tier2 = if($clamped_z >= 2.0, $cri_tier3, 40.0)

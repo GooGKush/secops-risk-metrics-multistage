@@ -73,9 +73,10 @@ outcome:
   $safe_max = if($hist_max > 0, $hist_max, 1.0)
   $velocity_ratio = $observed / $safe_max
 
-  // 4. Half-Rectified Acceleration Surge
+  // 4. Half-Rectified Acceleration Surge (monotone positive above $fast_z when $macd_diff > 0)
   $scaled_diff = $macd_diff * $velocity_ratio
-  $macd_momentum_score = if($macd_diff > 0, $scaled_diff, $fast_z)
+  $breakout_score = $fast_z + $scaled_diff
+  $macd_momentum_score = if($macd_diff > 0, $breakout_score, $fast_z)
 
 // Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
 condition:

@@ -44,6 +44,9 @@ class StatisticalAntipatternType(str, Enum):
   UNPROFILED_SERVICE_ACCOUNT = "STAT_ANTIPATTERN_UNPROFILED_SERVICE_ACCOUNT"
   MONOLITHIC_RADAR_JOIN = "STAT_ANTIPATTERN_MONOLITHIC_RADAR_JOIN"
   WALL_CLOCK_TIME_DRIFT = "STAT_ANTIPATTERN_WALL_CLOCK_TIME_DRIFT"
+  UNANCHORED_DERIVED_CONTEXT_PREVALENCE = "STAT_ANTIPATTERN_UNANCHORED_DERIVED_CONTEXT_PREVALENCE"
+  UNRECTIFIED_SQUARED_Z_FUSION = "STAT_ANTIPATTERN_UNRECTIFIED_SQUARED_Z_FUSION"
+  HARDCODED_DORMANT_Z_PROXY = "STAT_ANTIPATTERN_HARDCODED_DORMANT_Z_PROXY"
 
 
 @dataclass
@@ -99,13 +102,20 @@ class StatisticalAntipatternAuditor:
   }
 
   @classmethod
+  def _strip_comments(cls, query: str) -> str:
+    """Strips /* ... */ block comments and // line comments from YARA-L text."""
+    no_block = re.sub(r"/\*.*?\*/", "", query, flags=re.DOTALL)
+    return "\n".join(re.sub(r"//[^\n]*", "", ln) for ln in no_block.splitlines())
+
+  @classmethod
   def audit_query(cls, query_text: str) -> List[StatisticalViolation]:
     """Audits a multi-stage YARA-L 2.0 query for all statistical antipatterns."""
     violations: List[StatisticalViolation] = []
+    clean_query = cls._strip_comments(query_text)
 
-    # Parse stages
-    stages = cls._extract_stages(query_text)
-    root_stage_body = cls._extract_root_stage(query_text)
+    # Parse stages using balanced brace counting
+    stages = cls._extract_stages(clean_query)
+    root_stage_body = cls._extract_root_stage(clean_query)
 
     # Check each named stage
     for stage_name, stage_body in stages.items():
@@ -127,30 +137,58 @@ class StatisticalAntipatternAuditor:
       # 6. Wall-Clock Time Drift (non-deterministic timestamp.current_seconds())
       violations.extend(cls._check_wall_clock_time_drift(stage_name, stage_body))
 
+      # 7. Unanchored DERIVED_CONTEXT Prevalence
+      violations.extend(cls._check_unanchored_derived_context_prevalence(stage_name, stage_body))
+
+      # 8. Hardcoded 10.0 Dormant Z-Score Proxy
+      violations.extend(cls._check_hardcoded_dormant_z_proxy(stage_name, stage_body))
+
     # Check Root Stage
     if root_stage_body:
       violations.extend(cls._check_zero_dispersion_hazard("root", root_stage_body))
       violations.extend(cls._check_collinear_vector_fusion(root_stage_body, stages))
       violations.extend(cls._check_monolithic_radar_join(root_stage_body, stages))
       violations.extend(cls._check_wall_clock_time_drift("root", root_stage_body))
+      violations.extend(cls._check_unanchored_derived_context_prevalence("root", root_stage_body))
+      violations.extend(cls._check_hardcoded_dormant_z_proxy("root", root_stage_body))
     elif len(stages) > 4:
       violations.extend(cls._check_monolithic_radar_join("", stages))
 
+    violations.extend(cls._check_unrectified_squared_z_fusion(root_stage_body, stages, clean_query))
     return violations
 
   @classmethod
   def _extract_stages(cls, query: str) -> Dict[str, str]:
     stages: Dict[str, str] = {}
-    stage_matches = re.finditer(r"stage\s+([a-zA-Z0-9_]+)\s*\{([^}]*)\}", query, re.DOTALL)
-    for m in stage_matches:
-      stages[m.group(1)] = m.group(2)
+    for m in re.finditer(r"\bstage\s+([a-zA-Z0-9_]+)\s*\{", query):
+      stage_name = m.group(1)
+      start_idx = m.end()
+      depth = 1
+      pos = start_idx
+      while pos < len(query) and depth > 0:
+        if query[pos] == "{":
+          depth += 1
+        elif query[pos] == "}":
+          depth -= 1
+        pos += 1
+      if depth == 0:
+        stages[stage_name] = query[start_idx : pos - 1]
     return stages
 
   @classmethod
   def _extract_root_stage(cls, query: str) -> str:
     last_stage_end = 0
-    for match in re.finditer(r"stage\s+[a-zA-Z0-9_]+\s*\{[^}]*\}", query, re.DOTALL):
-      last_stage_end = max(last_stage_end, match.end())
+    for m in re.finditer(r"\bstage\s+[a-zA-Z0-9_]+\s*\{", query):
+      pos = m.end()
+      depth = 1
+      while pos < len(query) and depth > 0:
+        if query[pos] == "{":
+          depth += 1
+        elif query[pos] == "}":
+          depth -= 1
+        pos += 1
+      if depth == 0:
+        last_stage_end = max(last_stage_end, pos)
     return query[last_stage_end:].strip()
 
   @classmethod
@@ -297,38 +335,52 @@ class StatisticalAntipatternAuditor:
 
     outcome_content = outcome_block.group(1)
 
-    div_matches = re.finditer(r"(\$[a-zA-Z0-9_]+)\s*=\s*([^/\n]+)/\s*([^\n;]+)", outcome_content)
-    for m in div_matches:
-      lhs_var = m.group(1)
-      numerator = m.group(2).strip()
-      denom = m.group(3).strip()
+    for raw_line in outcome_content.splitlines():
+      assign_m = re.match(r"\s*(\$[a-zA-Z0-9_]+)\s*=\s*(.+)$", raw_line)
+      if not assign_m:
+        continue
+      lhs_var = assign_m.group(1)
+      rhs_expr = assign_m.group(2).strip()
+      if "/" not in rhs_expr or lhs_var.lower().startswith("$beta"):
+        continue
 
-      # Check if this division computes a standardized score, Z-score, or deviation quotient
-      is_z_or_score = any(kw in lhs_var.lower() for kw in ["z", "score", "rate", "outlier", "quotient"]) or any(kw in numerator.lower() for kw in ["diff", "obs", "observed", "count"])
-      is_dispersion_denom = any(kw in denom.lower() for kw in ["sigma", "std", "mad", "stddev"])
+      # Inspect both the full denominator expression and every / $denom token on the line
+      denom_candidates: List[str] = []
+      first_slash = rhs_expr.find("/")
+      if first_slash != -1:
+        denom_candidates.append(rhs_expr[first_slash + 1 :].strip())
+      for dm in re.finditer(r"/\s*(\$[a-zA-Z0-9_.]+|\([^)]+\)|if\s*\([^)]+\)|max\s*\([^)]+\))", rhs_expr):
+        cand = dm.group(1).strip()
+        if cand not in denom_candidates:
+          denom_candidates.append(cand)
 
-      # If dividing by standard deviation in Z-score or normalized anomaly metric
-      if is_z_or_score and is_dispersion_denom and not lhs_var.lower().startswith("$beta"):
-        has_dispersion_floor = bool(
-            re.search(r"if\s*\(", denom) or
-            re.search(r"\+\s*(?:1(?:\.0*)?|0\.[0-9]+)", denom) or
-            re.search(r"max\s*\([^,]+,\s*(?:1(?:\.0*)?|0\.[0-9]+)\)", denom) or
-            "safe" in denom.lower() or
-            re.search(rf"\${re.escape(denom.lstrip('$'))}\s*=\s*if\s*\(", stage_body)
-        )
-        if not has_dispersion_floor:
-          violations.append(
-              StatisticalViolation(
-                  antipattern=StatisticalAntipatternType.ZERO_DISPERSION_HAZARD,
-                  stage_name=stage_name,
-                  description=(
-                      f"Stage '{stage_name}' outcome variable '{lhs_var}' divides by dispersion denominator '{denom}' "
-                      "without a non-zero dispersion floor or guard. On quiet accounts with zero historical variance (sigma = 0), "
-                      "this triggers division by zero, yielding NaN, Infinity, or backend query abortion."
-                  ),
-                  remediation=f"Apply zero-variance protection: 'if({denom} > 0, {denom}, 1.0)' or an intermediate safe floor variable.",
-              )
+      is_z_or_score = any(kw in lhs_var.lower() for kw in ["z", "score", "rate", "outlier", "quotient"]) or any(
+          kw in rhs_expr.lower() for kw in ["diff", "obs", "observed", "count"]
+      )
+      for denom in denom_candidates:
+        is_dispersion_denom = any(kw in denom.lower() for kw in ["sigma", "std", "mad", "stddev", "$sd", "_sd"])
+        if is_z_or_score and is_dispersion_denom:
+          has_dispersion_floor = bool(
+              re.search(r"if\s*\(", denom)
+              or re.search(r"\+\s*(?:[1-9][0-9]*(?:\.[0-9]*)?|0\.[0-9]*[1-9][0-9]*)", denom)
+              or re.search(r"max\s*\([^,]+,\s*(?:[1-9][0-9]*(?:\.[0-9]*)?|0\.[0-9]*[1-9][0-9]*)\)", denom)
+              or "safe" in denom.lower()
+              or re.search(rf"\${re.escape(denom.lstrip('$'))}\s*=\s*if\s*\(", stage_body)
           )
+          if not has_dispersion_floor:
+            violations.append(
+                StatisticalViolation(
+                    antipattern=StatisticalAntipatternType.ZERO_DISPERSION_HAZARD,
+                    stage_name=stage_name,
+                    description=(
+                        f"Stage '{stage_name}' outcome variable '{lhs_var}' divides by dispersion denominator '{denom}' "
+                        "without a non-zero dispersion floor or guard. On quiet accounts with zero historical variance (sigma = 0), "
+                        "this triggers division by zero, yielding NaN, Infinity, or backend query abortion."
+                    ),
+                    remediation=f"Apply zero-variance protection: 'if({denom} > 0, {denom}, 1.0)' or an intermediate safe floor variable.",
+                )
+            )
+            break
 
     return violations
 
@@ -553,6 +605,92 @@ class StatisticalAntipatternAuditor:
                   "Anchor time calculations to observed event telemetry: extract '$event_timestamp = max(metadata.event_timestamp.seconds)' "
                   "in Stage 1 and compute recency via '($obs_ts - $reference_time) / 86400.0' in downstream stages."
               ),
+          )
+      )
+    return violations
+
+
+  @classmethod
+  def _check_unanchored_derived_context_prevalence(
+      cls, stage_name: str, stage_body: str
+  ) -> List[StatisticalViolation]:
+    """Detects DERIVED_CONTEXT prevalence usage without the mandatory day_count = 10 anchor."""
+    violations: List[StatisticalViolation] = []
+    if "DERIVED_CONTEXT" in stage_body and ".prevalence." in stage_body:
+      if not re.search(r"\.prevalence\.day_count\s*=\s*10\b", stage_body):
+        violations.append(
+            StatisticalViolation(
+                antipattern=StatisticalAntipatternType.UNANCHORED_DERIVED_CONTEXT_PREVALENCE,
+                stage_name=stage_name,
+                description=(
+                    f"Stage '{stage_name}' queries DERIVED_CONTEXT prevalence without anchoring "
+                    "'.prevalence.day_count = 10'. Chronicle SIEM only populates DERIVED_CONTEXT prevalence "
+                    "buckets at day_count = 10; omitting or altering this filter yields 0 rows or multi-bucket duplication."
+                ),
+                remediation="Add explicit filter: '$graph.graph.entity.<type>.prevalence.day_count = 10'.",
+            )
+        )
+    return violations
+
+  @classmethod
+  def _check_hardcoded_dormant_z_proxy(
+      cls, stage_name: str, stage_body: str
+  ) -> List[StatisticalViolation]:
+    """Detects hardcoded 10.0 Z-score proxies for dormant/cold-start entities."""
+    violations: List[StatisticalViolation] = []
+    pattern = re.compile(
+        r"if\s*\(\s*\$[a-zA-Z0-9_.]*(?:active_days|baseline_days|days|num_metric_periods|hist_avg|historical_avg|mean|stddev|sigma|sd)[a-zA-Z0-9_.]*\s*(?:=|==|<=|<)\s*[0-9.]+\s*,\s*10(?:\.0+)?\b",
+        re.IGNORECASE,
+    )
+    if pattern.search(stage_body):
+      violations.append(
+          StatisticalViolation(
+              antipattern=StatisticalAntipatternType.HARDCODED_DORMANT_Z_PROXY,
+              stage_name=stage_name,
+              description=(
+                  f"Stage '{stage_name}' substitutes a hardcoded '10.0' Z-score proxy for dormant or zero-baseline entities. "
+                  "Flat constant proxies destroy volume ranking among cold-start breakouts."
+              ),
+              remediation="Use the Two-Part Hurdle formulation ($dormant_score = $observed * 2.0 or 10.0 + math.log($observed + 1.0)).",
+          )
+      )
+    return violations
+
+  @classmethod
+  def _check_unrectified_squared_z_fusion(
+      cls, root_body: str, stages: Dict[str, str], full_query: str
+  ) -> List[StatisticalViolation]:
+    """Detects squaring unrectified Z-scores in multi-sector Euclidean threat fusion."""
+    violations: List[StatisticalViolation] = []
+    target_text = root_body if root_body else full_query
+    has_fusion_norm = bool(
+        re.search(
+            r"\$(?:composite_threat_norm_sq|composite_threat_norm|threat_distance_sq|d_sq|threat_norm|threat_distance|norm)\s*=",
+            target_text,
+            re.IGNORECASE,
+        )
+    )
+    if not has_fusion_norm:
+      return violations
+    has_squaring = bool(
+        re.search(r"(\$[a-zA-Z0-9_]+)\s*\*\s*\1\b|math\.pow\s*\(\s*\$[a-zA-Z0-9_.]+\s*,\s*2\s*\)", target_text)
+    )
+    if not has_squaring:
+      return violations
+    has_rectification = bool(
+        re.search(r"if\s*\([^,]+>\s*0(?:\.0+)?\s*,[^,]+,\s*0(?:\.0+)?\s*\)", full_query)
+    )
+    if not has_rectification:
+      violations.append(
+          StatisticalViolation(
+              antipattern=StatisticalAntipatternType.UNRECTIFIED_SQUARED_Z_FUSION,
+              stage_name="root",
+              description=(
+                  "Root stage squares Z-scores into a multi-sector Euclidean threat norm without half-rectification "
+                  "max(0, Z). Squaring negative Z-scores (quiet sectors below baseline mean) turns inactivity into "
+                  "positive threat distance."
+              ),
+              remediation="Half-rectify each sector Z-score prior to squaring: '$z_pos = if($z_raw > 0, $z_raw, 0.0)'.",
           )
       )
     return violations

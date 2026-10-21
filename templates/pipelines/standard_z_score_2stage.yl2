@@ -15,10 +15,11 @@
 //    - event_filter slot: metadata.event_type = "USER_LOGIN", entity_field slot: target.user.userid
 //    - observed_aggregation slot: count(metadata.id), target_metric_name slot: auth_attempts_total
 //    - metric_type_val slot: event_count_sum, dimension_key slot: target.user.userid
-// 3. Endpoint Process Executions (Host + Binary Hash):
-//    - event_filter slot: metadata.event_type = "PROCESS_LAUNCH", entity_field slot: principal.asset.hostname
-//    - Companion Dimension: principal.process.file.sha256 = $sha (CRITICAL: NEVER target.process.file.sha256)
-//    - target_metric_name slot: file_executions_total (requires metadata.event_type: $event_type, principal.asset.hostname: $entity, principal.process.file.sha256: $sha)
+// 3. DNS Query Volume (Single-Key Host):
+//    - event_filter slot: (network.dns.questions.name != "" or network.dns.answers.name != "" or network.dns.id != 0), entity_field slot: principal.asset.hostname
+//    - observed_aggregation slot: count(metadata.id), target_metric_name slot: dns_queries_total
+//    - metric_type_val slot: event_count_sum, dimension_key slot: principal.asset.hostname
+//    (Note: composite-only metrics like file_executions_total require binding all companion keys in match: and extra_dimensions)
 // ============================================================================
 
 // Stage 1: Telemetry Extraction & Pre-Computed 30-Day Behavioral Baseline Lookup
@@ -72,6 +73,12 @@ outcome:
 
   // 1. Parametric Standard Z-Score with Conditional Zero-Dispersion Safeguard
   $personal_z = ($observed_val - $baseline_mean) / if($baseline_stddev > 0, $baseline_stddev, {{dispersion_floor}})
+
+  // Model Concordance variable aliases
+  $observed = $observed_val
+  $hist_avg = $baseline_mean
+  $hist_stddev = $baseline_stddev
+  $z_score = $personal_z
 
 // Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
 condition:

@@ -358,9 +358,10 @@ order:
     self.assertIn("$dest_z = ($observed_reads - $dest_avg) / if($dest_stddev > 0, $dest_stddev, 1.0)", cr_content)
     self.assertIn("$create_z = ($observed_creates - $dest_create_avg) / if($dest_create_stddev > 0, $dest_create_stddev, 1.0)", cr_content)
     self.assertIn("$origin_z = ($observed_reads - $origin_avg) / if($origin_stddev > 0, $origin_stddev, 1.0)", cr_content)
-    self.assertIn("$dest_z = max($stage1_extract.dest_z)", cr_content)
-    self.assertIn("$create_z = max($stage1_extract.create_z)", cr_content)
-    self.assertIn("$origin_z = max($stage1_extract.origin_z)", cr_content)
+    self.assertIn("$ip_origin_z = ($ip_total_reads - $origin_avg) / if($origin_stddev > 0, $origin_stddev, 1.0)", cr_content)
+    self.assertIn("$dest_z = ($obs - max($stage1_extract.dest_avg)) / if(max($stage1_extract.dest_stddev) > 0, max($stage1_extract.dest_stddev), 1.0)", cr_content)
+    self.assertIn("$create_z = ($obs_creates - max($stage1_extract.dest_create_avg)) / if(max($stage1_extract.dest_create_stddev) > 0, max($stage1_extract.dest_create_stddev), 1.0)", cr_content)
+    self.assertIn("$origin_z = max($stage2_origin_rollup.ip_origin_z)", cr_content)
     self.assertIn("$composite_risk = if($dest_z > 0, $dest_z, 0.0)", cr_content)
 
     # 4. dual_baseline_delta_z_3stage.yl2

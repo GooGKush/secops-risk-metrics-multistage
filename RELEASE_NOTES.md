@@ -17,8 +17,8 @@
   - **Explicit Conditional Trigger**: If asked whether or how BigQuery powers UEBA, states flatly that **BigQuery contributes nothing to SecOps UEBA**—SecOps UEBA is completely native to Google SecOps (BigQuery only ever appears as a monitored customer cloud target in `GCP_CLOUDAUDIT` telemetry, alongside GCS or AWS S3).
 * **Contract Test Enforcement (`tests/test_guardrail_contracts.py`)**: Added `test_zero_bigquery_backend_guardrail` to enforce `"leveraging core Google infrastructure"` and `"BigQuery contributes nothing to SecOps UEBA"` while forbidding any false backend BigQuery claims or internal storage names.
 
-### 2. Cloud CRUD 360° Radar Zero-Dispersion Fallback Suppression (`scripts/radar_collector.py`, `references/360-behavioral-radar-guide.md`)
-* Updated the zero-dispersion fallback divisor in the Cloud CRUD 360° sector query (`if($read_std > 0, $read_std, 1000000.0)` across read/write/create/delete branches) so unestablished or zero-variance cloud CRUD branches do not produce artificial Z-score spikes.
+### 2. Cloud CRUD 360° Radar Per-Product Z-Score & Dispersion Floor Alignment (`scripts/radar_collector.py`, `references/360-behavioral-radar-guide.md`)
+* Computes Cloud CRUD directional Z-scores per `(user, vendor, product)` tuple inside Stage 1 before taking `max()` across products in the root stage, using the canonical `if($read_std > 0, $read_std, 1.0)` dispersion floor across read/write/create/delete branches so multi-product baselines are never mixed across incompatible scales.
 
 ---
 
@@ -50,20 +50,20 @@ A major point release combining critical query execution integrity safeguards (`
   - `EXFILTRATION_OVER_WEB_SERVICE` (`TA0009` $\rightarrow$ `TA0010`): `metrics.workspace_total_download_actions` + `metrics.http_queries_total` (`principal.user.userid`).
 
 ### 4. Native SecOps Data Table Bridging (`templates/pipelines/hybrid_data_table_bridge_2stage.yl2`, `scripts/template_router.py`)
-* Added **`HYBRID_DATA_TABLE_BRIDGE_2STAGE`** (`templates/pipelines/hybrid_data_table_bridge_2stage.yl2`, 33rd pipeline template) and `ChainedHuntRouter.build_data_table_bridge_query()`.
-* In Two-Phase Cross-Entity Chained Hunts (`USER` $\leftrightarrow$ `ASSET` / `IP`), when Phase 1 yields an outlier cohort, the workflow materializes the bridged entities into SecOps Data Table `%ueba_hunt_bridge` (`create_data_table` / `add_rows_to_data_table`) and joins `principal.asset.hostname = %ueba_hunt_bridge.hostname` in Phase 2—eliminating 25-element `in (...)` literal list truncation.
+* Added **`templates/pipelines/hybrid_data_table_bridge_2stage.yl2`** (33rd pipeline template) and `ChainedHuntRouter.build_data_table_bridge_query()`.
+* In Two-Phase Cross-Entity Chained Hunts (`USER` $\leftrightarrow$ `ASSET` / `IP`), when a Phase 1 cohort exceeds 25 entities or requires persistent cohort bridging, upon explicit analyst approval in **State 3** the workflow materializes the bridged entities into SecOps Data Table `%ueba_hunt_bridge` (`create_data_table` / `add_rows_to_data_table`) and joins `principal.asset.hostname = %ueba_hunt_bridge.hostname` via `ChainedHuntRouter.build_data_table_bridge_query()`—avoiding 25-element `in (...)` literal list truncation.
 
-### 5. Streamlined 5-Section CommonMark Triage Reporting (`SKILL.md`, `references/reporting-standards.md`, `scripts/triage_formatter.py`)
-* Removed the redundant **Executed Multi-Stage YARA-L Query** code dump from Turn 2 delivered reports. Because the candidate query is already previewed in Turn 1 Pre-Flight and cryptographically/syntactically verified at execution time by `QueryIntegrityGate`, Turn 2 reports now deliver 5 crisp operational sections:
-  1. *Statistical Outlier Report & Visual Surface*
+### 5. Streamlined 5-Section CommonMark Triage Reporting (`SKILL.md`, `scripts/triage_formatter.py`)
+* Consolidated Turn 2 delivered reports into 5 operational sections (`#### 1.` through `#### 5.`), placing the verbatim executed multi-stage query inside Section 5 (*Collapsible Technical Appendix (Statistical & Mathematical Appendix)*):
+  1. *Statistical Outlier Report: `[Target Metric] ([Statistical Model]) — Executive Summary & Calibrated Risk Index (CRI)`*
   2. *Ranked Outlier Summary & Provenance Stamp* (6 forensic evidence columns)
   3. *Forensic Vector Breakdown & Agentic Next Steps (`[1]` / `[2]` / `[3]`)*
-  4. *Chronicle UI Manual Pivot (Triage Reference Only)*
-  5. *Statistical & Mathematical Appendix*
+  4. *Chronicle UI Manual Pivot (Triage Reference Only, inside ```` ```text ```` fence)*
+  5. *Collapsible Technical Appendix (Statistical & Mathematical Appendix, including verbatim executed query)*
 
 ### 6. Ready-to-Run v2.1.0 Sample Queries
 
-#### Sample 1: Two-Phase Cross-Entity Data Table Bridge (`HYBRID_DATA_TABLE_BRIDGE_2STAGE`)
+#### Sample 1: Two-Phase Cross-Entity Data Table Bridge (`templates/pipelines/hybrid_data_table_bridge_2stage.yl2`)
 ```yara
 // Goal: Score 30-day behavioral metric departures for a bridged cohort stored
 //       in SecOps Data Table %ueba_hunt_bridge (Two-Phase Chained Bridge)
@@ -95,7 +95,7 @@ stage stage1_extract {
     $active_baseline_days = max(metrics.network_bytes_outbound(
         period: 1d, window: 30d,
         metric: value_sum,
-        agg: count_days_seen,
+        agg: num_metric_periods,
         principal.asset.hostname: principal.asset.hostname
     ))
 }

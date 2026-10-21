@@ -70,6 +70,72 @@ class MultiStageTemplateRouter:
   # Default sector pair when a fusion pipeline is requested without explicit metrics.
   DEFAULT_FUSION_METRICS = ("auth_attempts_fail", "network_bytes_outbound")
 
+  STAGE2_TEMPLATES = {
+      StatisticalModel.STANDARD_Z_SCORE: "standard_z_score.yl2",
+      StatisticalModel.MAD: "mad.yl2",
+      StatisticalModel.RELATIVE_DEVIATION: "relative_deviation.yl2",
+      StatisticalModel.VARIANCE: "variance_fano.yl2",
+      StatisticalModel.POISSON: "poisson_rarity.yl2",
+      StatisticalModel.COEFFICIENT_OF_VARIATION: "coefficient_of_variation.yl2",
+      StatisticalModel.HOURLY_TEMPORAL_ZSCORE: "hourly_temporal_zscore.yl2",
+      StatisticalModel.BAYESIAN_GAMMA: "poisson_gamma_bayesian.yl2",
+      StatisticalModel.BAYESIAN_BETA_BINOMIAL: "beta_binomial_bayesian.yl2",
+      StatisticalModel.LONGITUDINAL_CUSUM: "longitudinal_cusum.yl2",
+      StatisticalModel.TWO_PART_HURDLE: "two_part_hurdle.yl2",
+      StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z: "asymmetric_directional_z.yl2",
+      StatisticalModel.PIECEWISE_CRI: "piecewise_cri.yl2",
+      StatisticalModel.FLEET_PREVALENCE_SHIELD: "fleet_prevalence_shield.yl2",
+      StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD: "adaptive_context_threshold.yl2",
+      StatisticalModel.MACD_MOMENTUM_VELOCITY: "macd_momentum_velocity.yl2",
+      StatisticalModel.CIRCADIAN_VON_MISES: "circadian_von_mises.yl2",
+      "diversity_deficit": "diversity_deficit_entropy.yl2",
+      "diversity_deficit_entropy": "diversity_deficit_entropy.yl2",
+      "macd_momentum": "macd_momentum.yl2",
+      "macd_momentum_velocity": "macd_momentum_velocity.yl2",
+      "hourly_zscore": "hourly_temporal_zscore.yl2",
+      "longitudinal_cusum": "longitudinal_cusum.yl2",
+  }
+
+  STAGE2_FALLBACK_TEMPLATES = {
+      "diversity_deficit_entropy.yl2": "coefficient_of_variation.yl2",
+      "macd_momentum.yl2": "macd_momentum_velocity.yl2",
+  }
+
+  MODEL_DESCRIPTIONS = {
+      StatisticalModel.HOURLY_TEMPORAL_ZSCORE: "Macro-Day + Micro-Hour Burst Localization",
+      "hourly_zscore": "Macro-Day + Micro-Hour Burst Localization",
+      StatisticalModel.LONGITUDINAL_CUSUM: "Multi-Day Cumulative Drift (Windowed Slack Sum)",
+      "longitudinal_cusum": "Multi-Day Cumulative Drift (Windowed Slack Sum)",
+      StatisticalModel.MACD_MOMENTUM_VELOCITY: "MACD Multi-Horizon Momentum & Velocity Crossover",
+      "macd_momentum": "MACD Multi-Horizon Momentum & Velocity Crossover",
+      "diversity_deficit": "Lexical Diversity Deficit & Target Concentration",
+      "diversity_deficit_entropy": "Lexical Diversity Deficit & Target Concentration",
+  }
+
+  @staticmethod
+  def _escape_yaral_literal(val: str) -> str:
+    """Escapes backslashes and double quotes in user-supplied YARA-L string literals."""
+    return str(val).replace("\\", "\\\\").replace('"', '\\"')
+
+  @staticmethod
+  def validate_rendered_pipeline(query_text: str) -> List[str]:
+    """Checks rendered YARA-L pipeline text for unresolved {{placeholders}} and AST errors."""
+    from scripts.preflight_validator import MalachiteASTValidator
+    errors: List[str] = []
+    if not query_text or not query_text.strip():
+      return ["EMPTY_QUERY: Rendered pipeline query is empty."]
+    code_only = "\n".join(
+        ln for ln in query_text.splitlines() if not ln.lstrip().startswith("//")
+    )
+    unresolved = re.findall(r"\{\{[^}]+\}\}", code_only)
+    if unresolved:
+      errors.append(
+          f"UNRENDERED_PLACEHOLDERS: Unresolved template placeholders found: {sorted(set(unresolved))}"
+      )
+    ast_errors = MalachiteASTValidator.validate_query(query_text)
+    errors.extend(ast_errors)
+    return errors
+
   # ---------------------------------------------------------------------------
   # Entity binding helpers
   # ---------------------------------------------------------------------------
@@ -307,6 +373,14 @@ class MultiStageTemplateRouter:
     return rendered + "\n"
 
   @staticmethod
+  def _set_root_condition(rendered: str, expression: str) -> str:
+    """Replaces an existing root condition block with `expression`, or inserts one before `order:`."""
+    cond_block = f"condition:\n  {expression}\n\n"
+    if "\ncondition:\n" in rendered:
+      return re.sub(r"\ncondition:\s*\n.*?\n(?=order:)", f"\n{cond_block}", rendered, flags=re.DOTALL)
+    return re.sub(r"(\border:\s*)", f"{cond_block}\\1", rendered, count=1)
+
+  @staticmethod
   def _merge_root_condition(rendered: str, expression: str) -> str:
     """Adds `expression` to the root condition, AND-ing it into an existing condition block if present.
 
@@ -453,26 +527,50 @@ class MultiStageTemplateRouter:
     stage1_content = self._rebind_entity_field(
         self._strip_identifier_swap_note(stage1_path.read_text().strip()), target_metric, audit["target_field"])
 
-    stage2_file_map = {
-        StatisticalModel.STANDARD_Z_SCORE: "standard_z_score.yl2",
-        StatisticalModel.MAD: "mad.yl2",
-        StatisticalModel.RELATIVE_DEVIATION: "relative_deviation.yl2",
-        StatisticalModel.VARIANCE: "variance_fano.yl2",
-        StatisticalModel.POISSON: "poisson_rarity.yl2",
-        StatisticalModel.COEFFICIENT_OF_VARIATION: "coefficient_of_variation.yl2",
-        StatisticalModel.HOURLY_TEMPORAL_ZSCORE: "hourly_temporal_zscore.yl2",
-        StatisticalModel.BAYESIAN_GAMMA: "poisson_gamma_bayesian.yl2",
-        StatisticalModel.BAYESIAN_BETA_BINOMIAL: "beta_binomial_bayesian.yl2",
-        StatisticalModel.LONGITUDINAL_CUSUM: "longitudinal_cusum.yl2",
-        StatisticalModel.TWO_PART_HURDLE: "two_part_hurdle.yl2",
-        StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z: "asymmetric_directional_z.yl2",
-        StatisticalModel.PIECEWISE_CRI: "piecewise_cri.yl2",
-        StatisticalModel.FLEET_PREVALENCE_SHIELD: "fleet_prevalence_shield.yl2",
-        StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD: "adaptive_context_threshold.yl2",
-        StatisticalModel.MACD_MOMENTUM_VELOCITY: "macd_momentum_velocity.yl2",
-        StatisticalModel.CIRCADIAN_VON_MISES: "circadian_von_mises.yl2",
-    }
-    stage2_path = self.template_dir / "stage2_math_models" / stage2_file_map[statistical_model]
+    model_key = statistical_model
+    if isinstance(statistical_model, str):
+      raw_key = statistical_model.strip()
+      lower_key = raw_key.lower()
+      alias_enum_map = {
+          "hourly_zscore": StatisticalModel.HOURLY_TEMPORAL_ZSCORE,
+          "hourly_temporal_zscore": StatisticalModel.HOURLY_TEMPORAL_ZSCORE,
+          "longitudinal_cusum": StatisticalModel.LONGITUDINAL_CUSUM,
+          "macd_momentum": StatisticalModel.MACD_MOMENTUM_VELOCITY,
+          "macd_momentum_velocity": StatisticalModel.MACD_MOMENTUM_VELOCITY,
+          "standard_z_score": StatisticalModel.STANDARD_Z_SCORE,
+          "mad": StatisticalModel.MAD,
+          "poisson": StatisticalModel.POISSON,
+          "variance": StatisticalModel.VARIANCE,
+          "relative_deviation": StatisticalModel.RELATIVE_DEVIATION,
+          "coefficient_of_variation": StatisticalModel.COEFFICIENT_OF_VARIATION,
+          "bayesian_gamma": StatisticalModel.BAYESIAN_GAMMA,
+          "bayesian_beta_binomial": StatisticalModel.BAYESIAN_BETA_BINOMIAL,
+          "two_part_hurdle": StatisticalModel.TWO_PART_HURDLE,
+          "asymmetric_directional_z": StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z,
+          "piecewise_cri": StatisticalModel.PIECEWISE_CRI,
+          "fleet_prevalence_shield": StatisticalModel.FLEET_PREVALENCE_SHIELD,
+          "adaptive_context_threshold": StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD,
+          "circadian_von_mises": StatisticalModel.CIRCADIAN_VON_MISES,
+      }
+      if lower_key in alias_enum_map:
+        statistical_model = alias_enum_map[lower_key]
+        model_key = statistical_model
+      else:
+        for m_enum in StatisticalModel:
+          if raw_key in (m_enum.name, m_enum.value) or lower_key == m_enum.name.lower():
+            statistical_model = m_enum
+            model_key = m_enum
+            break
+        else:
+          model_key = lower_key
+
+    stage2_file = self.STAGE2_TEMPLATES.get(model_key) or self.STAGE2_TEMPLATES.get(statistical_model)
+    if not stage2_file:
+      raise ValueError(f"Unsupported statistical model: {statistical_model}")
+    stage2_path = self.template_dir / "stage2_math_models" / stage2_file
+    if not stage2_path.exists() and stage2_file in self.STAGE2_FALLBACK_TEMPLATES:
+      stage2_file = self.STAGE2_FALLBACK_TEMPLATES[stage2_file]
+      stage2_path = self.template_dir / "stage2_math_models" / stage2_file
     if not stage2_path.exists():
       raise FileNotFoundError(f"Missing Stage 2 template: {stage2_path}")
     stage2_raw = stage2_path.read_text().strip()
@@ -548,13 +646,17 @@ class MultiStageTemplateRouter:
     )
     gate = self.root_condition(stage2_rendered)
 
+    model_label = statistical_model.value if hasattr(statistical_model, "value") else str(statistical_model)
+    model_desc = self.MODEL_DESCRIPTIONS.get(model_key) or self.MODEL_DESCRIPTIONS.get(statistical_model)
+    desc_line = f"// Model Architecture: {model_desc}\n" if model_desc else ""
     header = (
         "// ============================================================================\n"
         "// METHODOLOGY & HUNTING GOAL\n"
         f"// Goal: {hypothesis_goal or ('Hunt for statistical outliers in ' + target_metric)}\n"
         f"// Target Telemetry: {audit['event_label']} (Dimensions: {audit['target_field']})\n"
         f"// Event Filter: {' AND '.join(audit['event_filter'])}\n"
-        f"// Statistical Model: {statistical_model.value}\n"
+        f"// Statistical Model: {model_label}\n"
+        f"{desc_line}"
         f"// Significance Gate: {gate or 'NONE (model has no significance threshold; see template NO-GATE note)'}\n"
         f"// Match Mode: {match_mode.value}\n"
         f"// Baseline Window: 30-Day Historical Pre-Computed Metrics (Min Active Days: {audit['min_baseline_days']})\n"
@@ -678,18 +780,15 @@ class MultiStageTemplateRouter:
         raw = f"// Goal: {hypothesis_goal}\n" + raw
       rendered = raw
       if condition_expression:
-        cond_block = f"condition:\n  {condition_expression}\n\n"
-        rendered = re.sub(r'(\border:\s*)', f"{cond_block}\\1", rendered, count=1)
+        rendered = self._set_root_condition(rendered, condition_expression)
       elif min_threshold is not None and max_threshold is not None:
         order_match = re.search(r'order:\s*\n\s*([$][a-zA-Z0-9_]+)', rendered)
         score_var = order_match.group(1) if order_match else "$normalized_odds_score"
-        cond_block = f"condition:\n  {score_var} >= {min_threshold} and {score_var} < {max_threshold}\n\n"
-        rendered = re.sub(r'(\border:\s*)', f"{cond_block}\\1", rendered, count=1)
+        rendered = self._set_root_condition(rendered, f"{score_var} >= {min_threshold} and {score_var} < {max_threshold}")
       elif min_threshold is not None:
         order_match = re.search(r'order:\s*\n\s*([$][a-zA-Z0-9_]+)', rendered)
         score_var = order_match.group(1) if order_match else "$normalized_odds_score"
-        cond_block = f"condition:\n  {score_var} >= {min_threshold}\n\n"
-        rendered = re.sub(r'(\border:\s*)', f"{cond_block}\\1", rendered, count=1)
+        rendered = self._set_root_condition(rendered, f"{score_var} >= {min_threshold}")
       return rendered + "\n"
 
     elif pipeline_type == PipelineArchitecture.HTTP_ERROR_RATIO_SURGE_2STAGE:
@@ -794,7 +893,7 @@ class MultiStageTemplateRouter:
           raw = raw.replace(f"metrics.{fam}_total(", f"metrics.{fam}_success(")
       if service_account:
         sa_regex_pattern = r"(?:\(\s*)?\$sa\s*=\s*/@.*?nocase(?:\s*\))?"
-        sa_binding = f'    $sa = "{service_account}"'
+        sa_binding = f'    $sa = "{self._escape_yaral_literal(service_account)}"'
         raw = re.sub(sa_regex_pattern, sa_binding, raw, flags=re.DOTALL)
       if hypothesis_goal:
         raw = f"// Goal: {hypothesis_goal}\n" + raw
@@ -825,20 +924,20 @@ class MultiStageTemplateRouter:
       rendered = _apply_team_cohort_blocks(raw, keep=bool(cohort_entities))
       if cohort_entities:
         if len(cohort_entities) > 1:
-          cohort_filter = "(\n      " + " or\n      ".join(f'$u = "{c}"' for c in cohort_entities) + "\n    )"
+          cohort_filter = "(\n      " + " or\n      ".join(f'$u = "{self._escape_yaral_literal(c)}"' for c in cohort_entities) + "\n    )"
         else:
-          cohort_filter = f'$u = "{cohort_entities[0]}"'
+          cohort_filter = f'$u = "{self._escape_yaral_literal(cohort_entities[0])}"'
         rendered = rendered.replace("{{cohort_filter}}", cohort_filter)
         rendered = rendered.replace("order:\n  $z_vs_enterprise desc", "order:\n  $z_vs_team desc")
         rendered = rendered.replace("$z_vs_enterprise >= {{anomaly_threshold}}", "$z_vs_team >= {{anomaly_threshold}}")
 
       if target_entity:
-        target_filter = f'{entity_var} = "{target_entity}"'
+        target_filter = f'{entity_var} = "{self._escape_yaral_literal(target_entity)}"'
       elif cohort_entities:
         if len(cohort_entities) > 1:
-          target_filter = "(\n  " + " or\n  ".join(f'{entity_var} = "{c}"' for c in cohort_entities) + "\n)"
+          target_filter = "(\n  " + " or\n  ".join(f'{entity_var} = "{self._escape_yaral_literal(c)}"' for c in cohort_entities) + "\n)"
         else:
-          target_filter = f'{entity_var} = "{cohort_entities[0]}"'
+          target_filter = f'{entity_var} = "{self._escape_yaral_literal(cohort_entities[0])}"'
       else:
         target_filter = f'{entity_var} != ""'
 
@@ -881,12 +980,12 @@ class MultiStageTemplateRouter:
       entity_name = entity_var.lstrip("$")
 
       if target_entity:
-        target_filter = f'{entity_var} = "{target_entity}"'
+        target_filter = f'{entity_var} = "{self._escape_yaral_literal(target_entity)}"'
       elif cohort_entities:
         if len(cohort_entities) > 1:
-          target_filter = "(\n  " + " or\n  ".join(f'{entity_var} = "{c}"' for c in cohort_entities) + "\n)"
+          target_filter = "(\n  " + " or\n  ".join(f'{entity_var} = "{self._escape_yaral_literal(c)}"' for c in cohort_entities) + "\n)"
         else:
-          target_filter = f'{entity_var} = "{cohort_entities[0]}"'
+          target_filter = f'{entity_var} = "{self._escape_yaral_literal(cohort_entities[0])}"'
       else:
         target_filter = f'{entity_var} != ""'
 
@@ -895,9 +994,9 @@ class MultiStageTemplateRouter:
       rendered = _apply_team_cohort_blocks(raw, keep=bool(cohort_entities))
       if cohort_entities:
         if len(cohort_entities) > 1:
-          cohort_filter = "(\n      " + " or\n      ".join(f'$u = "{c}"' for c in cohort_entities) + "\n    )"
+          cohort_filter = "(\n      " + " or\n      ".join(f'$u = "{self._escape_yaral_literal(c)}"' for c in cohort_entities) + "\n    )"
         else:
-          cohort_filter = f'$u = "{cohort_entities[0]}"'
+          cohort_filter = f'$u = "{self._escape_yaral_literal(cohort_entities[0])}"'
         rendered = rendered.replace("{{cohort_filter}}", cohort_filter)
         rendered = rendered.replace("order:\n  $d_vs_fleet_sq desc", "order:\n  $d_vs_team_sq desc")
         rendered = rendered.replace("$d_vs_fleet_sq >= {{fusion_threshold_sq}}", "$d_vs_team_sq >= {{fusion_threshold_sq}}")
@@ -1482,6 +1581,19 @@ class MultiStageTemplateRouter:
         rendered = f"// Goal: {hypothesis_goal}\n" + rendered
       return rendered + "\n"
 
+    elif pipeline_type == PipelineArchitecture.LOCAL_2STAGE:
+      return self.build_query(
+          target_metric=target_metric or "network_bytes_outbound",
+          entity_type=entity_type,
+          statistical_model=StatisticalModel.STANDARD_Z_SCORE,
+          anomaly_threshold=anomaly_threshold,
+          min_baseline_days=min_baseline_days,
+          hypothesis_goal=hypothesis_goal,
+          min_threshold=min_threshold,
+          max_threshold=max_threshold,
+          condition_expression=condition_expression,
+          identifier_field=identifier_field,
+      )
     else:
       raise ValueError(f"Unsupported pipeline type: {pipeline_type}")
 
@@ -2339,3 +2451,8 @@ class ChainedHuntRouter:
           "phase2_query": phase2,
       }
     raise ValueError(f"Unsupported cross-entity kill-chain path '{path_name}'. Must be one of {cls.CROSS_ENTITY_PATHS}")
+
+
+STAGE2_TEMPLATES = MultiStageTemplateRouter.STAGE2_TEMPLATES
+MODEL_DESCRIPTIONS = MultiStageTemplateRouter.MODEL_DESCRIPTIONS
+validate_rendered_pipeline = MultiStageTemplateRouter.validate_rendered_pipeline

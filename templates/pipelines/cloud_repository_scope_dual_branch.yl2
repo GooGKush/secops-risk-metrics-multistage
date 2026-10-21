@@ -30,7 +30,9 @@ stage stage1_extract {
 
     // Identity filtering: enforce bound non-null identity; match standard cloud patterns or target account
     $sa != ""
-    $sa = /@.*gserviceaccount\.com$|^arn:aws:(iam|sts)::|sa-storage-sync/ nocase
+    $sa = /@.*gserviceaccount\.com$|^arn:aws:(iam|sts)::/ nocase
+    $vendor != ""
+    $product != ""
     $resource != ""
 
   match:
@@ -135,34 +137,57 @@ stage stage1_extract {
     $origin_z = ($observed_reads - $origin_avg) / if($origin_stddev > 0, $origin_stddev, 1.0)
 }
 
+// --- STAGE 2: Caller Origin IP Rollup across target repositories ---
+stage stage2_origin_rollup {
+    $sa = $stage1_extract.sa
+    $product = $stage1_extract.product
+    $ip = $stage1_extract.ip
+    $ws = $stage1_extract.window_start
+
+  match:
+    $sa, $product, $ip, $ws by 1d
+
+  outcome:
+    $ip_total_reads = sum($stage1_extract.observed_reads)
+    $origin_avg = max($stage1_extract.origin_avg)
+    $origin_stddev = max($stage1_extract.origin_stddev)
+    $ip_origin_z = ($ip_total_reads - $origin_avg) / if($origin_stddev > 0, $origin_stddev, 1.0)
+}
+
 // --- ROOT STAGE: Dual-Branch Evaluation & Composite Risk Ranking ---
 $sa = $stage1_extract.sa
 $product = $stage1_extract.product
 $resource = $stage1_extract.resource
 $ip = $stage1_extract.ip
 $ws = $stage1_extract.window_start
+$sa = $stage2_origin_rollup.sa
+$product = $stage2_origin_rollup.product
+$ip = $stage2_origin_rollup.ip
+$ws = $stage2_origin_rollup.ws
 
 match:
-  $sa, $product, $resource, $ip, $ws by 1d
+  $sa, $product, $resource, $ws by 1d
 
 outcome:
-  $obs = max($stage1_extract.observed_reads)
-  $obs_writes = max($stage1_extract.observed_writes)
-  $obs_deletes = max($stage1_extract.observed_deletes)
-  $obs_creates = max($stage1_extract.observed_creates)
+  // Sum observed CRUD counts across all caller IPs for the (sa, product, resource) tuple
+  $obs = sum($stage1_extract.observed_reads)
+  $obs_writes = sum($stage1_extract.observed_writes)
+  $obs_deletes = sum($stage1_extract.observed_deletes)
+  $obs_creates = sum($stage1_extract.observed_creates)
   $dest_days = max($stage1_extract.dest_active_days)
+  $distinct_ips = count_distinct($stage1_extract.ip)
 
-  // Fused Outlier Scores from Stage 1 (All 4 Cloud CRUD Families + Origin IP)
-  $dest_z = max($stage1_extract.dest_z)
-  $write_z = max($stage1_extract.write_z)
-  $del_z = max($stage1_extract.del_z)
-  $create_z = max($stage1_extract.create_z)
-  $origin_z = max($stage1_extract.origin_z)
+  // Destination CRUD Z-Scores evaluated on rolled-up daily totals
+  $dest_z = ($obs - max($stage1_extract.dest_avg)) / if(max($stage1_extract.dest_stddev) > 0, max($stage1_extract.dest_stddev), 1.0)
+  $write_z = ($obs_writes - max($stage1_extract.dest_write_avg)) / if(max($stage1_extract.dest_write_stddev) > 0, max($stage1_extract.dest_write_stddev), 1.0)
+  $del_z = ($obs_deletes - max($stage1_extract.dest_del_avg)) / if(max($stage1_extract.dest_del_stddev) > 0, max($stage1_extract.dest_del_stddev), 1.0)
+  $create_z = ($obs_creates - max($stage1_extract.dest_create_avg)) / if(max($stage1_extract.dest_create_stddev) > 0, max($stage1_extract.dest_create_stddev), 1.0)
+  $origin_z = max($stage2_origin_rollup.ip_origin_z)
   $composite_risk = if($dest_z > 0, $dest_z, 0.0) + if($write_z > 0, $write_z, 0.0) + if($del_z > 0, $del_z, 0.0) + if($create_z > 0, $create_z, 0.0) + if($origin_z > 0, $origin_z, 0.0)
 
 // Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
 condition:
-  $composite_risk >= {{anomaly_threshold}}
+  $composite_risk >= {{anomaly_threshold}} and ($dest_days >= 7 or $dest_days = 0 or $obs_deletes > 0 or $obs_writes > 0)
 
 order:
   $composite_risk desc

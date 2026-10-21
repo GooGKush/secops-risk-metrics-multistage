@@ -123,6 +123,138 @@ class TestResult:
   query_snippet: str
 
 
+
+def _strip_comments(query: str) -> str:
+  """Strips // line comments and /* */ block comments from YARA-L text."""
+  no_block = re.sub(r"/\*.*?\*/", "", query, flags=re.DOTALL)
+  return "\n".join(re.sub(r"//[^\n]*", "", ln) for ln in no_block.splitlines())
+
+
+def _extract_named_stage_blocks(query: str) -> List[tuple]:
+  """Extracts (stage_name, stage_body) tuples using balanced brace counting."""
+  results = []
+  for m in re.finditer(r"\bstage\s+([a-zA-Z0-9_$]+)\s*\{", query):
+    stage_name = m.group(1)
+    start_idx = m.end()
+    depth = 1
+    pos = start_idx
+    while pos < len(query) and depth > 0:
+      if query[pos] == "{":
+        depth += 1
+      elif query[pos] == "}":
+        depth -= 1
+      pos += 1
+    if depth == 0:
+      results.append((stage_name, query[start_idx : pos - 1]))
+  return results
+
+
+def check_stage_references(query: str) -> List[str]:
+  """Validates that stage references ($stage.field) resolve against the union of all defined stages."""
+  errors: List[str] = []
+  clean = _strip_comments(query)
+  clean_no_str = re.sub(r'"(?:\\.|[^"\\])*"', '""', clean)
+  stage_blocks = _extract_named_stage_blocks(clean_no_str)
+  defined_stages = {name for name, _ in stage_blocks}
+  if not defined_stages:
+    return errors
+
+  udm_roots = {
+      "metadata", "principal", "target", "src", "observer", "intermediary",
+      "network", "security_result", "about", "additional", "extensions", "graph",
+  }
+  for m in re.finditer(r"\$([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)", clean_no_str):
+    prefix, field = m.group(1), m.group(2)
+    if prefix == "graph" or field in udm_roots:
+      continue
+    if prefix not in defined_stages:
+      errors.append(
+          f"UNDEFINED_STAGE_REFERENCE: Reference '${prefix}.{field}' does not match any defined stage in {sorted(defined_stages)}"
+      )
+  return errors
+
+
+def check_root_match_stage_prefix(query: str) -> List[str]:
+  """Inspects match: blocks across all stages (named and root) for illegal $stage.field prefixes."""
+  errors: List[str] = []
+  clean = _strip_comments(query)
+  for m in re.finditer(
+      r"(?:^|\n)\s*match\s*:\s*(.*?)(?=\n\s*(?:outcome|condition|order|limit)\s*:|\}|\Z)",
+      clean,
+      flags=re.DOTALL,
+  ):
+    match_body = m.group(1)
+    for ref in re.finditer(r"\$([a-zA-Z0-9_]+\.[a-zA-Z0-9_.]+)", match_body):
+      errors.append(
+          f"ILLEGAL_MATCH_STAGE_PREFIX: Stage-prefixed variable '${ref.group(1)}' in match: block (bind to a local variable before match:)"
+      )
+  return errors
+
+
+def check_outcome_conditionals_and_divisions(query: str) -> List[str]:
+  """Strips // comments before checking outcome: lines for illegal conditionals or literal / 0 divisions."""
+  errors: List[str] = []
+  clean = _strip_comments(query)
+  clean_no_str = re.sub(r'"(?:\\.|[^"\\])*"', '""', clean)
+  for m in re.finditer(
+      r"(?:^|\n)\s*outcome\s*:\s*(.*?)(?=\n\s*(?:condition|order|limit|match)\s*:|\}|\Z)",
+      clean_no_str,
+      flags=re.DOTALL,
+  ):
+    outcome_body = m.group(1)
+    for raw_line in outcome_body.splitlines():
+      line = raw_line.strip()
+      if not line:
+        continue
+      if re.search(r"/\s*0(?:\.0+)?(?![0-9.])", line):
+        errors.append(f"DIVISION_BY_ZERO_LITERAL: Literal division by zero in outcome line: {line}")
+      if "?" in line and ":" in line:
+        errors.append(f"ILLEGAL_TERNARY_OPERATOR: Ternary '? :' is unsupported in outcome line: {line}")
+  return errors
+
+
+def check_Stage_1_zero_filters(query: str) -> List[str]:
+  """Detects forbidden $var = 0 or 0 = $var equality filters on observed metric variables in Stage 1."""
+  errors: List[str] = []
+  clean = _strip_comments(query)
+  stage_blocks = _extract_named_stage_blocks(clean)
+  target_bodies = [stage_blocks[0][1]] if stage_blocks else [clean]
+  for body in target_bodies:
+    # Remove if(...) expressions so if(..., 1, 0) is never misflagged
+    body_no_if = re.sub(r"\bif\s*\([^)]*\)", "", body)
+    pattern = (
+        r"(?<![!<>])(?:"
+        r"\$(?:observed|observed_val|obs|daily_count|event_count|metric_val|count_val|bytes_val)[a-zA-Z0-9_]*\s*=\s*0(?:\.0+)?\b"
+        r"|"
+        r"\b0(?:\.0+)?\s*=\s*\$(?:observed|observed_val|obs|daily_count|event_count|metric_val|count_val|bytes_val)[a-zA-Z0-9_]*"
+        r")(?![0-9.])"
+    )
+    for m in re.finditer(pattern, body_no_if):
+      errors.append(
+          f"STAGE1_ZERO_EQUALITY_FILTER: Forbidden Stage 1 zero equality filter '{m.group(0).strip()}' (raw UDM stages only emit rows for existing events)"
+      )
+  return errors
+
+
+check_stage_1_zero_filters = check_Stage_1_zero_filters
+
+
+def check_ecg_invariants(query: str) -> List[str]:
+  """Enforces prevalence.day_count = 10 and rolling_max when DERIVED_CONTEXT prevalence is used."""
+  errors: List[str] = []
+  clean = _strip_comments(query)
+  if "DERIVED_CONTEXT" in clean and ".prevalence." in clean:
+    if not re.search(r"\.prevalence\.day_count\s*=\s*10\b", clean):
+      errors.append(
+          "ECG_PREVALENCE_INVARIANT: DERIVED_CONTEXT prevalence queries must anchor '.prevalence.day_count = 10'"
+      )
+    if "rolling_max" not in clean:
+      errors.append(
+          "ECG_PREVALENCE_INVARIANT: DERIVED_CONTEXT prevalence queries must constrain or project '.prevalence.rolling_max'"
+      )
+  return errors
+
+
 class SubmissionTestSuite:
   """Comprehensive Submission Test Suite for YARA-L 2.0 templates."""
 
@@ -510,16 +642,17 @@ order:
     return matrix
 
   @staticmethod
-  def validate_static_invariants(query: str, test_id: str) -> List[str]:
+  def validate_static_invariants(query: str, test_id: str = "ADHOC") -> List[str]:
     """Rigorous offline validation of Malachite YARA-L 2.0 syntax invariants."""
     errors: List[str] = []
+    clean_query = _strip_comments(query)
 
     # 1. Root stage condition blocks are valid in Malachite Common Compiler for hurdle models.
     # Validate section ordering: condition: must precede order:.
-    if re.search(r'\border:\s*.*?\bcondition:\s*', query, re.DOTALL):
+    if re.search(r'\border:\s*.*?\bcondition:\s*', clean_query, re.DOTALL):
       errors.append("Illegal section ordering: 'condition:' must precede 'order:' in YARA-L grammar")
     # Validate that outcome blocks do not contain illegal 'if(...)' with compound expressions or missing else.
-    for call_text, args in iter_if_calls(query):
+    for call_text, args in iter_if_calls(clean_query):
       if len(args) < 3:
         errors.append(f"Illegal 'if(...)' expression in query: missing required 'else' clause: {call_text}")
       else:
@@ -528,31 +661,31 @@ order:
             errors.append(f"Illegal 'if(...)' expression in query: compound arithmetic in '{label}' clause: {call_text}")
 
     # 1b. Zero illegal metric_value_sum parameter
-    if "metric_value_sum" in query:
+    if "metric_value_sum" in clean_query:
       errors.append("Illegal metric type 'metric_value_sum' (must use 'value_sum' for volume metrics or 'event_count_sum' for count metrics)")
 
     # 2. Zero un-namespaced math functions or math.exp
-    if "math.exp" in query:
+    if "math.exp" in clean_query:
       errors.append("Illegal function 'math.exp()' (unsupported in YARA-L 2.0)")
-    bare_math = re.search(r'(?<!math\.)\b(round|sqrt|pow|abs|log|floor|ceil)\(', query)
+    bare_math = re.search(r'(?<!math\.)\b(round|sqrt|pow|abs|log|floor|ceil)\(', clean_query)
     if bare_math:
       fn = bare_math.group(1)
       errors.append(f"Illegal bare '{fn}()' (must use 'math.{fn}()')")
 
     # 3. Zero unsupported aggregation functions (e.g. bare variance, count(if))
-    if re.search(r'(?<!window\.)\bvariance\(', query):
+    if re.search(r'(?<!window\.)\bvariance\(', clean_query):
       errors.append("Illegal aggregation function 'variance()' (must use 'window.variance()' or stddev() squared)")
-    if re.search(r'\bcount\s*\(\s*if\s*\(', query, re.IGNORECASE):
+    if re.search(r'\bcount\s*\(\s*if\s*\(', clean_query, re.IGNORECASE):
       errors.append("Illegal aggregation function 'count(if(...))' (must use 'sum(if(condition, 1, 0))' for conditional counting)")
-    if re.search(r'=\s*\/[^\/\n]+\/\s*\|\s*\/', query):
+    if re.search(r'=\s*\/[^\/\n]+\/\s*\|\s*\/', clean_query):
       errors.append("Illegal regex alternation '|' outside regex literal delimiters (combine into single regex '/(p1|p2)/ nocase')")
 
     # 4. Zero dummy placeholder variables in match
-    if "$day_bucket" in query or "$hour_bucket" in query:
+    if "$day_bucket" in clean_query or "$hour_bucket" in clean_query:
       errors.append("Illegal dummy bucket variable ($day_bucket/$hour_bucket) present")
 
     # 5. Valid stage names (no $ prefix on stage declaration)
-    stage_declarations = re.findall(r'stage\s+([^\s\{]+)\s*\{', query)
+    stage_declarations = re.findall(r'stage\s+([^\s\{]+)\s*\{', clean_query)
     for sname in stage_declarations:
       if sname.startswith("$"):
         errors.append(f"Illegal stage declaration '{sname}' starting with '$'")
@@ -569,7 +702,8 @@ order:
         errors.append(f"Outcome block {idx} exceeds SecOps limit of 20 variables ({len(vars_in_outcome)})")
 
     # 7. Join limits: total joins <= 4; raw extraction stages <= 2
-    stage_blocks = re.findall(r'stage\s+[^\s\{]+\s*\{([^}]+)\}', query)
+    extracted_stages = _extract_named_stage_blocks(query)
+    stage_blocks = [sb for _, sb in extracted_stages]
     raw_event_stages = [sb for sb in stage_blocks if "metadata.event_type" in sb]
     if len(raw_event_stages) > 2:
       errors.append(f"Exceeds Chronicle UDM search limit of at most 2 raw event extraction stages ({len(raw_event_stages)})")
@@ -579,7 +713,14 @@ order:
       placeholders = re.findall(r'\{\{([^}]+)\}\}', query)
       errors.append(f"Unrendered template placeholders detected: {placeholders}")
 
-    # 9. Statistical Antipattern Audit (5 Core Statistical Invariants)
+    # 8b. Stage references, match stage prefixes, outcome conditionals/divisions, Stage 1 zero filters, ECG invariants
+    errors.extend(check_stage_references(query))
+    errors.extend(check_root_match_stage_prefix(query))
+    errors.extend(check_outcome_conditionals_and_divisions(query))
+    errors.extend(check_Stage_1_zero_filters(query))
+    errors.extend(check_ecg_invariants(query))
+
+    # 9. Statistical Antipattern Audit (Core Statistical Invariants)
     stat_violations = StatisticalAntipatternAuditor.audit_query(query)
     for sv in stat_violations:
       errors.append(f"[{sv.antipattern.value}] stage '{sv.stage_name}': {sv.description}")
@@ -666,6 +807,61 @@ order:
 
     return passed == total
 
+  check_stage_references = staticmethod(check_stage_references)
+  check_root_match_stage_prefix = staticmethod(check_root_match_stage_prefix)
+  check_outcome_conditionals_and_divisions = staticmethod(check_outcome_conditionals_and_divisions)
+  check_Stage_1_zero_filters = staticmethod(check_Stage_1_zero_filters)
+  check_stage_1_zero_filters = staticmethod(check_Stage_1_zero_filters)
+  check_ecg_invariants = staticmethod(check_ecg_invariants)
+
+  def validate_template_fragments(self) -> List[str]:
+    """Validates templates/stage1_extractors/*.yl2 and templates/stage2_math_models/*.yl2 fragments."""
+    frag_errors: List[str] = []
+    s1_dir = self.skill_root / "templates" / "stage1_extractors"
+    s2_dir = self.skill_root / "templates" / "stage2_math_models"
+    allowed_s2_slots = {
+        "min_baseline_days",
+        "anomaly_threshold",
+        "fold_change_threshold",
+        "robust_threshold",
+        "first_scored_date",
+    }
+    for p in sorted(s1_dir.glob("*.yl2")):
+      raw = p.read_text(encoding="utf-8")
+      if "stage stage1_extract" not in raw:
+        frag_errors.append(f"{p.name}: missing stage stage1_extract declaration")
+      frag_errors.extend(f"{p.name}: {e}" for e in check_root_match_stage_prefix(raw))
+      frag_errors.extend(f"{p.name}: {e}" for e in check_outcome_conditionals_and_divisions(raw))
+      frag_errors.extend(f"{p.name}: {e}" for e in check_Stage_1_zero_filters(raw))
+    for p in sorted(s2_dir.glob("*.yl2")):
+      raw = p.read_text(encoding="utf-8")
+      clean = _strip_comments(raw)
+      slots = set(re.findall(r"\{\{([^}]+)\}\}", clean))
+      unexpected = slots - allowed_s2_slots
+      if unexpected:
+        frag_errors.append(f"{p.name}: unexpected template placeholders {sorted(unexpected)}")
+      frag_errors.extend(f"{p.name}: {e}" for e in check_root_match_stage_prefix(raw))
+      frag_errors.extend(f"{p.name}: {e}" for e in check_outcome_conditionals_and_divisions(raw))
+    return frag_errors
+
+  def run_all_tests(self) -> bool:
+    """Runs all canonical matrix tests plus stage1/stage2 template fragment checks."""
+    results = self.run_suite()
+    frag_errors = self.validate_template_fragments()
+    return all(r.static_passed for r in results) and len(frag_errors) == 0
+
+
+def validate_template_fragments(skill_root: Optional[Path] = None) -> List[str]:
+  """Module-level entry point to validate stage1 and stage2 template fragments."""
+  suite = SubmissionTestSuite(skill_root=skill_root)
+  return suite.validate_template_fragments()
+
+
+def run_all_tests(skill_root: Optional[Path] = None) -> bool:
+  """Module-level entry point to run all submission and template fragment tests."""
+  suite = SubmissionTestSuite(skill_root=skill_root)
+  return suite.run_all_tests()
+
 
 def main():
   parser = argparse.ArgumentParser(description="Multi-Stage YARA-L Submission Test Harness")
@@ -712,3 +908,5 @@ def main():
 
 if __name__ == "__main__":
   main()
+
+validate_static_invariants = SubmissionTestSuite.validate_static_invariants

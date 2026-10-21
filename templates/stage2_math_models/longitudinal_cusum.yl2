@@ -1,31 +1,54 @@
-// Root Stage: Longitudinal CUSUM Drift Accumulation (Preserving Daily Timeline)
-$entity = $stage1_extract.entity
-$ws = $stage1_extract.window_start
+// Stage 2: Daily Standardized Slack-Excess Drift Extraction (by 1d)
+// Note: YARA-L 2.0 cannot carry recursive S_{t-1} state across time buckets; this stage computes
+// per-day positive drift excess max(0, Z_t - 0.5) and the Root Stage sums it across the multi-day window.
+// True recursive Page's CUSUM (S_t = max(0, S_{t-1} + Z_t - k)) is accumulated in Mode C (timeline_assembler.py).
+stage stage2_daily_drift {
+    $entity = $stage1_extract.entity
+    $day_ws = $stage1_extract.window_start
+
+  match:
+    $entity, $day_ws by 1d
+
+  outcome:
+    $observed = max($stage1_extract.observed_val)
+    $hist_avg = max($stage1_extract.historical_avg)
+    $hist_stddev = max($stage1_extract.historical_stddev)
+    $active_days = max($stage1_extract.historical_active_days)
+    $hist_max = max($stage1_extract.historical_max)
+
+    // Raw and standardized daily drift with k = 0.5 sigma slack allowance
+    $raw_drift = $observed - $hist_avg
+    $safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)
+    $slack_allowance = 0.5 * $safe_stddev
+    $slack_excess = $raw_drift - $slack_allowance
+    $daily_z = $raw_drift / $safe_stddev
+    $z_minus_slack = $daily_z - 0.5
+    $daily_excess = if($z_minus_slack > 0, $z_minus_slack, 0.0)
+}
+
+// Stage 3 (Root Stage): Multi-Day Cumulative Drift Aggregation Across Window
+$entity = $stage2_daily_drift.entity
 
 match:
-  $entity, $ws by 1d
+  $entity
 
 outcome:
-  $observed = max($stage1_extract.observed_val)
-  $hist_avg = max($stage1_extract.historical_avg)
-  $hist_stddev = max($stage1_extract.historical_stddev)
-  $active_days = max($stage1_extract.historical_active_days)
-  $hist_max = max($stage1_extract.historical_max)
+  $observed = sum($stage2_daily_drift.observed)
+  $peak_daily_observed = max($stage2_daily_drift.observed)
+  $hist_avg = max($stage2_daily_drift.hist_avg)
+  $hist_stddev = max($stage2_daily_drift.hist_stddev)
+  $active_days = max($stage2_daily_drift.active_days)
+  $hist_max = max($stage2_daily_drift.hist_max)
 
-  // 1. Daily Drift Above Baseline Mean
-  $raw_drift = $observed - $hist_avg
+  // Cumulative positive standardized drift excess across all daily buckets in the evaluation window
+  $cusum_drift = sum($stage2_daily_drift.daily_excess)
+  $cusum_drift_score = $cusum_drift
+  $drift_days = sum(if($stage2_daily_drift.daily_excess > 0, 1, 0))
+  $max_daily_z = max($stage2_daily_drift.daily_z)
 
-  // 2. Allowable Slack k = 0.5 * sigma
-  $safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)
-  $slack_allowance = 0.5 * $safe_stddev
-
-  // 3. Half-Rectified Page CUSUM Drift Increment: max(0, raw_drift - slack)
-  $slack_excess = $raw_drift - $slack_allowance
-  $cusum_drift_score = if($slack_excess > 0, $slack_excess, 0.0)
-
-// Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
+// Significance gate: decision interval H >= {{anomaly_threshold}} (default 4.0 sigma) across >= 2 drift days.
 condition:
-  $cusum_drift_score > 0.0
+  $cusum_drift_score >= {{anomaly_threshold}} and $drift_days >= 2
 
 order:
   $cusum_drift_score desc
