@@ -692,6 +692,8 @@ def compile_hunt_pipeline(
 
   stat_model_enum = resolve_statistical_model(statistical_model)
   metric_list = normalize_metrics_list(metrics, ent_enum, arch_key)
+  if len(metric_list) >= 2 and arch_key in ("single_metric", "local_2stage", "2stage"):
+    arch_key = "multi_sector_fusion_4stage" if len(metric_list) >= 3 else "dual_sector_fusion_3stage"
   primary_metric = metric_list[0]
 
   router = MultiStageTemplateRouter()
@@ -854,7 +856,7 @@ def compile_hunt_pipeline(
     audit_info = PreFlightValidator.audit(target_metric=primary_metric, entity_type=ent_enum, min_baseline_days=min_baseline_days, identifier_field=identifier_field)
     canonical_arch = PipelineArchitecture.EMPIRICAL_BAYES_3STAGE.value
 
-  elif arch_key in ("sector_fusion", "dual_sector_fusion_3stage", "fusion_3stage", "multi_sector_fusion_4stage", "fusion_4stage", "rollup_sector_fusion"):
+  elif arch_key in ("fusion", "sector_fusion", "dual_sector_fusion", "dual_sector_fusion_3stage", "fusion_3stage", "multi_sector_fusion", "multi_sector_fusion_4stage", "fusion_4stage", "rollup_sector_fusion"):
     is_four_stage = arch_key in ("multi_sector_fusion_4stage", "fusion_4stage", "rollup_sector_fusion")
     pipe_enum = PipelineArchitecture.MULTI_SECTOR_FUSION_4STAGE if is_four_stage else PipelineArchitecture.DUAL_SECTOR_FUSION_3STAGE
     if len(metric_list) < 2:
