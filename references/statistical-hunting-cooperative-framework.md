@@ -272,3 +272,22 @@ For enterprise-wide sweeps where transport vector is unconstrained:
 3. **Phase 2 (Targeted Forensic Probe)**: `secops-statistical-hunter` queries raw telemetry strictly for the candidate entities, evaluating User-Agent entropy, URI distribution, or unsigned process launches without whole-fleet noise.
 4. **Resilience**: If HTTP yields 0 events, the finding survives: the report confirms the $+3.5\sigma$ volume anomaly and notes non-HTTP egress channels.
 
+---
+
+## 8. The Bilateral UEBA Harness & Telemetry Physics Guardrail (`metrics.*` + `stats-hunter` + `agentic_ueba`)
+
+When an analyst asks for a **UEBA solution to detect an exploit, vulnerability, CTI report, or curated detection gap** (e.g., *"use UEBA to detect http2shell exploits"*, *"design UEBA coverage for this threat behavior"*), the request addresses the **Bilateral UEBA Harness** as a whole rather than a single isolated table.
+
+### 8.1 Why Neither Hemisphere Alone Suffices for Complex Exploit Chains
+* **`metrics.*` Alone (`secops-risk-metrics-multistage`)**: Pre-computed metric tables are fixed at `period: 1d, window: 30d` (`by 1d`). They excel at macro behavioral deformations (scanner volume spikes, status-code failure surges, unusual outbound egress volume, CUSUM drift, and Entity Graph prevalence `rolling_max <= 3`), but cannot correlate parent-to-child process execution within a few minutes (`by 5m`/`by 1h`) or compute inline payload/CLI Shannon entropy.
+* **Raw UDM Statistical Models Alone (`secops-statistical-hunter`)**: Raw statistical pipelines (`MARKOV_2GRAM_TRANSITION_RARITY`, `SHANNON_ENTROPY_CHARACTER`, `POISSON_BURST_CLUSTERING`, `EWMA_BURST_VELOCITY`, `C2_BEACONING_JITTER`, `ZIPFIAN_PROCESS_RARITY`) capture sub-hour/intra-day structural anomalies (`by 5m`, `by 1h`, `by 2h`, `by 1d`), but running 30-day inline baseline scans over high-volume raw logs (VPC flow logs, DNS, HTTP, Auth) violates Chronicle scan limits and fails with deadline timeouts.
+* **Anti-Failure Mandate**: Never tell the analyst *"UEBA is a poor fit because risk metrics cannot measure minute-level process correlation"* and never fall back to static point-in-time UDM string filters. Instead, synthesize a bilateral solution across both skills and `agentic_ueba` (`PlaybookRunner`).
+
+### 8.2 Strict Telemetry Physics & Window Guardrail
+| Analytical Need | Assigned Skill Hemisphere | Window & Bucket Constraint | Prohibited Anti-Pattern |
+| :--- | :--- | :--- | :--- |
+| **30-Day Volumetric / Failure / Ratio Baselines** (HTTP, DNS, VPC Bytes, Auth, Process Counts, Cloud CRUD) | `secops-risk-metrics-multistage` (`metrics.*`) | `by 1d` over 30d pre-computed window (`period: 1d, window: 30d`) | **NEVER** use `secops-statistical-hunter` for 30-day baselines over VPC flows, DNS, HTTP, Auth, or Process counts. |
+| **Minute/Hour Windowed Correlations & Structural Lineage** (Web/Java daemon $\to$ shell lineage, CLI/URI entropy, sub-hour bursts, callback jitter) | `secops-statistical-hunter` (raw `UDM_EVENTS`) | `by 5m`, `by 1h`, `by 2h`, `by 1d` over bounded windows (`1h–24h` for high-volume logs; `7d–14d` for filtered/sparse process transitions) | **NEVER** force `metrics.*` to emulate sub-day correlation or discard UEBA when minute/hour correlation is required. |
+| **Multi-Query Chaining & Cross-Stage Entity Fusion** | `agentic_ueba` (`PlaybookRunner`) | Option 1: In-DAG Piecewise Unification; Option 2: Upstream Candidate IP/Entity Seeding (`/* UPSTREAM_CANDIDATE_IPS */`); Option 3: Native UDM Loopback (`PLAYBOOK_BEHAVIORAL_HUNT_MATCH`, $\ge 2$ hits, $\sum Z_i^2 \ge 25.0$) | **NEVER** exceed Chronicle's 2-raw-event-stage ceiling per individual YARA-L 2.0 query. |
+
+
