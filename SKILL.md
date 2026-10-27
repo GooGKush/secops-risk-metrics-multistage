@@ -20,6 +20,7 @@ Operational execution: `references/turn-execution-lifecycle.md`.
 * **Rollouts & Rare Binaries**: Deploy Fleet Prevalence Normalization with Entity Graph (`rolling_max <= 3`).
 * **Non-Metrics Telemetry Steering Mandate** (Git, raw UDM, raw-field MAD): Handoff Card → `secops-statistical-hunter`. Metrics-vector MAD (any mode): `stage2_math_models/mad.yl2`.
 * **Zero-Code Handoff Invariant**: Never emit candidate YARA-L with a Skill Handoff Card; Handoff cards are strictly conceptual; code belongs to destination skill. On accepted handoff, release the Active Hunt Session Lock.
+* **Bilateral UEBA Harness (Open-Ended Threat / Exploit / CTI Solutions)**: When no single `Active Skill:` test header is present and an analyst asks for a UEBA solution to an exploit, vulnerability, or threat behavior requiring short-window (`by 5m`/`by 1h`) process/network correlations alongside 30d baselines (`references/statistical-hunting-cooperative-framework.md`), never declare UEBA a poor fit because `metrics.*` is bucketed `by 1d`; co-design a Bilateral UEBA Harness pairing `secops-risk-metrics-multistage` (30d `metrics.*` macro deformations) with `secops-statistical-hunter` (bounded-window Markov 2-gram lineage, Shannon entropy, Poisson Fano burst, EWMA velocity, CV jitter, Zipfian rarity — never 30d raw scans over VPC/DNS/HTTP/Auth) and `agentic_ueba` UDM loopback (`PLAYBOOK_BEHAVIORAL_HUNT_MATCH`). Keep single-vector jitter, raw-field MAD, and scheduled cron exfiltration prompts on the Zero-Code Handoff Card above.
 
 ---
 
@@ -55,7 +56,7 @@ Phase 1B is **ONLY UNLOCKED** when **BOTH** are explicitly defined:
 * **Cloud Telemetry**: For service account cloud repository access (`resource_read_*`, `_written_*`, `_creation_*`, `_deletion_*`), baseline all 4 CRUD families and origin IP (`templates/pipelines/cloud_repository_scope_dual_branch.yl2`, `<field>: <field>`; apply SA regex only when scoped to service accounts, or use standalone `resource_*` extractors for general user CRUD).
 
 ### 🎯 CTI & Threat Report Mapping
-**Map to UEBA Metric Tables** (`metrics.*`, `references/consultative/mitre-attack-killchain.md`). **Transition Directly to Phase 1B**: probe, Pre-Flight Card & Literal Query Preview, clearance question.
+**Map to UEBA Metric Tables** (`metrics.*`, `references/consultative/mitre-attack-killchain.md`). When an open-ended CTI/exploit inquiry also requires minute/hour windowed correlations (process parent$\to$child transitions, CLI/URL entropy, sub-hour bursts), pair `metrics.*` macro pipelines with `secops-statistical-hunter` bounded-window statistical pipelines and `agentic_ueba` loopback (`references/statistical-hunting-cooperative-framework.md`) rather than falling back to static point-in-time filters. **Transition Directly to Phase 1B**: probe, Pre-Flight Card & Literal Query Preview, clearance question.
 
 ### 🔍 Phase 1B: Pre-Flight Spec & Query Preview (Once Scope & Vectors are Established)
 Once vectors and scope are confirmed (expert prompt, Phase 1A selection, or CTI mapping; card precedes query preview):

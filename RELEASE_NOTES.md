@@ -1,10 +1,25 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v2.1.2)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v2.1.3)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v2.1.2 (Minor Point Release) — October 2026  
+**Latest Version**: v2.1.3 (Minor Point Release) — October 27, 2026  
+
+---
+
+## 📢 What's New in v2.1.3 (Minor Point Release) — The Bilateral UEBA Harness (`secops-risk-metrics-multistage` + `secops-statistical-hunter` + `agentic_ueba`), Telemetry Physics & Window Guardrail & CTI / Exploit Multi-Plane Synthesis
+
+### 1. The Bilateral UEBA Harness for Open-Ended Threat, Exploit & CTI Inquiries (`SKILL.md`, `references/statistical-hunting-cooperative-framework.md`, `references/consultative/mitre-attack-killchain.md`)
+* **Multi-Horizon Bilateral UEBA Synthesis**: When an analyst asks for an open-ended "UEBA solution" to detect a threat, exploit, vulnerability, CTI advisory (e.g., `http2shell` / `CVE-2026-111497`), or curated detection gap without restricting to a single skill, `secops-risk-metrics-multistage` and `secops-statistical-hunter` operate as a unified **Bilateral UEBA Harness** alongside `agentic_ueba` (`PlaybookRunner`) connective tissue.
+* **Anti-Failure Mandate**: Prevents the agent from declaring UEBA "a poor fit" because `metrics.*` is bucketed `by 1d` and cannot measure sub-hour process lineage or command-line entropy, and prevents falling back to static point-in-time single-event UDM string filters.
+* **Single-Skill Isolation Preserved**: Whenever `Active Skill: secops-risk-metrics-multistage` is explicitly designated (or for standard single-entity 30d baselines, peer cohorts, 360° radars, CUSUM drift, or pure `metrics.*` requests), the skill preserves 100% of its single-skill routing and zero-code handoff boundaries.
+
+### 2. Strict Telemetry Physics & Window Guardrail (`references/statistical-hunting-cooperative-framework.md` §8)
+* **Plane 1 — Macro Hemisphere (`secops-risk-metrics-multistage`, `by 1d` 30-Day Baselines)**: Owns all 30-day volumetric, failure, and ratio baselines (`metrics.*`), peer cohort benchmarking, Longitudinal CUSUM drift, 360° entity behavioral radars, Entity Context Graph prevalence (`rolling_max <= 3`, `day_count = 10`), and same-entity multi-sector fusion (`dual_sector_fusion_3stage.yl2`, `rollup_sector_fusion_4stage.yl2`). Strictly forbids using `secops-statistical-hunter` for 30-day baselines over high-volume telemetry (`metrics.*` domains such as VPC flow logs, DNS, HTTP, Auth, or Process counts).
+* **Plane 2 — Micro / Windowed Hemisphere (`secops-statistical-hunter`, Bounded Raw `UDM_EVENTS`)**: Owns minute/hour windowed correlations (`by 5m`, `by 1h`, `by 2h`, `by 1d` over bounded `1h–24h` windows for high-volume logs or `7d–14d` for filtered/sparse process transitions) and structural models that daily `metrics.*` counters cannot measure: parent-to-child process lineage (`MARKOV_2GRAM_TRANSITION_RARITY`), CLI/URI obfuscation (`SHANNON_ENTROPY_CHARACTER`), sub-hour burst clustering (`POISSON_BURST_CLUSTERING` / `EWMA_BURST_VELOCITY`), callback jitter (`C2_BEACONING_JITTER`), and long-tail rarity (`ZIPFIAN_PROCESS_RARITY`).
+* **Plane 3 — Connective Tissue (`agentic_ueba` / `PlaybookRunner`)**: Chains Macro and Micro queries across Chronicle's 2-raw-event-stage ceiling via **Option 1** (In-DAG Piecewise Unification via `hybrid_metric_raw_enrichment_2stage.yl2`), **Option 2** (Upstream Candidate IP/Entity Seeding via `/* UPSTREAM_CANDIDATE_IPS */` or `%ueba_hunt_bridge.entity`), and **Option 3** (Native UDM Loopback via `metadata.product_event_type = "PLAYBOOK_BEHAVIORAL_HUNT_MATCH"` with $\ge 2$ distinct hits and $\sum Z_i^2 \ge 25.0$).
+* **Verification**: **433/433 unit tests** (+218 subtests); **32/32 submission tests**; **60/60 (`100.0%`)** live `AgentAPI` regression pass and **100% cross-skill boundary/handoff pass** across both engines on `gus-sdl`.
 
 ---
 
