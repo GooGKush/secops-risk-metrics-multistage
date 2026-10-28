@@ -35,6 +35,12 @@ Static detection rules designed to detect data loss rely almost exclusively on h
 * **How It Defeats the Blind Spot**: Attackers exfiltrating small, serialized tokens or maintaining C2 heartbeats keep byte footprints tiny (<1 KB/session). While `metrics.network_bytes_outbound` shows zero deviation, baselining session count (`metrics.network_flows_outbound`) with `metric: event_count_sum` catches acute connection frequency departures ($Z_{\text{flows}} \ge 3.0\sigma$).
 
 
+
+### Strategy E: 1-Stage Non-Parametric Quantiles, Bowley Skewness & Skew-Adjusted Tukey Fence
+* **Target Metric**: `metrics.network_bytes_outbound` or `metrics.dns_bytes_outbound`
+* **Math Model**: `quantile_iqr_skew.yl2` (`quantile_iqr_skew_3stage.yl2`)
+* **How It Defeats the Blind Spot**: Historic bulk backups inflate the 30-day arithmetic mean and standard deviation (`$personal_z` masking), while 2-stage `MAD` consumes all 4 stages. Computing `$p10, $q25, $q50, $q75, $p90` in 1 stage via `window.percentile` provides Bowley quartile skewness (`$bowley_skew`), Moors tail-heaviness ratio (`$tail_heaviness`), and the Hubert–Vandervieren Skewness-Adjusted Tukey Upper Fence in 3 stages—leaving a free stage to join `DERIVED_CONTEXT` rare destination prevalence (`rolling_max <= 3`). Furthermore, adding intra-bucket `window.percentile(network.sent_bytes, 50)` vs `window.percentile(network.sent_bytes, 90)` in `stage1_extract` exposes high-tail burst exfiltration (`$p90 / $p50 >= 10x`) even when daily total bytes appear nominal.
+
 ---
 
 ## 3. Operational Triage SLA & Chronicle Pivot

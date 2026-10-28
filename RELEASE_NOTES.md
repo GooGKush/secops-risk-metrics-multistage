@@ -1,10 +1,25 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v2.1.4)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v2.2.0)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v2.1.4 (Minor Point Release) — October 28, 2026  
+**Latest Version**: v2.2.0 (Major Point Release) — October 28, 2026  
+
+---
+
+## 📢 What's New in v2.2.0 (Major Point Release) — 1-Stage Non-Parametric Quantiles (`window.percentile`), Bowley Quartile Skewness, Moors Tail-Heaviness Ratio, Skewness-Adjusted Tukey Fences & Intra-Bucket Payload Shape Fingerprinting
+
+### 1. 18th Mathematical Model & 34th Pipeline Template (`QUANTILE_IQR_SKEW`, `quantile_iqr_skew.yl2`, `quantile_iqr_skew_3stage.yl2`)
+* **1-Stage Empirical Quantile Envelope (`window.percentile`)**: Whereas true Median Absolute Deviation (`MAD`) requires 2 consecutive intermediate stages (`mad_center` $\to$ `mad_spread`) and consumes all 4 stages, `stage quantile_envelope` computes all 5 empirical quantiles (`$p10`, `$q25`, `$q50`, `$q75`, `$p90`) in **1 intermediate stage**, completing the pipeline in **3 stages** (`quantile_iqr_skew_3stage.yl2`).
+* **Stage-Budget Advantage**: Saving 1 full stage and 1 join frees Stage 3 to attach an Entity Context Graph (`DERIVED_CONTEXT` / `GLOBAL_CONTEXT`) rare-destination/binary sieve or a peer-cohort normalization stage inside a single 4-stage query.
+* **Bowley Quartile Skewness, Moors Tail-Heaviness & Hubert–Vandervieren Skewness-Adjusted Tukey Fence**:
+  - **Bowley Quartile Skewness**: $B_{\text{skew}} = (Q_{75} + Q_{25} - 2 Q_{50}) / \text{IQR}_{\text{safe}} \in [-1, +1]$ diagnoses right-skewed baselines where historic bulk transfers distort parametric $\mu$ and $\sigma$.
+  - **Moors Tail-Heaviness Ratio**: $T_{\text{ratio}} = (P_{90} - P_{10}) / \text{IQR}_{\text{safe}}$ (Gaussian $\approx 1.90$; $T_{\text{ratio}} > 2.5$ indicates heavy-tailed baseline distortion).
+  - **Hubert–Vandervieren Skewness-Adjusted Tukey Upper Fence**: $\text{Fence}_{\text{adj}} = Q_{75} + 1.5 \cdot e^{3 \cdot \max(0, B_{\text{skew}})} \cdot \text{IQR}_{\text{safe}}$, scored via `$tukey_fence_ratio = $observed / $safe_fence` (`>= 2.0×` default gate) alongside the 30-day `metrics.*` `$personal_z` cross-check.
+
+### 2. Consultative Playbook Expansion (`references/consultative-worksheet.md`, `references/consultative/data-exfiltration.md`, `references/malachite-function-factory-matrix.md`)
+* Added **4-Stage Quantile/Bowley Skewness Fence + Entity Context Graph Rare Domain Sieve (`rolling_max <= 3`)** and **Macro 30-Day `metrics.*` Baseline + Intra-Bucket Per-Flow Payload Quantile Shape ($P_{50}$ vs $P_{90}$)** (`$flow_tail_burst_ratio = $p90_bytes / $safe_p50`), all verified live on `gus-sdl`.
 
 ---
 

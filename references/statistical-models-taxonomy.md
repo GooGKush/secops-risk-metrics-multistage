@@ -10,7 +10,7 @@ The Google SecOps Multi-Stage Risk Analytics Engine provides 12 distinct categor
 
 | Anomaly Archetype | Built-In Mathematical Models | Target Telemetry Vectors | Primary Security Outcome & Use Case |
 | :--- | :--- | :--- | :--- |
-| **1. 📈 Volumetric Surges** | `STANDARD_Z_SCORE`, `MAD` | Network Egress, File Touches, HTTP Queries | Detects data exfiltration spikes and ransomware staging while insulating against skewed distributions. |
+| **1. 📈 Volumetric Surges** | `STANDARD_Z_SCORE`, `MAD`, `QUANTILE_IQR_SKEW` | Network Egress, File Touches, HTTP Queries | Detects data exfiltration spikes and ransomware staging while insulating against skewed distributions. |
 | **2. ⚡ Automated Script Bursts** | `VARIANCE` (Fano Factor $F = \sigma^2/\mu$) | Authentication Attempts, API Calls | Distinguishes automated credential sprays and brute-force waves ($F > 4.0$) from random human typos ($F \approx 1.0$). |
 | **3. 🎯 Rare & Discrete Inceptions** | `POISSON_RARITY` ($Z_P = (k-\lambda)/\sqrt{\lambda}$) | Process Launches, Admin LOLBins | Flags executions of rare tools (`powershell`, `vssadmin`) on quiet servers with near-zero expected rates ($\lambda \le 2.0$). |
 | **4. 🧠 Sparse Activity Regularization** | `BAYESIAN_GAMMA`, `BAYESIAN_BETA_BINOMIAL` | Low-Volume Service Accounts, Auth Ratios | Regularizes sparse observations via 30-day prior stability, preventing false alarms on quiet accounts with low sample sizes. |
@@ -371,6 +371,16 @@ Before running a multi-stage statistical hunt, explain the approach to the secur
 * **Security Problem Solved**: Computes a scale-free relative deviation $(x - \mu)/\mu$ and fold change $x/\mu$ ("3.2× the 30-day average") for straightforward executive and SOC communication when standard deviation is noisy or unintuitive. *(Formerly mislabelled MAD prior to v1.8.3; mean-anchored with 0% breakdown point.)*
 * **Mathematical Formulation**:
   $$\text{Relative Deviation} = \frac{x - \mu}{\mu_{\text{safe}}}, \quad \text{Fold Change} = \frac{x}{\mu_{\text{safe}}}, \quad \mu_{\text{safe}} = \text{if}(\mu > 0, \mu, 1.0)$$
+
+
+---
+
+## 17B. 1-Stage Non-Parametric Quantiles, Bowley Skewness & Skew-Adjusted Tukey Fence (`QUANTILE_IQR_SKEW`)
+* **Security Problem Solved**: Computes a 5-point empirical quantile envelope ($P_{10}, Q_{25}, Q_{50}, Q_{75}, P_{90}$) in **1 intermediate stage** (`stage quantile_envelope` via `window.percentile`) instead of the 2 stages required by `MAD` (`mad_center` $\to$ `mad_spread`), saving a full stage and join slot for Entity Context Graph (`DERIVED_CONTEXT` / `GLOBAL_CONTEXT`) or peer-cohort enrichment while adjusting the Tukey upper fence for right-skewed baselines.
+* **Mathematical Formulation** (Bowley 1920; Moors 1988; Hubert & Vandervieren 2008):
+  $$\text{IQR} = Q_{75} - Q_{25}, \quad B_{\text{skew}} = \frac{Q_{75} + Q_{25} - 2 Q_{50}}{\text{IQR}_{\text{safe}}}, \quad T_{\text{ratio}} = \frac{P_{90} - P_{10}}{\text{IQR}_{\text{safe}}}$$
+  $$\text{Fence}_{\text{adj}} = Q_{75} + 1.5 \cdot e^{3 \cdot \max(0, B_{\text{skew}})} \cdot \text{IQR}_{\text{safe}}, \quad \text{Ratio} = \frac{x}{\max(\text{Fence}_{\text{adj}}, 1.0)}$$
+* **Threat Meaning**: Flags heavy-tailed breakouts (`$tukey_fence_ratio >= 2.0`) alongside the classical 30d `metrics.*` `$personal_z` cross-check and diagnoses whether historical right-skew ($B_{\text{skew}} > 0.25$, $T_{\text{ratio}} > 2.5$) masked the entity's parametric mean/stddev.
 
 ---
 

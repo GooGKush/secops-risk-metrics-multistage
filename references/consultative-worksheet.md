@@ -96,8 +96,8 @@ Analytical rigor strengthens threat hunting when grounded in clear, practical se
 │                                 │                                   │ tripwire hurdle instead of a standard volume curve.    │
 ├─────────────────────────────────┼───────────────────────────────────┼────────────────────────────────────────────────────────┤
 │ 3. Skew & Baseline Distortion   │ The "Past Noise Camouflage"       │ Check whether historical bulk jobs inflate arithmetic  │
-│                                 │ Check                             │ averages. Use distortion-proof medians (MAD) to keep   │
-│                                 │                                   │ past one-off spikes from masking subtle new attacks.   │
+│                                 │ Check                             │ averages. Use MAD or 1-stage Quantile/Bowley Skewness  │
+│                                 │                                   │ (QUANTILE_IQR_SKEW) to defeat baseline masking.        │
 ├─────────────────────────────────┼───────────────────────────────────┼────────────────────────────────────────────────────────┤
 │ 4. Confounder Elimination       │ The "Crowd / Patch Tuesday"       │ Check whether many peers are experiencing the same     │
 │                                 │ Check                             │ surge concurrently. Apply fleet prevalence shielding   │
@@ -109,7 +109,7 @@ Analytical rigor strengthens threat hunting when grounded in clear, practical se
 Pair each of the 4 Investigative Inquiries with its concrete query-level control or SecOps Data Table (`%<table_name>`) join:
 1. **Innocent Explanation Control**: Exclude known vulnerability scanners or scheduled maintenance windows via Data Table join (`not $entity in %authorized_scanners.hostname`) or VIP/departing-employee risk prior weights (`$entity = %ueba_entity_priors.entity`).
 2. **Quiet Entity Trap Control**: Route dormant accounts ($N < 7$ active baseline days) to `two_part_hurdle.yl2` or `poisson_rarity.yl2` rather than standard Gaussian $Z$-scores.
-3. **Past Noise Camouflage Control**: Route heavy-tailed volumetric vectors to true Median Absolute Deviation (`stage2_math_models/mad.yl2`, `mad_robust_z_4stage.yl2`) with $50\%$ breakdown point.
+3. **Past Noise Camouflage Control**: Route heavy-tailed volumetric vectors to true Median Absolute Deviation (`stage2_math_models/mad.yl2`, `mad_robust_z_4stage.yl2`) or 1-Stage Non-Parametric Quantile & Skewness-Adjusted Tukey Fence (`stage2_math_models/quantile_iqr_skew.yl2`, `quantile_iqr_skew_3stage.yl2`), which computes `$p10, $q25, $q50, $q75, $p90` in 1 stage and frees Stage 3 for Entity Context Graph rarity filtering.
 4. **Crowd / Patch Tuesday Control**: Apply `hybrid_metric_fleet_prevalence_2stage.yl2` (hyperbolic dampener `1.0 / ($k_fleet + 1.0)`) or `dual_baseline_3stage` ($\Delta Z = Z_{\text{personal}} - Z_{\text{fleet}}$). For cross-phase hunts (> 25 entities or persistent cohort bridging), upon explicit analyst approval in State 3 materialize Stage 1 suspect cohorts into `%ueba_hunt_bridge` (`hybrid_data_table_bridge_2stage.yl2`).
 
 ---
@@ -162,6 +162,8 @@ When the hypothesis touches two or more vectors, do not stop at listing them. Pr
   6. *Context-Enhanced WHOIS Egress*: Cross-reference outbound transfer departures against WHOIS registration dates and expiration status to apply 2.5x–3.0x risk multipliers on Newly Registered Domains or expired infrastructure (**WHOIS Domain Lifecycle** via `templates/pipelines/hybrid_metric_whois_domain_lifecycle_2stage.yl2`).
   7. *Runaway Velocity Divergence*: Detect sudden, unconstrained egress acceleration that shatters historical 30-day ceilings (**MACD Dual-Spine Momentum Indicator** on `network_bytes_outbound` via `macd_momentum_velocity_2stage.yl2`).
   8. *Egress to Rare Destinations*: Score outbound bytes per host and keep only hosts that contacted domains or IPs seen on <= 3 hosts enterprise-wide (**Rare Destination Filter** via `rare_destination_ecg_3stage.yl2`).
+  9. *1-Stage Quantile & Bowley Skewness Egress Fence*: Compute 5-point empirical quantiles (`$p10, $q25, $q50, $q75, $p90`), Bowley quartile skewness (`$bowley_skew`), and Skewness-Adjusted Tukey Fence alongside 30d `metrics.*` Z in 3 stages (**Quantile IQR Skew** via `quantile_iqr_skew_3stage.yl2`).
+  10. *Intra-Bucket Per-Flow Payload Quantile Shape ($P_{50}$ vs $P_{90}$)*: Pair 30-day `metrics.network_bytes_outbound` macro Z-scores with in-stage `window.percentile(network.sent_bytes, 50)` and `window.percentile(network.sent_bytes, 90)` to expose stealth burst exfiltration hidden inside normal daily totals.
 * *Deep Dive Guide*: `references/consultative/data-exfiltration.md`
 
 ### Domain 2: Identity, Credential Abuse & Privilege Drift
@@ -255,3 +257,165 @@ When the analyst asks a question or requests parameter adjustments prior to givi
 4. **Re-Verify Query**: Probe the updated single-event UDM filter via `udm_search(maxEvents=1)` when query logic changes, and display the refreshed candidate query block.
 5. **Prompt for Clearance**: Conclude by asking whether to proceed with Mode A (Today vs 30-Day Baseline) or Mode B (2–7 Day Fixed-Baseline Timeline), plus Mode C (Per-Day Baseline) when `run_command` is present.
 
+---
+
+## 📐 Non-Parametric Quantile, Bowley Skewness & Intra-Bucket Shape Patterns (`window.percentile`)
+
+### Pattern 1: 4-Stage Quantile/Bowley Skewness Fence + Entity Context Graph Rare Domain Sieve
+Because `stage quantile_envelope` computes `$q25, $q50, $q75` in **1 intermediate stage** (saving 1 stage compared to 2-stage `mad_center -> mad_spread`), Stage 3 is free to join `DERIVED_CONTEXT` domain prevalence (`rolling_max <= 3`, `day_count = 10`) in a single 4-stage query:
+
+```yara
+// Goal: Hunt for outbound byte surges that breach the Skewness-Adjusted Tukey Fence and contact rare external domains (<= 3 hosts)
+stage stage1_extract {
+    network.sent_bytes > 0
+    network.sent_bytes < 1000000000000000
+    principal.asset.hostname = $host
+    target.hostname = $domain
+    $host != ""
+    $domain != ""
+
+  match:
+    $host, $domain by 1d
+
+  outcome:
+    $observed_val = sum(network.sent_bytes)
+    $in_scoring_window = max(if(timestamp.get_date(metadata.event_timestamp.seconds) >= "2026-10-21", 1, 0))
+    $historical_avg = max(metrics.network_bytes_outbound(
+        period: 1d, window: 30d, metric: value_sum, agg: avg,
+        principal.asset.hostname: principal.asset.hostname
+    ))
+    $historical_stddev = max(metrics.network_bytes_outbound(
+        period: 1d, window: 30d, metric: value_sum, agg: stddev,
+        principal.asset.hostname: principal.asset.hostname
+    ))
+}
+
+stage quantile_envelope {
+    $host = $stage1_extract.host
+
+  match:
+    $host
+
+  outcome:
+    $q25 = window.percentile($stage1_extract.observed_val, 25)
+    $q50 = window.percentile($stage1_extract.observed_val, 50)
+    $q75 = window.percentile($stage1_extract.observed_val, 75)
+    $raw_active_days = count_distinct($stage1_extract.window_start)
+}
+
+stage stage3_rare_domain {
+    $g.graph.metadata.entity_type = "DOMAIN_NAME"
+    $g.graph.metadata.source_type = "DERIVED_CONTEXT"
+    $g.graph.entity.domain.name = $domain
+    $domain != ""
+    $g.graph.entity.domain.prevalence.day_count = 10
+    $g.graph.entity.domain.prevalence.rolling_max > 0
+    $g.graph.entity.domain.prevalence.rolling_max <= 3
+
+  match:
+    $domain
+
+  outcome:
+    $domain_prevalence = min($g.graph.entity.domain.prevalence.rolling_max)
+}
+
+$host = $stage1_extract.host
+$host = $quantile_envelope.host
+$domain = $stage1_extract.domain
+$domain = $stage3_rare_domain.domain
+$ws = $stage1_extract.window_start
+
+match:
+  $host, $ws by 1d
+
+outcome:
+  $observed = sum($stage1_extract.observed_val)
+  $hist_avg = max($stage1_extract.historical_avg)
+  $hist_stddev = max($stage1_extract.historical_stddev)
+  $q25_val = max($quantile_envelope.q25)
+  $q50_val = max($quantile_envelope.q50)
+  $q75_val = max($quantile_envelope.q75)
+  $raw_active_days = max($quantile_envelope.raw_active_days)
+  $in_scoring_window = max($stage1_extract.in_scoring_window)
+  $min_domain_prevalence = min($stage3_rare_domain.domain_prevalence)
+  $rare_domains = array_distinct($domain)
+
+  $safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)
+  $personal_z = ($observed - $hist_avg) / $safe_stddev
+
+  $iqr = $q75_val - $q25_val
+  $q50_floor = $q50_val * 0.05 + 1.0
+  $safe_iqr = if($iqr > 0, $iqr, $q50_floor)
+  $bowley_skew = ($q75_val + $q25_val - (2.0 * $q50_val)) / $safe_iqr
+  $pos_skew = if($bowley_skew > 0, $bowley_skew, 0.0)
+  $adj_upper_fence = $q75_val + (1.5 * math.pow(2.718281828, 3.0 * $pos_skew) * $safe_iqr)
+  $safe_fence = if($adj_upper_fence > 0, $adj_upper_fence, 1.0)
+  $tukey_fence_ratio = $observed / $safe_fence
+
+condition:
+  $in_scoring_window = 1 and $raw_active_days >= 7 and $tukey_fence_ratio >= 2.0
+
+order:
+  $tukey_fence_ratio desc
+```
+
+### Pattern 2: Macro 30-Day `metrics.*` Baseline + Intra-Bucket Per-Flow Payload Quantile Shape ($P_{50}$ vs $P_{90}$)
+Pre-computed `metrics.network_bytes_outbound` tracks only the daily `sum(network.sent_bytes)`. By adding `window.percentile(network.sent_bytes, 50)` and `window.percentile(network.sent_bytes, 90)` directly inside `stage1_extract`, we simultaneously evaluate the 30-day macro $Z$-score AND the intra-day per-flow payload concentration (`$flow_tail_burst_ratio = $p90_bytes / $safe_p50`), exposing adversaries who hide high-volume burst uploads alongside routine small heartbeats:
+
+```yara
+// Goal: Combine 30-day metrics.network_bytes_outbound macro Z-score with intra-bucket per-flow P50/P90 payload quantile shape fingerprinting
+stage stage1_extract {
+    network.sent_bytes > 0
+    network.sent_bytes < 1000000000000000
+    principal.asset.hostname = $host
+    $host != ""
+
+  match:
+    $host by 1d
+
+  outcome:
+    $observed_val = sum(network.sent_bytes)
+    $flow_count = count(metadata.id)
+    $flow_p50_bytes = window.percentile(network.sent_bytes, 50)
+    $flow_p90_bytes = window.percentile(network.sent_bytes, 90)
+    $historical_avg = max(metrics.network_bytes_outbound(
+        period: 1d, window: 30d, metric: value_sum, agg: avg,
+        principal.asset.hostname: principal.asset.hostname
+    ))
+    $historical_stddev = max(metrics.network_bytes_outbound(
+        period: 1d, window: 30d, metric: value_sum, agg: stddev,
+        principal.asset.hostname: principal.asset.hostname
+    ))
+    $historical_active_days = max(metrics.network_bytes_outbound(
+        period: 1d, window: 30d, metric: value_sum, agg: num_metric_periods,
+        principal.asset.hostname: principal.asset.hostname
+    ))
+}
+
+$host = $stage1_extract.host
+$ws = $stage1_extract.window_start
+
+match:
+  $host, $ws by 1d
+
+outcome:
+  $observed = max($stage1_extract.observed_val)
+  $flows = max($stage1_extract.flow_count)
+  $p50_bytes = max($stage1_extract.flow_p50_bytes)
+  $p90_bytes = max($stage1_extract.flow_p90_bytes)
+  $hist_avg = max($stage1_extract.historical_avg)
+  $hist_stddev = max($stage1_extract.historical_stddev)
+  $active_days = max($stage1_extract.historical_active_days)
+
+  $safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)
+  $personal_z = ($observed - $hist_avg) / $safe_stddev
+
+  $safe_p50 = if($p50_bytes > 0, $p50_bytes, 1.0)
+  $flow_tail_burst_ratio = $p90_bytes / $safe_p50
+
+condition:
+  $active_days >= 7 and $personal_z >= 2.0 and $flow_tail_burst_ratio >= 10.0
+
+order:
+  $flow_tail_burst_ratio desc
+```

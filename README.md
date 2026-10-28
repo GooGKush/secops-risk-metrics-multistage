@@ -1,6 +1,6 @@
 # Google SecOps Multi-Stage Risk Metrics Threat Hunter (`secops-risk-metrics-multistage`)
 
-[![Version](https://img.shields.io/badge/version-v2.1.4-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-433%2F433%20passing%20(100%25)-brightgreen.svg)](tests/) [![Submission Tests](https://img.shields.io/badge/submission%20tests-32%2F32%20passing%20(100%25)-brightgreen.svg)](scripts/submission_tests.py) [![Live Regression](https://img.shields.io/badge/dual--engine%20regression-60%2F60%20live%20passing%20(100%25)-brightgreen.svg)](tests/)
+[![Version](https://img.shields.io/badge/version-v2.2.0-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-433%2F433%20passing%20(100%25)-brightgreen.svg)](tests/) [![Submission Tests](https://img.shields.io/badge/submission%20tests-32%2F32%20passing%20(100%25)-brightgreen.svg)](scripts/submission_tests.py) [![Live Regression](https://img.shields.io/badge/dual--engine%20regression-60%2F60%20live%20passing%20(100%25)-brightgreen.svg)](tests/)
 
 A specialized, production-grade AI agent skill package for **Google Security Operations (SecOps / Chronicle SIEM & SOAR)** that constructs, validates, and executes **Multi-Stage YARA-L 2.0 Directed Acyclic Graph (DAG) statistical threat hunting pipelines**, **360° Entity Behavioral Risk Radars**, and **Progressively Disclosed Consultative Threat Hunting**.
 
@@ -56,7 +56,7 @@ secops-risk-metrics-multistage/
 │   ├── turn-execution-lifecycle.md       # Codified turn lifecycle, transition invariants, & quiet baseline protocol
 │   └── udm-hunting-field-dictionary.md   # Field-level dictionary mapping UDM protobuf fields to hunter dimensions
 ├── templates/                            # Composable YARA-L 2.0 template library
-│   ├── pipelines/                        # Pre-composed multi-stage DAG pipelines (33 templates)
+│   ├── pipelines/                        # Pre-composed multi-stage DAG pipelines (34 templates)
 │   │   ├── c2_beacon_flow_frequency_2stage.yl2
 │   │   ├── circadian_von_mises_2stage.yl2
 │   │   ├── cloud_repository_scope_dual_branch.yl2
@@ -83,6 +83,7 @@ secops-risk-metrics-multistage/
 │   │   ├── part_of_the_whole_multilevel.yl2        # User vs. self, vs. peer group, vs. enterprise
 │   │   ├── part_of_the_whole_triad_multilevel.yl2
 │   │   ├── poisson_rarity_2stage.yl2
+│   │   ├── quantile_iqr_skew_3stage.yl2          # 1-stage 5-point quantiles, Bowley skewness & Tukey fence + 30d Z
 │   │   ├── radar_360_decoupled_sector.yl2
 │   │   ├── radar_360_sector_alert.yl2
 │   │   ├── radar_360_sector_web_http.yl2
@@ -99,7 +100,7 @@ secops-risk-metrics-multistage/
 │   │   ├── dns_queries_* / dns_bytes_* (fail, success, total)
 │   │   ├── http_queries_* (fail, success, total)
 │   │   └── workspace_* (auth, emails sent, network bytes, downloads, changes)
-│   └── stage2_math_models/               # 17 plug-and-play mathematical model templates
+│   └── stage2_math_models/               # 18 plug-and-play mathematical model templates
 │       ├── adaptive_context_threshold.yl2
 │       ├── asymmetric_directional_z.yl2
 │       ├── beta_binomial_bayesian.yl2
@@ -113,6 +114,7 @@ secops-risk-metrics-multistage/
 │       ├── piecewise_cri.yl2
 │       ├── poisson_gamma_bayesian.yl2
 │       ├── poisson_rarity.yl2
+│       ├── quantile_iqr_skew.yl2                 # 1-stage quantile envelope, Bowley skewness & Tukey fence
 │       ├── relative_deviation.yl2                # Fold change vs 30d mean (formerly mislabelled MAD)
 │       ├── standard_z_score.yl2
 │       ├── two_part_hurdle.yl2

@@ -45,6 +45,7 @@ class StatisticalModel(str, Enum):
   ADAPTIVE_CONTEXT_THRESHOLD = "ADAPTIVE_CONTEXT_THRESHOLD"
   MACD_MOMENTUM_VELOCITY = "MACD_MOMENTUM_VELOCITY"
   CIRCADIAN_VON_MISES = "CIRCADIAN_VON_MISES"
+  QUANTILE_IQR_SKEW = "QUANTILE_IQR_SKEW"
 
 
 # Pre-Flight card wording of each model's default root significance gate. Mirrors the default
@@ -68,6 +69,7 @@ DEFAULT_SIGNIFICANCE_GATES: Dict["StatisticalModel", str] = {
     StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD: "Z >= context threshold",
     StatisticalModel.MACD_MOMENTUM_VELOCITY: "Fast Z >= 3.0σ",
     StatisticalModel.CIRCADIAN_VON_MISES: "Circadian score >= 3.0",
+    StatisticalModel.QUANTILE_IQR_SKEW: "Skew-Adjusted Fence >= 2.0×",
 }
 
 
