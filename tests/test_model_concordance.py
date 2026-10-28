@@ -138,6 +138,13 @@ MODEL_AST_CONTRACTS = {
         "required_ops": ["by 1h", "max($stage1_extract.event_hour)", "$scaled_hourly_sd = $hist_stddev_daily / 4.899", "$circ_dist = if($abs_hour_diff > 12.0", "$circadian_weight = 1.0 + $norm_dist", "$circadian_threat_score = $pos_z * $circadian_weight"],
         "prohibited_substitutions": ["$personal_z"],
     },
+    StatisticalModel.QUANTILE_IQR_SKEW: {
+        "template": "quantile_iqr_skew.yl2",
+        "mandatory_vars": ["$q25_val", "$q50_val", "$q75_val", "$iqr", "$safe_iqr", "$bowley_skew", "$tail_heaviness", "$adj_upper_fence", "$tukey_fence_ratio", "$personal_z", "$raw_active_days", "$in_scoring_window"],
+        "order_var": "$tukey_fence_ratio",
+        "required_ops": ["window.percentile($stage1_extract.observed_val, 25)", "window.percentile($stage1_extract.observed_val, 50)", "window.percentile($stage1_extract.observed_val, 75)", "$bowley_skew = ($q75_val + $q25_val - (2.0 * $q50_val)) / $safe_iqr", "$tukey_fence_ratio = $observed / $safe_fence"],
+        "prohibited_substitutions": ["$personal_z", "$ratio"],
+    },
 }
 
 

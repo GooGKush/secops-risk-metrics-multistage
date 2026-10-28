@@ -41,6 +41,7 @@ In multi-stage hunting workflows:
 | 15 | `MACD_MOMENTUM_VELOCITY` | MACD Dual-Spine Momentum Indicator | `$fast_diff`, `$safe_stddev`, `$fast_z`, `$slow_diff`, `$slow_z`, `$macd_diff`, `$safe_max`, `$velocity_ratio`, `$breakout_boost`, `$breakout_score`, `$macd_momentum_score` | Fast spine deviation, slow reference anchor, monotone ceiling breakout boost (`$fast_z + $breakout_boost`) | `order: $macd_momentum_score desc` | Non-monotone cliff at historical max or univariate Z fallback |
 | 16 | `CIRCADIAN_VON_MISES` | Circadian von Mises Temporal Distance | `$avg_hourly`, `$scaled_hourly_sd`, `$safe_stddev_hourly`, `$hourly_diff`, `$hourly_z`, `$event_hour`, `$raw_hour_diff`, `$abs_hour_diff`, `$wrap_dist`, `$circ_dist`, `$norm_dist`, `$circadian_weight`, `$pos_z`, `$circadian_threat_score` | Hourly baseline normalization (`mean/24`, `sd/4.899`), circular 24h distance, linear off-hours weight (`1.0 + d/12`) | `order: $circadian_threat_score desc` | Comparing 1h count directly against unscaled 24h daily mean |
 | 17 | `RELATIVE_DEVIATION` | Relative Deviation / Fold Change vs 30d Mean | `$dev`, `$safe_hist_avg`, `$ratio` | $(x-\mu)/\mu$ fold change | `order: $ratio desc` | Labelling it MAD (it is mean-anchored, 0% breakdown point) |
+| 18 | `QUANTILE_IQR_SKEW` | 1-Stage Non-Parametric Quantiles, Bowley Skewness & Skew-Adjusted Tukey Fence | `$q25_val`, `$q50_val`, `$q75_val`, `$iqr`, `$safe_iqr`, `$bowley_skew`, `$tail_heaviness`, `$adj_upper_fence`, `$tukey_fence_ratio` | `window.percentile` 5-point envelope in 1 stage, Bowley skewness, Hubert–Vandervieren fence | `order: $tukey_fence_ratio desc` | Consuming 2 stages when 1-stage quantile envelope suffices |
 
 ### 2.1 Default Root Significance Gate (the card's `Significance Threshold`)
 
@@ -64,6 +65,7 @@ Every query carries the model's significance gate as a root `condition:` placed 
 | `COEFFICIENT_OF_VARIATION` | `$surge_ratio`, `$cv` | `$surge_ratio >= 2.0 and $cv <= 0.5` | fold change on a predictable entity | `>= 2.0× baseline, CV <= 0.5` | `{{fold_change_threshold}}` |
 | `RELATIVE_DEVIATION` | `$fold_change` | `$fold_change >= 2.0` (ranked by `$ratio`) | fold change | `>= 2.0× baseline` | `{{fold_change_threshold}}` |
 | `MAD` | `$modified_z` | `... and $modified_z >= 3.5` (AND-ed with the scoring-window and sample-size gates) | modified Z | `Modified Z >= 3.5` | `{{robust_threshold}}` |
+| `QUANTILE_IQR_SKEW` | `$tukey_fence_ratio` | `$in_scoring_window = 1 and $raw_active_days >= 7 and $tukey_fence_ratio >= 2.0` | fold over fence | `Skew-Adjusted Fence >= 2.0×` | `{{fold_change_threshold}}` |
 | `VARIANCE` (Fano) | — | **none** (`// NO-GATE`) | — | `N/A (dispersion screen)` | — |
 
 * **Why fold change for the ratio models**: their scores are not in σ, and a fold change ("2× the usual") needs no statistical background to read. The 2.0× default is a convention, not a calibrated tail probability. Tune it like any other threshold.
@@ -620,6 +622,44 @@ condition:
 
 order:
   $ratio desc
+```
+
+### 18. `QUANTILE_IQR_SKEW` (`quantile_iqr_skew.yl2`)
+* **Hypothesis**: 1-stage non-parametric quantile envelope (`$p10, $q25, $q50, $q75, $p90`), Bowley quartile skewness (`$bowley_skew`), Moors tail-heaviness ratio (`$tail_heaviness`), and Hubert–Vandervieren Skewness-Adjusted Tukey Upper Fence (`$adj_upper_fence`) side by side with the 30d `metrics.*` `$personal_z` cross-check. Saves 1 stage and 1 join compared to 2-stage `MAD`.
+* **Mandatory AST Contract**:
+```yara
+stage quantile_envelope {
+    $entity = $stage1_extract.entity
+  match:
+    $entity
+  outcome:
+    $p10 = window.percentile($stage1_extract.observed_val, 10)
+    $q25 = window.percentile($stage1_extract.observed_val, 25)
+    $q50 = window.percentile($stage1_extract.observed_val, 50)
+    $q75 = window.percentile($stage1_extract.observed_val, 75)
+    $p90 = window.percentile($stage1_extract.observed_val, 90)
+    $raw_active_days = count_distinct($stage1_extract.window_start)
+}
+
+$entity = $stage1_extract.entity
+$entity = $quantile_envelope.entity
+$ws = $stage1_extract.window_start
+
+match:
+  $entity, $ws by 1d
+
+outcome:
+  $iqr = $q75_val - $q25_val
+  $bowley_skew = ($q75_val + $q25_val - (2.0 * $q50_val)) / $safe_iqr
+  $tail_heaviness = (max($quantile_envelope.p90) - max($quantile_envelope.p10)) / $safe_iqr
+  $adj_upper_fence = $q75_val + (1.5 * math.pow(2.718281828, 3.0 * $pos_skew) * $safe_iqr)
+  $tukey_fence_ratio = $observed / $safe_fence
+
+condition:
+  $in_scoring_window = 1 and $raw_active_days >= 7 and $tukey_fence_ratio >= 2.0
+
+order:
+  $tukey_fence_ratio desc
 ```
 
 ---

@@ -1,0 +1,108 @@
+// ============================================================================
+// ARCHITECTURE: 3-STAGE NON-PARAMETRIC QUANTILES, BOWLEY SKEWNESS & SKEW-ADJUSTED TUKEY FENCE
+// Skill: secops-risk-metrics-multistage
+// Purpose: 1-stage non-parametric quantile envelope ($p10, $q25, $q50, $q75, $p90), Bowley quartile
+//          skewness ($bowley_skew), Moors tail-heaviness ratio ($tail_heaviness), and Hubert-Vandervieren
+//          Skewness-Adjusted Tukey Upper Fence ($adj_upper_fence) side by side with 30d metrics.* Z.
+// Stages: stage1_extract (event stage, daily observed + 30d metrics baseline)
+//         -> quantile_envelope (5-point window.percentile envelope in 1 stage!) -> root (scores)
+// Stage-Budget Advantage: Saves 1 full stage & 1 join compared to 4-stage MAD, leaving room to attach
+//                         an Entity Context Graph (DERIVED_CONTEXT / GLOBAL_CONTEXT) or peer-cohort stage.
+//
+// CONCRETE FIELD BINDING & INSTANTIATION GUIDE:
+// Slots event_filter / macro_event_filter: the metric's "Observed event filter" lines from references/metric-sector-catalog.md, one per line.
+// 1. Network Outbound Bytes (Host):
+//    - event_filter slot: network.sent_bytes > 0 AND network.sent_bytes < 1000000000000000 (network_bytes_outbound), entity_field slot: principal.asset.hostname
+//    - observed_aggregation slot: sum(network.sent_bytes), target_metric_name slot: network_bytes_outbound
+//    - metric_type_val slot: value_sum, dimension_key slot: principal.asset.hostname
+// 2. Authentication Attempts (User):
+//    - event_filter slot: metadata.event_type = "USER_LOGIN", entity_field slot: target.user.userid
+//    - observed_aggregation slot: count(metadata.id), target_metric_name slot: auth_attempts_total
+//    - metric_type_val slot: event_count_sum, dimension_key slot: target.user.userid
+// ============================================================================
+
+// Stage 1: Telemetry Extraction & Pre-Computed 30-Day Baseline Lookup
+stage stage1_extract {
+    {{event_filter}}
+    {{entity_field}} = $entity
+    $entity != ""
+
+  match:
+    $entity by 1d
+
+  outcome:
+    $observed_val = {{observed_aggregation}}
+    $observed_events = count(metadata.id)
+    $in_scoring_window = max(if(timestamp.get_date(metadata.event_timestamp.seconds) >= "{{first_scored_date}}", 1, 0))
+
+    $historical_avg = max(metrics.{{target_metric_name}}(
+        period: 1d, window: 30d, metric: {{metric_type_val}}, agg: avg,
+        {{dimension_key}}: {{dimension_key}} {{extra_dimensions}}
+    ))
+    $historical_stddev = max(metrics.{{target_metric_name}}(
+        period: 1d, window: 30d, metric: {{metric_type_val}}, agg: stddev,
+        {{dimension_key}}: {{dimension_key}} {{extra_dimensions}}
+    ))
+    $historical_active_days = max(metrics.{{target_metric_name}}(
+        period: 1d, window: 30d, metric: {{metric_type_val}}, agg: num_metric_periods,
+        {{dimension_key}}: {{dimension_key}} {{extra_dimensions}}
+    ))
+}
+
+// Stage 2: 1-Stage 5-Point Empirical Quantile Envelope
+stage quantile_envelope {
+    $entity = $stage1_extract.entity
+
+  match:
+    $entity
+
+  outcome:
+    $p10 = window.percentile($stage1_extract.observed_val, 10)
+    $q25 = window.percentile($stage1_extract.observed_val, 25)
+    $q50 = window.percentile($stage1_extract.observed_val, 50)
+    $q75 = window.percentile($stage1_extract.observed_val, 75)
+    $p90 = window.percentile($stage1_extract.observed_val, 90)
+    $raw_active_days = count_distinct($stage1_extract.window_start)
+}
+
+// Root Stage: Skewness-Adjusted Tukey Fence & Bowley Asymmetry vs Classical 30d Metrics Z
+$entity = $stage1_extract.entity
+$entity = $quantile_envelope.entity
+$ws = $stage1_extract.window_start
+
+match:
+  $entity, $ws by 1d
+
+outcome:
+  $observed = max($stage1_extract.observed_val)
+  $hist_avg = max($stage1_extract.historical_avg)
+  $hist_stddev = max($stage1_extract.historical_stddev)
+  $active_days = max($stage1_extract.historical_active_days)
+  $q25_val = max($quantile_envelope.q25)
+  $q50_val = max($quantile_envelope.q50)
+  $q75_val = max($quantile_envelope.q75)
+  $raw_active_days = max($quantile_envelope.raw_active_days)
+  $in_scoring_window = max($stage1_extract.in_scoring_window)
+
+  // 1. Classical 30d metrics Z (cross-check)
+  $safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)
+  $personal_z = ($observed - $hist_avg) / $safe_stddev
+
+  // 2. Non-Parametric IQR, Bowley Quartile Skewness & Tail-Heaviness Ratio
+  $iqr = $q75_val - $q25_val
+  $q50_floor = $q50_val * 0.05 + 1.0
+  $safe_iqr = if($iqr > 0, $iqr, $q50_floor)
+  $bowley_skew = ($q75_val + $q25_val - (2.0 * $q50_val)) / $safe_iqr
+  $tail_heaviness = (max($quantile_envelope.p90) - max($quantile_envelope.p10)) / $safe_iqr
+
+  // 3. Hubert-Vandervieren Skewness-Adjusted Tukey Upper Fence & Fence Breakout Ratio
+  $pos_skew = if($bowley_skew > 0, $bowley_skew, 0.0)
+  $adj_upper_fence = $q75_val + (1.5 * math.pow(2.718281828, 3.0 * $pos_skew) * $safe_iqr)
+  $safe_fence = if($adj_upper_fence > 0, $adj_upper_fence, 1.0)
+  $tukey_fence_ratio = $observed / $safe_fence
+
+condition:
+  $in_scoring_window = 1 and $raw_active_days >= {{min_baseline_days}} and $tukey_fence_ratio >= {{fold_change_threshold}}
+
+order:
+  $tukey_fence_ratio desc

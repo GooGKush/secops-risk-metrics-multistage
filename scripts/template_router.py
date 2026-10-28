@@ -88,6 +88,7 @@ class MultiStageTemplateRouter:
       StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD: "adaptive_context_threshold.yl2",
       StatisticalModel.MACD_MOMENTUM_VELOCITY: "macd_momentum_velocity.yl2",
       StatisticalModel.CIRCADIAN_VON_MISES: "circadian_von_mises.yl2",
+      StatisticalModel.QUANTILE_IQR_SKEW: "quantile_iqr_skew.yl2",
       "diversity_deficit": "diversity_deficit_entropy.yl2",
       "diversity_deficit_entropy": "diversity_deficit_entropy.yl2",
       "macd_momentum": "macd_momentum.yl2",
@@ -508,7 +509,7 @@ class MultiStageTemplateRouter:
     # Enforce Local-Baseline Isolation: multi-database account queries must route to CLOUD_REPOSITORY_SCOPE_DUAL_BRANCH.
     # An explicit MAD request is exempt: MAD groups by the full (user, vendor, product, resource) baseline tuple,
     # which already isolates each repository's baseline.
-    if target_metric.startswith("resource_") and entity_type == EntityType.USER and statistical_model != StatisticalModel.MAD:
+    if target_metric.startswith("resource_") and entity_type == EntityType.USER and statistical_model not in (StatisticalModel.MAD, StatisticalModel.QUANTILE_IQR_SKEW):
       return self.build_pipeline_query(
           PipelineArchitecture.CLOUD_REPOSITORY_SCOPE_DUAL_BRANCH,
           target_metric=target_metric,
@@ -551,6 +552,10 @@ class MultiStageTemplateRouter:
           "fleet_prevalence_shield": StatisticalModel.FLEET_PREVALENCE_SHIELD,
           "adaptive_context_threshold": StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD,
           "circadian_von_mises": StatisticalModel.CIRCADIAN_VON_MISES,
+          "quantile_iqr_skew": StatisticalModel.QUANTILE_IQR_SKEW,
+          "bowley_skew": StatisticalModel.QUANTILE_IQR_SKEW,
+          "tukey_fence": StatisticalModel.QUANTILE_IQR_SKEW,
+          "tukey_skew_fence": StatisticalModel.QUANTILE_IQR_SKEW,
       }
       if lower_key in alias_enum_map:
         statistical_model = alias_enum_map[lower_key]
@@ -596,7 +601,7 @@ class MultiStageTemplateRouter:
         )
       stage1_content = re.sub(r'(\bmatch:\s*\n\s*[$][a-zA-Z0-9_]+\s+by)\s+1d', r'\1 1h', stage1_content)
 
-    if statistical_model == StatisticalModel.MAD:
+    if statistical_model in (StatisticalModel.MAD, StatisticalModel.QUANTILE_IQR_SKEW):
       # MAD needs the daily rows of the raw search window as its empirical series, so the root keeps
       # `$entity, $ws by 1d` in every mode; Mode A / Mode B differ only in how many recent days are scored.
       if scoring_days is None:
@@ -615,9 +620,12 @@ class MultiStageTemplateRouter:
         )
       stage1_content = stage1_content.replace("{{first_scored_date}}", first_scored_date)
       # Keep the module's one-line title; its long design notes stay in the template, not in every query.
-      head, sep, tail = stage2_raw.partition("stage mad_center")
-      head_lines = head.splitlines()
-      stage2_raw = "\n".join(head_lines[:1]) + "\n" + sep + tail
+      for stage_hdr in ("stage mad_center", "stage quantile_envelope"):
+        if stage_hdr in stage2_raw:
+          head, sep, tail = stage2_raw.partition(stage_hdr)
+          head_lines = head.splitlines()
+          stage2_raw = "\n".join(head_lines[:1]) + "\n" + sep + tail
+          break
       stage2_raw = stage2_raw.replace("{{first_scored_date}}", first_scored_date)
       # Multi-key extractors: group every MAD stage by the metric's full baseline tuple.
       mad_keys, dropped_keys = self._mad_group_keys(stage1_content)

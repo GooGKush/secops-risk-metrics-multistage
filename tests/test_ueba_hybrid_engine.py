@@ -481,7 +481,7 @@ class TestUEBAHybridEngineCLIAndCatalog(unittest.TestCase):
   def test_catalog_summary_and_facade(self):
     summary = UEBAHybridEngine.get_metric_catalog_summary()
     self.assertEqual(summary["total_metrics"], 38)
-    self.assertEqual(len(summary["statistical_models"]), 17)
+    self.assertEqual(len(summary["statistical_models"]), 18)
     self.assertEqual(len(summary["handoff_intents"]), len(SUPPORTED_INTENTS))
 
     dns_only = get_metric_catalog_summary(sector="dns", entity_type="ASSET")

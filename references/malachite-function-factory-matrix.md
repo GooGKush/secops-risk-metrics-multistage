@@ -25,6 +25,8 @@ The Chronicle Malachite Common Compiler features a rich standard library ("Funct
 | **`math.geo_distance`** | `math.geo_distance(lon1, lat1, lon2, lat2)` | ✅ | ✅ | Computes geodesic distance in meters between coordinate pairs. |
 | **`math.exp / min / max`** | *(Unsupported)* | ❌ | ❌ | `math.exp()`, `math.min()`, and `math.max()` are **not** supported in Chronicle YARA-L 2.0. Use `math.pow(2.718281828, $x)` for $e^x$ and `if($a >= $b, $a, $b)` for pairwise max/min. |
 | **`window.variance`**| `window.variance(event_field)` | ❌ | ✅ | Computes sample variance across matched window events. Bare `variance()` is rejected. |
+| **`window.median`**  | `window.median(expr, bool)` | ❌ | ✅ | Computes empirical median ($P_{50}$). Pass `false` for `should_ignore_zero_values` so zero deviations are retained. |
+| **`window.percentile`** | `window.percentile(expr, P)` | ❌ | ✅ | Computes empirical $P$-th percentile ($P \in [0, 100]$) across matched window events or stage rows in a single stage (`$p10, $q25, $q50, $q75, $p90`). |
 | **`cast.as_int`** | `cast.as_int(number\|string)` | ✅ | ✅ | Casts numeric float or string timestamp to integer (e.g. `cast.as_int(ts / 86400)`). |
 | **`cast.as_float`** | `cast.as_float(string)` | ✅ | ✅ | Parses string representation into float. Expects type `string` (fails if passed `int`). |
 | **`re.regex`** | `re.regex(field, pattern)` | ✅ | ❌ | Regular expression match in `events:`. (`regex.match()` does not exist.) |
@@ -97,3 +99,27 @@ Using `timestamp.current_seconds()` inside historical baseline search queries or
    $delta_days = $max_day - $day_id
    ```
 This guarantees 100% deterministic, reproducible scoring across live streaming, historical backtests, and regression CI harnesses.
+
+---
+
+## 5. Non-Parametric Quantiles, Bowley Skewness & The 1-Stage Stage-Budget Advantage (`window.percentile`)
+
+### A. Why 1-Stage `window.percentile` Saves a Stage Over 2-Stage `MAD`
+True Median Absolute Deviation (`MAD = median(|x - median(x)|)`) requires **two consecutive intermediate stages** (`mad_center` $\to$ `mad_spread`) because YARA-L 2.0 cannot nest a window aggregation inside another window aggregation in the same stage. Consequently, `mad_robust_z_4stage.yl2` consumes all **4 stages** (`stage1_extract` $\to$ `mad_center` $\to$ `mad_spread` $\to$ `root`).
+
+By contrast, `window.percentile(expr, P)` computes all five order statistics ($P_{10}, Q_{25}, Q_{50}, Q_{75}, P_{90}$) in a **single intermediate stage** (`stage quantile_envelope`), completing the pipeline in **3 stages** (`quantile_iqr_skew_3stage.yl2`). That saves **1 full stage and 1 stage-to-stage join**, freeing Stage 3 to attach an Entity Context Graph lookup (`DERIVED_CONTEXT` / `GLOBAL_CONTEXT`) or a peer-cohort normalization stage!
+
+### B. Canonical Non-Parametric Quantile & Skewness Formulations
+Given `$p10`, `$q25`, `$q50`, `$q75`, `$p90` from `stage quantile_envelope`:
+1. **Interquartile Range (IQR) & Flat-History Floor**:
+   $$\text{IQR} = Q_{75} - Q_{25}, \quad \text{IQR}_{\text{safe}} = \max(\text{IQR}, 0.05 \cdot Q_{50} + 1.0)$$
+2. **Bowley Quartile Skewness ($B_{\text{skew}} \in [-1, +1]$)**:
+   $$B_{\text{skew}} = \frac{Q_{75} + Q_{25} - 2 Q_{50}}{\text{IQR}_{\text{safe}}}$$
+   * $B_{\text{skew}} \approx 0$: Symmetric baseline.
+   * $B_{\text{skew}} > +0.25$: Right-skewed baseline (historic bulk jobs inflate the upper quartile and distort parametric $\mu, \sigma$).
+3. **Moors Interdecile-to-Interquartile Tail-Heaviness Ratio ($T_{\text{ratio}}$)**:
+   $$T_{\text{ratio}} = \frac{P_{90} - P_{10}}{\text{IQR}_{\text{safe}}}$$
+   * For a Gaussian baseline, $T_{\text{ratio}} \approx 1.90$. Values $T_{\text{ratio}} > 2.5$ prove heavy-tailed baseline distortion where parametric $Z$-scores suffer from masking.
+4. **Hubert–Vandervieren Skewness-Adjusted Tukey Upper Fence**:
+   $$\text{UpperFence}_{\text{adj}} = Q_{75} + 1.5 \cdot e^{3 \cdot \max(0, B_{\text{skew}})} \cdot \text{IQR}_{\text{safe}}$$
+   $$\text{Tukey Fence Ratio} = \frac{x_{\text{observed}}}{\max(\text{UpperFence}_{\text{adj}}, 1.0)}$$
