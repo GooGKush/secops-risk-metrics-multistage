@@ -1,6 +1,6 @@
 # Google SecOps Multi-Stage Risk Metrics Threat Hunter (`secops-risk-metrics-multistage`)
 
-[![Version](https://img.shields.io/badge/version-v2.1.3-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-433%2F433%20passing%20(100%25)-brightgreen.svg)](tests/) [![Submission Tests](https://img.shields.io/badge/submission%20tests-32%2F32%20passing%20(100%25)-brightgreen.svg)](scripts/submission_tests.py) [![Live Regression](https://img.shields.io/badge/dual--engine%20regression-60%2F60%20live%20passing%20(100%25)-brightgreen.svg)](tests/)
+[![Version](https://img.shields.io/badge/version-v2.1.4-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-433%2F433%20passing%20(100%25)-brightgreen.svg)](tests/) [![Submission Tests](https://img.shields.io/badge/submission%20tests-32%2F32%20passing%20(100%25)-brightgreen.svg)](scripts/submission_tests.py) [![Live Regression](https://img.shields.io/badge/dual--engine%20regression-60%2F60%20live%20passing%20(100%25)-brightgreen.svg)](tests/)
 
 A specialized, production-grade AI agent skill package for **Google Security Operations (SecOps / Chronicle SIEM & SOAR)** that constructs, validates, and executes **Multi-Stage YARA-L 2.0 Directed Acyclic Graph (DAG) statistical threat hunting pipelines**, **360° Entity Behavioral Risk Radars**, and **Progressively Disclosed Consultative Threat Hunting**.
 
@@ -518,6 +518,9 @@ python3 scripts/submission_tests.py --dump-dir <OUTPUT_DIR>
 ---
 
 ## 📦 Recent Releases
+
+### v2.1.4 (October 2026) — Documentation & GitHub Markdown Math Rendering Fixes
+* **GitHub `cmark-gfm` LaTeX Math & Formatting Fixes (`references/statistical-models-taxonomy.md`, `references/multi-stage-metrics-guide.md`, `references/calibrated-risk-index-guide.md`, `references/consultative/mitre-attack-killchain.md`, `SKILL.md`)**: Resolved KaTeX/MathJax rendering breaks caused by YARA-L `$placeholder` tokens inside single-line `$$...$$` display math blocks and multi-line `$$` fences, and cleaned up minor list/apostrophe/inline-math delimiters (`433/433` unit tests passing; `SKILL.md` is 25,807 bytes / 143 lines).
 
 ### v2.1.3 (October 2026) — The Bilateral UEBA Harness (`secops-risk-metrics-multistage` + `secops-statistical-hunter` + `agentic_ueba`), Telemetry Physics Guardrail & Multi-Plane CTI Synthesis
 * **The Bilateral UEBA Harness (`SKILL.md`, `references/statistical-hunting-cooperative-framework.md` §8, `references/consultative/mitre-attack-killchain.md`)**: When an analyst asks for an open-ended "UEBA solution" to detect a threat, exploit, vulnerability, CTI report (e.g., `http2shell` / `CVE-2026-111497`), or detection gap without restricting to a single skill, synthesizes a multi-horizon architecture across **Plane 1 (Macro 30d `by 1d` `metrics.*`)**, **Plane 2 (Micro bounded-window raw `UDM_EVENTS` via `secops-statistical-hunter`)**, and **Plane 3 (`agentic_ueba` / `PlaybookRunner` Options 1–3)** instead of declaring `metrics.*` a poor fit for sub-hour process correlation or falling back to static point-in-time UDM string filters.

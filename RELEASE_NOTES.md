@@ -1,10 +1,17 @@
-# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v2.1.3)
+# 🚀 Google SecOps Multi-Stage Risk Metrics Threat Hunter (v2.1.4)
 ## *Agentic Behavioral Baselining, Multi-Stage DAG Analytics & Interactive UEBA Engine*
 
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v2.1.3 (Minor Point Release) — October 27, 2026  
+**Latest Version**: v2.1.4 (Minor Point Release) — October 28, 2026  
+
+---
+
+## 📢 What's New in v2.1.4 (Minor Point Release) — Documentation & GitHub Markdown Math Rendering Fixes
+
+* **GitHub `cmark-gfm` Display & Inline Math Fixes (`references/statistical-models-taxonomy.md`, `references/multi-stage-metrics-guide.md`, `references/calibrated-risk-index-guide.md`)**: Moved YARA-L `$placeholder` identifiers out of `$$...$$` display math blocks so GitHub's Markdown math scanner never splits equations or raises KaTeX brace errors (`LONGITUDINAL_CUSUM`, `CIRCADIAN_VON_MISES`, Clean Conditional Safeguard, and Cloud CRUD compound match key), placed multi-line `$$` delimiters on dedicated fence lines, and fixed minor Markdown list/escape formatting (`* $Z_{\text{hourly}}`, `$\le 30\text{d}$`, unescaped apostrophes).
+* **Inline Math & Code Delimiter Cleanup (`SKILL.md`, `references/consultative/mitre-attack-killchain.md`)**: Spaced inline `parent $\to$ child` transitions and wrapped `Bridge Contract ($host, $timestamp, $user, $caller_ip)` in backticks (`433/433` unit tests passing).
 
 ---
 

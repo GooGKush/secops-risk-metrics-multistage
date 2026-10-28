@@ -30,10 +30,12 @@ In enterprise security telemetry, many high-risk behaviors (e.g. failed administ
 
 The Calibrated Risk Index applies a logistic (Sigmoid) transformation calibrated to anchor the **3-Sigma Alertable Statistical Boundary ($Z = 3.0\sigma$) at exactly CRI = 50**:
 
-$$\text{CRI}(Z) = \begin{cases} 
+$$
+\text{CRI}(Z) = \begin{cases}
 0 & \text{if } Z \le 0 \\
-\text{round}\left( \frac{100}{1 + \exp\left(-\alpha \cdot (Z - Z_{\text{mid}})\right)} \right) & \text{if } Z > 0 
-\end{cases}$$
+\text{round}\left( \frac{100}{1 + \exp\left(-\alpha \cdot (Z - Z_{\text{mid}})\right)} \right) & \text{if } Z > 0
+\end{cases}
+$$
 
 ### Calibration Parameters:
 * **Inflection Point ($Z_{\text{mid}} = 3.0\sigma$)**: The statistical threshold for a "True Statistical Anomaly" (the 99.87th percentile tail under Gaussian assumptions).

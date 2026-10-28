@@ -208,8 +208,8 @@ Before running a multi-stage statistical hunt, explain the approach to the secur
 * **Mathematical Formulation**:
   * **Single-Stage / Per-Bucket Slack Excess (`templates/stage2_math_models/longitudinal_cusum.yl2`)**:
     $$\text{Raw Drift} = x - \mu, \quad \text{Slack } k = 0.5 \cdot \sigma_{\text{safe}}, \quad \text{Daily Slack Excess} = \max(0, (x - \mu) - k)$$
-  * **Multi-Day Windowed Slack Sum (`templates/pipelines/longitudinal_drift_cusum_2stage.yl2`)**:
-    $$Z_d = \frac{x_d - \mu}{\sigma_{\text{safe}}}, \quad \Delta_d = \max(0, Z_d - 0.5), \quad S_{\text{window}} = \sum_{d=1}^{D} \Delta_d \quad (\text{via } \texttt{window.sum(\$daily\_drift)})$$
+  * **Multi-Day Windowed Slack Sum (`templates/pipelines/longitudinal_drift_cusum_2stage.yl2`, via `window.sum($daily_drift)`)**:
+    $$Z_d = \frac{x_d - \mu}{\sigma_{\text{safe}}}, \quad \Delta_d = \max(0, Z_d - 0.5), \quad S_{\text{window}} = \sum_{d=1}^{D} \Delta_d$$
   * **Sequential Page's CUSUM in Mode C (`scripts/timeline_assembler.py`)**:
     $$S_t^+ = \max(0, S_{t-1}^+ + Z_t - k) \quad \text{across ordered daily shards}$$
 * **Post-Hunt Plain-English Cyber Impact Statement Template**:
@@ -344,13 +344,14 @@ Before running a multi-stage statistical hunt, explain the approach to the secur
 ## 16. Circadian von Mises Temporal Distance (`CIRCADIAN_VON_MISES`)
 * **Security Problem Solved**: Evaluates events across a 24-hour circular clock face to penalize off-hours and night-shift departures without circular boundary wrap distortion.
 * **Mathematical Formulation**:
-  $$H = \text{timestamp.get\_hour}(\$ws)$$
+  $$H = \texttt{timestamp.get\_hour}(t_{\text{ws}})$$
   $$\Delta H = |H - H_{\text{peak}}|, \quad \text{where } H_{\text{peak}} = 14 \text{ (2:00 PM UTC baseline anchor)}$$
   $$D_{\text{circ}} = \text{if}(\Delta H > 12, 24 - \Delta H, \Delta H)$$
   $$\text{Von Mises Arc Penalty} = \frac{D_{\text{circ}}^2}{72.0}$$
   $$\text{Circadian Threat Score} = Z_{\text{hourly}} \times (1.0 + \text{Von Mises Arc Penalty})$$
 * **Where**:
-  *$Z_{\text{hourly}} = \frac{x_{\text{hour}} - \mu_{\text{hour}}}{\sigma_{\text{safe}}}$
+  * $t_{\text{ws}}$: Bucket start timestamp (`$ws`, UTC)
+  * $Z_{\text{hourly}} = \frac{x_{\text{hour}} - \mu_{\text{hour}}}{\sigma_{\text{safe}}}$
   * Maximum possible circular distance $D_{\text{circ}} = 12$ hours (at opposite polarity, penalty multiplier = $1.0 + \frac{144}{72} = 3.0\times$).
 * **Threat Meaning**: Smoothly scales volumetric surges according to their temporal improbability on a cyclic 24-hour clock. An egress spike at 3:00 AM receives a $3.0\times$ multiplier penalty, while an identical spike at 2:00 PM receives a neutral $1.0\times$ multiplier.
 * **Post-Hunt Plain-English Cyber Impact Statement Template**:
@@ -397,7 +398,7 @@ Beyond 2-stage models, the engine provides pre-composed multi-stage DAG pipeline
 * **Formulation**: Fuses universal macro $Z$-score with persistent enterprise prevalence and threat intelligence:
   - **Derived File Prevalence** (`hybrid_metric_derived_file_prevalence_2stage.yl2`): Keeps only rare binaries (`rolling_max <= 3`, `day_count = 10`), which drops rollout binaries ($Z \times M_{\text{rare}}$). Normalizing a surge against a rollout is `hybrid_metric_fleet_prevalence_2stage.yl2`.
   - **Derived Domain Prevalence** (`hybrid_metric_derived_domain_prevalence_2stage.yl2`): Sifts novel HTTP destinations by request count and prunes enterprise SaaS/CDN noise ($Z \times M_{\text{rare}}$). DNS volume, bytes, or any other measure against rare domains is `rare_destination_ecg_3stage.yl2`.
-  - **WHOIS Domain Lifecycle** (`hybrid_metric_whois_domain_lifecycle_2stage.yl2`): Detects high-volume egress to Newly Registered Domains ($Z \times 2.5$ for NRD $\le 30$d) and expired domain infrastructure ($Z \times 3.0$ for lapsed certs/registrations).
+  - **WHOIS Domain Lifecycle** (`hybrid_metric_whois_domain_lifecycle_2stage.yl2`): Detects high-volume egress to Newly Registered Domains ($Z \times 2.5$ for NRD $\le 30\text{d}$) and expired domain infrastructure ($Z \times 3.0$ for lapsed certs/registrations).
   - **Derived Asset Age** (`hybrid_metric_derived_asset_age_2stage.yl2`): Sifts infant endpoints ($< 7$ days old) experiencing immediate volumetric departures ($Z \times 2.5$).
 * **Hunter Tradecraft**: Enables hunters to **Narrow** (pruning common software/domains) or **Enhance** (scaling threat scores on NRDs and expired infrastructure) without falling into the Part-of-the-Whole trap (see `references/entity-context-graph-guide.md`).
 
@@ -409,8 +410,8 @@ When communicating with analysts, SOC managers, or threat hunters, use this guid
 
 ### 1. Division-by-Zero Protection on Quiet Accounts (Clean Conditional Safeguard)
 * **The Concern**: Inactive accounts have a 30-day baseline mean $\mu = 0$ and standard deviation $\sigma = 0$. In standard Z-score math, any single event triggers division-by-zero ($\frac{1 - 0}{0} = \infty$).
-* **The Clarification**: The engine applies a compiler-compliant **Clean Conditional Safeguard**:
-  $$\$safe\_stddev = \text{if}(\$hist\_stddev > 0, \$hist\_stddev, 1.0)$$
+* **The Clarification**: The engine applies a compiler-compliant **Clean Conditional Safeguard** (`$safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)`):
+  $$\sigma_{\text{safe}} = \text{if}(\sigma_{\text{hist}} > 0, \sigma_{\text{hist}}, 1.0)$$
   This avoids division by zero, eliminates arbitrary constant inflation on noisy accounts, and provides clean mathematical grounding.
 
 ### 2. Weekend & Cyclic Seasonality Dip
@@ -418,7 +419,7 @@ When communicating with analysts, SOC managers, or threat hunters, use this guid
 * **The Clarification**: For non-seasonal blended baselines, Mode B (Fixed-Baseline Timeline) or Mode C (Per-Day Baseline Timeline) breaks down activity day-by-day so analysts can directly inspect day-of-week cyclic trends, or analysts can leverage `HOURLY_TEMPORAL_ZSCORE` for diurnal profiles.
 
 ### 3. Cartesian Join Product Prevention (Multi-Stage DAG Isolation)
-* **The Concern**: Why can\'t we search for creation and deletion events in a single un-staged query?
+* **The Concern**: Why can't we search for creation and deletion events in a single un-staged query?
 * **The Clarification**: When multiple distinct event types are matched together in a single stage, SIEM engines compute an $N \times M$ Cartesian product join (e.g. 10 creations $\times$ 5 deletions = 50 joined rows), inflating observed counts by 500%–1000% and completely discarding entities with 0 deletions. Multi-stage DAG pipelines isolate each event vector into its own stage before fusing $Z$-scores into an orthogonal threat distance.
 
 ### 4. Sparse Baseline Caution & Account Maturity ($N < 7$ Days)
@@ -426,5 +427,5 @@ When communicating with analysts, SOC managers, or threat hunters, use this guid
 * **The Clarification**: Calculating a Z-score on an entity with fewer than 7 active baseline days ($N < 7$) produces high statistical variance. The skill flags a **Sparse Baseline Caution** and applies Empirical Bayes shrinkage or the Two-Part Hurdle model to regularize sparse accounts.
 
 ### 5. Multi-Cloud Provider Scoping & Dimension Partitioning
-* **The Concern**: Does a user\'s cloud activity in AWS affect their GCP baseline?
+* **The Concern**: Does a user's cloud activity in AWS affect their GCP baseline?
 * **The Clarification**: Cloud lifecycle metrics enforce compound dimensions (`metadata.vendor_name`, `metadata.product_name`). This guarantees that AWS CloudTrail, GCP Cloud Audit, and Azure Activity Logs are baselined within their respective cloud provider partitions without cross-cloud contamination.

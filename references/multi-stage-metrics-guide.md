@@ -728,8 +728,8 @@ When investigating service accounts accessing data repositories out of their nor
 3. **The "Elephant and Mouse" Dynamic Range Masking Problem**: High-volume routine background activity (e.g., 1,000,000 GCS telemetry sync reads) completely masks an acute targeted exfiltration dump from a sensitive repository (e.g., 2,500 reads against a quiet Spanner database or S3 bucket) if the service account's activity is evaluated against an account-level aggregate baseline.
 
 ### 1. Architectural Solution: Local-Baseline Isolation
-To preserve sensitivity across disparate repositories, the query MUST slice dynamically by:
-$$\text{Match Key} = (\$sa, \$vendor, \$product, \$resource, \$ip \text{ by } 1d)$$
+To preserve sensitivity across disparate repositories, the query MUST slice dynamically by compound match tuple (`match: $sa, $vendor, $product, $resource, $ip by 1d`):
+$$\text{Match Key} = (\text{sa}, \text{vendor}, \text{product}, \text{resource}, \text{ip}) \text{ by } 1\text{d}$$
 By matching each destination resource individually against `metrics.resource_read_total`, `metrics.resource_written_total`, `metrics.resource_deletion_total`, and `metrics.resource_creation_total` (passing `metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name`), each repository is evaluated strictly against its own local historical parameters $(\mu_r, \sigma_r, N_r)$ across all 4 Cloud CRUD families.
 
 ### 2. Dual-Branch Mathematical Outlier Formulation
