@@ -879,6 +879,86 @@ class TestUEBAHybridEngineCLIAndCatalog(unittest.TestCase):
     self.assertAlmostEqual(dossier["radar_payload"]["composite_risk_distance"], 6.86, places=2)
     self.assertTrue(dossier["radar_payload"]["is_anomalous"])
 
+  def test_ws1_02_quantile_iqr_skew_widens_mode_a_b_windows_and_normalizes_scores(self):
+    """WS1-02: QUANTILE_IQR_SKEW widens Mode A/B raw windows to 30d like MAD and normalizes quantile scores."""
+    from scripts.ueba_hybrid_engine import (
+        _compute_execution_windows,
+        _extract_and_normalize_rows,
+        resolve_statistical_model,
+    )
+
+    ref_time = datetime.datetime(2026, 10, 28, 8, 0, 0, tzinfo=datetime.timezone.utc)
+
+    with self.subTest(check="mode_a_30d_raw_window"):
+      res_mad_a = compile_hunt_pipeline(
+          statistical_model="MAD",
+          metrics="auth_attempts_total",
+          entity_type="USER",
+          mode="A",
+          reference_time=ref_time,
+      )
+      res_q_a = compile_hunt_pipeline(
+          statistical_model="QUANTILE_IQR_SKEW",
+          metrics="auth_attempts_total",
+          entity_type="USER",
+          mode="A",
+          reference_time=ref_time,
+      )
+      self.assertEqual(res_q_a["start_time"], res_mad_a["start_time"])
+      start_dt_a = datetime.datetime.fromisoformat(res_q_a["start_time"].replace("Z", "+00:00"))
+      end_dt_a = datetime.datetime.fromisoformat(res_q_a["end_time"].replace("Z", "+00:00"))
+      self.assertGreaterEqual((end_dt_a - start_dt_a).days, 29)
+      self.assertIn("$in_scoring_window = 1", res_q_a["compiled_query"])
+
+    with self.subTest(check="mode_b_30d_raw_window"):
+      win_mad_b = _compute_execution_windows(
+          "stage s1 { match: $u by 1d outcome: $o = count(metadata.id) }\n$u = $s1.u\nmatch:\n  $u\noutcome:\n  $z = max($s1.o)",
+          mode="B",
+          window_days=3,
+          statistical_model=StatisticalModel.MAD,
+          reference_time=ref_time,
+      )
+      win_q_b = _compute_execution_windows(
+          "stage s1 { match: $u by 1d outcome: $o = count(metadata.id) }\n$u = $s1.u\nmatch:\n  $u\noutcome:\n  $z = max($s1.o)",
+          mode="B",
+          window_days=3,
+          statistical_model=StatisticalModel.QUANTILE_IQR_SKEW,
+          reference_time=ref_time,
+      )
+      self.assertEqual(win_q_b["start_time"], win_mad_b["start_time"])
+      start_dt_b = datetime.datetime.fromisoformat(win_q_b["start_time"].replace("Z", "+00:00"))
+      end_dt_b = datetime.datetime.fromisoformat(win_q_b["end_time"].replace("Z", "+00:00"))
+      self.assertGreaterEqual((end_dt_b - start_dt_b).days, 29)
+
+    with self.subTest(check="score_extraction"):
+      quantile_stats_payload = {
+          "stats": {
+              "results": [
+                  {"column": "user", "values": [{"value": {"stringVal": "charles.hardy"}}]},
+                  {"column": "observed", "values": [{"value": {"int64Val": "785"}}]},
+                  {"column": "q50_val", "values": [{"value": {"doubleVal": 152.0}}]},
+                  {"column": "safe_iqr", "values": [{"value": {"doubleVal": 84.0}}]},
+                  {"column": "raw_active_days", "values": [{"value": {"int64Val": "10"}}]},
+                  {"column": "personal_z", "values": [{"value": {"doubleVal": 0.45}}]},
+                  {"column": "tukey_fence_ratio", "values": [{"value": {"doubleVal": 2.65}}]},
+              ]
+          }
+      }
+      norm_rows, _ = _extract_and_normalize_rows(quantile_stats_payload)
+      self.assertEqual(len(norm_rows), 1)
+      self.assertEqual(norm_rows[0]["entity"], "charles.hardy")
+      self.assertAlmostEqual(norm_rows[0]["z_score"], 2.65, places=2)
+
+      norm_qz, _ = _extract_and_normalize_rows([{"user": "charles.hardy", "observed": 785, "personal_z": 0.45, "quantile_z": 4.12}])
+      self.assertAlmostEqual(norm_qz[0]["z_score"], 4.12, places=2)
+
+      norm_fz, _ = _extract_and_normalize_rows([{"user": "charles.hardy", "observed": 785, "personal_z": 0.45, "fence_z": 3.88}])
+      self.assertAlmostEqual(norm_fz[0]["z_score"], 3.88, places=2)
+
+    for alias in ("QUANTILE_IQR_SKEW", "QUANTILE", "IQR_FENCE", "TUKEY_FENCE", "BOWLEY_SKEW"):
+      with self.subTest(alias=alias):
+        self.assertEqual(resolve_statistical_model(alias), StatisticalModel.QUANTILE_IQR_SKEW)
+
 
 if __name__ == "__main__":
 

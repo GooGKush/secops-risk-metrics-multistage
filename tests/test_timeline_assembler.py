@@ -185,6 +185,20 @@ class TestAssembly(unittest.TestCase):
       self.assertEqual(is_sq, summary["meta"]["score_is_sqrt_of_field"])
       self.assertAlmostEqual(expected, summary["top"][0]["score"], places=2)
 
+  def test_ws1_02_auto_detects_quantile_score_candidates(self):
+    for col, val in (
+        ("tukey_fence_ratio", 2.65),
+        ("quantile_z", 4.12),
+        ("fence_z", 3.88),
+    ):
+      with self.subTest(col=col):
+        asm = ta.TimelineAssembler()
+        asm.add_shard("2026-10-27", [{"user": "charles.hardy", col: val, "personal_z": 0.45}])
+        summary = asm.build()
+        self.assertEqual(col, summary["meta"]["score_field"])
+        self.assertFalse(summary["meta"]["score_is_sqrt_of_field"])
+        self.assertAlmostEqual(val, summary["top"][0]["score"], places=2)
+
   def test_multi_sector_360_radar_shards_merge_into_euclidean_d(self):
     asm = ta.TimelineAssembler()
     # Day 1: Cloud CRUD spike (z=11.49) and minor Workspace activity (z=0.21); other 4 sectors skipped (0 events)
