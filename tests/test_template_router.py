@@ -1525,6 +1525,85 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
     self.assertIn("$active_days >= 7 and $macd_z >= 3.0", macd_bytes)
     self.assertEqual(MalachiteASTValidator.validate_query(macd_bytes), [])
 
+  def test_ws4_bayes_asset_fleet_eb_and_asset_age_maturity(self):
+    """WS4-BAYES-ASSET: Real fleet Empirical Bayes 3-stage pipeline & Derived Asset Age maturity/novelty routing."""
+    from pathlib import Path
+    from scripts.preflight_validator import MalachiteASTValidator
+
+    # 1. EMPIRICAL_BAYES_3STAGE: mature fleet Gamma(alpha0, beta0) + NB posterior-predictive residual $bayesian_z
+    eb_default = self.router.build_pipeline_query(
+        PipelineArchitecture.EMPIRICAL_BAYES_3STAGE,
+        target_metric="http_queries_total",
+        entity_type=EntityType.ASSET,
+        anomaly_threshold=3.5,
+    )
+    self.assertEqual(MalachiteASTValidator.validate_query(eb_default), [])
+    self.assertIn("agg: sum", eb_default)
+    self.assertIn("$mu_cal = $hist_sum / 30.0", eb_default)
+    self.assertIn("$raw_excess_var = $var_cal - $mu_cal", eb_default)
+    self.assertIn("$post_alpha_pre = $alpha0 + $hist_sum", eb_default)
+    self.assertIn("$post_beta_pre = $beta0 + 30.0", eb_default)
+    self.assertIn("$bayesian_z = ($obs_24h - $posterior_rate) / $safe_pred_sd", eb_default)
+    self.assertEqual(MultiStageTemplateRouter.root_condition(eb_default), "$bayesian_z >= 3.5")
+    self.assertIn("order:\n  $bayesian_z desc", eb_default)
+
+    eb_payload = self.router.build_pipeline_query(
+        PipelineArchitecture.EMPIRICAL_BAYES_3STAGE,
+        target_metric="auth_attempts_fail",
+        entity_type=EntityType.USER,
+        fleet_prior_payload=[
+            {"hist_sum": 60, "active_days": 10},
+            {"hist_sum": 150, "active_days": 15},
+            {"hist_sum": 240, "active_days": 20},
+        ],
+    )
+    self.assertEqual(MalachiteASTValidator.validate_query(eb_payload), [])
+    self.assertNotIn("{{", eb_payload)
+    # Rates are [2.0, 5.0, 8.0] -> mean=5.0, var=9.0 -> beta0=0.555556, alpha0=2.77778
+    self.assertIn("2.77778", eb_payload)
+    self.assertIn("0.555556", eb_payload)
+
+    eb_explicit = self.router.build_pipeline_query(
+        PipelineArchitecture.EMPIRICAL_BAYES_3STAGE,
+        target_metric="http_queries_total",
+        entity_type=EntityType.ASSET,
+        prior_alpha0=2.25,
+        prior_beta0=0.75,
+    )
+    self.assertEqual(MalachiteASTValidator.validate_query(eb_explicit), [])
+    self.assertIn("2.25", eb_explicit)
+    self.assertIn("0.75", eb_explicit)
+
+    # 2. HYBRID_METRIC_DERIVED_ASSET_AGE_2STAGE: $active_days >= {{min_active_days}} (default 7),
+    # continuous count/byte floor, and explicit WS1-12 first_seen novelty routing documentation.
+    tpl_path = Path(__file__).resolve().parent.parent / "templates" / "pipelines" / "hybrid_metric_derived_asset_age_2stage.yl2"
+    tpl_raw = tpl_path.read_text(encoding="utf-8")
+    self.assertIn("$active_days >= {{min_active_days}}", tpl_raw)
+    self.assertIn("first_seen", tpl_raw)
+    self.assertIn("WS1-12", tpl_raw)
+
+    age_default = self.router.build_hybrid_derived_asset_age_query(
+        target_metric="auth_attempts_total",
+        entity_type=EntityType.ASSET,
+        anomaly_threshold=3.0,
+    )
+    self.assertEqual(MalachiteASTValidator.validate_query(age_default), [])
+    self.assertIn("$dispersion_floor = math.sqrt(if($mean > 1.0, $mean, 1.0))", age_default)
+    self.assertIn("$active_days >= 7", MultiStageTemplateRouter.root_condition(age_default) or "")
+    self.assertIn("WS1-12", age_default)
+
+    age_custom = self.router.build_hybrid_derived_asset_age_query(
+        target_metric="network_bytes_outbound",
+        entity_type=EntityType.ASSET,
+        anomaly_threshold=3.0,
+        min_active_days=10,
+        max_asset_age_days=21.0,
+    )
+    self.assertEqual(MalachiteASTValidator.validate_query(age_custom), [])
+    self.assertIn("$dispersion_floor = 44979.0", age_custom)
+    self.assertIn("$active_days >= 10", MultiStageTemplateRouter.root_condition(age_custom) or "")
+    self.assertIn("$asset_age_days <= 21.0", MultiStageTemplateRouter.root_condition(age_custom) or "")
+
 
 if __name__ == "__main__":
   unittest.main()

@@ -131,26 +131,30 @@ class ComplexMultiStageSyntaxTest(unittest.TestCase):
     self.assertIn("order:\n  $delta_z desc", content)
 
   def test_hierarchical_empirical_bayes_3stage_template_syntax(self):
-    """Verifies the 3-Stage Empirical Bayes template conforms to Common Compiler grammar."""
+    """Verifies the 3-Stage Empirical Bayes template computes fleet EB Gamma-NB predictive Z (WS4-BAYES-ASSET)."""
     template_path = os.path.join(self.templates_dir, "hierarchical_empirical_bayes_3stage.yl2")
     self.assertTrue(os.path.exists(template_path), f"Missing template: {template_path}")
 
     with open(template_path, "r", encoding="utf-8") as f:
       content = f.read()
 
-    # 1. Must define Stage 1 host extract and Stage 2 fleet hyperpriors
+    # 1. Must define Stage 1 host extract (calendar 30d rate + extra-Poisson dispersion) and Stage 2 mature fleet hyperpriors
     self.assertIn("stage host_extract", content)
+    self.assertIn("$mu_cal = $hist_sum / 30.0", content)
+    self.assertIn("$raw_excess_var = $var_cal - $mu_cal", content)
     self.assertIn("stage fleet_hyperpriors", content)
+    self.assertIn("$mature_n =", content)
+    self.assertIn("$eb_alpha =", content)
+    self.assertIn("$eb_beta =", content)
 
-    # 2. Stage 2 must calculate hyperprior mean and stddev (variance derived in outcome)
-    self.assertIn("avg($host_extract.hist_avg)", content)
-    self.assertIn("stddev($host_extract.hist_avg)", content)
-    self.assertIn("$fleet_sigma_sq = $fleet_sigma * $fleet_sigma", content)
-
-    # 3. Root stage must blend priors and compute posterior rate
-    self.assertIn("$alpha_post = $alpha_host + $obs_24h", content)
-    self.assertIn("$beta_post = $beta_host + 1.0", content)
-    self.assertIn("$posterior_rate = $alpha_post / $beta_post", content)
+    # 2. Root stage must compute pre-observation 30d posterior rate and NB predictive residual Z
+    self.assertIn("$post_alpha_pre = $alpha0 + $hist_sum", content)
+    self.assertIn("$post_beta_pre = $beta0 + 30.0", content)
+    self.assertIn("$posterior_rate = $post_alpha_pre / $post_beta_pre", content)
+    self.assertIn("$bayesian_z = ($obs_24h - $posterior_rate) / $safe_pred_sd", content)
+    self.assertIn("condition:\n  $bayesian_z >= {{anomaly_threshold}}", content)
+    self.assertIn("order:\n  $bayesian_z desc", content)
+    self.assertNotIn("order:\n  $posterior_rate desc", content)
 
   def test_cloud_resource_lifecycle_fusion_compound_dimensions(self):
     """Verifies that generated Cloud Resource Lifecycle queries enforce compound vendor/product dimensions."""
