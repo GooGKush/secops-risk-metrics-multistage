@@ -797,6 +797,88 @@ class TestUEBAHybridEngineCLIAndCatalog(unittest.TestCase):
     self.assertIn('$host = "srv-prod-01"', res_proc["compiled_query"])
     self.assertIn("match:\n  $host, $sha256, $ws by 1d", res_proc["compiled_query"])
 
+  def test_ws2_03_360_radar_sectors_are_no_gate_and_fuse_sub_3sigma_to_6_9(self):
+    """WS2-03: 360_radar sector_queries must be built NO-GATE so 2.8-sigma across 6 sectors fuses to D ~ 6.86."""
+    from scripts.preflight_validator import MalachiteASTValidator
+    from scripts.template_router import MultiStageTemplateRouter
+    from scripts.ueba_hybrid_engine import compile_hunt_plan
+
+    res_user = compile_hunt_plan(
+        architecture="360_radar",
+        entity_type="USER",
+        entity_value="charles.hardy",
+    )
+    self.assertEqual(
+        set(res_user["sector_queries"].keys()),
+        {"auth", "cloud", "workspace", "network", "dns", "web"},
+    )
+    for sec_name, sq in res_user["sector_queries"].items():
+      with self.subTest(entity_type="USER", sector=sec_name):
+        self.assertIsNone(
+            MultiStageTemplateRouter.root_condition(sq),
+            msg=f"USER sector '{sec_name}' still has a root condition gate: {MultiStageTemplateRouter.root_condition(sq)}",
+        )
+        self.assertNotIn("\ncondition:", sq, msg=f"USER sector '{sec_name}' still has condition: block")
+        self.assertIn("NONE (NO-GATE decoupled sector for post-query Euclidean fusion)", sq)
+        self.assertEqual(MalachiteASTValidator.validate_query(sq), [], msg=f"AST error in USER sector '{sec_name}'")
+
+    res_asset = compile_hunt_plan(
+        architecture="360_radar",
+        entity_type="ASSET",
+        entity_value="wkst-fin-09",
+    )
+    self.assertEqual(
+        set(res_asset["sector_queries"].keys()),
+        {"auth", "alerts", "endpoint", "network", "dns", "web"},
+    )
+    for sec_name, sq in res_asset["sector_queries"].items():
+      with self.subTest(entity_type="ASSET", sector=sec_name):
+        self.assertIsNone(
+            MultiStageTemplateRouter.root_condition(sq),
+            msg=f"ASSET sector '{sec_name}' still has a root condition gate: {MultiStageTemplateRouter.root_condition(sq)}",
+        )
+        self.assertNotIn("\ncondition:", sq, msg=f"ASSET sector '{sec_name}' still has condition: block")
+        self.assertIn("NONE (NO-GATE decoupled sector for post-query Euclidean fusion)", sq)
+        self.assertEqual(MalachiteASTValidator.validate_query(sq), [], msg=f"AST error in ASSET sector '{sec_name}'")
+
+    # Fleet-wide 360_radar must not inject literal $sa = "fleet" into cloud sector
+    res_fleet = compile_hunt_plan(architecture="360_radar", entity_type="USER", entity_value="fleet")
+    self.assertNotIn('$sa = "fleet"', res_fleet["sector_queries"]["cloud"])
+
+    # Synthetic entity at +2.8 sigma across all 6 sectors (each below 3.0 sigma, so pre-fix SQL >= 3.0
+    # would have censored all 6 sectors to 0 rows -> D = 0.0) now returns ungated rows that fuse to D = 6.86 (~6.9).
+    def _sector_stats_2_8(z_col: str, obs_col: str = "observed", avg_col: str = "hist_avg", std_col: str = "hist_stddev"):
+      return {
+          "stats": {
+              "results": [
+                  {"column": "user", "values": [{"value": {"stringVal": "charles.hardy"}}]},
+                  {"column": obs_col, "values": [{"value": {"int64Val": "38"}}]},
+                  {"column": avg_col, "values": [{"value": {"doubleVal": 10.0}}]},
+                  {"column": std_col, "values": [{"value": {"doubleVal": 10.0}}]},
+                  {"column": z_col, "values": [{"value": {"doubleVal": 2.8}}]},
+              ]
+          }
+      }
+
+    sub_threshold_payloads = {
+        "auth": _sector_stats_2_8("personal_z"),
+        "cloud": _sector_stats_2_8("dest_z", obs_col="obs"),
+        "workspace": _sector_stats_2_8("personal_z"),
+        "network": _sector_stats_2_8("personal_z"),
+        "dns": _sector_stats_2_8("personal_z"),
+        "web": _sector_stats_2_8("personal_z"),
+    }
+    dossier = render_forensic_dossier(
+        rows=[{"user": "charles.hardy", "observed": 38, "hist_avg": 10.0, "hist_stddev": 10.0, "personal_z": 2.8}],
+        executed_query=res_user["sector_queries"]["auth"],
+        metric_name="auth_attempts_total",
+        entity_type="USER",
+        radar_sector_payloads=sub_threshold_payloads,
+        radar_sector_queries=res_user["sector_queries"],
+    )
+    self.assertAlmostEqual(dossier["radar_payload"]["composite_risk_distance"], 6.86, places=2)
+    self.assertTrue(dossier["radar_payload"]["is_anomalous"])
+
 
 if __name__ == "__main__":
 

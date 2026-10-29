@@ -704,6 +704,77 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
     self.assertEqual(keys, ["$sa", "$vendor", "$product", "$resource"])
     self.assertEqual(dropped, ["$ip"])
 
+  def test_ws2_03_include_significance_gate_false_emits_no_gate_queries(self):
+    """WS2-03: include_significance_gate=False strips significance thresholds while keeping AST validity."""
+    from scripts.preflight_validator import MalachiteASTValidator
+
+    q_z = self.router.build_query(
+        target_metric="auth_attempts_total",
+        entity_type=EntityType.USER,
+        statistical_model=StatisticalModel.STANDARD_Z_SCORE,
+        include_significance_gate=False,
+    )
+    self.assertIsNone(MultiStageTemplateRouter.root_condition(q_z))
+    self.assertNotIn("\ncondition:", q_z)
+    self.assertIn("// Significance Gate: NONE (NO-GATE decoupled sector for post-query Euclidean fusion)", q_z)
+    self.assertEqual(MalachiteASTValidator.validate_query(q_z), [])
+
+    # MAD retains structural scoring-window and sample-size guards while dropping $modified_z >= 3.5
+    q_mad = self.router.build_query(
+        target_metric="auth_attempts_total",
+        entity_type=EntityType.USER,
+        statistical_model=StatisticalModel.MAD,
+        scoring_end_date="2026-10-27",
+        include_significance_gate=False,
+    )
+    self.assertEqual(
+        MultiStageTemplateRouter.root_condition(q_mad),
+        "$in_scoring_window = 1 and $raw_active_days >= 7",
+    )
+    self.assertNotIn("$modified_z >=", q_mad)
+    self.assertEqual(MalachiteASTValidator.validate_query(q_mad), [])
+
+    # Cloud repository scope spoke (both direct and via (resource_*, USER, STANDARD_Z_SCORE) build_query)
+    for q_cloud in (
+        self.router.build_cloud_repository_scope_query(
+            service_account="charles.hardy",
+            include_significance_gate=False,
+        ),
+        self.router.build_query(
+            target_metric="resource_read_total",
+            entity_type=EntityType.USER,
+            statistical_model=StatisticalModel.STANDARD_Z_SCORE,
+            include_significance_gate=False,
+        ),
+    ):
+      self.assertIsNone(MultiStageTemplateRouter.root_condition(q_cloud))
+      self.assertNotIn("\ncondition:", q_cloud)
+      self.assertIn("// Significance Gate: NONE (NO-GATE decoupled sector for post-query Euclidean fusion)", q_cloud)
+      self.assertEqual(MalachiteASTValidator.validate_query(q_cloud), [])
+
+    # Alert surge spoke (both ASSET and USER)
+    for ent in (EntityType.ASSET, EntityType.USER):
+      q_alert = self.router.build_alert_surge_query(
+          entity_type=ent,
+          include_significance_gate=False,
+      )
+      self.assertIsNone(MultiStageTemplateRouter.root_condition(q_alert))
+      self.assertNotIn("\ncondition:", q_alert)
+      self.assertIn("// Significance Gate: NONE (NO-GATE decoupled sector for post-query Euclidean fusion)", q_alert)
+      self.assertEqual(MalachiteASTValidator.validate_query(q_alert), [])
+
+    # Default include_significance_gate=True behavior remains unchanged
+    self.assertEqual(
+        MultiStageTemplateRouter.root_condition(
+            self.router.build_query("auth_attempts_total", EntityType.USER, StatisticalModel.STANDARD_Z_SCORE)
+        ),
+        "$personal_z >= 3.0",
+    )
+    self.assertIn(
+        "$alert_z >= 3.0",
+        self.router.build_alert_surge_query(entity_type=EntityType.ASSET),
+    )
+
 
 if __name__ == "__main__":
   unittest.main()

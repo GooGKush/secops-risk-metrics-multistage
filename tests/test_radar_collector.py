@@ -782,6 +782,52 @@ stage stage_dns {
     alert_query = EntityRadarCollector.ASSET_SECTOR_QUERIES["Security & EDR Alerts"]
     self.assertIn("$z =", alert_query)
 
+  def test_ws2_03_six_sectors_at_2_8_sigma_fuse_to_6_86(self):
+    """WS2-03: 6 ungated sectors at +2.8 sigma fuse to Euclidean D = sqrt(6 * 2.8^2) = 6.86 (~6.9)."""
+    collector = EntityRadarCollector()
+
+    def _stats(z_col: str, obs_col: str = "observed"):
+      return {
+          "stats": {
+              "results": [
+                  {"column": obs_col, "values": [{"value": {"int64Val": "38"}}]},
+                  {"column": "hist_avg", "values": [{"value": {"doubleVal": 10.0}}]},
+                  {"column": "hist_stddev", "values": [{"value": {"doubleVal": 10.0}}]},
+                  {"column": z_col, "values": [{"value": {"doubleVal": 2.8}}]},
+              ]
+          }
+      }
+
+    user_spokes, user_prov = collector.parse_raw_sector_payloads(
+        {
+            "auth": _stats("personal_z"),
+            "cloud": _stats("dest_z", obs_col="obs"),
+            "workspace": _stats("personal_z"),
+            "network": _stats("personal_z"),
+            "dns": _stats("personal_z"),
+            "web": _stats("personal_z"),
+        },
+        entity_type="USER",
+    )
+    user_payload = collector.build_radar_payload("charles.hardy", "USER", user_spokes, provenance=user_prov)
+    self.assertEqual(user_payload["composite_distance_d"], 6.86)
+    self.assertTrue(user_payload["is_anomalous"])
+
+    asset_spokes, asset_prov = collector.parse_raw_sector_payloads(
+        {
+            "auth": _stats("personal_z"),
+            "alerts": _stats("alert_z", obs_col="total_alerts"),
+            "endpoint": _stats("personal_z"),
+            "network": _stats("personal_z"),
+            "dns": _stats("personal_z"),
+            "web": _stats("personal_z"),
+        },
+        entity_type="ASSET",
+    )
+    asset_payload = collector.build_radar_payload("wkst-fin-09", "ASSET", asset_spokes, provenance=asset_prov)
+    self.assertEqual(asset_payload["composite_distance_d"], 6.86)
+    self.assertTrue(asset_payload["is_anomalous"])
+
 
 if __name__ == "__main__":
 
