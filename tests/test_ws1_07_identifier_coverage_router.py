@@ -50,6 +50,72 @@ class TestWS107IdentifierCoverageRouter(unittest.TestCase):
       self.assertEqual(MalachiteASTValidator.validate_query(probe_q), [], msg=metric)
       self.assertIn("principal.asset.hostname", probe_q)
       self.assertIn("principal.asset.ip", probe_q)
+      self.assertIn("$event_type = metadata.event_type", probe_q)
+      self.assertRegex(probe_q, r"match:\s*\n\s*\$event_type\b")
+      self.assertIn("$hostname_events =", probe_q)
+      self.assertIn("$ip_events =", probe_q)
+      self.assertNotIn('$bucket = "coverage"', probe_q)
+      self.assertNotIn("$bucket", probe_q)
+
+    user_probe_q = tr.build_identifier_coverage_probe("auth_attempts_total", entity_type=EntityType.USER)
+    self.assertEqual(MalachiteASTValidator.validate_query(user_probe_q), [])
+    self.assertIn("$event_type = metadata.event_type", user_probe_q)
+    self.assertRegex(user_probe_q, r"match:\s*\n\s*\$event_type\b")
+    self.assertIn("$userid_events =", user_probe_q)
+    self.assertIn("$email_events =", user_probe_q)
+    self.assertNotIn('$bucket = "coverage"', user_probe_q)
+    self.assertNotIn("$bucket", user_probe_q)
+
+  def test_ast_validator_rejects_constant_literal_match_variable(self) -> None:
+    bad_string_match_query = (
+        "// Goal: Invalid constant string literal in match\n"
+        "stage stage1_coverage_probe {\n"
+        '    metadata.event_type = "NETWORK_DNS"\n'
+        '    $bucket = "coverage"\n'
+        "  match:\n"
+        "    $bucket by 1d\n"
+        "  outcome:\n"
+        "    $total_events = count(metadata.id)\n"
+        "}\n"
+        "$bucket = $stage1_coverage_probe.bucket\n"
+        "match:\n"
+        "  $bucket\n"
+        "outcome:\n"
+        "  $total_events = sum($stage1_coverage_probe.total_events)\n"
+    )
+    errs_str = MalachiteASTValidator.validate_query(bad_string_match_query)
+    self.assertTrue(
+        errs_str,
+        "Expected MalachiteASTValidator to flag constant string literal $bucket = \"coverage\" used in match:",
+    )
+
+    bad_numeric_match_query = (
+        "// Goal: Invalid constant numeric literal in single-stage match\n"
+        'metadata.event_type = "USER_LOGIN"\n'
+        "$const_bucket = 1\n"
+        "match:\n"
+        "  $const_bucket\n"
+        "outcome:\n"
+        "  $total_events = count(metadata.id)\n"
+    )
+    errs_num = MalachiteASTValidator.validate_query(bad_numeric_match_query)
+    self.assertTrue(
+        errs_num,
+        "Expected MalachiteASTValidator to flag constant numeric literal $const_bucket = 1 used in match:",
+    )
+
+    # Valid field-bound placeholder with an additional entity equality filter must still pass
+    valid_filtered_entity_query = (
+        "// Goal: Valid UDM field-bound match variable with entity filter\n"
+        'metadata.event_type = "USER_LOGIN"\n'
+        "target.user.userid = $user\n"
+        '$user = "charles.hardy"\n'
+        "match:\n"
+        "  $user by 1d\n"
+        "outcome:\n"
+        "  $total_events = count(metadata.id)\n"
+    )
+    self.assertEqual(MalachiteASTValidator.validate_query(valid_filtered_entity_query), [])
 
   def test_select_identifier_from_coverage_picks_ip_on_gus_sdl_and_hostname_when_populated(self) -> None:
     self.assertTrue(hasattr(tr, "select_identifier_from_coverage"))
