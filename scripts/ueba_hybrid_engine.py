@@ -1619,9 +1619,11 @@ def render_forensic_dossier(
     window_days: int = 14,
     anomaly_threshold: float = 3.0,
     output_html_path: Optional[Union[str, Path]] = None,
-    radar_scores: Optional[Union[str, Dict[str, float]]] = None,
+    radar_scores: Optional[Union[str, Dict[str, Any]]] = None,
     baseline_dates: Optional[Tuple[str, str]] = None,
     skip_postflight_audit: bool = False,
+    radar_sector_payloads: Optional[Dict[str, Any]] = None,
+    radar_query_texts: Optional[Dict[str, str]] = None,
     **kwargs: Any,
 ) -> Dict[str, Any]:
   """Renders a 6-Section CommonMark Forensic Triage Dossier with CRI scoring, SVG/HTML charts, and next steps.
@@ -1732,21 +1734,40 @@ def render_forensic_dossier(
       anomaly_threshold=anomaly_threshold,
   )
 
-  # 2. Optional 360° Radar Payload
+  # 2. Optional 360° Radar Payload (D6 Guardrails G1-G3: raw udm_search sector payloads only)
   radar_payload: Optional[Dict[str, Any]] = None
+  effective_radar_payloads: Optional[Dict[str, Any]] = None
   if radar_scores is not None:
+    if isinstance(radar_scores, str) or isinstance(radar_scores, bool) or not isinstance(radar_scores, dict):
+      raise ValueError(
+          "G1 violation: typed radar_scores are prohibited; pass raw udm_search sector payloads dict"
+      )
+    if any(isinstance(v, bool) or not isinstance(v, dict) for v in radar_scores.values()):
+      raise ValueError(
+          "G1 violation: typed radar_scores are prohibited; pass raw udm_search sector payloads dict"
+      )
+    effective_radar_payloads = radar_scores
+  if radar_sector_payloads is not None:
+    effective_radar_payloads = radar_sector_payloads
+
+  if effective_radar_payloads is not None:
     collector = EntityRadarCollector()
-    if isinstance(radar_scores, str):
-      normalized_scores_str = radar_scores.replace(":", "=")
-      spokes = EntityRadarCollector.parse_scores_argument(normalized_scores_str, entity_type=ent_enum.value)
-    else:
-      pairs_str = ",".join(f"{k}={v}" for k, v in radar_scores.items())
-      spokes = EntityRadarCollector.parse_scores_argument(pairs_str, entity_type=ent_enum.value)
+    eff_query_texts = (
+        radar_query_texts
+        if radar_query_texts is not None
+        else ({"executed_query": executed_query} if executed_query else None)
+    )
+    spokes, radar_provenance = EntityRadarCollector.parse_raw_sector_payloads(
+        effective_radar_payloads,
+        entity_type=ent_enum.value,
+        query_texts=eff_query_texts,
+    )
     target_ent = outliers[0]["entity"] if outliers else "target_entity"
     radar_payload = collector.build_radar_payload(
         entity_id=target_ent,
         entity_type=ent_enum.value,
         spokes=spokes,
+        provenance=radar_provenance,
     )
     radar_payload["composite_risk_distance"] = radar_payload["composite_distance_d"]
     radar_payload["composite_cri"] = radar_payload["calibrated_risk_index"]
@@ -2016,6 +2037,23 @@ def render_forensic_dossier(
         f"(CRI: **`{radar_payload['composite_cri']}`** — `{radar_payload['severity_band']}`)",
     ])
 
+  if outliers:
+    core_finding_line = (
+        f"> * **The Core Finding**: Top entity `{top_entity}` registered `+{outliers[0]['z_score']:.2f}σ` "
+        f"(`CRI = {outliers[0]['cri']}`, {outliers[0]['cri_band_label']}) against its 30-day behavioral baseline "
+        f"(`μ = {outliers[0]['hist_avg']}`, `σ = {outliers[0]['hist_stddev']}`)."
+    )
+  elif radar_payload:
+    core_finding_line = (
+        f"> * **The Core Finding**: Entity `{top_entity}` evaluated across 360° multi-sector telemetry with "
+        f"Composite Threat Distance `D = {radar_payload['composite_risk_distance']}σ` "
+        f"(`CRI = {radar_payload['composite_cri']}`, `{radar_payload['severity_band']}`)."
+    )
+  else:
+    core_finding_line = (
+        f"> * **The Core Finding**: No entities breached the `{anomaly_threshold}σ` gate during the active evaluation window."
+    )
+
   dossier_sections.extend([
       "",
       "---",
@@ -2024,7 +2062,7 @@ def render_forensic_dossier(
       "",
       "> [!IMPORTANT]",
       f"> **Threat Translation & Attack Scenarios: `{clean_metric}` ({model_label}){mitre_recon_note}**",
-      f"> * **The Core Finding**: Top entity `{top_entity}` registered `+{outliers[0]['z_score']:.2f}σ` (`CRI = {outliers[0]['cri']}`, {outliers[0]['cri_band_label']}) against its 30-day behavioral baseline (`μ = {outliers[0]['hist_avg']}`, `σ = {outliers[0]['hist_stddev']}`).",
+      core_finding_line,
       "> * **Security Significance**: Statistically significant departure from historical entity behavior indicating potential credential compromise, automated staging, or anomalous data movement.",
       "> * **Potential Attack Scenarios**: Credential stuffing, lateral expansion, living-off-the-land execution, or staged exfiltration.",
       "> * **Legitimate False Positives**: Scheduled enterprise backups, administrative batch jobs, or fleet patch rollouts.",
@@ -2061,8 +2099,17 @@ def render_forensic_dossier(
       r"\text{CRI}(S) = \text{clamp}\left(\text{round}\left(\frac{100}{1 + \exp(-0.6 \cdot (S - 3.0))}\right),\, 0,\, 100\right)",
       "$$",
       "",
-      "</details>",
   ])
+  if radar_payload and radar_payload.get("provenance"):
+    r_prov = radar_payload["provenance"]
+    dossier_sections.extend([
+        "##### 🔐 D6-G3 Radar Execution Provenance",
+        f"* **Helper Version**: `{r_prov.get('helper_version', 'N/A')}`",
+        f"* **Payload SHA-256**: `{r_prov.get('payload_sha256', 'N/A')}`",
+        f"* **Query SHA-256**: `{r_prov.get('query_sha256', 'N/A')}`",
+        "",
+    ])
+  dossier_sections.append("</details>")
 
   dossier_md = "\n".join(dossier_sections)
   legacy_report_md = CommonMarkTriageFormatter.format_report(
@@ -2396,6 +2443,12 @@ def _build_arg_parser() -> argparse.ArgumentParser:
   p_render.add_argument("--threshold", dest="anomaly_threshold", type=float, default=3.0)
   p_render.add_argument("--output-html", dest="output_html_path", default=None)
   p_render.add_argument("--radar-scores", dest="radar_scores", default=None)
+  p_render.add_argument(
+      "--radar-sector-payloads",
+      dest="radar_sector_payloads",
+      default=None,
+      help="JSON string or path to JSON file mapping sector names to raw udm_search stats payloads",
+  )
   p_render.add_argument("--format", choices=["markdown", "json"], default="markdown")
 
   # 4. catalog subcommand
@@ -2475,6 +2528,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
       )
       exec_query = compiled["compiled_query"]
 
+    radar_payloads_arg = None
+    if args.radar_sector_payloads:
+      raw_rp = args.radar_sector_payloads
+      if Path(raw_rp).exists():
+        raw_rp = Path(raw_rp).read_text(encoding="utf-8")
+      radar_payloads_arg = json.loads(raw_rp)
+
     res = render_forensic_dossier(
         rows=rows_arg,
         executed_query=exec_query,
@@ -2486,6 +2546,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         anomaly_threshold=args.anomaly_threshold,
         output_html_path=args.output_html_path,
         radar_scores=args.radar_scores,
+        radar_sector_payloads=radar_payloads_arg,
     )
     if args.format == "markdown":
       print(res["dossier_markdown"])

@@ -8,11 +8,265 @@ import argparse
 import base64
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, asdict
+import hashlib
 import html
 import json
 import math
+import os
 import sys
 from typing import Any, Dict, List, Optional, Tuple
+
+
+HELPER_VERSION = "2.3.0"
+
+
+def _canonical_json_sha256(obj: Any) -> str:
+  """Computes deterministic SHA-256 hex digest over canonical UTF-8 JSON."""
+  canonical = json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+  return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _decode_chronicle_cell(cell: Any) -> Any:
+  """Decodes a single Chronicle udm_search stats.results cell dict, failing closed on malformed cells."""
+  if not isinstance(cell, dict):
+    raise ValueError(
+        "G1/G2 violation: malformed cell in udm_search stats.results; expected dict."
+    )
+  if not cell:
+    return None
+  if "value" not in cell or not isinstance(cell["value"], dict):
+    raise ValueError(
+        "G1/G2 violation: malformed cell in udm_search stats.results; expected {'value': {...}} envelope."
+    )
+  value = cell["value"]
+  if not value:
+    return None
+  kind, raw = next(iter(value.items()))
+  if kind in ("int64Val", "uint64Val"):
+    return int(raw)
+  if kind == "doubleVal":
+    return float(raw)
+  if kind == "boolVal":
+    return bool(raw)
+  if kind == "list" and isinstance(raw, dict):
+    return [_decode_chronicle_cell({"value": v}) for v in raw.get("values", [])]
+  return raw
+
+
+def _parse_strict_udm_stats_payload(sector_key: str, raw_payload: Any) -> List[Dict[str, Any]]:
+  """Strictly validates and parses a raw udm_search stats payload per D6 Guardrails G1 and G2."""
+  if isinstance(raw_payload, bool) or not isinstance(raw_payload, dict):
+    raise ValueError(
+        "G1 violation: sector payload must be a raw udm_search response dict containing 'stats' "
+        "(or empty {} for 0-row sector), not LLM-typed numbers."
+    )
+  if not raw_payload:
+    return []
+  if "events" in raw_payload and "stats" not in raw_payload:
+    raise ValueError(
+        f"G1 violation (RAW_LOG_DUMP_DETECTED): sector '{sector_key}' payload contains raw "
+        "unaggregated 'events' without 'stats'."
+    )
+  if "stats" not in raw_payload:
+    raise ValueError(
+        "G1 violation: sector payload must be a raw udm_search response dict containing 'stats' "
+        "(or empty {} for 0-row sector), not LLM-typed numbers or hand-typed dicts."
+    )
+  stats_obj = raw_payload["stats"]
+  if stats_obj is None or stats_obj == {} or stats_obj == []:
+    return []
+  if not isinstance(stats_obj, dict):
+    raise ValueError(
+        f"G1/G2 violation: sector '{sector_key}' 'stats' must be a dict, got {type(stats_obj).__name__}."
+    )
+  if "results" not in stats_obj:
+    raise ValueError(
+        f"G1/G2 violation: sector '{sector_key}' non-empty 'stats' dict is missing 'results'."
+    )
+  results = stats_obj["results"]
+  if results is None or results == []:
+    return []
+  if not isinstance(results, list):
+    raise ValueError(
+        f"G1/G2 violation: sector '{sector_key}' 'stats.results' must be a list."
+    )
+  columns: Dict[str, List[Any]] = {}
+  for col in results:
+    if (
+        not isinstance(col, dict)
+        or not isinstance(col.get("column"), str)
+        or not col["column"].strip()
+        or not isinstance(col.get("values"), list)
+    ):
+      raise ValueError(
+          f"G1/G2 violation: malformed stats.results column entry in sector '{sector_key}'; "
+          "expected Chronicle columnar {'column': str, 'values': [...]} structure."
+      )
+    col_name = col["column"].strip().lstrip("$")
+    columns[col_name] = [_decode_chronicle_cell(cell) for cell in col["values"]]
+
+  n_rows = max((len(vals) for vals in columns.values()), default=0)
+  rows: List[Dict[str, Any]] = []
+  for i in range(n_rows):
+    rows.append({name: (vals[i] if i < len(vals) else None) for name, vals in columns.items()})
+  return rows
+
+
+def _extract_spoke_metrics_from_rows(
+    sector_key: str,
+    rows: List[Dict[str, Any]],
+) -> Tuple[float, float, float, float]:
+  """Extracts (observed, baseline_mean, baseline_stddev, z_score) from parsed stats.results rows."""
+  primary_z_cols = (
+      "personal_z",
+      "z_score",
+      "z",
+      "alert_z",
+      "z_alerts",
+      "process_z",
+      "fail_z",
+      "flow_z",
+      "macro_z_score",
+      "macro_z",
+  )
+  excluded_z_suffixes = ("_sq", "_raw", "_pos", "_rw", "_cd", "_gap")
+  prefix_aliases = {
+      "download": ("dl", "download"),
+      "change": ("ch", "change"),
+      "outbound": ("out", "outbound"),
+      "inbound": ("in", "inbound"),
+      "egress": ("bytes", "egress"),
+      "dns_fail": ("dns", "dns_fail"),
+      "http": ("http", "web"),
+      "alerts": ("alerts", "alert"),
+  }
+
+  def _as_float(val: Any) -> Optional[float]:
+    if isinstance(val, list) and val:
+      val = val[0]
+    if val is None or isinstance(val, bool):
+      return None
+    try:
+      return float(val)
+    except (TypeError, ValueError):
+      return None
+
+  def _first_present(row: Dict[str, Any], candidates: Tuple[str, ...]) -> Optional[float]:
+    for key in candidates:
+      if key in row:
+        num = _as_float(row[key])
+        if num is not None:
+          return num
+    return None
+
+  best_tuple: Optional[Tuple[float, float, float, float]] = None
+  for row in rows:
+    winning_prefix: Optional[str] = None
+    z_val = _first_present(row, primary_z_cols)
+    if z_val is None:
+      z_candidates: List[Tuple[float, str]] = []
+      for k, raw_v in row.items():
+        kl = k.lower()
+        if any(kl.endswith(sfx) for sfx in excluded_z_suffixes):
+          continue
+        if kl.startswith("z_"):
+          fv = _as_float(raw_v)
+          if fv is not None:
+            z_candidates.append((fv, kl[2:]))
+        elif kl.endswith("_z"):
+          fv = _as_float(raw_v)
+          if fv is not None:
+            z_candidates.append((fv, kl[:-2]))
+      if z_candidates:
+        z_candidates.sort(key=lambda item: item[0], reverse=True)
+        z_val, winning_prefix = z_candidates[0]
+
+    pref_tokens: Tuple[str, ...] = ()
+    if winning_prefix:
+      pref_tokens = prefix_aliases.get(winning_prefix, (winning_prefix,))
+
+    obs_candidates = (
+        "observed",
+        "observed_val",
+        "observed_24h",
+        "obs",
+        "today_val",
+        "total_obs",
+        "alerts_obs",
+    ) + tuple(f"{p}_obs" for p in pref_tokens)
+    obs_val = _first_present(row, obs_candidates)
+    if obs_val is None:
+      for k, raw_v in row.items():
+        if k.lower().endswith("_obs"):
+          obs_val = _as_float(raw_v)
+          if obs_val is not None:
+            break
+
+    avg_candidates = (
+        "historical_avg",
+        "hist_avg",
+        "baseline",
+        "baseline_mean",
+        "avg_30d",
+        "mu",
+        "hist_mean",
+        "historical_mean",
+        "d_mu",
+        "avg",
+        "alerts_avg",
+    ) + tuple(f"{p}_avg" for p in pref_tokens)
+    avg_val = _first_present(row, avg_candidates)
+    if avg_val is None:
+      for k, raw_v in row.items():
+        if k.lower().endswith(("_avg", "_mean")):
+          avg_val = _as_float(raw_v)
+          if avg_val is not None:
+            break
+
+    std_candidates = (
+        "historical_stddev",
+        "hist_stddev",
+        "dispersion",
+        "baseline_stddev",
+        "stddev_30d",
+        "sigma",
+        "hist_std",
+        "historical_std",
+        "d_sigma",
+        "stddev",
+        "std",
+        "alerts_std",
+    ) + tuple(f"{p}_std" for p in pref_tokens) + tuple(f"{p}_stddev" for p in pref_tokens)
+    std_val = _first_present(row, std_candidates)
+    if std_val is None:
+      for k, raw_v in row.items():
+        if k.lower().endswith(("_std", "_stddev")):
+          std_val = _as_float(raw_v)
+          if std_val is not None:
+            break
+
+    if z_val is None:
+      if obs_val is not None and avg_val is not None:
+        denom = std_val if (std_val is not None and std_val > 0.0) else 1.0
+        z_val = (obs_val - avg_val) / denom
+      else:
+        continue
+
+    candidate = (
+        obs_val if obs_val is not None else 0.0,
+        avg_val if avg_val is not None else 0.0,
+        std_val if std_val is not None else 0.0,
+        z_val,
+    )
+    if best_tuple is None or candidate[3] > best_tuple[3]:
+      best_tuple = candidate
+
+  if best_tuple is None:
+    raise ValueError(
+        f"G2 violation: sector '{sector_key}' stats.results contains {len(rows)} row(s) "
+        "but no recognized Z-score or baseline metric columns."
+    )
+  return best_tuple
 
 
 @dataclass
@@ -38,6 +292,8 @@ class MetricSpoke:
 
 class EntityRadarCollector:
   """Collects multi-sector behavioral metrics for an entity and renders radial risk fingerprints."""
+
+  HELPER_VERSION = HELPER_VERSION
 
   USER_SECTOR_QUERIES = {
       "IAM & Authentication": """
@@ -342,52 +598,189 @@ outcome:
         MetricSpoke("Web & Proxy Activity", "Web & Proxy Requests", "metrics.http_queries_total", 0.0, 0.0, 0.0, 0.0, "requests", 0),
     ]
 
-  @staticmethod
-  def parse_scores_argument(scores_str: str, entity_type: str = "USER") -> List[MetricSpoke]:
-    """Parses convenient comma-separated key=value scores (e.g. 'auth=0.0,cloud=3.8,workspace=3.2,net=0.8,web=1.5,dns=10.8')."""
-    canonical = EntityRadarCollector.get_canonical_nominal_spokes(entity_type)
-    if not scores_str:
-      return canonical
+  @classmethod
+  def _resolve_sector_index(cls, sector_key: str, entity_type: str = "USER") -> int:
+    """Resolves a sector label or alias to its canonical 6-spoke index, failing closed on unknown keys."""
+    if not isinstance(sector_key, str) or not sector_key.strip():
+      raise ValueError("G2 violation: sector key must be a non-empty string.")
+    clean = sector_key.strip().lower()
+    is_asset = entity_type.upper() == "ASSET"
 
-    user_map = {
-        "auth": 0, "iam": 0, "login": 0,
-        "cloud": 1, "crud": 1, "resource": 1,
-        "workspace": 2, "saas": 2, "drive": 2, "doc": 2,
-        "net": 3, "network": 3, "egress": 3, "byte": 3,
+    user_exact = {
+        "iam & authentication": 0,
+        "authentication": 0,
+        "authentication & access": 0,
+        "authentication attempts": 0,
+        "iam": 0,
+        "auth": 0,
+        "login": 0,
+        "cloud infrastructure": 1,
+        "cloud infrastructure & iam crud": 1,
+        "cloud resource crud": 1,
+        "cloud": 1,
+        "crud": 1,
+        "resource": 1,
+        "workspace data": 2,
+        "workspace data hoarding": 2,
+        "workspace & saas exfil": 2,
+        "workspace": 2,
+        "saas": 2,
+        "drive": 2,
+        "doc": 2,
+        "network egress": 3,
+        "network egress & web": 3,
+        "network traffic volume": 3,
+        "network": 3,
+        "net": 3,
+        "egress": 3,
+        "bytes": 3,
+        "dns resolution": 4,
         "dns": 4,
-        "web": 5, "http": 5, "proxy": 5,
-        "proc": 4, "endpoint": 4, "process": 4, "launch": 4,
+        "web & proxy activity": 5,
+        "web & proxy": 5,
+        "web & proxy requests": 5,
+        "web": 5,
+        "http": 5,
+        "proxy": 5,
     }
-    asset_map = {
-        "auth": 0, "login": 0, "access": 0,
-        "net": 1, "network": 1, "traffic": 1,
+    asset_exact = {
+        "authentication": 0,
+        "authentication & access": 0,
+        "iam & authentication": 0,
+        "authentication attempts": 0,
+        "auth": 0,
+        "iam": 0,
+        "login": 0,
+        "access": 0,
+        "network": 1,
+        "network traffic volume": 1,
+        "network egress": 1,
+        "network egress & web": 1,
+        "net": 1,
+        "traffic": 1,
+        "egress": 1,
+        "bytes": 1,
         "dns": 2,
-        "web": 3, "http": 3, "proxy": 3,
-        "alert": 4, "edr": 4, "cloud": 4, "infra": 4, "crud": 4,
-        "proc": 5, "endpoint": 5, "process": 5,
+        "dns resolution": 2,
+        "web & proxy": 3,
+        "web & proxy activity": 3,
+        "web & proxy requests": 3,
+        "web": 3,
+        "http": 3,
+        "proxy": 3,
+        "security & edr alerts": 4,
+        "alerts": 4,
+        "alert": 4,
+        "edr": 4,
+        "cloud": 4,
+        "cloud infrastructure": 4,
+        "endpoint": 5,
+        "endpoint process activity": 5,
+        "workspace / endpoint activity": 5,
+        "proc": 5,
+        "process": 5,
+        "file_executions": 5,
     }
-    target_map = asset_map if entity_type.upper() == "ASSET" else user_map
+    exact_map = asset_exact if is_asset else user_exact
+    if clean in exact_map:
+      return exact_map[clean]
 
-    for part in scores_str.split(","):
-      part = part.strip()
-      if "=" in part:
-        k, v = part.split("=", 1)
-        k = k.strip().lower()
-        try:
-          val = float(v.strip())
-          for prefix, idx in target_map.items():
-            if prefix in k:
-              canonical[idx].z_score = val
-              canonical[idx].cri_score = 0
-              if val > 0:
-                canonical[idx].observed = max(1.0, round(val * 10.0))
-                canonical[idx].baseline_mean = 5.0
-                canonical[idx].baseline_stddev = 2.0
-              canonical[idx].__post_init__()
-              break
-        except ValueError:
-          pass
-    return canonical
+    prefix_rules = (
+        [
+            (("auth", "iam", "login", "access"), 0),
+            (("net", "egress", "traffic", "byte"), 1),
+            (("dns",), 2),
+            (("web", "http", "proxy"), 3),
+            (("alert", "edr", "cloud", "infra", "crud"), 4),
+            (("endpoint", "proc", "process", "exec"), 5),
+        ]
+        if is_asset
+        else [
+            (("auth", "iam", "login"), 0),
+            (("cloud", "crud", "resource"), 1),
+            (("workspace", "saas", "drive", "doc"), 2),
+            (("net", "egress", "byte"), 3),
+            (("dns",), 4),
+            (("web", "http", "proxy"), 5),
+        ]
+    )
+    for tokens, idx in prefix_rules:
+      if any(tok in clean for tok in tokens):
+        return idx
+
+    raise ValueError(
+        f"G2 violation: unrecognized radar sector key '{sector_key}' for entity_type='{entity_type}'."
+    )
+
+  @classmethod
+  def parse_raw_sector_payloads(
+      cls,
+      sector_payloads: Dict[str, Any],
+      entity_type: str = "USER",
+      query_texts: Optional[Dict[str, str]] = None,
+  ) -> Tuple[List[MetricSpoke], Dict[str, Any]]:
+    """Parses raw udm_search stats responses per sector into MetricSpokes + D6-G3 provenance.
+
+    Enforces D6 Guardrails:
+    - G1: Rejects LLM-typed numbers/strings, hand-typed dicts without 'stats', and raw 'events' dumps.
+    - G2: Fails closed on missing, empty, unknown, duplicate, or malformed sector inputs.
+    - G3: Returns helper_version, payload_sha256, and query_sha256 provenance metadata.
+    """
+    if isinstance(sector_payloads, bool) or not isinstance(sector_payloads, dict):
+      raise ValueError(
+          "G1 violation: sector payload must be a raw udm_search response dict containing 'stats' "
+          "(or empty {} for 0-row sector), not LLM-typed numbers or strings."
+      )
+    if not sector_payloads:
+      raise ValueError(
+          "G2 violation: sector_payloads cannot be empty; provide raw udm_search response dicts per sector."
+      )
+    if query_texts is not None and not isinstance(query_texts, dict):
+      raise ValueError(
+          "G2 violation: query_texts must be a dict mapping sector keys to YARA-L query strings."
+      )
+
+    canonical = cls.get_canonical_nominal_spokes(entity_type)
+    seen_indices: Dict[int, str] = {}
+    sectors_with_telemetry = 0
+
+    for sector_key, raw_payload in sector_payloads.items():
+      idx = cls._resolve_sector_index(sector_key, entity_type)
+      if idx in seen_indices:
+        raise ValueError(
+            f"G2 violation: duplicate radar sector mapping between '{seen_indices[idx]}' and '{sector_key}'."
+        )
+      seen_indices[idx] = sector_key
+
+      rows = _parse_strict_udm_stats_payload(sector_key, raw_payload)
+      if not rows:
+        # Valid 0-row raw udm_search payload ({} or {"stats": {}}) -> deterministic nominal 0.0
+        canonical[idx].observed = 0.0
+        canonical[idx].baseline_mean = 0.0
+        canonical[idx].baseline_stddev = 0.0
+        canonical[idx].z_score = 0.0
+        canonical[idx].cri_score = 0
+        continue
+
+      sectors_with_telemetry += 1
+      obs_val, avg_val, std_val, z_val = _extract_spoke_metrics_from_rows(sector_key, rows)
+      canonical[idx].observed = obs_val
+      canonical[idx].baseline_mean = avg_val
+      canonical[idx].baseline_stddev = std_val
+      canonical[idx].z_score = z_val
+      canonical[idx].cri_score = 0
+      canonical[idx].__post_init__()
+
+    payload_sha256 = _canonical_json_sha256(sector_payloads)
+    query_sha256 = _canonical_json_sha256(query_texts) if query_texts else "N/A"
+    provenance = {
+        "helper_version": cls.HELPER_VERSION,
+        "payload_sha256": payload_sha256,
+        "query_sha256": query_sha256,
+        "sectors_evaluated": len(canonical),
+        "sectors_with_telemetry": sectors_with_telemetry,
+    }
+    return canonical, provenance
 
   @staticmethod
   def calculate_composite_risk(spokes: List[MetricSpoke]) -> Tuple[float, int]:
@@ -405,14 +798,24 @@ outcome:
       entity_id: str,
       entity_type: str,
       spokes: List[MetricSpoke],
+      provenance: Optional[Dict[str, Any]] = None,
   ) -> Dict[str, Any]:
-    """Assembles the full radar payload including statistics, SVG, Markdown, and Chart.js specs."""
+    """Assembles the full radar payload including statistics, provenance, SVG, Markdown, and Chart.js specs."""
     active_spokes = spokes if spokes else self.get_canonical_nominal_spokes(entity_type)
     sorted_spokes = sorted(active_spokes, key=lambda s: s.z_score, reverse=True)
     composite_d, cri = self.calculate_composite_risk(sorted_spokes)
 
     top_outlier = sorted_spokes[0] if sorted_spokes else None
     is_anomalous = composite_d >= 3.0
+    effective_provenance = (
+        dict(provenance)
+        if provenance is not None
+        else {
+            "helper_version": self.HELPER_VERSION,
+            "payload_sha256": "N/A",
+            "query_sha256": "N/A",
+        }
+    )
 
     return {
         "entity_id": entity_id,
@@ -423,6 +826,7 @@ outcome:
         "spoke_count": len(sorted_spokes),
         "top_outlier_spoke": top_outlier.spoke_name if top_outlier else "N/A",
         "top_outlier_z": top_outlier.z_score if top_outlier else 0.0,
+        "provenance": effective_provenance,
         "spokes": [s.to_dict() for s in sorted_spokes],
         "svg_widget": self.generate_self_contained_svg(
             entity_id, sorted_spokes, composite_d, cri
@@ -440,7 +844,7 @@ outcome:
             entity_id, sorted_spokes, composite_d, cri
         ),
         "markdown_table": self.generate_markdown_summary(
-            entity_id, sorted_spokes, composite_d, cri
+            entity_id, sorted_spokes, composite_d, cri, provenance=effective_provenance
         ),
         "chartjs_spec": self.generate_chartjs_spec(
             entity_id, sorted_spokes, composite_d, cri
@@ -673,8 +1077,9 @@ outcome:
       spokes: List[MetricSpoke],
       composite_d: float,
       cri: int,
+      provenance: Optional[Dict[str, Any]] = None,
   ) -> str:
-    """Generates CommonMark table with Unicode magnitude progress bars."""
+    """Generates CommonMark table with Unicode magnitude progress bars and D6-G3 provenance."""
     is_anomalous = composite_d >= 3.0
     status_icon = "🚨" if is_anomalous else "🟢"
     status_text = "HIGH RISK ANOMALOUS FOOTPRINT" if is_anomalous else "NOMINAL BEHAVIORAL BASELINE"
@@ -714,6 +1119,17 @@ outcome:
     lines.append("3. **Calibrated Risk Index (CRI: 0–100 Logistic Sigmoid Mapping)**:")
     lines.append("   $$\\text{CRI} = \\text{round}\\left(\\frac{100}{1 + \\exp(-0.6 \\cdot (D - 3.0))}\\right)$$")
     lines.append(f"   $$\\text{{CRI}}({composite_d:.2f}) = \\mathbf{{{cri} / 100}} \\quad ({status_text})$$")
+    prov = provenance or {
+        "helper_version": EntityRadarCollector.HELPER_VERSION,
+        "payload_sha256": "N/A",
+        "query_sha256": "N/A",
+    }
+    lines.append("")
+    lines.append(
+        f"* **D6-G3 Provenance**: `helper_version={prov.get('helper_version', EntityRadarCollector.HELPER_VERSION)}` | "
+        f"`payload_sha256={prov.get('payload_sha256', 'N/A')}` | "
+        f"`query_sha256={prov.get('query_sha256', 'N/A')}`"
+    )
     return "\n".join(lines)
 
   @staticmethod
@@ -1203,7 +1619,34 @@ outcome:
 
 
 
-def main():
+def _load_json_arg(arg_val: str, flag_name: str) -> Any:
+  """Loads JSON from an inline string or existing file path, failing closed per D6-G2."""
+  raw = arg_val.strip()
+  if not raw:
+    raise ValueError(f"G2 violation: empty JSON input provided to {flag_name}.")
+  if raw.startswith("{") or raw.startswith("["):
+    try:
+      return json.loads(raw)
+    except json.JSONDecodeError as exc:
+      raise ValueError(f"G2 violation: malformed JSON in {flag_name}: {exc}") from exc
+  if os.path.exists(raw):
+    with open(raw, "r", encoding="utf-8") as f:
+      text = f.read().strip()
+    if not text:
+      raise ValueError(f"G2 violation: empty JSON file provided to {flag_name}: '{raw}'.")
+    try:
+      return json.loads(text)
+    except json.JSONDecodeError as exc:
+      raise ValueError(f"G2 violation: malformed JSON in file '{raw}' ({flag_name}): {exc}") from exc
+  try:
+    return json.loads(raw)
+  except json.JSONDecodeError as exc:
+    raise ValueError(
+        f"G2 violation: {flag_name} must be valid JSON or an existing file path, got '{raw}' ({exc})."
+    ) from exc
+
+
+def main(argv: Optional[List[str]] = None) -> int:
   """CLI entry point for deterministic visual generation and post-search collation."""
   parser = argparse.ArgumentParser(description="360° Entity Behavioral Risk Radar Generator")
   parser.add_argument("--entity", required=True, help="Entity identifier (user or hostname)")
@@ -1215,9 +1658,23 @@ def main():
   )
   parser.add_argument(
       "--scores",
-      help="Convenient comma-separated spoke deviations (e.g. 'auth=0.0,cloud=3.8,workspace=3.2,net=0.8,proc=10.8')",
+      default=None,
+      help="REMOVED (D6-G1): LLM-typed scores are prohibited; raises an error.",
   )
-  parser.add_argument("--data", help="JSON string or file path containing spoke records")
+  parser.add_argument(
+      "--raw-payload",
+      "--data",
+      dest="raw_payload",
+      default=None,
+      help="JSON string or file path mapping sector names to raw udm_search stats payloads",
+  )
+  parser.add_argument(
+      "--queries",
+      "--query-texts",
+      dest="query_texts",
+      default=None,
+      help="Optional JSON string or file path mapping sector names to executed YARA-L query texts",
+  )
   parser.add_argument(
       "--format",
       choices=["html", "svg", "data-uri", "dual", "embed", "ascii", "markdown", "json"],
@@ -1234,7 +1691,13 @@ def main():
           "SecOps MCP tool by the agent rather than running an HTTP request directly."
       ),
   )
-  args = parser.parse_args()
+  args = parser.parse_args(argv)
+
+  if args.scores is not None:
+    raise ValueError(
+        "G1 violation: --scores has been removed (D6-G1). "
+        "Pass raw udm_search sector payloads JSON via --raw-payload or --data."
+    )
 
   if args.execute:
     queries = (
@@ -1250,40 +1713,31 @@ def main():
       print(f"// === Sector: {sector_name} ===")
       print((tpl % {"entity_id": args.entity}).strip())
       print()
-    return
+    return 0
 
-  spokes = []
-  if args.scores:
-    spokes = EntityRadarCollector.parse_scores_argument(args.scores, args.entity_type)
-  elif args.data:
-    raw_data = args.data.strip()
-    if raw_data.startswith("[") or raw_data.startswith("{"):
-      parsed = json.loads(raw_data)
-      spoke_items = parsed if isinstance(parsed, list) else parsed.get("spokes", [])
-    else:
-      with open(raw_data, "r", encoding="utf-8") as f:
-        parsed = json.load(f)
-        spoke_items = parsed if isinstance(parsed, list) else parsed.get("spokes", [])
+  if not args.raw_payload or not args.raw_payload.strip():
+    raise ValueError(
+        "G2 violation: missing required --raw-payload / --data argument; "
+        "raw udm_search sector payloads JSON is required when --execute is not set."
+    )
 
-    for item in spoke_items:
-      spokes.append(
-          MetricSpoke(
-              sector=item.get("sector", "General"),
-              spoke_name=item.get("spoke_name", item.get("name", "Spoke")),
-              metric_table=item.get("metric_table", "metrics.unknown"),
-              observed=float(item.get("observed", 0.0)),
-              baseline_mean=float(item.get("baseline_mean", item.get("mean", 0.0))),
-              baseline_stddev=float(item.get("baseline_stddev", item.get("stddev", 0.0))),
-              z_score=float(item.get("z_score", item.get("z", 0.0))),
-              unit=item.get("unit", "events"),
-              cri_score=int(item.get("cri_score", item.get("cri", 0))),
-          )
-      )
-  else:
-    spokes = EntityRadarCollector.get_canonical_nominal_spokes(args.entity_type)
+  parsed_payloads = _load_json_arg(args.raw_payload, "--raw-payload/--data")
+  loaded_queries = (
+      _load_json_arg(args.query_texts, "--queries") if args.query_texts else None
+  )
+  spokes, provenance = EntityRadarCollector.parse_raw_sector_payloads(
+      parsed_payloads,
+      entity_type=args.entity_type,
+      query_texts=loaded_queries,
+  )
 
   collector = EntityRadarCollector()
-  payload = collector.build_radar_payload(args.entity, args.entity_type, spokes)
+  payload = collector.build_radar_payload(
+      args.entity,
+      args.entity_type,
+      spokes,
+      provenance=provenance,
+  )
 
   if args.format == "html":
     out_str = payload["html_widget"]
@@ -1327,7 +1781,8 @@ def main():
         f.write(payload["html_widget"])
 
   print(out_str)
+  return 0
 
 
 if __name__ == "__main__":
-  main()
+  sys.exit(main())
