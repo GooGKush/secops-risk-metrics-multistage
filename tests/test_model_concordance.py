@@ -38,9 +38,15 @@ MODEL_AST_CONTRACTS = {
     },
     StatisticalModel.RELATIVE_DEVIATION: {
         "template": "relative_deviation.yl2",
-        "mandatory_vars": ["$dev", "$safe_hist_avg", "$ratio"],
+        "mandatory_vars": ["$safe_hist_avg", "$dev", "$ratio", "$fold_change", "$rel_dev_z_equiv"],
         "order_var": "$ratio",
-        "required_ops": ["$dev = $observed - $hist_avg", "$ratio = $dev / $safe_hist_avg"],
+        "required_ops": [
+            "$safe_hist_avg = if($hist_avg > 1.0, $hist_avg, 1.0)",
+            "$dev = $observed - $safe_hist_avg",
+            "$ratio = $dev / $safe_hist_avg",
+            "$fold_change = $observed / $safe_hist_avg",
+            "$rel_dev_z_equiv = if($raw_z_equiv > 0.0, $raw_z_equiv, 0.0)",
+        ],
         "prohibited_substitutions": ["$personal_z"],
     },
     StatisticalModel.VARIANCE: {

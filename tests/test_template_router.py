@@ -853,6 +853,44 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
     self.assertIn("phase1_query", killchain_plan)
     self.assertEqual(MalachiteASTValidator.validate_query(killchain_plan["phase1_query"]), [])
 
+  def test_ws3_reldev_continuous_floor_and_z_equiv(self):
+    """WS3-RELDEV: Continuous max(avg, 1.0) floor eliminates 0 -> 0.05 jump discontinuity and emits Z-equivalent."""
+    from scripts.preflight_validator import MalachiteASTValidator
+
+    q = self.router.build_query(
+        target_metric="auth_attempts_total",
+        entity_type=EntityType.USER,
+        statistical_model=StatisticalModel.RELATIVE_DEVIATION,
+    )
+    self.assertIn("$safe_hist_avg = if($hist_avg > 1.0, $hist_avg, 1.0)", q)
+    self.assertNotIn("if($hist_avg > 0,", q)
+    self.assertIn("$dev = $observed - $safe_hist_avg", q)
+    self.assertIn("$ratio = $dev / $safe_hist_avg", q)
+    self.assertIn("$fold_change = $observed / $safe_hist_avg", q)
+    self.assertIn("$rel_dev_z_equiv = if($raw_z_equiv > 0.0, $raw_z_equiv, 0.0)", q)
+    self.assertEqual(MalachiteASTValidator.validate_query(q), [])
+    self.assertEqual(MalachiteASTValidator.validate_model_concordance(q, StatisticalModel.RELATIVE_DEVIATION), [])
+
+    def _eval_reldev(observed: float, hist_avg: float) -> tuple[float, float, float]:
+      safe_avg = hist_avg if hist_avg > 1.0 else 1.0
+      dev = observed - safe_avg
+      ratio = dev / safe_avg
+      fold_change = observed / safe_avg
+      raw_z_equiv = 3.0 * ratio
+      z_equiv = raw_z_equiv if raw_z_equiv > 0.0 else 0.0
+      return fold_change, ratio, z_equiv
+
+    # Continuous across hist_avg in [0.0, 1.0]: no 20x jump at hist_avg = 0.05
+    for avg in (0.0, 0.05, 0.5, 1.0):
+      fc, ratio, z_eq = _eval_reldev(observed=5.0, hist_avg=avg)
+      self.assertAlmostEqual(fc, 5.0)
+      self.assertAlmostEqual(ratio, 4.0)
+      self.assertAlmostEqual(z_eq, 12.0)
+
+    # At default 2.0x gate, fold_change=2.0 -> ratio=1.0 -> z_equiv=3.0; below baseline -> z_equiv=0.0
+    self.assertEqual(_eval_reldev(observed=200.0, hist_avg=100.0), (2.0, 1.0, 3.0))
+    self.assertEqual(_eval_reldev(observed=80.0, hist_avg=100.0), (0.8, -0.2, 0.0))
+
 
 if __name__ == "__main__":
   unittest.main()
