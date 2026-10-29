@@ -429,14 +429,27 @@ class MultiStageTemplateRouter:
 
   _METRICS_OUTCOME_RE = re.compile(
       r'^[ \t]*\$([A-Za-z0-9_]+)[ \t]*=[ \t]*max\(metrics\.[A-Za-z0-9_]+\([^()]*\)\)[ \t]*\n', re.M)
+  _METRICS_ALIAS_RE = re.compile(
+      r'^[ \t]*\$([A-Za-z0-9_]+)[ \t]*=[ \t]*\$(historical_[A-Za-z0-9_]+)[ \t]*\n', re.M)
 
   @classmethod
   def _prune_unused_metrics_lookups(cls, stage1_content: str, downstream: str) -> str:
-    """Removes stage1 `$var = max(metrics.*(...))` outcomes that nothing downstream reads.
+    """Removes stage1 `$var = max(metrics.*(...))` outcomes (and unused aliases) that nothing downstream reads.
 
     Each metrics.* outcome is a per-entity, per-day lookup. A lookup is kept if the downstream stages
     reference `$stage1_extract.<var>` or another stage1 line references `$<var>`.
     """
+    def _keep_alias(m: "re.Match[str]") -> str:
+      alias_var = m.group(1)
+      if re.search(r'\bstage1_extract\.' + re.escape(alias_var) + r'\b', downstream):
+        return m.group(0)
+      rest = stage1_content[:m.start()] + stage1_content[m.end():]
+      if re.search(r'\$' + re.escape(alias_var) + r'\b', rest):
+        return m.group(0)
+      return ""
+
+    stage1_content = cls._METRICS_ALIAS_RE.sub(_keep_alias, stage1_content)
+
     def _keep(m: "re.Match[str]") -> str:
       var = m.group(1)
       if re.search(r'\bstage1_extract\.' + re.escape(var) + r'\b', downstream):
@@ -617,10 +630,25 @@ class MultiStageTemplateRouter:
       first_scored_date = (end - datetime.timedelta(days=scoring_days - 1)).strftime("%Y-%m-%d")
       if "$in_scoring_window" not in stage1_content:
         stage1_content = re.sub(
-            r'(outcome:\s*\n)',
+            r'(^[ \t]*\$observed_val\s*=\s*[^\n]+\n)',
             r'\1    $in_scoring_window = max(if(timestamp.get_date(metadata.event_timestamp.seconds) >= "{{first_scored_date}}", 1, 0))\n',
             stage1_content,
             count=1,
+            flags=re.M,
+        )
+      if "$pre_obs" not in stage1_content:
+        stage1_content = re.sub(
+            r'(^[ \t]*\$in_scoring_window\s*=\s*[^\n]+\n)',
+            (
+                r'\1'
+                r'    $obs_float = 1.0 * $observed_val\n'
+                r'    $pre_obs = if($in_scoring_window = 0, $obs_float, 0.0)\n'
+                r'    $pre_obs_sq = $pre_obs * $pre_obs\n'
+                r'    $pre_day = if($in_scoring_window = 0, 1, 0)\n'
+            ),
+            stage1_content,
+            count=1,
+            flags=re.M,
         )
       stage1_content = stage1_content.replace("{{first_scored_date}}", first_scored_date)
       # Keep the module's one-line title; its long design notes stay in the template, not in every query.
