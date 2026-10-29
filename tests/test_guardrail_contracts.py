@@ -1738,15 +1738,16 @@ class TestGuardrailContracts(unittest.TestCase):
   def test_no_retired_evaluation_mode_labels(self):
     """Retired Mode A/B labels must not reappear in agent- or consumer-facing text.
 
-    Mode A is a current-day window (00:00Z -> now), NOT a rolling 24 hours: a
-    rolling window straddles two daily metrics buckets. Mode B spans 2-7 days,
-    with 7 as the ceiling rather than the only option.
+    Mode A defaults to the last complete UTC day ([D-1 00:00Z, D0 00:00Z), with explicit
+    partial-today opt-in via --today-so-far), NOT a rolling 24 hours: a rolling window
+    straddles two daily metrics buckets. Mode B spans 2-3 days (capped at 3 days to bound
+    start-anchored fixed-baseline staleness).
 
     Rule 1 (Mode A) is a case-insensitive proximity rule, so any re-drift phrasing
     is caught, not just the exact strings that were removed once.
 
     Rule 2 (Mode B) is deliberately a name deny-list and NOT a proximity rule: a
-    rendered caption legitimately reads "Mode B (7-Day Timeline)" when seven days
+    rendered caption legitimately reads "Mode B (3-Day Timeline)" when three days
     were requested. Only the retired *names*, which embed a fixed horizon in the
     mode's title, are forbidden.
 
@@ -1785,8 +1786,8 @@ class TestGuardrailContracts(unittest.TestCase):
 
     self.assertEqual(
         [], offenders,
-        "Retired evaluation-mode labels found. Mode A is a current-day window, "
-        "not a rolling 24h; Mode B is 'Fixed-Baseline Timeline' (2-7 days) with no "
+        "Retired evaluation-mode labels found. Mode A defaults to the last complete UTC day "
+        "(not a rolling 24h); Mode B is 'Fixed-Baseline Timeline' (2-3 days) with no "
         f"fixed horizon in its name. Offenders: {offenders}"
     )
 
