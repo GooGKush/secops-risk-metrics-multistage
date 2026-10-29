@@ -453,6 +453,11 @@ def _inject_stage1_filters(
   return query[:stage_match.start()] + stage_open + injected_events + match_header + query[stage_match.end():]
 
 
+MAX_MODE_B_DAYS = 3
+MAX_CUSUM_MODE_B_DAYS = 14
+MAX_MODE_C_DAYS = 30
+
+
 def _rewrite_ecg_event_date(compiled_query: str, date_str: str) -> str:
   """Pins timestamp.get_date(...) equality predicates in ECG event stages to date_str."""
   return re.sub(
@@ -494,6 +499,8 @@ def _compute_execution_windows(
   ecg_72h_anchor_applied = False
   is_partial_day = False
   partial_day_warning: Optional[str] = None
+  capped_from_days: Optional[int] = None
+  mode_notice: Optional[str] = None
 
   if mode_clean == "A":
     if statistical_model == StatisticalModel.LONGITUDINAL_CUSUM or "$cusum_drift_score" in compiled_query:
@@ -542,7 +549,23 @@ def _compute_execution_windows(
     }]
 
   elif mode_clean == "B":
-    eff_days = max(window_days if window_days > 1 else 7, 2)
+    is_cusum = (
+        statistical_model == StatisticalModel.LONGITUDINAL_CUSUM
+        or "$cusum_drift_score" in compiled_query
+    )
+    max_b_days = MAX_CUSUM_MODE_B_DAYS if is_cusum else MAX_MODE_B_DAYS
+    requested_days = window_days if window_days > 1 else MAX_MODE_B_DAYS
+    if requested_days > max_b_days:
+      capped_from_days = requested_days
+      eff_days = max_b_days
+      if not is_cusum:
+        mode_notice = (
+            f"Mode B is capped at {MAX_MODE_B_DAYS} days (requested {requested_days} days) to bound "
+            f"start-anchored fixed-baseline staleness; per-day trailing baselines and timelines beyond "
+            f"{MAX_MODE_B_DAYS} days (Mode C) require run_command and scripts/timeline_assembler.py."
+        )
+    else:
+      eff_days = max(requested_days, 2)
     if statistical_model in (StatisticalModel.MAD, StatisticalModel.QUANTILE_IQR_SKEW):
       start_dt = today_midnight - datetime.timedelta(days=max(29, eff_days - 1))
     else:
@@ -561,7 +584,7 @@ def _compute_execution_windows(
     }]
 
   elif mode_clean == "C":
-    eff_days = min(max(window_days if window_days > 1 else 7, 2), 7)
+    eff_days = min(max(window_days if window_days > 1 else 7, 2), MAX_MODE_C_DAYS)
     first_day = today_midnight - datetime.timedelta(days=eff_days - 1)
     start_iso = first_day.strftime("%Y-%m-%dT%H:%M:%SZ")
     baseline_start = (first_day - datetime.timedelta(days=30)).strftime("%Y-%m-%d")
@@ -572,10 +595,19 @@ def _compute_execution_windows(
     for offset in range(eff_days - 1, -1, -1):
       day_dt = today_midnight - datetime.timedelta(days=offset)
       day_str = day_dt.strftime("%Y-%m-%d")
-      shard_start = f"{day_str}T00:00:00Z"
+      if statistical_model in (StatisticalModel.MAD, StatisticalModel.QUANTILE_IQR_SKEW):
+        shard_start = (day_dt - datetime.timedelta(days=29)).strftime("%Y-%m-%dT00:00:00Z")
+      else:
+        shard_start = f"{day_str}T00:00:00Z"
       shard_end = end_iso if offset == 0 else f"{day_str}T23:59:59Z"
       b_start = (day_dt - datetime.timedelta(days=30)).strftime("%Y-%m-%d")
       shard_query = _rewrite_ecg_event_date(compiled_query, day_str).replace(f'"{today_str}"', f'"{day_str}"')
+      if statistical_model in (StatisticalModel.MAD, StatisticalModel.QUANTILE_IQR_SKEW):
+        shard_query = re.sub(
+            r'(timestamp\.get_date\([^)]+\)\s*>=\s*)"\d{4}-\d{2}-\d{2}"',
+            rf'\1"{day_str}"',
+            shard_query,
+        )
       shards.append({
           "day": day_str,
           "start_time": shard_start,
@@ -605,6 +637,8 @@ def _compute_execution_windows(
       "evaluation_mode_label": eval_label,
       "is_partial_day": is_partial_day,
       "partial_day_warning": partial_day_warning,
+      "capped_from_days": capped_from_days,
+      "mode_notice": mode_notice,
       "effective_query": compiled_query,
       "start_time": start_iso,
       "end_time": end_iso,
@@ -761,6 +795,7 @@ def compile_hunt_pipeline(
     scoring_end_date: Optional[str] = None,
     reference_time: Optional[datetime.datetime] = None,
     today_so_far: bool = False,
+    has_run_command: bool = True,
     **kwargs: Any,
 ) -> Dict[str, Any]:
   """Compiles a multi-stage YARA-L 2.0 hunt pipeline, pre-flight specification card, and time windows.
@@ -870,6 +905,22 @@ def compile_hunt_pipeline(
         "LONGITUDINAL_CUSUM cannot run in single-day Mode A; "
         "sequential drift requires a multi-day Mode B or Mode C window."
     )
+  effective_mode = mode
+  redirected_from_mode: Optional[str] = None
+  redirect_notice: Optional[str] = None
+  if (
+      mode_norm_early == "B"
+      and window_days > MAX_MODE_B_DAYS
+      and stat_model_enum != StatisticalModel.LONGITUDINAL_CUSUM
+      and has_run_command
+  ):
+    effective_mode = "C"
+    redirected_from_mode = "B"
+    redirect_notice = (
+        f"Requested {window_days}-day Mode B timeline exceeds the {MAX_MODE_B_DAYS}-day Mode B cap; "
+        f"automatically redirected to Mode C ({window_days} per-day shards collated via scripts/timeline_assembler.py) "
+        "so each UTC day is scored against its own trailing 30-day baseline."
+    )
   metric_list = normalize_metrics_list(metrics, ent_enum, arch_key)
   if len(metric_list) >= 2 and arch_key in ("single_metric", "local_2stage", "2stage"):
     arch_key = "multi_sector_fusion_4stage" if len(metric_list) >= 3 else "dual_sector_fusion_3stage"
@@ -879,7 +930,7 @@ def compile_hunt_pipeline(
   sector_queries: Optional[Dict[str, str]] = None
   chained_plan: Optional[Dict[str, Any]] = None
   entity_graph_dim = "N/A"
-  match_mode = MatchMode.FLEET_ROLLUP if (mode or "A").strip().upper().endswith("D") else MatchMode.TIMELINE_BREAKDOWN
+  match_mode = MatchMode.FLEET_ROLLUP if (effective_mode or "A").strip().upper().endswith("D") else MatchMode.TIMELINE_BREAKDOWN
 
   # 1. Compile the query according to plane and architecture
   if plane_upper == "MICRO_RAW":
@@ -1314,7 +1365,7 @@ def compile_hunt_pipeline(
       eff_scoring_days = scoring_days
       eff_scoring_end_date = scoring_end_date
       if stat_model_enum in (StatisticalModel.MAD, StatisticalModel.QUANTILE_IQR_SKEW):
-        mode_norm_for_scoring = (mode or "A").strip().upper().replace("MODE", "").strip() or "A"
+        mode_norm_for_scoring = (effective_mode or "A").strip().upper().replace("MODE", "").strip() or "A"
         is_today_opt = bool(today_so_far) or mode_norm_for_scoring in ("A_TODAY", "A_PARTIAL")
         if mode_norm_for_scoring in ("A_TODAY", "A_PARTIAL"):
           mode_norm_for_scoring = "A"
@@ -1322,7 +1373,7 @@ def compile_hunt_pipeline(
           if mode_norm_for_scoring in ("A", "C"):
             eff_scoring_days = 1
           elif mode_norm_for_scoring == "B":
-            eff_scoring_days = max(window_days if window_days > 1 else 7, 2)
+            eff_scoring_days = min(max(window_days if window_days > 1 else MAX_MODE_B_DAYS, 2), MAX_MODE_B_DAYS)
           else:
             eff_scoring_days = max(window_days, 1)
         if eff_scoring_end_date is None:
@@ -1368,13 +1419,14 @@ def compile_hunt_pipeline(
   # 2. Compute Execution Windows & Turn-1 10-Minute Probe Query
   window_spec = _compute_execution_windows(
       compiled_query=compiled_query,
-      mode=mode,
+      mode=effective_mode,
       window_days=window_days,
       statistical_model=stat_model_enum if plane_upper != "MICRO_RAW" else None,
       reference_time=reference_time,
       today_so_far=today_so_far,
   )
   compiled_query = window_spec["effective_query"]
+  effective_mode_notice = redirect_notice or window_spec.get("mode_notice")
 
   # 3. Validate AST and Statistical Antipatterns
   ast_errors = MalachiteASTValidator.validate_query(compiled_query)
@@ -1414,11 +1466,17 @@ def compile_hunt_pipeline(
         "> [!WARNING]\n"
         f"> **⚠️ Partial UTC Day — Low-Biased vs Full-Day Baseline**: {window_spec['partial_day_warning']}"
     )
+  if effective_mode_notice:
+    preflight_card = (
+        f"{preflight_card}\n\n"
+        "> [!NOTE]\n"
+        f"> **⏱️ Timeline Horizon Routing (D9)**: {effective_mode_notice}"
+    )
 
   clearance_question = (
       "Would you like me to proceed with **Mode A (Last Complete UTC Day vs 30-Day Baseline)** "
       "[or **Mode A — Today So Far (Partial UTC Day)**], "
-      "**Mode B (2–7 Day Fixed-Baseline Timeline)**, or **Mode C (Per-Day Baseline Shards)**? "
+      "**Mode B (2–3 Day Fixed-Baseline Timeline)**, or **Mode C (Per-Day Baseline Shards)**? "
       "(Thresholds can be tuned first.)"
   )
 
@@ -1449,6 +1507,9 @@ def compile_hunt_pipeline(
       "entity_value": entity_value or "Fleet-Wide",
       "target_field": audit_info.get("target_field", ""),
       "mode": window_spec["mode"],
+      "redirected_from_mode": redirected_from_mode,
+      "capped_from_days": window_spec.get("capped_from_days"),
+      "mode_notice": effective_mode_notice,
       "window_days": window_spec["window_days"],
       "evaluation_mode_label": window_spec["evaluation_mode_label"],
       "is_partial_day": window_spec["is_partial_day"],
@@ -1467,6 +1528,8 @@ def compile_hunt_pipeline(
           "start_time": window_spec["start_time"],
           "end_time": window_spec["end_time"],
           "mode": window_spec["mode"],
+          "redirected_from_mode": redirected_from_mode,
+          "capped_from_days": window_spec.get("capped_from_days"),
           "window_days": window_spec["window_days"],
           "is_partial_day": window_spec["is_partial_day"],
           "baseline_start_date": window_spec["baseline_start_date"],
@@ -2672,6 +2735,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
   p_compile.add_argument("--custom-filter", dest="custom_filter", default=None)
   p_compile.add_argument("--mode", default="A", choices=["A", "A_TODAY", "A_PARTIAL", "B", "C", "D"])
   p_compile.add_argument("--today-so-far", dest="today_so_far", action="store_true", help="Score Today So Far ([today 00:00Z -> now]) with partial-day low-bias warning")
+  p_compile.add_argument("--no-run-command", dest="has_run_command", action="store_false", default=True, help="Simulate MCP-only client without local script execution (caps Mode B at 3 days)")
   p_compile.add_argument("--window-days", dest="window_days", type=int, default=1)
   p_compile.add_argument("--sensitivity", default="BALANCED")
   p_compile.add_argument("--threshold", dest="anomaly_threshold", type=float, default=None)
@@ -2751,6 +2815,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         killchain_archetype=args.killchain_archetype,
         chained_path=args.chained_path,
         today_so_far=args.today_so_far,
+        has_run_command=args.has_run_command,
     )
     if args.format == "query":
       print(res["compiled_query"])

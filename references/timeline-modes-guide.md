@@ -22,24 +22,24 @@ A `metrics.*(period: 1d, window: 30d, ...)` call resolves to **one baseline wind
 | Mode A (default), last complete UTC day (`yesterday 00:00Z` → `today 00:00Z`) | yesterday | 30 full days before yesterday (`[yesterday − 30d, yesterday)`); full day vs full-day `period: 1d` baseline |
 | Mode A — Today So Far (`today 00:00Z` → now, `--today-so-far`), run after `04:00Z` | today | last 30 full days (partial UTC day vs full-day baseline — low-biased; never scale counts by elapsed fraction) |
 | Mode A — Today So Far (`today 00:00Z` → now, `--today-so-far`), run before `04:00Z` | yesterday | 30 days ending yesterday `00:00Z` (yesterday excluded and partial UTC day low-biased; say so on the card and Pillar 3) |
-| Mode B, 7 days ending today | first scored day | 30 days before the first scored day, reused for all 7 |
+| Mode B, 3 days ending today | first scored day | 30 days before the first scored day, reused for all 3 |
 | Mode C shard for day `D` (`D 00:00Z` → `D+1 00:00Z`) | `D` | 30 days before `D` |
 
 ---
 
-## 2. Mode B: Fixed-Baseline Timeline (2–7 days, one request)
+## 2. Mode B: Fixed-Baseline Timeline (2–3 days, one request)
 
 * **Window**: `startTime` = first scored day `00:00Z`; `endTime` = now (or the day after the last scored day, `00:00Z`). Template `match:` stays `$entity, $ws by 1d`.
 * **Card, Pillar 2 Provenance Stamp, and Pillar 5 Appendix must state the baseline dates**: `Baseline: <D0 − 30d> → <D0>, applied to all <N> scored days`.
 * **Known bias** (state the relevant item in Pillar 3):
-  1. **Sustained activity keeps scoring high.** A burst never enters the baseline, so day 5 of a burst scores like day 1. Useful for persistence; it inflates ranking.
+  1. **Sustained activity keeps scoring high.** A burst never enters the baseline, so day 3 of a burst scores like day 1. Useful for persistence; it inflates ranking.
   2. **Gradual drift is overstated** on later days.
   3. **Entities that first appear inside the window stay gated** (fewer than the minimum baseline days → sector Z = 0) for every scored day.
 * **Magnitude**: in validation, a baseline 10 days stale overstated one entity's composite D about 15× (655.9σ vs. 44.5σ when re-scored against its own trailing 30 days).
-* **Cap**: 7 days. For longer or per-day-accurate timelines, offer Mode C when `run_command` is present. Otherwise state: *"Per-day baselines and timelines longer than 7 days need a client that can run local scripts."*
+* **Default & Cap**: 3 days (default 3 days, capped at 3 days). For longer (>3 days) or per-day-accurate timelines, redirect to Mode C when `run_command` is present (and offer Mode C explicitly). Without `run_command`, cap Mode B at 3 days and state: *"Per-day baselines and timelines longer than 3 days need a client that can run local scripts (`scripts/timeline_assembler.py`)."*
 * **Exceptions that keep one request**:
   * **Longitudinal CUSUM** (`longitudinal_cusum_2stage.yl2`) accumulates residuals across days and needs a fixed pre-window reference. The start-anchored baseline is exactly that, so CUSUM may use up to the 14-day search limit and is never split into Mode C shards.
-  * **MAD** (`mad_robust_z_4stage.yl2`) builds its robust baseline from the raw search window, not from `metrics.*`; its scored days follow the 2–7 day Mode B cap.
+  * **MAD** (`mad_robust_z_4stage.yl2`) and **Quantile** (`quantile_iqr_skew_3stage.yl2`) build their robust/empirical baseline from the ~30d raw search window, not from `metrics.*`; their scored days follow the 2–3 day Mode B cap.
 
 ---
 
@@ -96,6 +96,6 @@ python3 scripts/timeline_assembler.py \
 | Need | Mode |
 | :--- | :--- |
 | Active single-day triage (last complete UTC day by default; Today So Far on request) | A |
-| Quick look at the last few days in any client | B (state the fixed-baseline bias) |
-| Per-day accuracy, onset dating, or more than 7 days | C (`run_command` present only) |
+| Quick look at the last 2–3 days in any client | B (state the fixed-baseline bias) |
+| Per-day accuracy, onset dating, or more than 3 days | C (`run_command` present only) |
 | Specific single past date | A-style single-day request for that date (auto-bypass Mode B) |

@@ -30,9 +30,9 @@ UTC throughout; `metrics.*` are `00:00Z` day buckets. `startTime`/`endTime` pick
 ## ⏱️ Evaluation Modes
 
 1. **Mode A: Last Complete UTC Day Snapshot (`FLEET_ROLLUP`)**: Default `[yesterday 00:00Z, today 00:00Z)` vs trailing 30d baseline (`window: 30d`, full-day vs full-day). Optional **"Today So Far"** (`today 00:00Z`→now, `--today-so-far`) is labeled `Partial UTC Day — Low-Biased vs Full-Day Baseline` on the Pre-Flight Card and Pillar 3 (never scale counts by elapsed day fraction). Target dates (e.g. "Aug 12") auto-bypass Mode B.
-2. **Mode B: Fixed-Baseline Timeline (`TIMELINE_BREAKDOWN`)**: 2–7 days, one query (`match: $entity by 1d`), start ≤1y ago.
+2. **Mode B: Fixed-Baseline Timeline (`TIMELINE_BREAKDOWN`)**: 2–3 days, one query (`match: $entity by 1d`, default & cap 3 days; >3d redirects to Mode C when `run_command` is present), start ≤1y ago.
 3. **Mode C: Per-Day Baseline Timeline** (`run_command` present only): one query per UTC day, each vs its own trailing 30d, collated by `scripts/timeline_assembler.py`.
-* **Window Invariant**: The platform anchors ONE `period: 1d, window: 30d` baseline at start day; all scored days reuse it. Mode B: state baseline dates. No `run_command`: no Mode C; per-day baselines and >7d need a client that runs local scripts. Details: `references/timeline-modes-guide.md`.
+* **Window Invariant**: The platform anchors ONE `period: 1d, window: 30d` baseline at start day; all scored days reuse it. Mode B: state baseline dates. No `run_command`: no Mode C (Mode B capped at 3d); per-day baselines and >3d need a client that runs local scripts. Details: `references/timeline-modes-guide.md`.
 
 ---
 
@@ -75,7 +75,7 @@ Once vectors and scope are confirmed (expert prompt, Phase 1A selection, or CTI 
    • Baseline Horizon Spine: 30-Day (period: 1d, 30d; graph-joined Mode A: [D-32, D-2))
    • Peer Cohort & Roster: [Team/Dept, e.g. IT (Frank, Tim)]
    • Entity Graph Dimension: [Prevalence (rolling_max <= 3) / N/A]
-   • Evaluation Horizon Mode: [chosen mode: A last complete UTC day (default) or Today So Far (partial-day low-bias warning) | B 2–7d + baseline dates | C per-day if run_command]
+   • Evaluation Horizon Mode: [chosen mode: A last complete UTC day (default) or Today So Far (partial-day low-bias warning) | B 2–3d + baseline dates | C per-day if run_command]
    • Statistical Model: [Model & Template, e.g. CUSUM (`longitudinal_cusum.yl2`)]
    • Significance Threshold: [Gate, §2.1: Z >= 3.0σ | >= 2.0× | D >= 3.5σ (multi-sector Euclidean distance D >= 3.5, D^2 >= 12.25)]
    ```
@@ -84,7 +84,7 @@ Once vectors and scope are confirmed (expert prompt, Phase 1A selection, or CTI 
    * *Interactive Entity Graph Dimension Mandate*: Express joins under `• Entity Graph Dimension: [Exact Filter]` (Domain Rarity, Fleet Prevalence, Binary Rarity, IP Rarity `rolling_max <= 3`, `day_count = 10` platform invariant).
    * *Model Concordance*: Match outcome/condition/order to templates; card threshold = root `condition:` (`references/model-concordance-guide.md` §2.1).
    * *Two-Phase Chained Hunt Specification* (cross-entity): Phase 1 (UEBA Outlier executed via `udm_search`), `Bridge Contract ($host, $timestamp, $user, $caller_ip)`, Phase 2 (Cloud UDM Query / Data Table Bridge via `templates/pipelines/hybrid_data_table_bridge_2stage.yl2` — always explicitly write the literal `%ueba_hunt_bridge.entity`, e.g., `principal.asset.hostname in %ueba_hunt_bridge.entity` or `principal.user.userid in %ueba_hunt_bridge.entity`, in the Turn 1 Phase 2 preview and Turn 2 Pillar 4; never call `create_data_table` or `add_rows_to_data_table` in Turn 1/2; materialize only in State 3 upon explicit analyst approval).
-4. **Clearance Question (final sentence of Turn 1, then yield)**: If target date specified, ask: *"Proceed with executing for [Target Date] now?"*. Otherwise ask: *"Would you like me to proceed with **Mode A (Last Complete UTC Day vs 30-Day Baseline)** [or **Mode A — Today So Far (Partial UTC Day)**], **Mode B (2–7 Day Fixed-Baseline Timeline)**[, **Mode C (Per-Day Baseline)** if `run_command`]? (Thresholds can be tuned first.)"*.
+4. **Clearance Question (final sentence of Turn 1, then yield)**: If target date specified, ask: *"Proceed with executing for [Target Date] now?"*. Otherwise ask: *"Would you like me to proceed with **Mode A (Last Complete UTC Day vs 30-Day Baseline)** [or **Mode A — Today So Far (Partial UTC Day)**], **Mode B (2–3 Day Fixed-Baseline Timeline)**[, **Mode C (Per-Day Baseline)** if `run_command`]? (Thresholds can be tuned first.)"*.
 
 ---
 
