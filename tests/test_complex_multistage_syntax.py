@@ -333,10 +333,12 @@ order:
     """Verifies that multi-stage pipelines leverage Outcomes-in-Outcomes (OIO) within intermediate stages."""
     # 1. multi_sector_fusion_4stage.yl2
     ms_content = self._read_template("multi_sector_fusion_4stage.yl2")
-    self.assertIn("$z_a_raw = ($a_obs - $a_avg) / if($a_std > 0, $a_std, 1.0)", ms_content)
+    self.assertIn("$a_floor = math.sqrt(if($a_avg > 1.0, $a_avg, 1.0))", ms_content)
+    self.assertIn("$z_a_raw = ($a_obs - $a_avg) / if($a_std > $a_floor, $a_std, $a_floor)", ms_content)
     self.assertIn("$z_a_pos = if($z_a_raw > 0, $z_a_raw, 0.0)", ms_content)
     self.assertIn("$z_a = if($a_days >= {{min_baseline_days}}, $z_a_pos, 0.0)", ms_content)
-    self.assertIn("$z_b_raw = ($b_obs - $b_avg) / if($b_std > 0, $b_std, 1.0)", ms_content)
+    self.assertIn("$b_floor = math.sqrt(if($b_avg > 1.0, $b_avg, 1.0))", ms_content)
+    self.assertIn("$z_b_raw = ($b_obs - $b_avg) / if($b_std > $b_floor, $b_std, $b_floor)", ms_content)
     self.assertIn("$z_b = if($b_days >= {{min_baseline_days}}, $z_b_pos, 0.0)", ms_content)
     self.assertIn("$z_a = max($sector_a.z_a)", ms_content)
     self.assertIn("$z_b = max($sector_b.z_b)", ms_content)
@@ -345,8 +347,10 @@ order:
 
     # 2. dual_sector_fusion_3stage.yl2
     ds_content = self._read_template("dual_sector_fusion_3stage.yl2")
-    self.assertIn("$z_a_raw = ($a_obs - $a_avg) / if($a_std > 0, $a_std, 1.0)", ds_content)
-    self.assertIn("$z_b_raw = ($b_obs - $b_avg) / if($b_std > 0, $b_std, 1.0)", ds_content)
+    self.assertIn("$a_floor = math.sqrt(if($a_avg > 1.0, $a_avg, 1.0))", ds_content)
+    self.assertIn("$z_a_raw = ($a_obs - $a_avg) / if($a_std > $a_floor, $a_std, $a_floor)", ds_content)
+    self.assertIn("$b_floor = math.sqrt(if($b_avg > 1.0, $b_avg, 1.0))", ds_content)
+    self.assertIn("$z_b_raw = ($b_obs - $b_avg) / if($b_std > $b_floor, $b_std, $b_floor)", ds_content)
     self.assertIn("$z_a = max($sector_a.z_a)", ds_content)
     self.assertIn("$z_b = max($sector_b.z_b)", ds_content)
     self.assertIn("$z_a_gated = if($a_active_days >= {{min_baseline_days}}, $z_a, 0.0)", ds_content)
@@ -355,12 +359,28 @@ order:
     cr_path = os.path.join(self.templates_dir, "cloud_repository_scope_dual_branch.yl2")
     with open(cr_path, "r", encoding="utf-8") as f:
       cr_content = f.read()
-    self.assertIn("$dest_z = ($observed_reads - $dest_avg) / if($dest_stddev > 0, $dest_stddev, 1.0)", cr_content)
-    self.assertIn("$create_z = ($observed_creates - $dest_create_avg) / if($dest_create_stddev > 0, $dest_create_stddev, 1.0)", cr_content)
-    self.assertIn("$origin_z = ($observed_reads - $origin_avg) / if($origin_stddev > 0, $origin_stddev, 1.0)", cr_content)
-    self.assertIn("$ip_origin_z = ($ip_total_reads - $origin_avg) / if($origin_stddev > 0, $origin_stddev, 1.0)", cr_content)
-    self.assertIn("$dest_z = ($obs - max($stage1_extract.dest_avg)) / if(max($stage1_extract.dest_stddev) > 0, max($stage1_extract.dest_stddev), 1.0)", cr_content)
-    self.assertIn("$create_z = ($obs_creates - max($stage1_extract.dest_create_avg)) / if(max($stage1_extract.dest_create_stddev) > 0, max($stage1_extract.dest_create_stddev), 1.0)", cr_content)
+    self.assertIn(
+        "$dest_z = ($observed_reads - $dest_avg) / if($dest_stddev > math.sqrt(if($dest_avg > 1.0, $dest_avg, 1.0)), $dest_stddev, math.sqrt(if($dest_avg > 1.0, $dest_avg, 1.0)))",
+        cr_content,
+    )
+    self.assertIn(
+        "$create_z = ($observed_creates - $dest_create_avg) / if($dest_create_stddev > math.sqrt(if($dest_create_avg > 1.0, $dest_create_avg, 1.0)), $dest_create_stddev, math.sqrt(if($dest_create_avg > 1.0, $dest_create_avg, 1.0)))",
+        cr_content,
+    )
+    self.assertIn(
+        "$origin_z = ($observed_reads - $origin_avg) / if($origin_stddev > math.sqrt(if($origin_avg > 1.0, $origin_avg, 1.0)), $origin_stddev, math.sqrt(if($origin_avg > 1.0, $origin_avg, 1.0)))",
+        cr_content,
+    )
+    self.assertIn("$origin_floor = math.sqrt(if($origin_avg > 1.0, $origin_avg, 1.0))", cr_content)
+    self.assertIn("$ip_origin_z = ($ip_total_reads - $origin_avg) / if($origin_stddev > $origin_floor, $origin_stddev, $origin_floor)", cr_content)
+    self.assertIn(
+        "$dest_z = ($obs - max($stage1_extract.dest_avg)) / if(max($stage1_extract.dest_stddev) > $dest_floor, max($stage1_extract.dest_stddev), $dest_floor)",
+        cr_content,
+    )
+    self.assertIn(
+        "$create_z = ($obs_creates - max($stage1_extract.dest_create_avg)) / if(max($stage1_extract.dest_create_stddev) > $create_floor, max($stage1_extract.dest_create_stddev), $create_floor)",
+        cr_content,
+    )
     self.assertIn("$origin_z = max($stage2_origin_rollup.ip_origin_z)", cr_content)
     self.assertIn("$composite_risk = if($dest_z > 0, $dest_z, 0.0)", cr_content)
 
@@ -368,21 +388,25 @@ order:
     dz_path = os.path.join(self.templates_dir, "dual_baseline_delta_z_3stage.yl2")
     with open(dz_path, "r", encoding="utf-8") as f:
       dz_content = f.read()
-    self.assertIn("$personal_z = ($observed_24h - $hist_avg) / if($hist_stddev > 0, $hist_stddev, 1.0)", dz_content)
+    self.assertIn("$dispersion_floor = math.sqrt(if($hist_avg > 1.0, $hist_avg, 1.0))", dz_content)
+    self.assertIn("$personal_z = ($observed_24h - $hist_avg) / if($hist_stddev > $dispersion_floor, $hist_stddev, $dispersion_floor)", dz_content)
     self.assertIn("$personal_z = max($host_extract.personal_z)", dz_content)
 
     # 5. part_of_the_whole_multilevel.yl2
     pw_path = os.path.join(self.templates_dir, "part_of_the_whole_multilevel.yl2")
     with open(pw_path, "r", encoding="utf-8") as f:
       pw_content = f.read()
-    self.assertIn("$z_personal = ($obs - $personal_avg) / if($personal_std > 0, $personal_std, 1.0)", pw_content)
+    self.assertIn("$personal_floor = math.sqrt(if($personal_avg > 1.0, $personal_avg, 1.0))", pw_content)
+    self.assertIn("$z_personal = ($obs - $personal_avg) / if($personal_std > $personal_floor, $personal_std, $personal_floor)", pw_content)
     self.assertIn("$z_personal = max($all_entities.z_personal)", pw_content)
 
     # 6. radar_360_decoupled_sector.yl2
     rd_path = os.path.join(self.templates_dir, "radar_360_decoupled_sector.yl2")
     with open(rd_path, "r", encoding="utf-8") as f:
       rd_content = f.read()
-    self.assertIn("$z = ($obs - $avg) / if($std > 0, $std, 1.0)", rd_content)
+    self.assertIn("$floor = math.sqrt(if($avg > 1.0, $avg, 1.0))", rd_content)
+    self.assertIn("$raw_z = ($obs - $avg) / if($std > $floor, $std, $floor)", rd_content)
+    self.assertIn("$z = if($days >= 7, $raw_z, 0.0)", rd_content)
     self.assertIn("$z = max($auth_risk.z)", rd_content)
 
 

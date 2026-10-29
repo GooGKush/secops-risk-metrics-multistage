@@ -76,7 +76,7 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
         min_threshold=2.0,
         max_threshold=3.0,
     )
-    self.assertIn("condition:\n  $personal_z >= 2.0 and $personal_z < 3.0", query)
+    self.assertIn("condition:\n  $active_days >= 7 and ($personal_z >= 2.0 and $personal_z < 3.0)", query)
     self.assertIn("order:\n  $personal_z desc", query)
     # Ensure condition precedes order
     cond_pos = query.find("condition:")
@@ -780,12 +780,12 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
       self.assertIn("// Significance Gate: NONE (NO-GATE decoupled sector for post-query Euclidean fusion)", q_alert)
       self.assertEqual(MalachiteASTValidator.validate_query(q_alert), [])
 
-    # Default include_significance_gate=True behavior remains unchanged
+    # Default include_significance_gate=True behavior enforces maturity + significance gate
     self.assertEqual(
         MultiStageTemplateRouter.root_condition(
             self.router.build_query("auth_attempts_total", EntityType.USER, StatisticalModel.STANDARD_Z_SCORE)
         ),
-        "$personal_z >= 3.0",
+        "$active_days >= 7 and $personal_z >= 3.0",
     )
     self.assertIn(
         "$alert_z >= 3.0",

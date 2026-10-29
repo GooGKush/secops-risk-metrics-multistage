@@ -42,7 +42,8 @@ class TestHybridPipelines(unittest.TestCase):
     self.assertNotIn('metadata.event_type = "NETWORK_CONNECTION"', query.split("stage stage2_raw_telemetry")[0])
     self.assertIn("principal.asset.hostname = $entity", query)
     self.assertIn("metrics.network_bytes_outbound(", query)
-    self.assertIn("$z_score = ($observed_val - $hist_mean) / if($hist_stddev > 0, $hist_stddev, 1.0)", query)
+    self.assertIn("$dispersion_floor = 44979.0", query)
+    self.assertIn("$z_score = ($observed_val - $hist_mean) / if($hist_stddev > $dispersion_floor, $hist_stddev, $dispersion_floor)", query)
 
     # 3. Stage 2 Raw Telemetry Enrichment
     self.assertIn("stage stage2_raw_telemetry {", query)

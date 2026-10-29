@@ -14,9 +14,12 @@ from scripts.template_router import MultiStageTemplateRouter
 MODEL_AST_CONTRACTS = {
     StatisticalModel.STANDARD_Z_SCORE: {
         "template": "standard_z_score.yl2",
-        "mandatory_vars": ["$personal_diff", "$safe_stddev", "$personal_z"],
+        "mandatory_vars": ["$personal_diff", "$dispersion_floor", "$safe_stddev", "$personal_z"],
         "order_var": "$personal_z",
-        "required_ops": ["$personal_diff = $observed - $hist_avg", "if($hist_stddev > 0"],
+        "required_ops": [
+            "$personal_diff = $observed - $hist_avg",
+            "$safe_stddev = if($hist_stddev > $dispersion_floor, $hist_stddev, $dispersion_floor)",
+        ],
         "prohibited_substitutions": [],
     },
     StatisticalModel.MAD: {

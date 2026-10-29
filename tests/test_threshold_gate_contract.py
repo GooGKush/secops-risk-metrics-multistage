@@ -33,20 +33,20 @@ NO_GATE_TEMPLATES = {
 
 # Default root gate each model renders with router defaults (sigma 3.0, fold change 2.0, MAD 3.5).
 EXPECTED_DEFAULT_GATES = {
-    StatisticalModel.STANDARD_Z_SCORE: "$personal_z >= 3.0",
-    StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z: "$upper_tail_z >= 3.0",
+    StatisticalModel.STANDARD_Z_SCORE: "$active_days >= 7 and $personal_z >= 3.0",
+    StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z: "$active_days >= 7 and $upper_tail_z >= 3.0",
     StatisticalModel.POISSON: "$poisson_z >= 3.0",
-    StatisticalModel.HOURLY_TEMPORAL_ZSCORE: "$hourly_z >= 3.0",
-    StatisticalModel.CIRCADIAN_VON_MISES: "$circadian_threat_score >= 3.0",
-    StatisticalModel.MACD_MOMENTUM_VELOCITY: "$fast_z >= 3.0",
-    StatisticalModel.PIECEWISE_CRI: "$clamped_z >= 3.0",
-    StatisticalModel.FLEET_PREVALENCE_SHIELD: "$shielded_z >= 3.0",
-    StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD: "$sensitivity_excess >= 0.0",
-    StatisticalModel.LONGITUDINAL_CUSUM: "$cusum_drift_score >= 3.0 and $drift_days >= 2",
+    StatisticalModel.HOURLY_TEMPORAL_ZSCORE: "$active_days >= 7 and $hourly_z >= 3.0",
+    StatisticalModel.CIRCADIAN_VON_MISES: "$active_days >= 7 and $circadian_threat_score >= 3.0",
+    StatisticalModel.MACD_MOMENTUM_VELOCITY: "$active_days >= 7 and $fast_z >= 3.0",
+    StatisticalModel.PIECEWISE_CRI: "$active_days >= 7 and $clamped_z >= 3.0",
+    StatisticalModel.FLEET_PREVALENCE_SHIELD: "$active_days >= 7 and $shielded_z >= 3.0",
+    StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD: "$active_days >= 7 and $sensitivity_excess >= 0.0",
+    StatisticalModel.LONGITUDINAL_CUSUM: "$active_days >= 7 and $cusum_drift_score >= 3.0 and $drift_days >= 2",
     StatisticalModel.TWO_PART_HURDLE: "$active_days <= 2 or $intensity_z >= 3.0",
     StatisticalModel.BAYESIAN_GAMMA: "$bayes_shift_ratio >= 2.0",
     StatisticalModel.BAYESIAN_BETA_BINOMIAL: "$posterior_lift >= 2.0",
-    StatisticalModel.COEFFICIENT_OF_VARIATION: "$surge_ratio >= 2.0 and $cv <= 0.5",
+    StatisticalModel.COEFFICIENT_OF_VARIATION: "$active_days >= 7 and $surge_ratio >= 2.0 and $cv <= 0.5",
     StatisticalModel.RELATIVE_DEVIATION: "$fold_change >= 2.0",
     StatisticalModel.MAD: "$in_scoring_window = 1 and $raw_active_days >= 7 and $modified_z >= 3.5",
     StatisticalModel.QUANTILE_IQR_SKEW: "$in_scoring_window = 1 and $raw_active_days >= 7 and $tukey_fence_ratio >= 2.0",
@@ -116,7 +116,10 @@ class RouterGateTest(unittest.TestCase):
 
   def test_threshold_override_replaces_the_default_gate(self):
     q = self._q(StatisticalModel.STANDARD_Z_SCORE, min_threshold=2.0, max_threshold=3.0)
-    self.assertEqual(MultiStageTemplateRouter.root_condition(q), "$personal_z >= 2.0 and $personal_z < 3.0")
+    self.assertEqual(
+        MultiStageTemplateRouter.root_condition(q),
+        "$active_days >= 7 and ($personal_z >= 2.0 and $personal_z < 3.0)",
+    )
     q = self._q(StatisticalModel.TWO_PART_HURDLE, min_threshold=2.0, max_threshold=3.0)
     self.assertEqual(MultiStageTemplateRouter.root_condition(q),
                      "$active_days <= 2 or ($intensity_z >= 2.0 and $intensity_z < 3.0)")
