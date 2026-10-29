@@ -1177,6 +1177,57 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
     )
     self.assertGreaterEqual(mature_surge["beta_binomial_z"], 3.0)
 
+  def test_ws3_cusum_windowed_slack_sum_and_site_dc_maturity_guard(self):
+    """WS3-CUSUM: Names in-query sum Windowed Slack Sum and zeros/blocks immature entities (SITE-DC$)."""
+    from pathlib import Path
+    from scripts.preflight_validator import DEFAULT_SIGNIFICANCE_GATES, MalachiteASTValidator
+    import scripts.ueba_hybrid_engine as engine_mod
+
+    self.assertIn("Windowed Slack Sum", DEFAULT_SIGNIFICANCE_GATES[StatisticalModel.LONGITUDINAL_CUSUM])
+    self.assertIn("Windowed Slack Sum", MultiStageTemplateRouter.MODEL_DESCRIPTIONS[StatisticalModel.LONGITUDINAL_CUSUM])
+
+    q = self.router.build_query(
+        target_metric="auth_attempts_total",
+        entity_type=EntityType.USER,
+        statistical_model=StatisticalModel.LONGITUDINAL_CUSUM,
+    )
+    self.assertIn("Windowed Slack Sum", q)
+    self.assertIn("$daily_excess = if($active_days >= 7 and $z_minus_slack > 0, $z_minus_slack, 0.0)", q)
+    self.assertIn("$windowed_slack_sum = $cusum_drift", q)
+    self.assertIn("$active_days >= 7 and $cusum_drift_score >= 3.0 and $drift_days >= 2", q)
+    self.assertEqual(MalachiteASTValidator.validate_query(q), [])
+    self.assertEqual(MalachiteASTValidator.validate_model_concordance(q, StatisticalModel.LONGITUDINAL_CUSUM), [])
+
+    repo_root = Path(__file__).resolve().parent.parent
+    pipe_2stage = (repo_root / "templates" / "pipelines" / "longitudinal_cusum_2stage.yl2").read_text(encoding="utf-8")
+    self.assertIn("Windowed Slack Sum", pipe_2stage)
+    self.assertIn("$daily_excess = if($historical_active_days >= {{min_baseline_days}} and $deviation > 0.0, $deviation, 0.0)", pipe_2stage)
+    self.assertIn("$windowed_slack_sum = $cusum_drift", pipe_2stage)
+    self.assertIn("$active_days >= {{min_baseline_days}} and $cusum_drift_score >= {{anomaly_threshold}} and $drift_days >= 2", pipe_2stage)
+
+    # Golden SITE-DC$ cold-start maturity reproduction (active_days=0 and active_days=2): zero slack & blocked
+    for immature_n in (0, 2):
+      site_dc = engine_mod.calculate_windowed_slack_sum(
+          daily_observations=[8622, 8100, 7900, 7800, 7700, 7600, 7500, 7700, 7657],
+          hist_avg=0.0,
+          hist_stddev=0.0,
+          active_days=immature_n,
+      )
+      self.assertEqual(site_dc["windowed_slack_sum"], 0.0)
+      self.assertEqual(site_dc["drift_days"], 0)
+      self.assertFalse(site_dc["alerts"])
+
+    # Mature creeping drift (4 days at +1.5 sigma -> daily excess 1.0 -> W = 4.0 >= 3.0 across 4 drift days)
+    creeping = engine_mod.calculate_windowed_slack_sum(
+        daily_observations=[115.0, 115.0, 115.0, 115.0],
+        hist_avg=100.0,
+        hist_stddev=10.0,
+        active_days=20,
+    )
+    self.assertAlmostEqual(creeping["windowed_slack_sum"], 4.0, places=4)
+    self.assertEqual(creeping["drift_days"], 4)
+    self.assertTrue(creeping["alerts"])
+
 
 if __name__ == "__main__":
   unittest.main()

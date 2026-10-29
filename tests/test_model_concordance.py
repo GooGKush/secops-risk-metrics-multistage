@@ -119,9 +119,26 @@ MODEL_AST_CONTRACTS = {
     },
     StatisticalModel.LONGITUDINAL_CUSUM: {
         "template": "longitudinal_cusum.yl2",
-        "mandatory_vars": ["$raw_drift", "$safe_stddev", "$slack_allowance", "$slack_excess", "$daily_excess", "$cusum_drift", "$cusum_drift_score", "$drift_days"],
+        "mandatory_vars": [
+            "$raw_drift",
+            "$safe_stddev",
+            "$slack_allowance",
+            "$slack_excess",
+            "$daily_excess",
+            "$cusum_drift",
+            "$windowed_slack_sum",
+            "$cusum_drift_score",
+            "$drift_days",
+        ],
         "order_var": "$cusum_drift_score",
-        "required_ops": ["0.5 * $safe_stddev", "$slack_excess = $raw_drift - $slack_allowance", "$cusum_drift = sum($stage2_daily_drift.daily_excess)", "$cusum_drift_score = $cusum_drift"],
+        "required_ops": [
+            "0.5 * $safe_stddev",
+            "$slack_excess = $raw_drift - $slack_allowance",
+            "$daily_excess = if($active_days >=",
+            "$cusum_drift = sum($stage2_daily_drift.daily_excess)",
+            "$windowed_slack_sum = $cusum_drift",
+            "$cusum_drift_score = $cusum_drift",
+        ],
         "prohibited_substitutions": ["$personal_z"],
     },
     StatisticalModel.TWO_PART_HURDLE: {
