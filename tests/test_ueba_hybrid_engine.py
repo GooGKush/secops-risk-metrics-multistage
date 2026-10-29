@@ -1297,15 +1297,93 @@ class TestUEBAHybridEngineCLIAndCatalog(unittest.TestCase):
 
     with self.subTest("cusum_exception_allows_single_request_up_to_14d"):
       res_cusum_b = compile_hunt_pipeline(
-          statistical_model="LONGITUDINAL_CUSUM",
-          metrics="auth_attempts_total",
-          entity_type="USER",
-          mode="B",
-          window_days=7,
-          reference_time=ref_time,
+        statistical_model="LONGITUDINAL_CUSUM",
+        metrics="auth_attempts_total",
+        entity_type="USER",
+        mode="B",
+        window_days=7,
+        reference_time=ref_time,
       )
       self.assertEqual(res_cusum_b["mode"], "B")
       self.assertEqual(res_cusum_b["window_days"], 7)
+
+  def test_ws2_04_three_or_more_metrics_rejects_silent_slicing_and_routes_valid_triads(self):
+    """WS2-04: Passing >= 3 non-triad metrics raises ValueError citing PF-7 instead of slicing [:2]; valid 3-metric sibling triads route to triad."""
+    from scripts.ueba_hybrid_engine import compile_hunt_plan
+
+    # 1. Heterogeneous >= 3 metrics with default architecture must raise ValueError (never slice [:2])
+    for bad_metrics in (
+        ["auth_attempts_fail", "network_bytes_outbound", "dns_queries_total"],
+        "auth_attempts_fail,http_queries_fail,dns_queries_fail",
+        ["auth_attempts_fail", "network_bytes_outbound", "dns_queries_total", "http_queries_total"],
+    ):
+      with self.subTest(bad_metrics=bad_metrics, arch="single_metric"):
+        with self.assertRaises(ValueError) as ctx:
+          compile_hunt_plan(
+              metrics=bad_metrics,
+              entity_type="ASSET",
+              entity_value="wkst-01",
+          )
+        err = str(ctx.exception)
+        self.assertIn("2 UDM", err)
+        self.assertIn("PF-7", err)
+        self.assertIn("360_radar", err)
+
+    # 2. Explicit fusion architectures with >= 3 metrics must also raise ValueError (never slice [:2])
+    for fusion_arch in (
+        "sector_fusion",
+        "dual_sector_fusion_3stage",
+        "multi_sector_fusion_4stage",
+        "fusion_rare_destination",
+    ):
+      with self.subTest(arch=fusion_arch):
+        with self.assertRaises(ValueError) as ctx_f:
+          compile_hunt_plan(
+              architecture=fusion_arch,
+              metrics=["auth_attempts_total", "http_queries_total", "dns_queries_total"],
+              entity_type="ASSET",
+          )
+        self.assertIn("PF-7", str(ctx_f.exception))
+        self.assertIn("360_radar", str(ctx_f.exception))
+
+    # 3. Valid 3-metric sibling triads with default single_metric auto-route cleanly to PART_OF_THE_WHOLE_TRIAD_MULTILEVEL
+    res_auth_triad = compile_hunt_plan(
+        metrics=["auth_attempts_total", "auth_attempts_fail", "auth_attempts_success"],
+        entity_type="USER",
+        entity_value="charles.hardy",
+    )
+    self.assertEqual(res_auth_triad["status"], "COMPILED")
+    self.assertEqual(
+        res_auth_triad["architecture"],
+        PipelineArchitecture.PART_OF_THE_WHOLE_TRIAD_MULTILEVEL.value,
+    )
+    self.assertTrue(res_auth_triad["ast_valid"], msg=res_auth_triad["ast_errors"])
+    for m_name in ("auth_attempts_total", "auth_attempts_fail", "auth_attempts_success"):
+      self.assertIn(f"metrics.{m_name}", res_auth_triad["compiled_query"])
+
+    res_net_triad = compile_hunt_plan(
+        metrics="network_bytes_outbound,network_bytes_inbound,network_bytes_total",
+        entity_type="ASSET",
+        entity_value="srv-prod-01",
+    )
+    self.assertEqual(
+        res_net_triad["architecture"],
+        PipelineArchitecture.PART_OF_THE_WHOLE_TRIAD_MULTILEVEL.value,
+    )
+    self.assertTrue(res_net_triad["ast_valid"], msg=res_net_triad["ast_errors"])
+
+    # 4. Passing >= 4 metrics even with architecture="triad" must raise ValueError (never slice [:3])
+    with self.assertRaises(ValueError):
+      compile_hunt_plan(
+          architecture="triad",
+          metrics=[
+              "network_bytes_outbound",
+              "network_bytes_inbound",
+              "network_bytes_total",
+              "network_flows_total",
+          ],
+          entity_type="ASSET",
+      )
 
 
 if __name__ == "__main__":
