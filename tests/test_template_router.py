@@ -113,7 +113,8 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
         min_threshold=2.0,
         max_threshold=3.5,
     )
-    self.assertIn("condition:\n  ($composite_risk >= 2.0 and $composite_risk < 3.5) and ($dest_days >= 7 or $dest_days = 0 or $obs_deletes > 0 or $obs_writes > 0)", query)
+    self.assertIn("condition:\n  $composite_risk >= 2.0 and $composite_risk < 3.5", query)
+    self.assertNotIn("$dest_days = 0", query)
     self.assertIn("order:\n  $composite_risk desc", query)
 
   def test_stage2_new_models_routing_and_antipattern_cleanliness(self):
@@ -511,7 +512,8 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
     self.assertTrue(pre["valid"])
 
     # Invalid bare %table without column should trigger AST error
-    bad_dt = rendered.replace("= %ueba_hunt_bridge.hostname", "= %ueba_hunt_bridge")
+    self.assertIn("%ueba_hunt_bridge.entity", rendered)
+    bad_dt = rendered.replace("%ueba_hunt_bridge.entity", "%ueba_hunt_bridge")
     errors = MalachiteASTValidator.validate_query(bad_dt)
     self.assertTrue(any("Data Table" in e for e in errors))
 

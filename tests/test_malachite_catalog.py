@@ -518,7 +518,10 @@ class TestSiblingTriads(unittest.TestCase):
     router = MultiStageTemplateRouter()
     expected_stage = {
         "Workspace activity": ['metadata.vendor_name = "Google Workspace"'],
-        "Workspace Gmail": ['(metadata.product_name = "GMAIL" or metadata.product_name = "gmail")'],
+        "Workspace Gmail": [
+            "re.regex(metadata.product_name, `(?i)^gmail$`)",
+            "((((network.sent_bytes > 0 and network.sent_bytes < 1000000000000000) or (network.received_bytes > 0 and network.received_bytes < 1000000000000000))) or (network.sent_bytes > 0 and network.sent_bytes < 1000000000000000) or (network.sent_bytes > 0))",
+        ],
     }
     for label, metrics in mc.CANONICAL_TRIADS:
       if not label.startswith("Workspace"):

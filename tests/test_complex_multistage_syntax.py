@@ -365,30 +365,15 @@ order:
     cr_path = os.path.join(self.templates_dir, "cloud_repository_scope_dual_branch.yl2")
     with open(cr_path, "r", encoding="utf-8") as f:
       cr_content = f.read()
-    self.assertIn(
-        "$dest_z = ($observed_reads - $dest_avg) / if($dest_stddev > math.sqrt(if($dest_avg > 1.0, $dest_avg, 1.0)), $dest_stddev, math.sqrt(if($dest_avg > 1.0, $dest_avg, 1.0)))",
-        cr_content,
-    )
-    self.assertIn(
-        "$create_z = ($observed_creates - $dest_create_avg) / if($dest_create_stddev > math.sqrt(if($dest_create_avg > 1.0, $dest_create_avg, 1.0)), $dest_create_stddev, math.sqrt(if($dest_create_avg > 1.0, $dest_create_avg, 1.0)))",
-        cr_content,
-    )
-    self.assertIn(
-        "$origin_z = ($observed_reads - $origin_avg) / if($origin_stddev > math.sqrt(if($origin_avg > 1.0, $origin_avg, 1.0)), $origin_stddev, math.sqrt(if($origin_avg > 1.0, $origin_avg, 1.0)))",
-        cr_content,
-    )
-    self.assertIn("$origin_floor = math.sqrt(if($origin_avg > 1.0, $origin_avg, 1.0))", cr_content)
-    self.assertIn("$ip_origin_z = ($ip_total_reads - $origin_avg) / if($origin_stddev > $origin_floor, $origin_stddev, $origin_floor)", cr_content)
-    self.assertIn(
-        "$dest_z = ($obs - max($stage1_extract.dest_avg)) / if(max($stage1_extract.dest_stddev) > $dest_floor, max($stage1_extract.dest_stddev), $dest_floor)",
-        cr_content,
-    )
-    self.assertIn(
-        "$create_z = ($obs_creates - max($stage1_extract.dest_create_avg)) / if(max($stage1_extract.dest_create_stddev) > $create_floor, max($stage1_extract.dest_create_stddev), $create_floor)",
-        cr_content,
-    )
-    self.assertIn("$origin_z = max($stage2_origin_rollup.ip_origin_z)", cr_content)
-    self.assertIn("$composite_risk = if($dest_z > 0, $dest_z, 0.0)", cr_content)
+    self.assertIn("$dest_write_days = max(metrics.resource_written_total(", cr_content)
+    self.assertIn("$dest_del_days = max(metrics.resource_deletion_total(", cr_content)
+    self.assertIn("$dest_create_days = max(metrics.resource_creation_total(", cr_content)
+    self.assertIn("stage stage2_origin_rollup {", cr_content)
+    self.assertIn("stage stage3_origin_score {", cr_content)
+    self.assertIn("$dest_z = if($read_days >= 7 and $dest_raw > 0.0, $dest_raw, 0.0)", cr_content)
+    self.assertIn("$create_z = if($create_days >= 7 and $create_raw > 0.0, $create_raw, 0.0)", cr_content)
+    self.assertIn("$origin_z = max($stage3_origin_score.ip_origin_z)", cr_content)
+    self.assertIn("$composite_risk = $dest_z + $write_z + $del_z + $create_z + $origin_z", cr_content)
 
     # 4. dual_baseline_delta_z_3stage.yl2
     dz_path = os.path.join(self.templates_dir, "dual_baseline_delta_z_3stage.yl2")
