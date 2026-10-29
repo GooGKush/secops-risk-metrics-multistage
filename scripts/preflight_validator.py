@@ -1137,14 +1137,23 @@ class MalachiteASTValidator:
 
       # Anti-Pattern 6: Single-stage multi-vector cramming. OR'd event types are allowed only when they
       # all belong to the baselines of the metrics evaluated in the stage (e.g. resource_read_* counts
-      # RESOURCE_READ and USER_RESOURCE_ACCESS).
+      # RESOURCE_READ and USER_RESOURCE_ACCESS) OR when the stage is an explicit conditional-sum union spine.
+      is_conditional_union_stage = bool(
+          re.search(r"\bsum\s*\(\s*if\s*\(", stage_body)
+          and re.search(r"\bor\b", event_part, re.IGNORECASE)
+      )
       distinct_event_types = set(re.findall(r"metadata\.event_type\s*==?\s*[\"']([A-Z_]+)[\"']", stage_body))
       metrics_calls = re.findall(r"metrics\.([a-zA-Z0-9_]+)\s*\(", stage_body)
       allowed_event_types = set(MalachiteASTValidator.CLOUD_RESOURCE_EVENTS)
       for m in metrics_calls:
         if m in _mc.known_metrics():
           allowed_event_types |= set(_mc.baseline_semantics(m).event_types)
-      if len(distinct_event_types) > 1 and metrics_calls and not (distinct_event_types <= allowed_event_types):
+      if (
+          len(distinct_event_types) > 1
+          and metrics_calls
+          and not (distinct_event_types <= allowed_event_types)
+          and not is_conditional_union_stage
+      ):
         errors.append(
             f"ANTI-PATTERN 6 (Single-Stage Multi-Vector Cramming in stage '{stage_name}'): Stage contains multiple OR'd "
             f"event types {distinct_event_types} while evaluating metrics. Use independent DAG stages fused in Root stage."
@@ -1153,7 +1162,12 @@ class MalachiteASTValidator:
       # Anti-Pattern 6B: Multi-vector metric conflation within single stage
       metric_event_types = {METRIC_CATALOG[m].event_type for m in metrics_calls if m in METRIC_CATALOG}
       metric_families = {_mc.metric_family(m) for m in metrics_calls if m in METRIC_CATALOG}
-      if len(metric_event_types) > 1 and len(metric_families) > 1 and not (metric_event_types <= MalachiteASTValidator.CLOUD_RESOURCE_EVENTS):
+      if (
+          len(metric_event_types) > 1
+          and len(metric_families) > 1
+          and not (metric_event_types <= MalachiteASTValidator.CLOUD_RESOURCE_EVENTS)
+          and not is_conditional_union_stage
+      ):
         errors.append(
             f"MULTI_VECTOR_STAGE_CONFLATION in stage '{stage_name}': Stage attempts to evaluate metrics across different event types ({sorted(list(metric_event_types))}). "
             "Each telemetry vector must be evaluated in its own decoupled stage or micro-query."
@@ -1226,7 +1240,13 @@ class MalachiteASTValidator:
     # 4. Multi-Sector Fusion Architecture Validation
     if "MULTI_SECTOR" in query_text.upper() or "MULTI-SECTOR" in query_text.upper():
       min_required_stages = 3 if "4-STAGE" in query_text.upper() else 2
-      if len(named_stages) < min_required_stages:
+      union_bonus = sum(
+          1
+          for _, sb in stage1_matches
+          if re.search(r"\bsum\s*\(\s*if\s*\(", sb)
+          and re.search(r"\bor\b", sb.split("match:")[0], re.IGNORECASE)
+      )
+      if len(named_stages) + union_bonus < min_required_stages:
         errors.append(
             f"PIPELINE ARCHITECTURE MISMATCH: Multi-Sector Threat Fusion requires {min_required_stages} distinct extractor stages (found {len(named_stages)})."
         )

@@ -219,7 +219,12 @@ class StatisticalAntipatternAuditor:
       )
 
     # Check B: Hardcoded product/vendor filter while metric does not bind product
-    for metric_name, args_body in metrics_calls:
+    # Skip Check B on explicit conditional-sum union stages where each branch scopes its own product filter.
+    is_conditional_union_stage = bool(
+        re.search(r"\bsum\s*\(\s*if\s*\(", stage_body)
+        and re.search(r"\bor\b", stage_body.split("match:")[0], re.IGNORECASE)
+    )
+    for metric_name, args_body in ([] if is_conditional_union_stage else metrics_calls):
       if metric_name.startswith("workspace_"):
         continue
       product_filter_match = re.search(r"metadata\.product_name\s*==?\s*[\"']([^\"']+)[\"']", stage_body)

@@ -400,7 +400,7 @@ class SubmissionTestSuite:
                 PipelineArchitecture.DUAL_SECTOR_FUSION_3STAGE,
                 entity_type=EntityType.USER,
             ),
-            expected_stages=["sector_a", "sector_b"],
+            expected_stages=["sector_union"],
         )
     )
 
@@ -548,7 +548,7 @@ order:
                 PipelineArchitecture.MULTI_SECTOR_FUSION_4STAGE,
                 entity_type=EntityType.USER,
             ),
-            expected_stages=["sector_a", "sector_b", "fleet_sector_norm"],
+            expected_stages=["sector_union", "fleet_sector_norm"],
         )
     )
 

@@ -1,20 +1,22 @@
 // ============================================================================
-// ARCHITECTURE: 4-STAGE MULTI-SECTOR THREAT FUSION (GENERIC: SECTOR A + SECTOR B + FLEET NORM -> ROOT)
+// ARCHITECTURE: MULTI-SECTOR THREAT FUSION (GENERIC: SECTOR UNION + MATURE FLEET MEDIAN NORM -> ROOT)
 // Skill: secops-risk-metrics-multistage
 // Sector A: {{sector_a_label}}
 // Sector B: {{sector_b_label}}
-// Purpose: Fuses two independent anomaly signals for the same entity, plus each signal's deviation from the
-//          fleet-wide mean for the day, into one composite threat vector norm
-// Source Accounting: 2 UDM stages (sector_a, sector_b) <= 2 UDM limit + 1 stage-to-stage fleet norm + 1 root = 4 stages
-// Math: D^2 = Z_a^2 + Z_b^2 + dZ_a^2 + dZ_b^2, where dZ_x = max(0, Z_x - fleet mean of Z_x for the day)
-//       A sector scores 0 until its baseline has {{min_baseline_days}} active days (gated before the fleet mean).
+// Purpose: Fuses two independent anomaly signals for the same entity (without inner-join drop), normalized
+//          against the mature fleet median of each sector for the day, into one composite threat vector norm
+// Source Accounting: 1 UDM union stage (sector_union) <= 2 UDM limit + 1 stage-to-stage mature fleet norm + 1 root
+// Math: D^2 = dZ_a^2 + dZ_b^2, where dZ_x = max(0, Z_x - mature fleet median of Z_x for the day);
+//       personal_norm_sq = Z_a^2 + Z_b^2 tracked separately to avoid collinear double-counting.
+//       A missing sector or baseline with < {{min_baseline_days}} active days scores 0.0.
 //
 // SLOT FILLING: take every value from the metric's row in references/metric-sector-catalog.md
-//   sector_X_event_filter      "Observed event filter" lines, one per line, indented 4 spaces
-//   sector_X_observed_agg      "Observed value" expression
-//   sector_X_metric            metric name (metrics.<name>)
-//   sector_X_metric_arg        "metric:" argument (value_sum for *_bytes_* metrics, else event_count_sum)
-//   sector_X_entity_field      one of the metric's "Entity identifier fields"
+//   sector_X_event_filter        "Observed event filter" predicate expression
+//   sector_X_union_observed_agg  conditional sum isolating sector X events (1.0/0.0 * bytes for byte metrics)
+//   sector_X_metric              metric name (metrics.<name>)
+//   sector_X_metric_arg          "metric:" argument (value_sum for *_bytes_* metrics, else event_count_sum)
+//   sector_X_entity_field        one of the metric's "Entity identifier fields"
+//   sector_entity_binding        top-level entity binding (field = $entity or strings.coalesce)
 // PAIRING RULES (apply them yourself; full list in references/metric-sector-catalog.md):
 //   1. Same entity kind in both sectors: user <-> user or device <-> device. Never user <-> host.
 //   2. Same identifier in both sectors: userid <-> userid, hostname <-> hostname, email_addresses <-> email_addresses.
@@ -24,17 +26,17 @@
 //      baseline; use rollup_sector_fusion_4stage.yl2 / _5stage.yl2 to make one of them a roll-up sector.
 // ============================================================================
 
-// --- STAGE 1: Sector A (UDM Source 1 of 2) ---
-stage sector_a {
-    {{sector_a_event_filter}}
-    {{sector_a_entity_field}} = $entity
+// --- STAGE 1: Single-Stage Sector Union (UDM Source 1 of 2; preserves single-sector outliers) ---
+stage sector_union {
+    (({{sector_a_event_filter}}) or ({{sector_b_event_filter}}))
+    {{sector_entity_binding}}
     $entity != ""
 
   match:
     $entity by 1d
 
   outcome:
-    $a_obs = {{sector_a_observed_agg}}
+    $a_obs = {{sector_a_union_observed_agg}}
     $a_avg = max(metrics.{{sector_a_metric}}(
         period: 1d, window: 30d, metric: {{sector_a_metric_arg}}, agg: avg,
         {{sector_a_entity_field}}: {{sector_a_entity_field}}
@@ -50,20 +52,10 @@ stage sector_a {
     $a_floor = math.sqrt(if($a_avg > 1.0, $a_avg, 1.0))
     $z_a_raw = ($a_obs - $a_avg) / if($a_std > $a_floor, $a_std, $a_floor)
     $z_a_pos = if($z_a_raw > 0, $z_a_raw, 0.0)
-    $z_a = if($a_days >= {{min_baseline_days}}, $z_a_pos, 0.0)
-}
+    $z_a = if($a_obs > 0 and $a_days >= {{min_baseline_days}}, $z_a_pos, 0.0)
+    $z_a_winsor = if($z_a > 6.0, 6.0, $z_a)
 
-// --- STAGE 2: Sector B (UDM Source 2 of 2) ---
-stage sector_b {
-    {{sector_b_event_filter}}
-    {{sector_b_entity_field}} = $entity
-    $entity != ""
-
-  match:
-    $entity by 1d
-
-  outcome:
-    $b_obs = {{sector_b_observed_agg}}
+    $b_obs = {{sector_b_union_observed_agg}}
     $b_avg = max(metrics.{{sector_b_metric}}(
         period: 1d, window: 30d, metric: {{sector_b_metric_arg}}, agg: avg,
         {{sector_b_entity_field}}: {{sector_b_entity_field}}
@@ -79,54 +71,53 @@ stage sector_b {
     $b_floor = math.sqrt(if($b_avg > 1.0, $b_avg, 1.0))
     $z_b_raw = ($b_obs - $b_avg) / if($b_std > $b_floor, $b_std, $b_floor)
     $z_b_pos = if($z_b_raw > 0, $z_b_raw, 0.0)
-    $z_b = if($b_days >= {{min_baseline_days}}, $z_b_pos, 0.0)
+    $z_b = if($b_obs > 0 and $b_days >= {{min_baseline_days}}, $z_b_pos, 0.0)
+    $z_b_winsor = if($z_b > 6.0, 6.0, $z_b)
 }
 
-// --- STAGE 3: Cross-Sectional Fleet Sector Normalization (Stage-to-Stage Source) ---
+// --- STAGE 2: Mature-Only Robust Fleet Sector Normalization (Stage-to-Stage Source) ---
 stage fleet_sector_norm {
-    $ws = $sector_a.window_start
-    $ws = $sector_b.window_start
-    $e = $sector_a.entity
-    $e = $sector_b.entity
+    $ws = $sector_union.window_start
+    $e = $sector_union.entity
+    ($sector_union.a_days >= {{min_baseline_days}} or $sector_union.b_days >= {{min_baseline_days}})
 
   match:
-    $ws
+    $ws by 1d
 
   outcome:
-    $fleet_z_a_avg = avg($sector_a.z_a)
-    $fleet_z_b_avg = avg($sector_b.z_b)
+    $fleet_z_a_median = window.median($sector_union.z_a, false)
+    $fleet_z_b_median = window.median($sector_union.z_b, false)
+    $fleet_z_a_winsor_avg = avg($sector_union.z_a_winsor)
+    $fleet_z_b_winsor_avg = avg($sector_union.z_b_winsor)
 }
 
 // --- ROOT STAGE: Multi-Sector Threat Fusion & Distance Scoring ---
-$entity = $sector_a.entity
-$entity = $sector_b.entity
-$ws = $sector_a.window_start
-$ws = $sector_b.window_start
+$entity = $sector_union.entity
+$ws = $sector_union.window_start
 $ws = $fleet_sector_norm.ws
 
 match:
   $entity, $ws by 1d
 
 outcome:
-  $a_observed = max($sector_a.a_obs)
-  $b_observed = max($sector_b.b_obs)
-  $a_active_days = max($sector_a.a_days)
-  $b_active_days = max($sector_b.b_days)
+  $a_observed = max($sector_union.a_obs)
+  $b_observed = max($sector_union.b_obs)
+  $a_active_days = max($sector_union.a_days)
+  $b_active_days = max($sector_union.b_days)
 
-  // Personal sector Z-scores (already rectified and baseline-gated in Stages 1-2)
-  $z_a = max($sector_a.z_a)
-  $z_b = max($sector_b.z_b)
+  // Personal sector Z-scores (rectified and baseline-gated in Stage 1)
+  $z_a = max($sector_union.z_a)
+  $z_b = max($sector_union.z_b)
 
-  // Fleet-normalized sector Delta-Z scores from Stage 3
-  $fleet_a_mu = max($fleet_sector_norm.fleet_z_a_avg)
-  $fleet_b_mu = max($fleet_sector_norm.fleet_z_b_avg)
+  // Robust mature-fleet sector Delta-Z scores from Stage 2
+  $fleet_a_mu = max($fleet_sector_norm.fleet_z_a_median)
+  $fleet_b_mu = max($fleet_sector_norm.fleet_z_b_median)
   $dz_a_raw = $z_a - $fleet_a_mu
   $dz_b_raw = $z_b - $fleet_b_mu
   $delta_z_a = if($dz_a_raw > 0, $dz_a_raw, 0.0)
   $delta_z_b = if($dz_b_raw > 0, $dz_b_raw, 0.0)
 
-  // Euclidean Vector Threat Norm D^2 = dZ_a^2 + dZ_b^2 (with personal_norm_sq tracked separately to avoid collinear double-counting)
-  // Legacy reference: $composite_threat_norm_sq = $z_a_sq + $z_b_sq + $dz_a_sq + $dz_b_sq
+  // Euclidean Vector Threat Norm D^2 = dZ_a^2 + dZ_b^2 (with personal_norm_sq tracked separately)
   $z_a_sq = $z_a * $z_a
   $z_b_sq = $z_b * $z_b
   $dz_a_sq = $delta_z_a * $delta_z_a

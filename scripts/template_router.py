@@ -1002,7 +1002,13 @@ class MultiStageTemplateRouter:
     if cond:
       m = cls._GATE_CLAUSE_RE.search(cond.group(1))
       if m:
-        clause = (cond.start(1) + m.start(), cond.start(1) + m.end(), m.group(1), cond.group(1).strip() == m.group(0))
+        clause = (
+            cond.start(1) + m.start(),
+            cond.start(1) + m.end(),
+            m.group(1),
+            cond.group(1).strip() == m.group(0),
+            m.group(2),
+        )
 
     if clause:
       gate_var = clause[2]
@@ -1010,21 +1016,33 @@ class MultiStageTemplateRouter:
       order_match = re.search(r"^order:\s*\n\s*([$][a-zA-Z0-9_]+)", rendered, re.M)
       gate_var = order_match.group(1) if order_match else default_score
 
+    is_sq_gate = (clause is not None and clause[4] == "fusion_threshold_sq") or gate_var.endswith("_sq")
+    eff_min = (
+        (round(float(min_threshold) ** 2, 6) if float(min_threshold) > 0 else 0.0)
+        if (min_threshold is not None and is_sq_gate)
+        else min_threshold
+    )
+    eff_max = (
+        (round(float(max_threshold) ** 2, 6) if float(max_threshold) > 0 else 0.0)
+        if (max_threshold is not None and is_sq_gate)
+        else max_threshold
+    )
+
     if condition_expression:
       if cond or not only_if_template_gate:
         rendered = cls._set_root_condition(rendered, condition_expression)
     else:
       override = None
-      if min_threshold is not None and max_threshold is not None:
-        override = f"{gate_var} >= {min_threshold} and {gate_var} < {max_threshold}"
-      elif min_threshold is not None:
-        override = f"{gate_var} >= {min_threshold}"
-      elif max_threshold is not None:
-        override = f"{gate_var} <= {max_threshold}"
+      if eff_min is not None and eff_max is not None:
+        override = f"{gate_var} >= {eff_min} and {gate_var} < {eff_max}"
+      elif eff_min is not None:
+        override = f"{gate_var} >= {eff_min}"
+      elif eff_max is not None:
+        override = f"{gate_var} <= {eff_max}"
 
       if override:
         if clause:
-          start, end, _, is_whole = clause
+          start, end, _, is_whole, _ = clause
           compound = re.search(r"\s(?:and|or)\s", override) is not None
           replacement = override if (is_whole or not compound) else f"({override})"
           rendered = rendered[:start] + replacement + rendered[end:]
@@ -1046,6 +1064,39 @@ class MultiStageTemplateRouter:
   # Generic sector fusion
   # ---------------------------------------------------------------------------
 
+  @staticmethod
+  def _scalar_entity_expr(field: str) -> str:
+    leaf = field.rsplit(".", 1)[-1]
+    return f"{field}[0]" if leaf in mc.REPEATED_IDENTIFIER_LEAVES else field
+
+  @classmethod
+  def _sector_entity_union_binding(cls, field_a: str, field_b: str) -> str:
+    if field_a == field_b:
+      return f"{field_a} = $entity"
+    # Order target.* before principal.* so USER_LOGIN events (which populate both) resolve target first,
+    # while NETWORK_*/EMAIL_* events (where target.user.userid is empty) fall through to principal.
+    ordered = sorted([field_a, field_b], key=lambda f: (0 if f.startswith("target.") else 1, f))
+    return f"$entity = strings.coalesce({cls._scalar_entity_expr(ordered[0])}, {cls._scalar_entity_expr(ordered[1])})"
+
+  @staticmethod
+  def _conditional_sector_observed_agg(metric: str, pred: str) -> str:
+    sem = mc.baseline_semantics(metric)
+    obs = sem.observed_agg.strip()
+    if obs == "count(metadata.id)":
+      return f"sum(if({pred}, 1, 0))"
+    m_single_byte = re.match(r"^sum\((network\.(?:sent|received)_bytes)\)$", obs)
+    if m_single_byte:
+      bf = m_single_byte.group(1)
+      clamp = f"{bf} < 1000000000000000"
+      eff_pred = pred if clamp in pred else f"{pred} and {clamp}"
+      return f"sum(if({eff_pred}, 1.0, 0.0) * {bf})"
+    if obs == "sum(network.sent_bytes) + sum(network.received_bytes)":
+      return (
+          f"sum(if({pred} and network.sent_bytes > 0 and network.sent_bytes < 1000000000000000, 1.0, 0.0) * network.sent_bytes) + "
+          f"sum(if({pred} and network.received_bytes > 0 and network.received_bytes < 1000000000000000, 1.0, 0.0) * network.received_bytes)"
+      )
+    raise ValueError(f"Unsupported conditional observed aggregation '{obs}' for metric '{metric}'")
+
   def build_sector_fusion_query(
       self,
       sector_a: "mc.SectorSpec",
@@ -1057,10 +1108,11 @@ class MultiStageTemplateRouter:
       max_threshold: Optional[float] = None,
       condition_expression: Optional[str] = None,
       fusion_threshold_sq: float = DEFAULT_FUSION_THRESHOLD_SQ,
+      include_significance_gate: bool = True,
   ) -> str:
-    """Renders a dual-sector (3-stage) or multi-sector (4-stage, fleet-normalized) fusion for ANY two
-    entity-keyed metrics. Pairing rules come from malachite_catalog.check_fusion_pair; advisories are
-    emitted as '// ADVISORY:' lines and kept in self.last_advisories.
+    """Renders a dual-sector (single-stage union + root) or multi-sector (union + mature fleet median norm + root)
+    fusion for ANY two entity-keyed metrics. Pairing rules come from malachite_catalog.check_fusion_pair; advisories
+    are emitted as '// ADVISORY:' lines and kept in self.last_advisories.
 
     If one sector is a composite-only metric (no entity-only baseline), it is rendered as a roll-up
     sector in slot A of rollup_sector_fusion_4stage.yl2 (or _5stage.yl2 when four_stage is set)."""
@@ -1081,21 +1133,52 @@ class MultiStageTemplateRouter:
       raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
     rendered = pipeline_file.read_text().strip()
 
+    comp_nonempty: List[str] = []
     if rollup:
       plan = sector_a.rollup()
-      rendered = _fill_event_filter(rendered, "{{sector_a_companion_bindings}}", plan.companion_bindings())
+      comp_bindings = [ln for ln in plan.companion_bindings() if "!=" not in ln]
+      rendered = _fill_event_filter(rendered, "{{sector_a_companion_bindings}}", comp_bindings)
+      comp_nonempty = [
+          f'{fld} != ""'
+          for dim, fld in zip(plan.companions, plan.companion_fields)
+          if dim != "EVENT_TYPE"
+      ]
+      rendered = rendered.replace(
+          "{{sector_a_companion_nonempty}}",
+          (" and " + " and ".join(comp_nonempty)) if comp_nonempty else "",
+      )
       rendered = rendered.replace("{{sector_a_match_keys}}", plan.match_keys())
       rendered = rendered.replace("{{sector_a_metric_filters}}", plan.metric_filters())
       rendered = rendered.replace("{{sector_a_detail_key}}", mc.companion_var(plan.detail_key_dimension).lstrip("$"))
+
+    same_field = sector_a.entity_field == sector_b.entity_field
+    rendered = rendered.replace(
+        "{{sector_entity_binding}}",
+        self._sector_entity_union_binding(sector_a.entity_field, sector_b.entity_field),
+    )
+
     for tag, spec in (("a", sector_a), ("b", sector_b)):
       sem = mc.baseline_semantics(spec.metric)
+      scalar_fld = self._scalar_entity_expr(spec.entity_field)
+      ev_parts = list(sem.observed_filter) if same_field else [*sem.observed_filter, f'{scalar_fld} != ""']
+      ev_expr = " and ".join(ev_parts)
+      pred_parts = list(sem.observed_filter)
+      if rollup and tag == "a" and comp_nonempty:
+        pred_parts.extend(comp_nonempty)
+      if not same_field:
+        pred_parts.append(f"{scalar_fld} = $entity")
+
       rendered = rendered.replace(f"{{{{sector_{tag}_label}}}}", spec.label())
-      rendered = _fill_event_filter(rendered, f"{{{{sector_{tag}_event_filter}}}}", sem.observed_filter)
+      rendered = rendered.replace(f"{{{{sector_{tag}_event_filter}}}}", ev_expr)
       rendered = rendered.replace(f"{{{{sector_{tag}_entity_field}}}}", spec.entity_field)
-      rendered = rendered.replace(f"{{{{sector_{tag}_observed_agg}}}}", sem.observed_agg)
+      rendered = rendered.replace(
+          f"{{{{sector_{tag}_union_observed_agg}}}}",
+          self._conditional_sector_observed_agg(spec.metric, " and ".join(pred_parts)),
+      )
       rendered = rendered.replace(f"{{{{sector_{tag}_metric_arg}}}}", sem.metric_arg)
       rendered = rendered.replace(f"{{{{sector_{tag}_metric}}}}", spec.metric)
-      rendered = _apply_byte_dispersion_floor(rendered, spec.metric, floor_vars=(f"${tag}_floor",))
+      floor_vars = ("$a_floor", "$d_floor") if tag == "a" else ("$b_floor",)
+      rendered = _apply_byte_dispersion_floor(rendered, spec.metric, floor_vars=floor_vars)
     rendered = rendered.replace("{{min_baseline_days}}", str(min_baseline_days))
     # The template's slot guide is for agents filling slots by hand; it is noise once rendered.
     rendered = re.sub(r"^// SLOT FILLING:.*?(?=^// ====)", "", rendered, flags=re.M | re.S)
@@ -1107,6 +1190,7 @@ class MultiStageTemplateRouter:
         max_threshold=max_threshold,
         condition_expression=condition_expression,
         default_score="$composite_threat_norm_sq",
+        include_significance_gate=include_significance_gate,
     )
     prefix = "".join(f"// ADVISORY: {a}\n" for a in check.advisories)
     if hypothesis_goal:
@@ -2028,7 +2112,8 @@ class MultiStageTemplateRouter:
         rendered = rendered.replace("order:\n  $d_vs_fleet_sq desc", "order:\n  $d_vs_team_sq desc")
         rendered = rendered.replace("$d_vs_fleet_sq >= {{fusion_threshold_sq}}", "$d_vs_team_sq >= {{fusion_threshold_sq}}")
       if min_threshold is not None:
-        rendered = rendered.replace("< {{fusion_threshold_sq}},", f"< {min_threshold},")
+        eff_min_sq = round(float(min_threshold) ** 2, 6) if float(min_threshold) > 0 else 0.0
+        rendered = rendered.replace("< {{fusion_threshold_sq}},", f"< {eff_min_sq},")
 
       rendered = _fill_event_filter(rendered, "{{event_filter}}", triad_filter)
       rendered = rendered.replace("{{entity_field}}", triad_audit["target_field"])
