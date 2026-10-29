@@ -76,10 +76,24 @@ MODEL_AST_CONTRACTS = {
     },
     StatisticalModel.BAYESIAN_GAMMA: {
         "template": "poisson_gamma_bayesian.yl2",
-        "mandatory_vars": ["$variance_raw", "$safe_variance", "$beta_prior", "$alpha_prior", "$alpha_post", "$beta_post", "$posterior_mean", "$bayes_shift_ratio"],
-        "order_var": "$bayes_shift_ratio",
-        "required_ops": ["$beta_prior = $avg_30d / $safe_variance", "$alpha_post = $alpha_prior + $observed_24h", "$posterior_mean = $alpha_post / $beta_post"],
-        "prohibited_substitutions": ["$personal_z"],
+        "mandatory_vars": [
+            "$mu_cal",
+            "$var_cal",
+            "$excess_var",
+            "$posterior_rate",
+            "$post_rate_var",
+            "$cred_w",
+            "$pred_var",
+            "$safe_pred_sd",
+            "$bayesian_z",
+        ],
+        "order_var": "$bayesian_z",
+        "required_ops": [
+            "$posterior_rate = $post_alpha_pre / $post_beta_pre",
+            "$pred_var = $posterior_rate + $post_rate_var + ($cred_w * $excess_var)",
+            "$bayesian_z = ($observed - $posterior_rate) / $safe_pred_sd",
+        ],
+        "prohibited_substitutions": ["$personal_z", "$bayes_shift_ratio"],
     },
     StatisticalModel.BAYESIAN_BETA_BINOMIAL: {
         "template": "beta_binomial_bayesian.yl2",

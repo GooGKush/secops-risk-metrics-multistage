@@ -952,6 +952,114 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
     )
     self.assertAlmostEqual(z_overdisp, 7.3186, places=4)
 
+  def test_ws3_bayesian_gamma_empirical_bayes_shrinkage_and_10sigma_spike(self):
+    """WS3-BAYES: Fleet Empirical Bayes Gamma(alpha0, beta0) shrinks sparse entities and fires on +10sigma spikes."""
+    from scripts.preflight_validator import MalachiteASTValidator
+    from scripts.statistical_validator import StatisticalAntipatternAuditor
+    from scripts.submission_tests import validate_template_fragments
+    from scripts.template_router import fit_gamma_prior_from_fleet
+    import scripts.ueba_hybrid_engine as engine_mod
+
+    # 1. Fleet prior fitting via Method of Moments on entity daily rates (hist_sum / 30.0)
+    # Rates = [2.0, 4.0, 6.0, 8.0] -> mean = 5.0, sample_var = 6.6667 -> beta0 = 0.75, alpha0 = 3.75
+    fleet_rows = [
+        {"entity": "u1", "hist_sum": 60.0, "active_days": 15},
+        {"entity": "u2", "hist_sum": 120.0, "active_days": 20},
+        {"entity": "u3", "hist_sum": 180.0, "active_days": 25},
+        {"entity": "u4", "hist_sum": 240.0, "active_days": 30},
+    ]
+    alpha0, beta0 = fit_gamma_prior_from_fleet(fleet_rows)
+    self.assertAlmostEqual(alpha0 / beta0, 5.0, places=3)
+    self.assertAlmostEqual(alpha0, 3.75, places=3)
+    self.assertAlmostEqual(beta0, 0.75, places=3)
+
+    # Empty / degenerate fleet falls back safely to positive weak defaults
+    fb_a, fb_b = fit_gamma_prior_from_fleet([])
+    self.assertGreater(fb_a, 0.0)
+    self.assertGreater(fb_b, 0.0)
+
+    # 2. Router & Engine render slots cleanly and pass AST + fragment + antipattern audits
+    q = self.router.build_query(
+        target_metric="auth_attempts_total",
+        entity_type=EntityType.USER,
+        statistical_model=StatisticalModel.BAYESIAN_GAMMA,
+        fleet_prior_payload=fleet_rows,
+    )
+    self.assertNotIn("{{", q)
+    self.assertIn("$post_alpha_pre = 3.75 + $hist_sum", q)
+    self.assertIn("$post_beta_pre = 0.75 + 30.0", q)
+    self.assertIn("$bayesian_z = ($observed - $posterior_rate) / $safe_pred_sd", q)
+    self.assertEqual(MultiStageTemplateRouter.root_condition(q), "$bayesian_z >= 3.0")
+    self.assertEqual(MalachiteASTValidator.validate_query(q), [])
+    self.assertEqual(MalachiteASTValidator.validate_model_concordance(q, StatisticalModel.BAYESIAN_GAMMA), [])
+    self.assertEqual(StatisticalAntipatternAuditor.audit_query(q), [])
+    self.assertEqual(validate_template_fragments(), [])
+
+    plan = engine_mod.compile_hunt_pipeline(
+        statistical_model="BAYESIAN_GAMMA",
+        metrics="auth_attempts_total",
+        entity_type="USER",
+        prior_alpha0=20.0,
+        prior_beta0=4.0,
+    )
+    self.assertIn("$post_alpha_pre = 20.0 + $hist_sum", plan["compiled_query"])
+    self.assertIn("$post_beta_pre = 4.0 + 30.0", plan["compiled_query"])
+
+    # 3. Golden test A: Sparse entity shrinks dramatically more toward prior mean (5.0) than mature entity
+    sparse = engine_mod.calculate_bayesian_gamma_posterior(
+        observed=3.0,
+        hist_sum=2.0,
+        active_days=2,
+        hist_avg=1.0,
+        hist_stddev=0.0,
+        prior_alpha0=20.0,
+        prior_beta0=4.0,
+    )
+    mature = engine_mod.calculate_bayesian_gamma_posterior(
+        observed=10.0,
+        hist_sum=300.0,
+        active_days=30,
+        hist_avg=10.0,
+        hist_stddev=3.0,
+        prior_alpha0=20.0,
+        prior_beta0=4.0,
+    )
+    sparse_rel_pull = abs(sparse["posterior_rate"] - sparse["mu_cal"]) / max(sparse["mu_cal"], 1e-6)
+    mature_rel_pull = abs(mature["posterior_rate"] - mature["mu_cal"]) / max(mature["mu_cal"], 1e-6)
+    self.assertGreater(sparse_rel_pull, 5.0 * mature_rel_pull)
+    self.assertLess(sparse["cred_w"], mature["cred_w"])
+
+    # 4. Golden test B: +10sigma spike on a mature stable host STILL FIRES (fixing old inverted 1.01x miss!)
+    spike_poisson = engine_mod.calculate_bayesian_gamma_posterior(
+        observed=200.0,
+        hist_sum=3000.0,
+        active_days=30,
+        hist_avg=100.0,
+        hist_stddev=10.0,
+    )
+    self.assertEqual(spike_poisson["excess_var"], 0.0)  # B-E10: no double-counting of mu!
+    self.assertGreaterEqual(spike_poisson["bayesian_z"], 9.5)
+
+    spike_overdisp = engine_mod.calculate_bayesian_gamma_posterior(
+        observed=350.0,
+        hist_sum=3000.0,
+        active_days=30,
+        hist_avg=100.0,
+        hist_stddev=25.0,
+    )
+    self.assertGreater(spike_overdisp["excess_var"], 400.0)
+    self.assertGreaterEqual(spike_overdisp["bayesian_z"], 9.5)
+
+    # High-volume nominal host on an average day must NOT false-alert under default weak prior
+    nominal_busy = engine_mod.calculate_bayesian_gamma_posterior(
+        observed=10000.0,
+        hist_sum=300000.0,
+        active_days=30,
+        hist_avg=10000.0,
+        hist_stddev=100.0,
+    )
+    self.assertLess(abs(nominal_busy["bayesian_z"]), 1.0)
+
 
 if __name__ == "__main__":
   unittest.main()

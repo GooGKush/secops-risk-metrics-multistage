@@ -51,7 +51,7 @@ EXPECTED_DEFAULT_GATES = {
     StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD: "$active_days >= 7 and $sensitivity_excess >= 0.0",
     StatisticalModel.LONGITUDINAL_CUSUM: "$active_days >= 7 and $cusum_drift_score >= 3.0 and $drift_days >= 2",
     StatisticalModel.TWO_PART_HURDLE: "$active_days <= 2 or $intensity_z >= 3.0",
-    StatisticalModel.BAYESIAN_GAMMA: "$bayes_shift_ratio >= 2.0",
+    StatisticalModel.BAYESIAN_GAMMA: "$bayesian_z >= 3.0",
     StatisticalModel.BAYESIAN_BETA_BINOMIAL: "$posterior_lift >= 2.0",
     StatisticalModel.COEFFICIENT_OF_VARIATION: "$active_days >= 7 and $surge_ratio >= 2.0 and $cv <= 0.5",
     StatisticalModel.RELATIVE_DEVIATION: "$fold_change >= 2.0",
@@ -151,8 +151,13 @@ class RouterGateTest(unittest.TestCase):
   def test_fold_change_override_uses_the_gate_variable(self):
     q = self._q(StatisticalModel.RELATIVE_DEVIATION, min_threshold=3.0)
     self.assertEqual(MultiStageTemplateRouter.root_condition(q), "$fold_change >= 3.0")
-    q = self._q(StatisticalModel.BAYESIAN_GAMMA, fold_change_threshold=1.5)
-    self.assertEqual(MultiStageTemplateRouter.root_condition(q), "$bayes_shift_ratio >= 1.5")
+    q = self._q(StatisticalModel.COEFFICIENT_OF_VARIATION, fold_change_threshold=1.5)
+    self.assertEqual(
+        MultiStageTemplateRouter.root_condition(q),
+        "$active_days >= 7 and $surge_ratio >= 1.5 and $cv <= 0.5",
+    )
+    q = self._q(StatisticalModel.BAYESIAN_GAMMA, anomaly_threshold=3.5)
+    self.assertEqual(MultiStageTemplateRouter.root_condition(q), "$bayesian_z >= 3.5")
 
   def test_pipelines_resolve_every_gate_placeholder(self):
     for arch in PipelineArchitecture:
