@@ -108,6 +108,7 @@ SCORE_CANDIDATES = (
     ("z_sector", False),
     ("macro_z_score", False),
     ("normalized_odds_score", False),
+    ("windowed_slack_sum", False),
     ("cusum_drift_score", False),
     ("hurdle_threat_score", False),
     ("hurdle_anomaly_score", False),

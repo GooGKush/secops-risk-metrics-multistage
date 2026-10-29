@@ -70,7 +70,7 @@ DEFAULT_SIGNIFICANCE_GATES: Dict["StatisticalModel", str] = {
     StatisticalModel.HOURLY_TEMPORAL_ZSCORE: "RETIRED (D1 -> HOUR_OF_DAY_PROFILE)",
     StatisticalModel.BAYESIAN_GAMMA: "Bayesian Z >= 3.0σ",
     StatisticalModel.BAYESIAN_BETA_BINOMIAL: "Beta-Binomial Z >= 3.0σ",
-    StatisticalModel.LONGITUDINAL_CUSUM: "Drift above 0.5σ slack",
+    StatisticalModel.LONGITUDINAL_CUSUM: "Windowed Slack Sum >= 3.0σ (>= 2 drift days)",
     StatisticalModel.TWO_PART_HURDLE: "Dormant awakening OR Z >= 3.0σ",
     StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z: "Z >= 3.0σ (merged into STANDARD_Z_SCORE)",
     StatisticalModel.PIECEWISE_CRI: "RETIRED (D1 -> ueba_constants.calculate_cri)",
@@ -1614,6 +1614,12 @@ class MalachiteASTValidator:
         errors.append(
             "MODEL_FORMULA_MISMATCH: Above-Historical-Max Z (MACD_MOMENTUM_VELOCITY) must compute linear "
             "$above_max_z and $macd_z = $personal_z + $above_max_z."
+        )
+    elif model == StatisticalModel.LONGITUDINAL_CUSUM:
+      if "$windowed_slack_sum" not in query_text or "$cusum_drift_score" not in query_text:
+        errors.append(
+            "MODEL_FORMULA_MISMATCH: LONGITUDINAL_CUSUM must emit Windowed Slack Sum "
+            "$windowed_slack_sum and $cusum_drift_score across mature baseline days."
         )
 
     return errors

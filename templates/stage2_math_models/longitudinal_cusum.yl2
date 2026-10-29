@@ -1,7 +1,8 @@
-// Stage 2: Daily Standardized Slack-Excess Drift Extraction (by 1d)
+// Stage 2: Daily Standardized Slack-Excess Drift Extraction — Windowed Slack Sum Prefilter (by 1d)
 // Note: YARA-L 2.0 cannot carry recursive S_{t-1} state across time buckets; this stage computes
-// per-day positive drift excess max(0, Z_t - 0.5) and the Root Stage sums it across the multi-day window.
-// True recursive Page's CUSUM (S_t = max(0, S_{t-1} + Z_t - k)) is accumulated in Mode C (timeline_assembler.py).
+// per-day positive drift excess max(0, Z_t - 0.5) for mature baselines ($active_days >= {{min_baseline_days}})
+// and the Root Stage computes the Windowed Slack Sum W = sum(max(0, Z_t - 0.5)) across the multi-day window (WS6-01).
+// True recursive Page's CUSUM (S_t = max(0, S_{t-1} + Z_t - k)) is accumulated in Python (timeline_assembler.py).
 stage stage2_daily_drift {
     $entity = $stage1_extract.entity
     $day_ws = $stage1_extract.window_start
@@ -16,7 +17,7 @@ stage stage2_daily_drift {
     $active_days = max($stage1_extract.historical_active_days)
     $hist_max = max($stage1_extract.historical_max)
 
-    // Raw and standardized daily drift with k = 0.5 sigma slack allowance
+    // Raw and standardized daily drift with k = 0.5 sigma slack allowance; immature baselines (< min_baseline_days) contribute 0.0
     $raw_drift = $observed - $hist_avg
     $dispersion_floor = math.sqrt(if($hist_avg > 1.0, $hist_avg, 1.0))
     $safe_stddev = if($hist_stddev > $dispersion_floor, $hist_stddev, $dispersion_floor)
@@ -24,10 +25,10 @@ stage stage2_daily_drift {
     $slack_excess = $raw_drift - $slack_allowance
     $daily_z = $raw_drift / $safe_stddev
     $z_minus_slack = $daily_z - 0.5
-    $daily_excess = if($z_minus_slack > 0, $z_minus_slack, 0.0)
+    $daily_excess = if($active_days >= {{min_baseline_days}} and $z_minus_slack > 0, $z_minus_slack, 0.0)
 }
 
-// Stage 3 (Root Stage): Multi-Day Cumulative Drift Aggregation Across Window
+// Stage 3 (Root Stage): Multi-Day Windowed Slack Sum Aggregation Across Window
 $entity = $stage2_daily_drift.entity
 
 match:
@@ -41,13 +42,14 @@ outcome:
   $active_days = max($stage2_daily_drift.active_days)
   $hist_max = max($stage2_daily_drift.hist_max)
 
-  // Cumulative positive standardized drift excess across all daily buckets in the evaluation window
+  // Windowed Slack Sum W = sum(max(0, Z_t - 0.5)) across all daily buckets in the evaluation window
   $cusum_drift = sum($stage2_daily_drift.daily_excess)
+  $windowed_slack_sum = $cusum_drift
   $cusum_drift_score = $cusum_drift
   $drift_days = sum(if($stage2_daily_drift.daily_excess > 0, 1, 0))
   $max_daily_z = max($stage2_daily_drift.daily_z)
 
-// Significance gate: decision interval H >= {{anomaly_threshold}} (default 4.0 sigma) across >= 2 drift days.
+// Significance gate: Windowed Slack Sum >= {{anomaly_threshold}} (default 3.0 sigma) across >= 2 drift days.
 condition:
   $active_days >= {{min_baseline_days}} and $cusum_drift_score >= {{anomaly_threshold}} and $drift_days >= 2
 

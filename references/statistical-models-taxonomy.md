@@ -205,22 +205,21 @@ Before running a multi-stage statistical hunt, explain the approach to the secur
 
 ---
 
-## 9. Longitudinal CUSUM Drift Accumulation (`LONGITUDINAL_CUSUM`)
-* **Security Problem Solved**: Catches low-and-slow data exfiltration, stealth credential accumulation, or slow permission creep where daily activity stays below single-day alert thresholds ($Z \approx 1.5\sigma$) but steadily bleeds data across multiple days (one YARA-L CUSUM request covers up to 14 days, the multi-stage search limit).
+## 9. Multi-Day Cumulative Drift — Windowed Slack Sum (`LONGITUDINAL_CUSUM`)
+* **Security Problem Solved**: Catches low-and-slow data exfiltration, stealth credential accumulation, or slow permission creep where daily activity stays below single-day alert thresholds ($Z \approx 1.5\sigma$) but steadily bleeds data across multiple days (one YARA-L request covers up to 14 days, the multi-stage search limit).
 * **Mathematical Formulation**:
-  * **Single-Stage / Per-Bucket Slack Excess (`templates/stage2_math_models/longitudinal_cusum.yl2`)**:
-    $$\text{Raw Drift} = x - \mu, \quad \text{Slack } k = 0.5 \cdot \sigma_{\text{safe}}, \quad \text{Daily Slack Excess} = \max(0, (x - \mu) - k)$$
-  * **Multi-Day Windowed Slack Sum (`templates/pipelines/longitudinal_drift_cusum_2stage.yl2`, via `window.sum($daily_drift)`)**:
-    $$Z_d = \frac{x_d - \mu}{\sigma_{\text{safe}}}, \quad \Delta_d = \max(0, Z_d - 0.5), \quad S_{\text{window}} = \sum_{d=1}^{D} \Delta_d$$
-  * **Sequential Page's CUSUM in Mode C (`scripts/timeline_assembler.py`)**:
-    $$S_t^+ = \max(0, S_{t-1}^+ + Z_t - k) \quad \text{across ordered daily shards}$$
+  * **In-Query Windowed Slack Sum Prefilter (`templates/stage2_math_models/longitudinal_cusum.yl2` & `templates/pipelines/longitudinal_cusum_2stage.yl2`, `WS6-01`)**:
+    $$Z_d = \frac{x_d - \mu}{\sigma_{\text{safe}}}, \quad \Delta_d = \begin{cases} \max(0, Z_d - 0.5) & \text{if } N_{\text{active}} \ge 7 \\ 0 & \text{otherwise} \end{cases}, \quad W = \sum_{d=1}^{D} \Delta_d$$
+    Because Page's recursive statistic satisfies $S_t^+ \le W$, the Windowed Slack Sum $W$ is a lossless in-query prefilter while preventing cold-start / immature entities (such as `SITE-DC$`) from inflating drift sums.
+  * **Sequential Page's CUSUM (`scripts/timeline_assembler.py`)**:
+    $$S_t^+ = \max(0, S_{t-1}^+ + Z_t - k) \quad \text{across ordered daily buckets}$$
 * **Post-Hunt Plain-English Cyber Impact Statement Template**:
 ```markdown
 > [!IMPORTANT]
-> **Longitudinal CUSUM Drift Verdict: Slow Leaking Faucet (`[target_metric]`)**
+> **Windowed Slack Sum Drift Verdict: Multi-Day Sub-Threshold Accumulation (`[target_metric]`)**
 > * **Daily Activity**: Observed **[observed]** vs historical mean **[hist_avg]** (Daily slack allowance $k = [slack_allowance]$).
-> * **Accumulated Drift Increment**: **[cusum_drift_score]** units above allowable variance.
-> * **Investigative Meaning**: Sub-threshold, persistent drift pattern detected. Entity is quietly siphoning volume across multiple consecutive days without triggering single-day threshold alerts.
+> * **Windowed Slack Sum**: **[windowed_slack_sum]** cumulative $\sigma$-excess above $0.5\sigma$ slack across **[drift_days]** drift days.
+> * **Investigative Meaning**: Sub-threshold, persistent drift pattern detected on a mature baseline. Pass candidate series to `timeline_assembler.py` to evaluate exact recursive Page's CUSUM $S_t^+$.
 ```
 
 ---

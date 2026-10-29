@@ -2198,6 +2198,7 @@ def _normalize_single_row(raw_row: Dict[str, Any]) -> Dict[str, Any]:
       "velocity_kmh",
       "markov_threat_score",
       "fused_threat_score",
+      "windowed_slack_sum",
       "cusum_drift_score",
       "hurdle_threat_score",
       "hurdle_anomaly_score",
@@ -3534,6 +3535,49 @@ def calculate_beta_binomial_posterior(
       "pred_var": round(pred_var, 6),
       "safe_pred_sd": round(safe_pred_sd, 6),
       "beta_binomial_z": round(beta_binomial_z, 4),
+  }
+
+
+def calculate_windowed_slack_sum(
+    daily_observations: Sequence[float],
+    hist_avg: float,
+    hist_stddev: float,
+    active_days: int,
+    min_baseline_days: int = DEFAULT_MIN_BASELINE_DAYS,
+    slack_k: float = 0.5,
+    anomaly_threshold: float = 3.0,
+    min_drift_days: int = 2,
+    byte_dispersion_floor: Optional[float] = None,
+) -> Dict[str, Any]:
+  """Computes the in-query Windowed Slack Sum W = sum(max(0, Z_t - k)) with maturity zeroing (WS3-CUSUM / WS6-01)."""
+  avg = float(hist_avg)
+  std = float(hist_stddev)
+  n_days = int(active_days)
+  floor = float(byte_dispersion_floor) if byte_dispersion_floor is not None else math.sqrt(max(avg, 1.0))
+  safe_stddev = max(std, floor)
+  is_mature = n_days >= int(min_baseline_days)
+
+  daily_z_list: List[float] = []
+  daily_excess_list: List[float] = []
+  for obs_raw in daily_observations:
+    obs = float(obs_raw)
+    dz = (obs - avg) / safe_stddev
+    daily_z_list.append(dz)
+    z_minus_slack = dz - float(slack_k)
+    excess = z_minus_slack if (is_mature and z_minus_slack > 0.0) else 0.0
+    daily_excess_list.append(excess)
+
+  w_sum = sum(daily_excess_list)
+  drift_days = sum(1 for e in daily_excess_list if e > 0.0)
+  max_daily_z = max(daily_z_list) if daily_z_list else 0.0
+  alerts = bool(is_mature and w_sum >= float(anomaly_threshold) and drift_days >= int(min_drift_days))
+  return {
+      "windowed_slack_sum": round(w_sum, 4),
+      "cusum_drift_score": round(w_sum, 4),
+      "drift_days": drift_days,
+      "max_daily_z": round(max_daily_z, 4),
+      "is_mature": is_mature,
+      "alerts": alerts,
   }
 
 

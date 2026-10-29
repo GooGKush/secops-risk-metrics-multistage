@@ -1,10 +1,11 @@
 // ============================================================================
-// ARCHITECTURE: 2-STAGE LONGITUDINAL CUSUM BEHAVIORAL DRIFT PIPELINE
+// ARCHITECTURE: 2-STAGE WINDOWED SLACK SUM (LONGITUDINAL CUSUM PREFILTER) PIPELINE
 // Skill: secops-risk-metrics-multistage
-// Purpose: Detects quiet, low-and-slow behavioral drift across up to 14 days (multi-stage search limit).
+// Purpose: Detects quiet, low-and-slow behavioral drift across up to 14 days (multi-stage search limit)
+//          using the lossless Windowed Slack Sum prefilter W = sum(max(0, Z_t - 0.5)) (WS6-01).
 //          One request anchors ONE 30d baseline at its start day, so every day is scored against the
-//          same pre-window reference: the fixed reference CUSUM needs. Do not split CUSUM into Mode C shards.
-// Formula: S_t^+ = max(0, S_{t-1}^+ + ((x_t - mu) / if(sigma > 0, sigma, 1.0) - k_ref))
+//          same pre-window reference: the fixed reference CUSUM needs.
+// Formula: W = sum(max(0, ((x_t - mu) / safe_sigma) - 0.5)); Page's S_t <= W computed in timeline_assembler.py.
 // event_filter slot: the metric's "Observed event filter" lines from references/metric-sector-catalog.md, one per line.
 // Telemetry Metric Mappings:
 //   - DNS Query Volume (Counts): metrics.dns_queries_total (metric: event_count_sum, obs: count(metadata.id))
@@ -45,14 +46,14 @@ stage stage1_extract {
         period: 1d, window: 30d, metric: {{metric_type_val}}, agg: sum,
         {{dimension_key}}: {{dimension_key}} {{extra_dimensions}}
     ))
-    // Per-day standardized CUSUM slack excess (k = 0.5 sigma) with D8 dispersion floor
+    // Per-day standardized slack excess (k = 0.5 sigma) with D8 dispersion floor and maturity zeroing
     $dispersion_floor = math.sqrt(if($historical_avg > 1.0, $historical_avg, 1.0))
     $daily_z = ($observed_val - $historical_avg) / if($historical_stddev > $dispersion_floor, $historical_stddev, $dispersion_floor)
     $deviation = $daily_z - 0.5
-    $daily_excess = if($deviation > 0.0, $deviation, 0.0)
+    $daily_excess = if($historical_active_days >= {{min_baseline_days}} and $deviation > 0.0, $deviation, 0.0)
 }
 
-// Stage 2 (Root Stage): Longitudinal Drift Score & Timeline Breakdown
+// Stage 2 (Root Stage): Windowed Slack Sum & Timeline Breakdown
 $entity = $stage1_extract.entity
 
 match:
@@ -67,15 +68,16 @@ outcome:
   // 1. Peak Daily Standardized Shift across the multi-day window
   $daily_z = max($stage1_extract.daily_z)
 
-  // 2. Multi-day Cumulative Sum of Positive Drift Increments across days
+  // 2. Multi-day Windowed Slack Sum of Positive Drift Increments across days
   $slack_excess = sum($stage1_extract.daily_excess)
   $cusum_drift = $slack_excess
+  $windowed_slack_sum = $cusum_drift
   $cusum_drift_score = $cusum_drift
   $drift_days = sum(if($stage1_extract.daily_excess > 0.0, 1, 0))
 
 // Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
 condition:
-  $active_days >= {{min_baseline_days}} and $cusum_drift_score > 0.0 and $drift_days >= 2
+  $active_days >= {{min_baseline_days}} and $cusum_drift_score >= {{anomaly_threshold}} and $drift_days >= 2
 
 order:
   $cusum_drift_score desc
