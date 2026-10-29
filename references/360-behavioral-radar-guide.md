@@ -224,6 +224,12 @@ stage cloud_risk {
     $user, $vendor, $product by 1d
   outcome:
     $read_obs = sum(if(metadata.event_type = "RESOURCE_READ" or metadata.event_type = "USER_RESOURCE_ACCESS", 1, 0))
+    $read_days = max(metrics.resource_read_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+        principal.user.userid: principal.user.userid,
+        metadata.vendor_name: metadata.vendor_name,
+        metadata.product_name: metadata.product_name
+    ))
     $read_avg = max(metrics.resource_read_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: avg,
         principal.user.userid: principal.user.userid,
@@ -236,9 +242,17 @@ stage cloud_risk {
         metadata.vendor_name: metadata.vendor_name,
         metadata.product_name: metadata.product_name
     ))
-    $z_read = ($read_obs - $read_avg) / if($read_std > 0, $read_std, 1.0)
+    $read_flr = math.sqrt(if($read_avg > 1.0, $read_avg, 1.0))
+    $z_read_raw = ($read_obs - $read_avg) / if($read_std > $read_flr, $read_std, $read_flr)
+    $z_read = if($read_days >= 7, $z_read_raw, 0.0)
 
     $write_obs = sum(if(metadata.event_type = "RESOURCE_WRITTEN" or metadata.event_type = "USER_RESOURCE_UPDATE_CONTENT", 1, 0))
+    $write_days = max(metrics.resource_written_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+        principal.user.userid: principal.user.userid,
+        metadata.vendor_name: metadata.vendor_name,
+        metadata.product_name: metadata.product_name
+    ))
     $write_avg = max(metrics.resource_written_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: avg,
         principal.user.userid: principal.user.userid,
@@ -251,9 +265,17 @@ stage cloud_risk {
         metadata.vendor_name: metadata.vendor_name,
         metadata.product_name: metadata.product_name
     ))
-    $z_write = ($write_obs - $write_avg) / if($write_std > 0, $write_std, 1.0)
+    $write_flr = math.sqrt(if($write_avg > 1.0, $write_avg, 1.0))
+    $z_write_raw = ($write_obs - $write_avg) / if($write_std > $write_flr, $write_std, $write_flr)
+    $z_write = if($write_days >= 7, $z_write_raw, 0.0)
 
     $create_obs = sum(if(metadata.event_type = "RESOURCE_CREATION" or metadata.event_type = "USER_RESOURCE_CREATION", 1, 0))
+    $create_days = max(metrics.resource_creation_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+        principal.user.userid: principal.user.userid,
+        metadata.vendor_name: metadata.vendor_name,
+        metadata.product_name: metadata.product_name
+    ))
     $create_avg = max(metrics.resource_creation_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: avg,
         principal.user.userid: principal.user.userid,
@@ -266,7 +288,9 @@ stage cloud_risk {
         metadata.vendor_name: metadata.vendor_name,
         metadata.product_name: metadata.product_name
     ))
-    $z_create = ($create_obs - $create_avg) / if($create_std > 0, $create_std, 1.0)
+    $create_flr = math.sqrt(if($create_avg > 1.0, $create_avg, 1.0))
+    $z_create_raw = ($create_obs - $create_avg) / if($create_std > $create_flr, $create_std, $create_flr)
+    $z_create = if($create_days >= 7, $z_create_raw, 0.0)
 
     $delete_obs = sum(if(metadata.event_type = "RESOURCE_DELETION" or metadata.event_type = "USER_RESOURCE_DELETION", 1, 0))
     $delete_days = max(metrics.resource_deletion_total(
@@ -287,8 +311,9 @@ stage cloud_risk {
         metadata.vendor_name: metadata.vendor_name,
         metadata.product_name: metadata.product_name
     ))
-    $z_delete_raw = ($delete_obs - $delete_avg) / if($delete_std > 0, $delete_std, 1.0)
-    $z_delete = if($delete_days >= 3, $z_delete_raw, 0.0)
+    $delete_flr = math.sqrt(if($delete_avg > 1.0, $delete_avg, 1.0))
+    $z_delete_raw = ($delete_obs - $delete_avg) / if($delete_std > $delete_flr, $delete_std, $delete_flr)
+    $z_delete = if($delete_days >= 7, $z_delete_raw, 0.0)
 }
 
 $user = $cloud_risk.user

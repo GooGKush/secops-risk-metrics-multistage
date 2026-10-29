@@ -608,10 +608,10 @@ This produces 4 diagnostic states: **Individual Rogue** (high $Z_{\text{team}}$ 
 When hunting within a single telemetry vector, single-metric evaluations can obscure behavioral context:
 * **The Sibling Metric Advantage**: One stage observes 3 sibling metrics of the same family (e.g. `auth_attempts_total`, `auth_attempts_fail`, `auth_attempts_success`) for one entity, so all three get personal and fleet baselines without extra UDM stages.
 * **Peer group is optional (default = fleet only)**: keep the template's `// >>> TEAM COHORT` blocks only when a roster is known (named, supplied later, or from the AD TEAM LOOKUP in the Peer group rule above). Without a peer list the team stage recomputes the fleet, so delete the blocks and rank by `$d_vs_fleet_sq`.
-* **Math (as the template computes it)**: For each metric $m \in \{1, 2, 3\}$: $Z_{\text{personal}, m}$ and $Z_{\text{vs\_enterprise}, m}$ (plus $Z_{\text{vs\_team}, m}$ with a peer group), fused into
-  $$D_{\text{vs\_fleet}}^2 = \sum_{m=1}^3 Z_{\text{vs\_enterprise}, m}^2$$
+* **Math (as the template computes it)**: For each metric $m \in \{1, 2, 3\}$: $Z_{\text{personal}, m}$ and leave-one-out $Z_{\text{vs\_enterprise}, m}$ (plus leave-one-out $Z_{\text{vs\_team}, m}$ with a peer group, excluding `SYSTEM`, `LOCAL SERVICE`, `NETWORK SERVICE`, and trailing `$` machine accounts on human user cohorts), positive-rectified (`max(0, Z)`) and fused into
+  $$D_{\text{vs\_fleet}}^2 = \sum_{m=1}^3 \max(0, Z_{\text{vs\_enterprise}, m})^2$$
   ($D_{\text{vs\_team}}^2$ likewise when a peer group is kept).
-  The terms are two-sided: a collapse (success drops while fail rises) also raises $D$.
+  Positive rectification prevents quiet peers ($Z < 0$) from inflating $D^2$ and outranking surging outliers.
 * **Valid triads and every slot value**: `references/metric-sector-catalog.md` § *Sibling triads* (Auth, DNS, HTTP, Network bytes, Network flows). It gives the shared stage filter, the conditional-sum observed values and the entity fields valid for all three metrics. Do not build a triad from the individual metric rows: pasting one metric's own filter line into the shared stage zeroes its siblings.
 * **No process or cloud-resource triads**: `file_executions_*` and `resource_*` are composite-only (no entity-only baseline), so the single-entity triad stage cannot carry them.
 

@@ -45,6 +45,7 @@ outcome:
   $observed = max($web_http_risk.obs)
   $baseline = max($web_http_risk.avg)
   $dispersion = max($web_http_risk.std)
+  $active_days = max($web_http_risk.days)
 
 // NO-GATE: 360 radar sector micro-query. Every sector must be reported, nominal included, so the
 // root is not filtered; significance is applied when the 6 sector Z-scores are fused in the report.

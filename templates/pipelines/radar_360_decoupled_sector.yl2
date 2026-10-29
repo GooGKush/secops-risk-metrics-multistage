@@ -48,6 +48,7 @@ outcome:
   $observed = max($auth_risk.obs)
   $baseline = max($auth_risk.avg)
   $dispersion = max($auth_risk.std)
+  $active_days = max($auth_risk.days)
 
 // NO-GATE: 360 radar sector micro-query. Every sector must be reported, nominal included, so the
 // root is not filtered; significance is applied when the 6 sector Z-scores are fused in the report.

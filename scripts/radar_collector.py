@@ -52,6 +52,7 @@ class _RadarQueryTemplate(str):
 
 
 HELPER_VERSION = "2.3.0"
+RADAR_COMPOSITE_D_THRESHOLD: float = 3.5
 
 
 def _canonical_json_sha256(obj: Any) -> str:
@@ -290,7 +291,7 @@ def _extract_spoke_metrics_from_rows(
     if z_val is None:
       if obs_val is not None and avg_val is not None:
         is_byte_sector = any(tok in sector_key.lower() for tok in ("net", "egress", "byte", "traffic"))
-        disp_floor = 44979.0 if is_byte_sector else math.sqrt(max(avg_val, 1.0))
+        disp_floor = 1048576.0 if is_byte_sector else math.sqrt(max(avg_val, 1.0))
         denom = max(std_val if (std_val is not None and std_val > 0.0) else 0.0, disp_floor)
         z_val = (obs_val - avg_val) / denom
       else:
@@ -344,50 +345,41 @@ class EntityRadarCollector:
 
   USER_SECTOR_QUERIES = {
       "IAM & Authentication": _RadarQueryTemplate("""
-// Sector: IAM & Authentication
+// Sector: IAM & Authentication (Single-Stage Union: preserves 0-success brute-force targets)
 stage s1 {
     metadata.event_type = "USER_LOGIN"
-    not security_result.action = "ALLOW"
     target.user.userid = "%(entity_id)s"
     $user = target.user.userid
   match:
     $user by 1d
   outcome:
-    $fail_obs = count(metadata.id)
+    $fail_obs = sum(if(security_result.action = "ALLOW", 0, 1))
+    $succ_obs = sum(if(security_result.action = "ALLOW", 1, 0))
     $fail_avg = max(metrics.auth_attempts_fail(period: 1d, window: 30d, metric: event_count_sum, agg: avg, target.user.userid: target.user.userid))
     $fail_std = max(metrics.auth_attempts_fail(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, target.user.userid: target.user.userid))
     $fail_days = max(metrics.auth_attempts_fail(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, target.user.userid: target.user.userid))
-}
-stage s2 {
-    metadata.event_type = "USER_LOGIN"
-    security_result.action = "ALLOW"
-    target.user.userid = "%(entity_id)s"
-    $user = target.user.userid
-  match:
-    $user by 1d
-  outcome:
-    $succ_obs = count(metadata.id)
     $succ_avg = max(metrics.auth_attempts_success(period: 1d, window: 30d, metric: event_count_sum, agg: avg, target.user.userid: target.user.userid))
     $succ_std = max(metrics.auth_attempts_success(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, target.user.userid: target.user.userid))
     $succ_days = max(metrics.auth_attempts_success(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, target.user.userid: target.user.userid))
 }
 $user = $s1.user
-$user = $s2.user
 match: $user by 1d
 outcome:
+  $fail_obs = max($s1.fail_obs)
   $fail_avg = max($s1.fail_avg)
   $fail_std = max($s1.fail_std)
   $fail_days = max($s1.fail_days)
   $fail_floor = math.sqrt(if($fail_avg > 1.0, $fail_avg, 1.0))
   $safe_fail_std = if($fail_std > $fail_floor, $fail_std, $fail_floor)
-  $raw_z_fail = (max($s1.fail_obs) - $fail_avg) / $safe_fail_std
+  $raw_z_fail = ($fail_obs - $fail_avg) / $safe_fail_std
   $z_fail = if($fail_days >= 7, $raw_z_fail, 0.0)
-  $succ_avg = max($s2.succ_avg)
-  $succ_std = max($s2.succ_std)
-  $succ_days = max($s2.succ_days)
+  $succ_obs = max($s1.succ_obs)
+  $succ_avg = max($s1.succ_avg)
+  $succ_std = max($s1.succ_std)
+  $succ_days = max($s1.succ_days)
   $succ_floor = math.sqrt(if($succ_avg > 1.0, $succ_avg, 1.0))
   $safe_succ_std = if($succ_std > $succ_floor, $succ_std, $succ_floor)
-  $raw_z_succ = (max($s2.succ_obs) - $succ_avg) / $safe_succ_std
+  $raw_z_succ = ($succ_obs - $succ_avg) / $safe_succ_std
   $z_succ = if($succ_days >= 7, $raw_z_succ, 0.0)
 """),
       "Cloud Infrastructure": _RadarQueryTemplate("""
@@ -519,7 +511,7 @@ stage s1 {
   match:
     $user by 1d
   outcome:
-    $bytes_obs = sum(network.sent_bytes)
+    $bytes_obs = sum(if(network.sent_bytes > 0 and network.sent_bytes < 1000000000000000, 1.0, 0.0) * network.sent_bytes)
     $bytes_avg = max(metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: avg, principal.user.userid: principal.user.userid))
     $bytes_std = max(metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: stddev, principal.user.userid: principal.user.userid))
     $bytes_days = max(metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: num_metric_periods, principal.user.userid: principal.user.userid))
@@ -527,11 +519,13 @@ stage s1 {
 $user = $s1.user
 match: $user by 1d
 outcome:
+  $bytes_obs = max($s1.bytes_obs)
+  $bytes_avg = max($s1.bytes_avg)
   $bytes_std = max($s1.bytes_std)
   $bytes_days = max($s1.bytes_days)
-  $bytes_floor = 44979.0
+  $bytes_floor = 1048576.0
   $safe_bytes_std = if($bytes_std > $bytes_floor, $bytes_std, $bytes_floor)
-  $raw_z_egress = (max($s1.bytes_obs) - max($s1.bytes_avg)) / $safe_bytes_std
+  $raw_z_egress = ($bytes_obs - $bytes_avg) / $safe_bytes_std
   $z_egress = if($bytes_days >= 7, $raw_z_egress, 0.0)
 """),
       "DNS Resolution": _RadarQueryTemplate("""
@@ -623,11 +617,11 @@ stage s1 {
   match:
     $asset by 1d
   outcome:
-    $out_obs = sum(network.sent_bytes)
+    $out_obs = sum(if(network.sent_bytes > 0 and network.sent_bytes < 1000000000000000, 1.0, 0.0) * network.sent_bytes)
     $out_avg = max(metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: avg, principal.asset.hostname: principal.asset.hostname))
     $out_std = max(metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: stddev, principal.asset.hostname: principal.asset.hostname))
     $out_days = max(metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: num_metric_periods, principal.asset.hostname: principal.asset.hostname))
-    $in_obs = sum(network.received_bytes)
+    $in_obs = sum(if(network.received_bytes > 0 and network.received_bytes < 1000000000000000, 1.0, 0.0) * network.received_bytes)
     $in_avg = max(metrics.network_bytes_inbound(period: 1d, window: 30d, metric: value_sum, agg: avg, principal.asset.hostname: principal.asset.hostname))
     $in_std = max(metrics.network_bytes_inbound(period: 1d, window: 30d, metric: value_sum, agg: stddev, principal.asset.hostname: principal.asset.hostname))
     $in_days = max(metrics.network_bytes_inbound(period: 1d, window: 30d, metric: value_sum, agg: num_metric_periods, principal.asset.hostname: principal.asset.hostname))
@@ -635,17 +629,21 @@ stage s1 {
 $asset = $s1.asset
 match: $asset by 1d
 outcome:
+  $out_obs = max($s1.out_obs)
+  $out_avg = max($s1.out_avg)
   $out_std = max($s1.out_std)
   $out_days = max($s1.out_days)
-  $out_floor = 44979.0
+  $out_floor = 1048576.0
   $safe_out_std = if($out_std > $out_floor, $out_std, $out_floor)
-  $raw_z_out = (max($s1.out_obs) - max($s1.out_avg)) / $safe_out_std
+  $raw_z_out = ($out_obs - $out_avg) / $safe_out_std
   $z_outbound = if($out_days >= 7, $raw_z_out, 0.0)
+  $in_obs = max($s1.in_obs)
+  $in_avg = max($s1.in_avg)
   $in_std = max($s1.in_std)
   $in_days = max($s1.in_days)
   $in_floor = 28276845.0
   $safe_in_std = if($in_std > $in_floor, $in_std, $in_floor)
-  $raw_z_in = (max($s1.in_obs) - max($s1.in_avg)) / $safe_in_std
+  $raw_z_in = ($in_obs - $in_avg) / $safe_in_std
   $z_inbound = if($in_days >= 7, $raw_z_in, 0.0)
 """),
       "DNS Resolution": _RadarQueryTemplate("""
@@ -720,12 +718,15 @@ stage alerts_risk {
     $z = if($days >= 7, $raw_z, 0.0)
 }
 $asset = $alerts_risk.asset
-match: $asset by 1d
+$rule_name = $alerts_risk.rule_name
+match: $asset, $rule_name by 1d
 outcome:
   $alerts_std = max($alerts_risk.std)
   $z_alerts = max($alerts_risk.z)
   $alerts_obs = max($alerts_risk.obs)
   $alerts_avg = max($alerts_risk.avg)
+  $alerts_days = max($alerts_risk.days)
+order: $z_alerts desc
 """),
   }
 
@@ -969,7 +970,7 @@ outcome:
     composite_d, cri = self.calculate_composite_risk(sorted_spokes)
 
     top_outlier = sorted_spokes[0] if sorted_spokes else None
-    is_anomalous = composite_d >= RADAR_FUSION_DISTANCE_THRESHOLD
+    is_anomalous = composite_d >= RADAR_COMPOSITE_D_THRESHOLD
     effective_provenance = (
         dict(provenance)
         if provenance is not None
@@ -1035,7 +1036,7 @@ outcome:
     is_cri_mode = (scale_mode.lower() == "cri")
     display_cap = 100.0 if is_cri_mode else 4.0
 
-    if composite_d >= 3.0:
+    if composite_d >= RADAR_COMPOSITE_D_THRESHOLD:
       poly_fill, poly_stroke = "rgba(217, 48, 37, 0.25)", "#d93025"
       status_badge_bg, status_badge_fg, status_text = "#fce8e6", "#c5221f", "HIGH RISK ANOMALY"
     elif composite_d >= 2.0:
@@ -1212,7 +1213,7 @@ outcome:
     active_spokes = spokes if spokes else EntityRadarCollector.get_canonical_nominal_spokes()
     spokes = active_spokes
 
-    is_anomalous = composite_d >= 3.0
+    is_anomalous = composite_d >= RADAR_COMPOSITE_D_THRESHOLD
     status_tag = "🚨 HIGH RISK ANOMALY" if is_anomalous else ("⚠️ ELEVATED" if composite_d >= 2.0 else "🟢 NOMINAL")
     header = f"360° BEHAVIORAL RISK RADAR: {entity_id} (D = {composite_d:.2f}σ | CRI {cri}/100 | {status_tag})"
     separator = "─" * max(len(header), 75)
@@ -1244,7 +1245,7 @@ outcome:
       provenance: Optional[Dict[str, Any]] = None,
   ) -> str:
     """Generates CommonMark table with Unicode magnitude progress bars and D6-G3 provenance."""
-    is_anomalous = composite_d >= 3.0
+    is_anomalous = composite_d >= RADAR_COMPOSITE_D_THRESHOLD
     status_icon = "🚨" if is_anomalous else "🟢"
     status_text = "HIGH RISK ANOMALOUS FOOTPRINT" if is_anomalous else "NOMINAL BEHAVIORAL BASELINE"
 

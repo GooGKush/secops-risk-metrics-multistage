@@ -18,9 +18,13 @@
 //   lines, and swap BOTH condition: ($z_vs_team >= {{anomaly_threshold}}) AND order: ($z_vs_team desc).
 //   Show the filled query in the Turn 1 Pre-Flight.
 //   ADDITIONAL SLOTS: entity_name = entity_var without leading $ (e.g. user or host);
-//   target_entity_filter = subject/cohort filter in root stage (or {{entity_var}} != "" for fleet-wide).
-//   SAMUELSON SMALL-COHORT BOUND (PF-2 / WS1-09): Chronicle's stddev() computes sample SD (N - 1 df)
-//   with the subject included in the cohort, bounding max Z <= (N - 1) / math.sqrt(N).
+//   target_entity_filter = subject/cohort filter in root stage (or {{entity_var}} != "" for fleet-wide);
+//   cohort_population_guard = human USER cohort guard excluding Windows system/service and trailing-$ machine accounts;
+//   var_floor = 1.0 for count metrics or squared byte dispersion floor for value_sum metrics.
+//   LEAVE-ONE-OUT COHORT STATS & SAMUELSON SMALL-COHORT BOUND (PF-2 / WS1-09 / WS4-RADAR-COHORT):
+//   Cohort mean and variance exclude the scored entity itself ((sum_all - obs) / (N - 1) and centered
+//   N - 2 df leave-one-out variance) so an extreme outlier never inflates its own peer mean/SD.
+//   Chronicle's raw stddev() uses N - 1 df (PF-2), bounding in-sample Z <= (N - 1) / math.sqrt(N).
 //   A 3.0-sigma threshold requires N >= 11 active peers (a 7-sample cohort caps at 2.27 sigma);
 //   when $samuelson_max_z < {{anomaly_threshold}}, $cohort_too_small = 1 ("cohort too small").
 //   Path user -> group -> enterprise: $z_vs_team (one vs group), $z_team_vs_enterprise
@@ -45,6 +49,7 @@ stage all_entities {
     {{event_filter}}
     {{entity_field}} = {{entity_var}}
     {{entity_var}} != ""
+    {{cohort_population_guard}}
 
   match:
     {{entity_var}} by 1d
@@ -70,9 +75,14 @@ stage team_cohort_stats {
     $ws by 1d
 
   outcome:
+    $team_sum = sum($all_entities.obs)
     $team_avg = avg($all_entities.obs)
     $team_std = stddev($all_entities.obs)
     $team_size = count_distinct($all_entities.{{entity_name}})
+    $team_peer_n = if($team_size > 1, $team_size, 2) - 1.0
+    $team_n_over_nm1 = $team_size / $team_peer_n
+    $team_inv_df = 1.0 / (if($team_size > 2, $team_size, 3) - 2.0)
+    $team_ss = $team_peer_n * $team_std * $team_std
 }
 // <<< TEAM COHORT
 
@@ -84,12 +94,17 @@ stage enterprise_stats {
     $ws by 1d
 
   outcome:
+    $fleet_sum = sum($all_entities.obs)
     $fleet_avg = avg($all_entities.obs)
     $fleet_std = stddev($all_entities.obs)
     $fleet_size = count_distinct($all_entities.{{entity_name}})
+    $fleet_peer_n = if($fleet_size > 1, $fleet_size, 2) - 1.0
+    $fleet_n_over_nm1 = $fleet_size / $fleet_peer_n
+    $fleet_inv_df = 1.0 / (if($fleet_size > 2, $fleet_size, 3) - 2.0)
+    $fleet_ss = $fleet_peer_n * $fleet_std * $fleet_std
 }
 
-// Root Stage: The "One" (or Team Members) Evaluated Against Both Wholes
+// Root Stage: The "One" (or Team Members) Evaluated Against Leave-One-Out Wholes
 {{entity_var}} = $all_entities.{{entity_name}}
 $ws = $all_entities.window_start
 // >>> TEAM COHORT
@@ -109,24 +124,29 @@ outcome:
   $e_avg = max($enterprise_stats.fleet_avg)
   $e_std = max($enterprise_stats.fleet_std)
   $fleet_size = max($enterprise_stats.fleet_size)
+  $e_loo_avg = (max($enterprise_stats.fleet_sum) - $observed) / max($enterprise_stats.fleet_peer_n)
+  $e_var = (max($enterprise_stats.fleet_ss) - (max($enterprise_stats.fleet_n_over_nm1) * ($observed - $e_avg) * ($observed - $e_avg))) * max($enterprise_stats.fleet_inv_df)
 
   // >>> TEAM COHORT
-  // Peer group only: one vs group, and the group as a whole vs the enterprise
+  // Peer group only: leave-one-out one vs group, and the group as a whole vs the enterprise
   $t_avg = max($team_cohort_stats.team_avg)
-  $t_std = max($team_cohort_stats.team_std)
   $team_size = max($team_cohort_stats.team_size)
+  $t_loo_avg = (max($team_cohort_stats.team_sum) - $observed) / max($team_cohort_stats.team_peer_n)
+  $t_var = (max($team_cohort_stats.team_ss) - (max($team_cohort_stats.team_n_over_nm1) * ($observed - $t_avg) * ($observed - $t_avg))) * max($team_cohort_stats.team_inv_df)
 
-  // 1. Team Cross-Sectional Z-Score ("Part of the Team")
-  $z_vs_team = ($observed - $t_avg) / if($t_std > 0, $t_std, 1.0)
+  // 1. Leave-One-Out Team Cross-Sectional Z-Score ("Part of the Team")
+  $raw_z_vs_team = ($observed - $t_loo_avg) / math.sqrt(if(if($t_var > $t_loo_avg, $t_var, $t_loo_avg) > {{var_floor}}, if($t_var > $t_loo_avg, $t_var, $t_loo_avg), {{var_floor}}))
+  $z_vs_team = if($team_size > 1, $raw_z_vs_team, 0.0)
 
   // 3. Group vs Enterprise ("Team as Part of the Enterprise"): team mean in fleet std units
-  $z_team_vs_enterprise = ($t_avg - $e_avg) / if($e_std > 0, $e_std, 1.0)
+  $z_team_vs_enterprise = ($t_avg - $e_avg) / if($e_std > 1.0, $e_std, 1.0)
   $samuelson_max_z = ($team_size - 1.0) / math.sqrt(if($team_size > 1, $team_size, 1.0))
   $cohort_too_small = if($samuelson_max_z < {{anomaly_threshold}}, 1, 0)
   // <<< TEAM COHORT
 
-  // 2. Enterprise Cross-Sectional Z-Score ("Part of the Enterprise")
-  $z_vs_enterprise = ($observed - $e_avg) / if($e_std > 0, $e_std, 1.0)
+  // 2. Leave-One-Out Enterprise Cross-Sectional Z-Score ("Part of the Enterprise")
+  $raw_z_vs_enterprise = ($observed - $e_loo_avg) / math.sqrt(if(if($e_var > $e_loo_avg, $e_var, $e_loo_avg) > {{var_floor}}, if($e_var > $e_loo_avg, $e_var, $e_loo_avg), {{var_floor}}))
+  $z_vs_enterprise = if($fleet_size > 1, $raw_z_vs_enterprise, 0.0)
   $fleet_samuelson_max_z = ($fleet_size - 1.0) / math.sqrt(if($fleet_size > 1, $fleet_size, 1.0))
   $fleet_cohort_too_small = if($fleet_samuelson_max_z < {{anomaly_threshold}}, 1, 0)
 

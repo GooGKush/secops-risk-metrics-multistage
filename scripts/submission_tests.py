@@ -594,7 +594,7 @@ order:
             name="360° Radar Spoke: IAM & Authentication",
             description="Decoupled micro-query evaluating allowed vs failed logins.",
             generator=lambda: EntityRadarCollector.USER_SECTOR_QUERIES["IAM & Authentication"] % {"entity_id": test_entity} + "\norder: $z_fail desc\n",
-            expected_stages=["s1", "s2"],
+            expected_stages=["s1"],
         )
     )
 

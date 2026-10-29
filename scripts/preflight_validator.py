@@ -988,6 +988,7 @@ class MalachiteASTValidator:
     clean_code = re.sub(r"/\*.*?\*/", "", clean_code, flags=re.DOTALL)
 
     code_no_literals = re.sub(r'"(?:\\.|[^"\\])*"', '""', clean_code)
+    code_no_literals = re.sub(r"`[^`]*`", "``", code_no_literals)
     code_no_literals = re.sub(r'/(?:\\.|[^/\\])+/', '//', code_no_literals)
     if "^" in code_no_literals:
       errors.append("INVALID_EXPONENT_OPERATOR: '^' is invalid in YARA-L. Use 'math.pow($var, 2)' or '$var * $var' for squared terms.")

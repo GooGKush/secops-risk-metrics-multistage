@@ -2026,15 +2026,25 @@ class MultiStageTemplateRouter:
 
       entity_var = "$user" if entity_type == EntityType.USER else "$host"
       entity_name = entity_var.lstrip("$")
+      effective_cohort = list(cohort_entities) if cohort_entities else []
+      if effective_cohort and target_entity and target_entity not in effective_cohort:
+        effective_cohort.append(target_entity)
+
+      # WS4-RADAR-COHORT: Exclude Windows machine/system accounts from human USER cohorts unless
+      # the analyst explicitly targets a system/machine account itself.
+      sys_acct_py_re = re.compile(r"^(system|local service|network service|.*\$)$", re.I)
+      guard_lines: List[str] = []
+      if entity_type == EntityType.USER and not (target_entity and sys_acct_py_re.match(target_entity)):
+        guard_lines = [f"not re.regex({entity_var}, `(?i)^(system|local service|network service|.*\\$$)`)"]
 
       # Peer group rule (template header): no named cohort -> drop the TEAM COHORT blocks
       # (fleet only, order by $z_vs_enterprise); named cohort -> keep them, order by $z_vs_team.
-      rendered = _apply_team_cohort_blocks(raw, keep=bool(cohort_entities))
-      if cohort_entities:
-        if len(cohort_entities) > 1:
-          cohort_filter = "(\n      " + " or\n      ".join(f'$u = "{self._escape_yaral_literal(c)}"' for c in cohort_entities) + "\n    )"
+      rendered = _apply_team_cohort_blocks(raw, keep=bool(effective_cohort))
+      if effective_cohort:
+        if len(effective_cohort) > 1:
+          cohort_filter = "(\n      " + " or\n      ".join(f'$u = "{self._escape_yaral_literal(c)}"' for c in effective_cohort) + "\n    )"
         else:
-          cohort_filter = f'$u = "{self._escape_yaral_literal(cohort_entities[0])}"'
+          cohort_filter = f'$u = "{self._escape_yaral_literal(effective_cohort[0])}"'
         rendered = rendered.replace("{{cohort_filter}}", cohort_filter)
         rendered = rendered.replace("order:\n  $z_vs_enterprise desc", "order:\n  $z_vs_team desc")
         rendered = rendered.replace("$z_vs_enterprise >= {{anomaly_threshold}}", "$z_vs_team >= {{anomaly_threshold}}")
@@ -2043,15 +2053,20 @@ class MultiStageTemplateRouter:
 
       if target_entity:
         target_filter = f'{entity_var} = "{self._escape_yaral_literal(target_entity)}"'
-      elif cohort_entities:
-        if len(cohort_entities) > 1:
-          target_filter = "(\n  " + " or\n  ".join(f'{entity_var} = "{self._escape_yaral_literal(c)}"' for c in cohort_entities) + "\n)"
+      elif effective_cohort:
+        if len(effective_cohort) > 1:
+          target_filter = "(\n  " + " or\n  ".join(f'{entity_var} = "{self._escape_yaral_literal(c)}"' for c in effective_cohort) + "\n)"
         else:
-          target_filter = f'{entity_var} = "{self._escape_yaral_literal(cohort_entities[0])}"'
+          target_filter = f'{entity_var} = "{self._escape_yaral_literal(effective_cohort[0])}"'
       else:
         target_filter = f'{entity_var} != ""'
 
+      b_floor = resolve_byte_dispersion_floor(target_metric, byte_dispersion_floor=byte_dispersion_floor)
+      var_floor_str = f"{b_floor * b_floor:.1f}" if b_floor is not None else "1.0"
+
       rendered = _fill_event_filter(rendered, "{{event_filter}}", audit["event_filter"])
+      rendered = _fill_event_filter(rendered, "{{cohort_population_guard}}", guard_lines)
+      rendered = rendered.replace("{{var_floor}}", var_floor_str)
       rendered = rendered.replace("{{entity_field}}", audit["target_field"])
       rendered = rendered.replace("{{entity_var}}", entity_var)
       rendered = rendered.replace("{{entity_name}}", entity_name)
@@ -2089,25 +2104,33 @@ class MultiStageTemplateRouter:
 
       entity_var = "$user" if entity_type == EntityType.USER else "$host"
       entity_name = entity_var.lstrip("$")
+      effective_cohort = list(cohort_entities) if cohort_entities else []
+      if effective_cohort and target_entity and target_entity not in effective_cohort:
+        effective_cohort.append(target_entity)
+
+      sys_acct_py_re = re.compile(r"^(system|local service|network service|.*\$)$", re.I)
+      guard_lines = []
+      if entity_type == EntityType.USER and not (target_entity and sys_acct_py_re.match(target_entity)):
+        guard_lines = [f"not re.regex({entity_var}, `(?i)^(system|local service|network service|.*\\$$)`)"]
 
       if target_entity:
         target_filter = f'{entity_var} = "{self._escape_yaral_literal(target_entity)}"'
-      elif cohort_entities:
-        if len(cohort_entities) > 1:
-          target_filter = "(\n  " + " or\n  ".join(f'{entity_var} = "{self._escape_yaral_literal(c)}"' for c in cohort_entities) + "\n)"
+      elif effective_cohort:
+        if len(effective_cohort) > 1:
+          target_filter = "(\n  " + " or\n  ".join(f'{entity_var} = "{self._escape_yaral_literal(c)}"' for c in effective_cohort) + "\n)"
         else:
-          target_filter = f'{entity_var} = "{self._escape_yaral_literal(cohort_entities[0])}"'
+          target_filter = f'{entity_var} = "{self._escape_yaral_literal(effective_cohort[0])}"'
       else:
         target_filter = f'{entity_var} != ""'
 
       # Peer group rule (template header): with no named cohort the team stage would just
       # recompute the fleet, so the marked TEAM COHORT blocks are dropped (fleet only).
-      rendered = _apply_team_cohort_blocks(raw, keep=bool(cohort_entities))
-      if cohort_entities:
-        if len(cohort_entities) > 1:
-          cohort_filter = "(\n      " + " or\n      ".join(f'$u = "{self._escape_yaral_literal(c)}"' for c in cohort_entities) + "\n    )"
+      rendered = _apply_team_cohort_blocks(raw, keep=bool(effective_cohort))
+      if effective_cohort:
+        if len(effective_cohort) > 1:
+          cohort_filter = "(\n      " + " or\n      ".join(f'$u = "{self._escape_yaral_literal(c)}"' for c in effective_cohort) + "\n    )"
         else:
-          cohort_filter = f'$u = "{self._escape_yaral_literal(cohort_entities[0])}"'
+          cohort_filter = f'$u = "{self._escape_yaral_literal(effective_cohort[0])}"'
         rendered = rendered.replace("{{cohort_filter}}", cohort_filter)
         rendered = rendered.replace("order:\n  $d_vs_fleet_sq desc", "order:\n  $d_vs_team_sq desc")
         rendered = rendered.replace("$d_vs_fleet_sq >= {{fusion_threshold_sq}}", "$d_vs_team_sq >= {{fusion_threshold_sq}}")
@@ -2116,6 +2139,7 @@ class MultiStageTemplateRouter:
         rendered = rendered.replace("< {{fusion_threshold_sq}},", f"< {eff_min_sq},")
 
       rendered = _fill_event_filter(rendered, "{{event_filter}}", triad_filter)
+      rendered = _fill_event_filter(rendered, "{{cohort_population_guard}}", guard_lines)
       rendered = rendered.replace("{{entity_field}}", triad_audit["target_field"])
       rendered = rendered.replace("{{entity_var}}", entity_var)
       rendered = rendered.replace("{{entity_name}}", entity_name)
@@ -2124,6 +2148,9 @@ class MultiStageTemplateRouter:
       for idx, m in enumerate(target_metrics[:3], 1):
         metric_type_arg = f"metric: {mc.baseline_semantics(m).metric_arg}"
         obs_agg = triad_obs[m]
+        m_b_floor = resolve_byte_dispersion_floor(m, byte_dispersion_floor=byte_dispersion_floor)
+        m_var_floor_str = f"{m_b_floor * m_b_floor:.1f}" if m_b_floor is not None else "1.0"
+        rendered = rendered.replace(f"{{{{m{idx}_var_floor}}}}", m_var_floor_str)
         rendered = rendered.replace(f"{{{{m{idx}_observation_agg}}}}", obs_agg)
         rendered = rendered.replace(
             f"{{{{m{idx}_metric_func_avg}}}}",

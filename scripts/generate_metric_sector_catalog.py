@@ -237,11 +237,12 @@ peer group the template also scores the group as a whole against the fleet (`$z*
    have no entity-only baseline. For process execution use a per-(host, hash) pipeline or a roll-up
    sector. Do not mix families into a triad (e.g. `dns_bytes_outbound` with DNS query counts: it counts
    port-53 traffic, not DNS messages); use a sector fusion instead.
-5. **Math (as the template computes it).** Per metric: $Z_{personal}$ and $Z_{vs\\_enterprise}$ (plus
-   $Z_{vs\\_team}$ with a peer group). Composite: $D_{vs\\_fleet}^2 = \\sum_{m=1}^{3} Z_{vs\\_enterprise,m}^2$
-   ($D_{vs\\_team}^2$ likewise with a peer group). The terms are **two-sided**, so a collapse (e.g.
-   success drops while fail rises) also raises $D$. To score surges only, rectify each term in the root
-   outcome: `$z1_sq = if($z1_vs_enterprise > 0, $z1_vs_enterprise * $z1_vs_enterprise, 0)`.
+5. **Math (as the template computes it).** Per metric: $Z_{personal}$ and leave-one-out $Z_{vs\\_enterprise}$
+   (plus leave-one-out $Z_{vs\\_team}$ with a peer group; human user cohorts exclude `SYSTEM`,
+   `LOCAL SERVICE`, `NETWORK SERVICE`, and trailing-`$` machine accounts). Composite:
+   $D_{vs\\_fleet}^2 = \\sum_{m=1}^{3} \\max(0, Z_{vs\\_enterprise,m})^2$ ($D_{vs\\_team}^2$ likewise with a
+   peer group). Each term is **upper-tail rectified** (`if($z > 0.0, $z, 0.0)`) before squaring so quiet
+   peers with negative Z-scores never outrank surging outliers.
 6. Byte triads observe `sum(network.sent_bytes)` / `sum(network.received_bytes)` over the union of
    rows; the per-metric `< 1000000000000000` guard is not applied per metric, so a single corrupt
    row (>= 1e15 bytes) can inflate one observed value.
