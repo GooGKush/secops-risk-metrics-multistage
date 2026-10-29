@@ -106,10 +106,10 @@ order:
 ### 2. `MAD` (`mad.yl2`)
 * **Hypothesis**: Robust, median-anchored departure that historic bursts cannot mask (breakdown point 50% vs 0% for mean/stddev). Available on request on top of ANY stage1 extractor, in Mode A or Mode B.
 * **Topology**: stage1 extractor (event stage) → `mad_center` (median of daily `$observed_val`) → `mad_spread` (MAD and mean absolute deviation) → root. Only one event stage, so the 2-event-stage ceiling is untouched.
-* **Data sources**: MAD and `$modified_z` come only from the raw daily `$observed_val`. `metrics.*` feeds only the `$personal_z` / `$z_gap` cross-check, so the router keeps just the avg, stddev and num_metric_periods lookups for MAD (3 per entity-day; `historical_max` / `historical_sum` are pruned).
+* **Data sources**: MAD (`$modified_z`) and the pre-scoring active-day `$personal_z` / `$z_gap` cross-check (`WS1-03`, excluding `$in_scoring_window = 1` days via `mad_center` → `mad_spread`) come from raw daily `$observed_val` over the ~30d search window, avoiding the `[D0 - 59d, D0 - 29d)` stale `metrics.*` anchor shift (`PF-3`).
 * **Multi-key extractors**: MAD groups every stage (stage1, `mad_center`, `mad_spread`, root) by the metric's baseline tuple: the stage1 match variables whose UDM field is a `metrics.*` dimension argument. Match variables that are not dimensions are dropped from stage1, because they would split one baseline into thin per-value series (only `$ip` on `resource_*`). Examples: `resource_*` → `$sa, $vendor, $product, $resource`; `file_executions_*` → `$host, $sha256`; `alert_event_name_count` → `$host, $rule_name`. Caveat: a finer tuple means fewer active days per series, and tuples with fewer than `min_baseline_days` active days drop out of the results.
 * **Cloud-repository redirect exemption**: for `resource_read_total`, `resource_written_total`, `resource_written_success` and `resource_written_fail` with a USER entity, every other model renders `cloud_repository_scope_dual_branch.yl2`. An explicit MAD request renders the MAD pipeline instead, keyed per repository tuple as above.
-* **Search Window Contract**: the raw search window IS the robust baseline (~30d ending at the scoring end date). The scored days are gated by `$in_scoring_window`, a date-string flag injected into stage1 (`timestamp.get_date(...) >= "<first scored date>"`); never wall-clock time, never an epoch literal. Mode A scores 1 day, Mode B 2-7.
+* **Search Window Contract**: the raw search window IS the robust baseline (~30d ending at the scoring end date). The scored days are gated by `$in_scoring_window`, a date-string flag injected into stage1 (`timestamp.get_date(...) >= "<first scored date>"`); never wall-clock time, never an epoch literal. Mode A scores 1 day, Mode B 2–3 days (`D9`).
 * **Mandatory AST Contract** (verified live on gus-sdl, 2026-10-07):
 ```yara
 stage mad_center {
@@ -563,10 +563,10 @@ order:
 ## 4. ✅ Pre-Display Self-Concordance Checklist
 
 Before emitting any query preview under a Pre-Flight Card in Phase 1B, verify:
-1. **Model Identification**: Does the declared `• Statistical Model:` in the card correspond to one of the 17 defined models?
+1. **Model Identification**: Does the declared `• Statistical Model:` in the card correspond to an active `StatisticalModel` entry (never a retired `D1` model)?
 2. **Outcome Variable Audit**: Does the emitted query's `outcome:` block contain all mandatory variables specified in the matrix above?
-3. **Primary Ranking Target**: Does the `order:` clause sort by the primary model output variable (e.g. `$cusum_drift_score desc`, `$hurdle_threat_score desc`, `$bayes_shift_ratio desc`)?
-4. **No Univariate Fallback**: If an advanced model (e.g. Bayesian, CUSUM, Hurdle, Piecewise CRI) was declared, ensure it is NOT replaced by a bare standard $Z$-score.
+3. **Primary Ranking Target**: Does the `order:` clause sort by the primary model output variable (e.g. `$cusum_drift_score desc`, `$hurdle_threat_score desc`, `$bayesian_z desc`)?
+4. **No Univariate Fallback**: If an advanced model (e.g. Bayesian Gamma, Paired Beta-Binomial, CUSUM, Hurdle, Adaptive Context Threshold, Quantile IQR Skew, First-Seen Novelty) was declared, ensure it is NOT replaced by a bare standard $Z$-score.
 5. **Outcome `if(...)` Compiler Invariant**: Chronicle SIEM compiler strictly forbids compound arithmetic (function calls or operations) inside the `then` or `else` clauses of `if(cond, then, else)`. Only placeholders, event fields, and constants are permitted. When computing standardized anomaly scores, construct the one-stop outcome nested logic model directly:
    ```yara
    $personal_z = ($observed_val - $baseline_mean) / if($baseline_stddev > 0, $baseline_stddev, 1.0)

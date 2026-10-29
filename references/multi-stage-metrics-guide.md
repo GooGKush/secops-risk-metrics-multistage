@@ -587,14 +587,17 @@ For automated threat hunting and headless pipeline execution, the agent and quer
 
 ## 18. Pre-Composed Multi-Stage Pipeline Library
 
-To prevent runtime syntactic improvisation and avoid streaming rule syntax confusion, the skill maintains 33 complete composite pipeline templates in `templates/pipelines/`:
+To prevent runtime syntactic improvisation and avoid streaming rule syntax confusion, the skill maintains 34 complete composite pipeline templates in `templates/pipelines/`:
 
 | Pipeline Template File | Stages | Analytical Model | Primary Use Case |
 | :--- | :--- | :--- | :--- |
-| **`mad_robust_z_4stage.yl2`** | 4 Stages (1 event stage) | True Median Absolute Deviation / Modified $Z$ ($M_Z$) next to the 30d metrics $Z$ | Heavy-tailed or burst-contaminated baselines (egress bytes, DNS volume); exposes $Z$ masking via `$z_gap`. Search window ~30d = robust baseline. |
-| **`standard_z_score_2stage.yl2`** | 2 Stages | Parametric Standard $Z$-Score ($Z$) | Volumetric bursts, auth attempts, process counts. |
-| **`poisson_rarity_2stage.yl2`** | 2 Stages | Discrete Poisson Rarity ($Z_P$) | Rare administrative binary launches, low $\lambda$. |
-| **`longitudinal_cusum_2stage.yl2`** | 2 Stages | Windowed Slack Sum Prefilter ($W = \sum \max(0, Z_t - 0.5)$) | Multi-day low-and-slow exfiltration and behavioral drift (Page's recursive CUSUM $S_t$ computed in `timeline_assembler.py`). |
+| **`mad_robust_z_4stage.yl2`** | 4 Stages (1 event stage) | True Median Absolute Deviation / Modified $Z$ ($M_Z$) + pre-scoring raw $Z$ (`WS1-03`) | Heavy-tailed or burst-contaminated baselines (egress bytes, DNS volume); exposes $Z$ masking via `$z_gap`. Search window ~30d = robust baseline. |
+| **`quantile_iqr_skew_3stage.yl2`** | 3 Stages (1 event stage) | 1-Stage Quantiles, Bowley Skewness (`1.35`) & Skew-Adjusted Tukey Scale-Excess | Heavy-tailed volumetric breakouts in 3 stages (`window.percentile`), saving 1 stage for ECG or peer joins. |
+| **`standard_z_score_2stage.yl2`** | 2 Stages | Parametric Standard $Z$-Score ($Z$) | Volumetric bursts, auth attempts, process counts (`$active_days >= 7`, D8 floor). |
+| **`poisson_rarity_2stage.yl2`** | 2 Stages | Discrete Poisson / NB Rarity ($Z_P$, $\lambda = S/30$) | Rare administrative binary launches, low $\lambda$ discrete counts. |
+| **`first_seen_novelty_2stage.yl2`** | 2 Stages | First-Seen 30-Day Boolean Novelty (`metric: first_seen, agg: min`) | Primary 30d novelty detector (`$prior_first_seen = 0`, boolean flag + `last_seen`/`period_start_for_max` context, never $\sigma$). |
+| **`longitudinal_cusum_2stage.yl2`** | 2 Stages | Windowed Slack Sum Prefilter ($W = \sum \max(0, Z_t - 0.5)$) | Lossless multi-day drift prefilter (`Mode A` blocked; Page's $S_t \le W$ evaluated in `scripts/cusum_helper.py`). |
+| **`longitudinal_cusum_series_3stage.yl2`** | 3 Stages | Ungated Active-Day Standardized Series Extractor (`WS6-01`) | Emits ungated per-day series (`<=14d`) for Windowed Slack Sum survivors into `scripts/cusum_helper.py` (`calculate_page_cusum_series`). |
 | **`macd_momentum_velocity_2stage.yl2`** | 2 Stages | Above-Historical-Max Z ($Z_{\text{personal}} + \max(0, \text{obs} - \text{max}_{30\text{d}})/\sigma_{\text{safe}}$) | Linear peak exceedance breakouts past 30-day ceiling and historical max. |
 | **`c2_beacon_flow_frequency_2stage.yl2`** | 2 Stages | Outbound Flow Surge ($Z_{\text{flows}}$) | Daily outbound session-count surges and destination breadth (sub-hour C2 callback jitter hands off to `secops-statistical-hunter` `C2_BEACONING_JITTER`). |
 | **`http_error_ratio_surge_2stage.yl2`** | 2 Stages | HTTP Failure Baseline + Error Ratio Surge | Web application/proxy $4xx/5xx$ fuzzing, API enumeration, broken C2 loops. |
@@ -976,12 +979,13 @@ Before outputting any candidate multi-stage YARA-L query in the Phase 1B Pre-Fli
 ### A. Template-First Assembly (template selection rule)
 To eliminate runtime syntax failures and semantic distortions, assemble every multi-stage query from the canonical templates below rather than authoring one from scratch. Open the chosen `.yl2` with `view_file` and fill in its placeholders — the template files are the authoritative source, and no script needs to be read or run to select one:
 1. **Stage 1 Extractors (`templates/stage1_extractors/`)**: Provide guaranteed 6-point outcome tuples (`$observed_val`, `$historical_avg`, `$historical_stddev`, `$historical_active_days`, `$historical_max`, `$historical_sum`) with immutable entity bindings.
-2. **Stage 2 Math Models (`templates/stage2_math_models/`)**: Provide clean AST implementations of all 17 models: Standard $Z$, True MAD / Modified $Z$ (attachable to any extractor, `references/model-concordance-guide.md` §2), Relative Deviation (fold change), Discrete Poisson Rarity, Fano Factor Dispersion, Coefficient of Variation, Hourly Temporal $Z$, Bayesian Gamma & Beta-Binomial, Longitudinal CUSUM, Two-Part Hurdle, Asymmetric Directional ReLU, Piecewise Winsorized CRI, Fleet Prevalence Shield, Adaptive Context Sensitivity, MACD Momentum Velocity, and Circadian von Mises Temporal Distance.
-3. **Pre-Composed Pipelines (`templates/pipelines/`)**: End-to-end validated pipelines for complex multi-stage hunts (all 33 listed in §18 above). Quick scenario-to-template routing:
+2. **Stage 2 Math Models (`templates/stage2_math_models/`)**: Provide clean AST implementations of all 14 active models (`references/model-concordance-guide.md` §2): Standard $Z$ (`standard_z_score.yl2`, merged `asymmetric_directional_z.yl2` per `D1`), True MAD / Modified $Z$ (`mad.yl2`), 1-Stage Quantile IQR Skew (`quantile_iqr_skew.yl2`), Relative Deviation (`relative_deviation.yl2`), Discrete Poisson / NB Rarity (`poisson_rarity.yl2`), Baseline Dispersion Screen (`variance_fano.yl2`), Regular-Volume Surge (`coefficient_of_variation.yl2`), Empirical Bayes Gamma (`poisson_gamma_bayesian.yl2`) & Paired Beta-Binomial (`beta_binomial_bayesian.yl2`), Longitudinal CUSUM Windowed Slack Sum (`longitudinal_cusum.yl2`), Two-Part Hurdle (`two_part_hurdle.yl2`), Off-Hours Adaptive Context Threshold (`adaptive_context_threshold.yl2`), Above-Historical-Max Z (`macd_momentum_velocity.yl2`), and First-Seen 30-Day Novelty (`first_seen_novelty.yl2`). *(Retired under `D1`: `piecewise_cri.yl2` -> Python `ueba_constants.calculate_cri`; `fleet_prevalence_shield.yl2` -> `hybrid_metric_fleet_prevalence_2stage.yl2`; `hourly_temporal_zscore.yl2` & `circadian_von_mises.yl2` -> handoff to `secops-statistical-hunter` `HOUR_OF_DAY_PROFILE`.)*
+3. **Pre-Composed Pipelines (`templates/pipelines/`)**: End-to-end validated pipelines for complex multi-stage hunts (all 34 listed in §18 above). Quick scenario-to-template routing:
    - *Single-sector volumetric / count Z-score*: `standard_z_score_2stage.yl2` (or `stage1_extractors/<metric>.yl2` + `stage2_math_models/<model>.yl2`)
-   - *Heavy-tailed / burst-contaminated MAD*: `mad_robust_z_4stage.yl2` (or `stage2_math_models/mad.yl2`)
+   - *Heavy-tailed / burst-contaminated MAD or Tukey quantiles*: `mad_robust_z_4stage.yl2` or `quantile_iqr_skew_3stage.yl2`
+   - *30-day first-seen novelty (`first_seen = 0`, boolean flag)*: `first_seen_novelty_2stage.yl2`
    - *Rare binary / low-$\lambda$ Poisson*: `poisson_rarity_2stage.yl2`
-   - *Multi-day low-and-slow drift*: `longitudinal_cusum_2stage.yl2` (Windowed Slack Sum)
+   - *Multi-day low-and-slow drift*: `longitudinal_cusum_2stage.yl2` (Windowed Slack Sum prefilter) + `longitudinal_cusum_series_3stage.yl2` + `scripts/cusum_helper.py`
    - *Above-historical-max peak breakout*: `macd_momentum_velocity_2stage.yl2`
    - *Off-hours / hour-of-day anomaly*: hand off to `secops-statistical-hunter` `HOUR_OF_DAY_PROFILE` (`circadian_von_mises_2stage.yl2` retired per D1)
    - *Outbound flow surge*: `c2_beacon_flow_frequency_2stage.yl2` (sub-hour C2 jitter hands off to `secops-statistical-hunter` `C2_BEACONING_JITTER`)
@@ -1305,28 +1309,28 @@ Key Invariants:
 
 ---
 
-## 33. Network Session Frequency & C2 Beaconing Detection (`metrics.network_flows_*`)
+## 33. Outbound Network Session Surge (`metrics.network_flows_*` — Outbound Flow Surge)
 
-### A. The Volumetric Blindspot in Command & Control (C2)
-Traditional network anomaly detection relies heavily on `metrics.network_bytes_outbound` to catch data exfiltration. However, advanced command-and-control (C2) implants, reverse shells, and automated keep-alive polling exhibit the opposite profile:
-* **Payload Footprint**: Extremely low (e.g. 64–512 bytes per packet).
-* **Connection Frequency**: Exceptionally high (hundreds or thousands of periodic sessions per day).
+### A. The Byte-Volume Blindspot on Micro-Session Bursts
+Byte-volume anomaly detection (`metrics.network_bytes_outbound`) catches bulk data transfers, but micro-session API scraping, port/host sweeps, and automated connection bursts exhibit the opposite profile:
+* **Payload Footprint**: Small per-connection byte payloads (e.g. 64–512 bytes per session).
+* **Session Count**: Hundreds or thousands of outbound connections within a UTC day.
 
-When evaluated against a host's volumetric baseline (e.g. 500 MB/day), 2,000 beaconing sessions transferring a total of 1 MB will produce **zero baseline deviation** ($Z_{\text{bytes}} \approx 0.0\sigma$).
+When evaluated only against a host's byte baseline (e.g. 500 MB/day), 2,000 small outbound sessions transferring 1 MB total produce near-zero byte deviation ($Z_{\text{bytes}} \approx 0.0\sigma$). *(Note per `D1`: a daily flow-count total does NOT measure callback interval regularity; sub-hour C2 callback periodicity and inter-arrival jitter hand off to `secops-statistical-hunter` `C2_BEACONING_JITTER`.)*
 
-### B. The Flow-Frequency Solution (`metrics.network_flows_outbound`)
-To detect stealthy beaconing, micro-session tunneling, and port/host sweeps, the pipeline queries `metrics.network_flows_outbound`:
+### B. Daily Outbound Flow Surge (`metrics.network_flows_outbound`)
+To detect daily outbound connection-count surges, micro-session enumeration, and host/port fan-out, the pipeline queries `metrics.network_flows_outbound`:
 * **Engine Pre-Computation**: Shards 10, 11, and 12 in Malachite aggregate every non-zero byte session as `1 AS total_events`.
 * **Compiler Rule**: Strictly requires `metric: event_count_sum`.
-* **Behavioral Baseline**: Evaluates whether the host is opening an abnormal number of outbound connections compared to its personal 30-day baseline ($Z_{\text{flows}} \ge 3.0\sigma$).
+* **Behavioral Baseline**: Evaluates whether the mature host (`$active_days >= 7`) is opening an abnormal number of outbound connections compared to its personal 30-day baseline ($Z_{\text{flows}} \ge 3.0\sigma$).
 
 ### C. Payload Density & Elephant Flow Classification
 By combining observed outbound bytes with observed outbound flows in Stage 1, the pipeline calculates **Payload Concentration (Bytes per Flow)**:
 
 $$\text{Payload Concentration} = \frac{\sum \text{network.sent\_bytes}}{\text{count}(\text{metadata.id}) + 0.001}$$
 
-* **Low Payload Concentration (< 2,048 bytes/flow) + High $Z_{\text{flows}}$**: Confirms lightweight C2 heartbeats, port scanning, or recon polling.
-* **High Payload Concentration (> 1,000,000 bytes/flow) + High $Z_{\text{bytes}}$**: Confirms bulk exfiltration or "Elephant Flow" data staging.
+* **Low Payload Concentration (< 2,048 bytes/flow) + High $Z_{\text{flows}}$**: Indicates micro-session connection surges, port scanning, or automated endpoint polling.
+* **High Payload Concentration (> 1,000,000 bytes/flow) + High $Z_{\text{bytes}}$**: Indicates bulk exfiltration or "Elephant Flow" data staging.
 
 ### D. Canonical Pipeline Template: `c2_beacon_flow_frequency_2stage.yl2` (Outbound Flow Surge)
 Use `templates/pipelines/c2_beacon_flow_frequency_2stage.yl2` (`build_outbound_flow_surge_query`) for daily outbound flow-count surge detection combining `metrics.network_flows_outbound` baselining with single-scan target IP/port breadth. Sub-hour callback periodicity and interval jitter hand off to `secops-statistical-hunter` `C2_BEACONING_JITTER`.

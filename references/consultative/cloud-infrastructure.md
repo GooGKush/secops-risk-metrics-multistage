@@ -24,9 +24,9 @@ Cloud security monitoring typically relies on signature-based alerts for known r
 * **Math Model**: `two_part_hurdle.yl2`
 * **How It Defeats the Blind Spot**: Catches compromised third-party vendor integrations or backup accounts that have been dormant for weeks suddenly provisioning compute or IAM roles.
 
-### Strategy C: Explosive Deletion Penalty (Asymmetric Directional Z)
+### Strategy C: Explosive Deletion Penalty (Standard Z-Score — Merged `asymmetric_directional_z.yl2`)
 * **Target Metric**: `metrics.resource_deletion_total`
-* **Math Model**: `asymmetric_directional_z.yl2`
+* **Math Model**: `standard_z_score.yl2` (`asymmetric_directional_z.yl2` merged into `standard_z_score.yl2` per `D1`)
 * **How It Defeats the Blind Spot**: Specifically isolates mass resource teardown events ($Z > 3.0\sigma$) while completely suppressing alerts when deletion volume is zero or nominal.
 
 ---

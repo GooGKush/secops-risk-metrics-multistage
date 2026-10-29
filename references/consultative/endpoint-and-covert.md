@@ -14,14 +14,14 @@ EDR rules are predominantly binary and signature-oriented:
 
 ## 2. The Behavioral Antidotes
 
-### Strategy A: Time-of-Day Contextualization (Hourly Temporal Z-Score)
+### Strategy A: Off-Hours Adaptive Schedule Tightening (or `HOUR_OF_DAY_PROFILE` Handoff)
 * **Target Metric**: `metrics.file_executions_total`
-* **Math Model**: `hourly_temporal_zscore.yl2`
-* **How It Defeats the Blind Spot**: Couples the 30-day macro daily baseline (`period: 1d, window: 30d`, scaled to an hourly expectation $\mu_{\text{hr}} = \mu_{\text{day}} / 24.0, \sigma_{\text{hr}} = \sigma_{\text{day}} / \sqrt{24}$) with micro-hour (`by 1h`) Stage 1 bucket localization (`timestamp.get_hour`), pinpointing the exact hour an anomalous execution spike occurred.
+* **Math Model**: `adaptive_context_threshold.yl2` (`hourly_temporal_zscore.yl2` retired per `D1`; per-hour-of-day profiling hands off to `secops-statistical-hunter` `HOUR_OF_DAY_PROFILE`)
+* **How It Defeats the Blind Spot**: Evaluates each execution's local hour and weekday in `{{tenant_tz}}`, tightening the significance gate from `3.0σ` in business hours to `1.75σ` during off-hours or weekends.
 
-### Strategy B: Rare Process Prevalence (Poisson Rarity / Fleet Prevalence Shield)
+### Strategy B: Rare Process Prevalence (Derived File Prevalence / Poisson Rarity)
 * **Target Metric**: `metrics.file_executions_success`
-* **Math Model**: `fleet_prevalence_shield.yl2` or `poisson_rarity.yl2`
+* **Math Model**: `hybrid_metric_derived_file_prevalence_2stage.yl2`, `hybrid_metric_fleet_prevalence_2stage.yl2`, or `poisson_rarity.yl2` (single-plane `fleet_prevalence_shield.yl2` retired per `D1`)
 * **How It Defeats the Blind Spot**: Evaluates both the rarity of the SHA256 binary for that specific host and its global prevalence across the entire organization (`artifact.prevalence.rolling_max <= 3`).
 
 ### Strategy C: Stealth Alert Frequency Drift (Longitudinal CUSUM)

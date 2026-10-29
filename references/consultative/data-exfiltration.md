@@ -19,10 +19,10 @@ Static detection rules designed to detect data loss rely almost exclusively on h
 * **Math Model**: `longitudinal_cusum.yl2`
 * **How It Defeats the Blind Spot**: Accumulates deviations above a reference slack parameter ($k = 0.5\sigma$) across multiple consecutive days ($S_t^+ = \max(0, S_{t-1}^+ + Z_t - k)$). Even if daily transfers stay comfortably within nominal levels, sustained deviations cause $S_t^+$ to cross the alert boundary ($H \ge 4.0\sigma$).
 
-### Strategy B: The Shock Absorber (Piecewise CRI)
+### Strategy B: Heavy-Tailed Hoarding Breakout (`mad.yl2` + Canonical CRI)
 * **Target Metric**: `metrics.workspace_total_download_actions`
-* **Math Model**: `piecewise_cri.yl2`
-* **How It Defeats the Blind Spot**: Standard linear Z-scores produce excessive false alarms on jumpy baselines. Piecewise CRI applies a 3-zone curve: Zone 1 ($Z < 2.0$) absorbs operational variance; Zone 2 ($2.0 \le Z < 4.0$) alerts the SOC; Zone 3 ($Z \ge 4.0$) applies an exponential penalty for massive exfiltration events.
+* **Math Model**: `mad.yl2` / `standard_z_score.yl2` (`piecewise_cri.yl2` retired per `D1`; severity tiering computed via Python `ueba_constants.calculate_cri`)
+* **How It Defeats the Blind Spot**: Median-anchored Modified Z (`$modified_z >= 3.5`) resists historic bulk-job inflation while canonical sigmoid CRI (`Z = 3.0 -> 50`) normalizes severity onto `[0, 100]`.
 
 ### Strategy C: Covert Payload Detection (Poisson-Gamma Bayesian)
 * **Target Metric**: `metrics.dns_bytes_outbound`

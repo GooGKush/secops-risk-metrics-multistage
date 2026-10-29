@@ -95,7 +95,7 @@ $$
    * **Interpretation**: Massive breakout or dormant zero-baseline awakening. The entity is exhibiting behavior completely alien to its historical profile.
    * **Action**: High-priority incident response escalation. Isolate host or suspend user credentials if paired with suspicious command-line artifacts.
 
-> **In-Query Discrete Step Ladder (`templates/stage2_math_models/piecewise_cri.yl2`)**: When a query computes a discrete step-function approximation directly inside YARA-L (`$cri_score`), it maps the same 5 operational tiers onto representative midpoint scores: `95` (`CRITICAL`, $Z \ge 6.0$), `85` (`HIGH`, $4.5 \le Z < 6.0$), `65` (`MEDIUM`, $3.0 \le Z < 4.5$), `40` (`LOW`, $2.0 \le Z < 3.0$), `15` (`INFORMATIONAL`, $0.0 < Z < 2.0$), and `0` (`NOMINAL`, $Z \le 0.0$).
+> **Retirement Note (`D1` / `WS7-01` — `templates/stage2_math_models/piecewise_cri.yl2` Retired)**: The legacy in-query discrete step-ladder template (`piecewise_cri.yl2`) is **retired** under `D1`. CRI is computed exclusively in Python post-processing via `ueba_constants.calculate_cri` (with canonical tier boundaries `26 / 46 / 70 / 90`, `Z <= 0 -> 0`, and `N/A` for boolean novelty or missing data).
 
 ---
 

@@ -1,27 +1,28 @@
 # Statistical Models Taxonomy & Mathematical Foundations
 
-This reference defines the mathematical formulations, operational threat translations, **"Down-to-Earth" pre-flight consultative explanations**, and **post-hunt plain-English cyber impact statements** across all 17 Stage 2 mathematical models and Multi-Stage DAG Pipeline architectures (2-Stage, 3-Stage, and 4-Stage).
+This reference defines the mathematical formulations, operational threat translations, **"Down-to-Earth" pre-flight consultative explanations**, **post-hunt plain-English cyber impact statements**, and `D1` dispositions across all 14 active Stage 2 mathematical models (`templates/stage2_math_models/*.yl2`) and all 34 Multi-Stage DAG Pipeline templates (`templates/pipelines/*.yl2`).
 
 ---
 
 ## 🗺️ Execution Framework Summary: Built-in Anomaly Models & Security Outcomes
 
-The Google SecOps Multi-Stage Risk Analytics Engine provides 12 distinct categories of behavioral anomaly models designed to detect malicious patterns without generating false positives on legitimate baseline shifts:
+The Google SecOps Multi-Stage Risk Analytics Engine provides 13 categories of behavioral anomaly models and `D1` routing dispositions designed to detect malicious patterns without generating false positives on legitimate baseline shifts:
 
 | Anomaly Archetype | Built-In Mathematical Models | Target Telemetry Vectors | Primary Security Outcome & Use Case |
 | :--- | :--- | :--- | :--- |
-| **1. 📈 Volumetric Surges** | `STANDARD_Z_SCORE`, `MAD`, `QUANTILE_IQR_SKEW` | Network Egress, File Touches, HTTP Queries | Detects data exfiltration spikes and ransomware staging while insulating against skewed distributions. |
-| **2. 📊 Baseline Dispersion Screen** | `VARIANCE` (Fano Factor $F = \sigma^2/\mu$) | Count-Based Baselines (`event_count_sum`) | 30-day **baseline dispersion screen** (`NO-GATE`, independent of today's value) testing Poisson ($F \approx 1.0$) vs overdispersed ($F > 2.0$) baselines. Active spray hunts belong in `secops-statistical-hunter` `POISSON_BURST_CLUSTERING`. |
-| **3. 🎯 Rare & Discrete Inceptions** | `POISSON_RARITY` ($Z_P = (k-\lambda)/\sqrt{\lambda}$) | Process Launches, Admin LOLBins | Flags executions of rare tools (`powershell`, `vssadmin`) on quiet servers with near-zero expected rates ($\lambda \le 2.0$). |
-| **4. 🧠 Sparse Activity Regularization** | `BAYESIAN_GAMMA`, `BAYESIAN_BETA_BINOMIAL` | Low-Volume Service Accounts, Auth Ratios | Regularizes sparse observations via 30-day prior stability, preventing false alarms on quiet accounts with low sample sizes. |
-| **5. 💧 Sub-Threshold Drift Accumulation** | `LONGITUDINAL_CUSUM` ($S_t^+ = \max(0, S_{t-1}^+ + Z_t - k)$) | Network Bytes, Cloud Resource CRUD | Uncovers low-and-slow data exfiltration or privilege creeping that stays below daily $3\sigma$ alerting hurdles but accumulates massive multi-day drift. |
-| **6. 🚪 Zero-Inflated Dormant Awakening** | `TWO_PART_HURDLE` | Inactive Accounts, Service Accounts | Applies a severe discrete penalty when a dormant account wakes up, while transitioning to continuous volume intensity once active. |
+| **1. 📈 Volumetric & Fold-Change Surges** | `STANDARD_Z_SCORE`, `MAD`, `QUANTILE_IQR_SKEW`, `RELATIVE_DEVIATION`, `COEFFICIENT_OF_VARIATION` | Network Egress, File Touches, HTTP Queries | Detects data exfiltration spikes, regular-volume breakouts, and ransomware staging while insulating against skewed distributions. |
+| **2. 📊 Baseline Dispersion Screen** | `VARIANCE` (Fano Factor $F = \sigma^2/\mu$, `variance_fano.yl2`) | Count-Based Baselines (`event_count_sum`) | 30-day **baseline dispersion screen** (`NO-GATE`, independent of today's value) testing Poisson ($F \approx 1.0$) vs overdispersed ($F > 2.0$) baselines. Active spray hunts belong in `secops-statistical-hunter` `POISSON_BURST_CLUSTERING`. |
+| **3. 🎯 Rare & Discrete Inceptions** | `POISSON` (`poisson_rarity.yl2`), `FIRST_SEEN_NOVELTY` (`first_seen_novelty.yl2`) | Process Launches, Admin LOLBins, App Logins | Flags rare discrete count breakouts ($\lambda = S/30$) and first-time 30d entity/sub-key sightings (`first_seen = 0`, boolean novelty flag, never $\sigma$). |
+| **4. 🧠 Sparse Activity Regularization** | `BAYESIAN_GAMMA`, `BAYESIAN_BETA_BINOMIAL` | Low-Volume Service Accounts, Paired Fail/Total Ratios | Regularizes sparse observations via fleet Empirical Bayes priors (`Gamma(alpha0, beta0)` and paired `Beta(alpha0, beta0)`), preventing `1/1` single-trial false alarms. |
+| **5. 💧 Sub-Threshold Drift Accumulation** | `LONGITUDINAL_CUSUM` ($W = \sum \max(0, Z_t - 0.5)$ + `scripts/cusum_helper.py` $S_t^+$) | Network Bytes, Cloud Resource CRUD, Alerts | Uncovers low-and-slow data exfiltration or privilege creeping across 2–30 days (`Mode A` blocked). |
+| **6. 🚪 Zero-Inflated Dormant Awakening** | `TWO_PART_HURDLE` (`two_part_hurdle.yl2`) | Inactive Accounts, Service Accounts | Applies a volume-gated discrete awakening hurdle (`$observed >= min_awakening_volume` and `> hist_max`) when a dormant account wakes up, transitioning to rectified intensity Z once mature (`$active_days >= 7`). |
 | **7. 🔼 One-Sided Upper-Tail Spikes** | `STANDARD_Z_SCORE` (merged `ASYMMETRIC_DIRECTIONAL_Z`) | Bandwidth, File Touches, Process Runs | Upper-tail positive $Z \ge 3.0$ concentrates risk exclusively on volumetric surges so weekend quiescence never triggers alerts. |
-| **8. 🛡️ Concurrency Immunity & Suppression** | `HYBRID_METRIC_FLEET_PREVALENCE_2STAGE`, `DUAL_BASELINE_3STAGE` | Process Executions, Workstation Egress | Disarms false positives during enterprise rollouts via token-scoped `DERIVED_CONTEXT` prevalence or fleet-wide $\Delta Z = Z_{\text{personal}} - Z_{\text{fleet}}$. |
-| **9. 🌙 Context-Modulated Sensitivity** | `ADAPTIVE_CONTEXT_THRESHOLD` | Off-Hours Logins, Weekend Bandwidth | Dynamically tightens detection hurdles (lowering threshold from $3.0\sigma$ to $1.75\sigma$) during high-risk off-hours or quiet shifts. |
-| **10. 🎯 Calibrated Severity Tiering** | `ueba_constants.calculate_cri` *(retired `PIECEWISE_CRI`)* | Post-Query Triage Reporting | Translates standardized deviations into canonical $[0, 100]$ SOC severity bands in Python reporting (`WS7-01`). |
-| **11. 🚀 Above-Historical-Max Z** | `MACD_MOMENTUM_VELOCITY` ($Z_{\text{personal}} + Z_{\text{above\_max}}$) | Network Egress, Auth Attempts, DNS Volumes | Catches linear peak exceedance where today's volume breaks out beyond both the 30-day mean and the 30-day historical maximum. |
-| **12. ⏰ Per-Hour-of-Day Profiling** | Handoff to `HOUR_OF_DAY_PROFILE` *(retired `CIRCADIAN_VON_MISES`)* | Off-Hours Authentication, Weekend Bandwidth | Hands off sub-day temporal profiling to `secops-statistical-hunter` `HOUR_OF_DAY_PROFILE` (`D1` / `PF-10`). |
+| **8. 🛡️ Concurrency Immunity & Suppression** | `hybrid_metric_fleet_prevalence_2stage.yl2`, `dual_baseline_delta_z_3stage.yl2` | Process Executions, Workstation Egress | Disarms false positives during enterprise rollouts via token-scoped prevalence dampening or fleet-wide $\Delta Z = Z_{\text{personal}} - Z_{\text{fleet}}$. |
+| **9. 🌙 Context-Modulated Sensitivity** | `ADAPTIVE_CONTEXT_THRESHOLD` (`adaptive_context_threshold.yl2`) | Off-Hours Logins, Weekend Bandwidth | Evaluates event local hour/weekday in `{{tenant_tz}}`, tightening detection hurdles from $3.0\sigma$ in business hours to $1.75\sigma$ during off-hours or weekends. |
+| **10. 🎯 Calibrated Severity Tiering** | `ueba_constants.calculate_cri` *(retired `piecewise_cri.yl2`)* | Post-Query Triage Reporting | Translates standardized deviations into canonical $[0, 100]$ SOC severity bands (`26 / 46 / 70 / 90`) in Python reporting (`WS7-01`). |
+| **11. 🚀 Above-Historical-Max Z** | `MACD_MOMENTUM_VELOCITY` (`macd_momentum_velocity.yl2`) | Network Egress, Auth Attempts, DNS Volumes | Catches linear peak exceedance ($Z_{\text{personal}} + Z_{\text{above\_max}}$) where today's volume breaks out beyond both the 30-day mean and the 30-day historical maximum. |
+| **12. ⏰ Per-Hour-of-Day Profiling** | Handoff to `HOUR_OF_DAY_PROFILE` *(retired `hourly_temporal_zscore.yl2`, `circadian_von_mises.yl2`)* | Off-Hours Authentication, Sub-Day Cadence | Hands off per-hour-of-day profiling to `secops-statistical-hunter` `HOUR_OF_DAY_PROFILE` (`D1` / `PF-10`). |
+| **13. 📡 Outbound Flow Surge** | `c2_beacon_flow_frequency_2stage.yl2` (**Outbound Flow Surge**) | Outbound Network Sessions (`network_flows_outbound`) | Detects daily outbound connection-count surges and destination breadth; sub-hour C2 callback jitter hands off to `secops-statistical-hunter` `C2_BEACONING_JITTER`. |
 
 > [!TIP]
 > **Ask for more information** if you would like a deep dive on how any of these specific models help expose behavioral outliers for your security use cases.
@@ -33,352 +34,256 @@ The Google SecOps Multi-Stage Risk Analytics Engine provides 12 distinct categor
 Before running a multi-stage statistical hunt, explain the approach to the security practitioner using these intuitive physical analogies:
 
 ### 1. Bayesian Belief Updating (The "Seasoned SOC Detective")
-> *"Traditional statistics looks at numbers in a vacuum. If a quiet host logs in once and fails once, a traditional detector flags a 100% failure rate alarm. Bayesian belief updating works like an experienced SOC investigator: it inspects 30 days of prior history to gauge how stable the host is, evaluates today's evidence, and assigns credibility weights to blend the past and present. If a host has a rock-solid history, it requires less evidence to confirm a real anomaly; if a host is normally noisy, it requires stronger evidence."*
+> *"If a quiet host logs in once and fails once, a naive detector flags a 100% failure rate alarm. Empirical Bayes updating works like an experienced SOC investigator: it fits a fleet-wide prior from peers, blends it with the entity's 30-day history, and requires proportionate evidence before sounding an alarm—while still firing immediately on a genuine `+10σ` breakout."*
 
 ### 2. Dual-Baseline & Fleet Prevalence (The "Patch Tuesday Storm Shelter")
-> *"If an earthquake shakes an entire city, one swaying building isn't broken—the whole city moved. If Microsoft pushes Patch Tuesday or IT deploys a software agent, hundreds of workstations spike together. A single-baseline detector sounds thousands of false alarms. Our fleet-prevalence and dual-baseline models compare the host's personal spike against the concurrent fleet surge today. If the whole fleet spiked together, the alert is suppressed; if only one host spiked while the rest were quiet, it flags a targeted attack."*
+> *"If Microsoft pushes Patch Tuesday or IT deploys a software agent, hundreds of workstations spike together. Our token-scoped fleet-prevalence (`hybrid_metric_fleet_prevalence_2stage.yl2`) and dual-baseline (`dual_baseline_delta_z_3stage.yl2`) pipelines compare the host's personal spike against concurrent fleet adoption today. If the whole fleet moved together, the alert is suppressed; if one host spiked alone, it flags a targeted attack."*
 
 ### 3. Longitudinal CUSUM Drift (The "Slow Leaking Faucet")
-> *"If a burglar steals a safe in broad daylight, alarms go off instantly ($Z > 4.0$). But what if an insider steals one teaspoon of water a day? Daily threshold alerts will never fire because each daily drop is within normal variance ($Z \approx 1.5$). CUSUM (Cumulative Sum Control Chart) acts like a bucket under the faucet: it allows a safe margin of daily slack ($k = 0.5\sigma$) and accumulates the remaining excess day after day. Once the bucket overflows, it flags the low-and-slow exfiltration."*
+> *"If an insider exfiltrates a small slice of data each day ($Z \approx 1.5\sigma$), single-day $3\sigma$ alerts never fire. Longitudinal CUSUM screens mature entities with the lossless Windowed Slack Sum prefilter $W = \sum \max(0, Z_t - 0.5)$ and evaluates exact sequential Page's CUSUM $S_t^+$ in `scripts/cusum_helper.py` (including quiet 0-event days) until the accumulated drift crosses the ARL-calibrated threshold $h$."*
 
 ### 4. Two-Part Hurdle Model (The "Tripwire & Siphon")
-> *"Imagine an abandoned storage room. If a burglar steps across the threshold, that very first step trips a sensor—regardless of how quietly they walk. That is Part 1: the discrete Bernoulli hurdle for dormant accounts. Once inside, Part 2 measures how much furniture they load onto their truck (continuous volume intensity). Combining them ensures a dormant account waking up is flagged immediately, while actively used accounts are judged by their volume deviation."*
+> *"For dormant accounts (`$active_days < 7`), Part 1 acts as a volume-gated tripwire requiring both a meaningful awakening count (`min_awakening_volume`) and an exceedance above any prior 30-day peak. For mature accounts (`$active_days >= 7`), Part 2 measures rectified positive volume intensity."*
 
-### 5. Asymmetric Directional Z (The "One-Way Valve / ReLU")
-> *"In security, anomalies aren't symmetrical. A server downloading 10x its normal data is a red alert; a server downloading 0.1x its normal data over Christmas is completely harmless. Two-tailed models sound alerts when an employee goes on vacation because their volume 'dropped significantly.' Our one-sided ReLU model behaves like a one-way electrical diode: it clamps negative deviations to zero, focusing 100% of analytical power on upper-tail malicious spikes."*
+### 5. One-Sided Upper-Tail Z (Merged `ASYMMETRIC_DIRECTIONAL_Z` -> `STANDARD_Z_SCORE`)
+> *"A server uploading 10× its normal data is a security alert; uploading 0.1× over a holiday weekend is benign. Upper-tail positive thresholding ($Z \ge 3.0\sigma$) focuses analytical power on upward surges without firing on quiet-day drops (which is why `asymmetric_directional_z.yl2` was merged into `standard_z_score.yl2` under `D1`)."*
 
-### 6. Distortion-Proof Severity Tiering (The "Shock Absorber & Incident Richter Scale")
-> *"An ultra-quiet account with a tiny baseline standard deviation ($\sigma \approx 0.02$) that logs in 3 times can produce an absurd raw Z-score of $+85.0\sigma$, while a 100 GB database exfiltration on a busy server might only produce $+4.1\sigma$. If you sort by raw Z-score, trivial noise buries catastrophic breaches. This model acts as a shock absorber: it clamps extreme outliers to a sane range $[-4.0, +6.0]$ and translates deviations directly into a 0–100 Incident Richter Scale with clear SOC action playbooks."*
+### 6. Calibrated Risk Index (The "0–100 Incident Richter Scale")
+> *"Unbounded raw Z-scores make cross-sector triage difficult. Python post-processing (`ueba_constants.calculate_cri`) maps Z-equivalent scores onto a monotonic `[0, 100]` logistic S-curve anchored at `Z = 3.0 -> CRI 50` (`Z <= 0 -> 0`; retired in-query `piecewise_cri.yl2`)."*
 
 ### 7. Adaptive Context Thresholding (The "Night Sentry")
-> *"During daytime business hours, an office building has delivery trucks, visitors, and employees coming and going; security requires a high bar of suspicion ($3.0\sigma$) to avoid false alarms. But at 3:00 AM on Sunday, the same building is dead quiet. A single flashlight beam is suspicious. The adaptive context model dynamically tightens sensitivity hurdles—dropping the detection threshold from $3.0\sigma$ to $1.75\sigma$ when an account operates outside its established active schedule."*
+> *"During weekday business hours (`08:00–18:00` in `{{tenant_tz}}`), normal operational traffic warrants a $3.0\sigma$ gate. At 3:00 AM or on Sunday, the building should be quiet—so `adaptive_context_threshold.yl2` tightens the effective gate to $1.75\sigma$ whenever $\ge 50\%$ of observed activity occurs off-schedule."*
 
 ### 8. Multi-Sector Threat Fusion (The "Combined Arms Threat Radar")
-> *"Attackers don't stay in one lane: they spray passwords, resolve odd domains, and exfiltrate data. If they do each step quietly, single-silo alerts never trigger. Our 4-stage pipeline calculates an orthogonal threat distance combining two signals for the same user or host (for example IAM and Network, or DNS and Web) into a single unified incident score."*
+> *"Attackers chain sub-threshold actions across multiple telemetry planes. Our fusion pipelines compute the rectified Euclidean Threat Distance $D = \sqrt{\sum \max(0, Z_i)^2}$ across sectors on the same entity (noting that positively correlated sectors such as Network + DNS + Web increase joint tail rates relative to independent $\chi^2_k$ assumptions)."*
 
-### 9. MACD Dual-Spine Momentum (The "Highway Speedometer vs Cruise Control")
-> *"Cruise control keeps a car at 65 MPH. If the car gradually climbs a gentle hill, the speedometer nudges slightly ($Z \approx 1.2$). But if the driver stomps on the accelerator and blasts past 110 MPH, the instantaneous needle flies completely away from the historical cruise setting. The MACD Dual-Spine model compares today's fast speed needle against the slow 30-day cruise setting and past speed records. If today's acceleration breaks past the historical maximum, it flags high-velocity momentum divergence."*
+### 9. Above-Historical-Max Z (`MACD_MOMENTUM_VELOCITY` — "Breaking the 30-Day Record")
+> *"When an entity's daily volume not only exceeds its 30-day average ($Z_{\text{personal}}$) but also shatters its highest single-day peak from the prior 30 days ($Z_{\text{above\_max}}$), `macd_momentum_velocity.yl2` sums both linear standardized terms without risking quadratic byte overflow."*
 
-### 10. Circadian von Mises Temporal Distance (The "24-Hour Circular Clock Face")
-> *"If you use standard grade-school subtraction on time, 11:00 PM (23:00) and 1:00 AM (01:00) look 22 hours apart ($|23 - 1| = 22$). But on a round wall clock, they are right next to each other—only 2 hours apart! Linear math fails completely on time of day. The von Mises model treats time like a circular clock face. It measures the shortest arc distance around the circle and applies quadratic scaling, smoothly penalizing actions that occur far away from an entity's normal daytime hours (like 3:00 AM) while treating 11:00 PM and 1:00 AM as natural neighbors."*
+### 10. Per-Hour-of-Day Profiling (`D1` Handoff to `HOUR_OF_DAY_PROFILE`)
+> *"Because `metrics.*` pre-computes daily `00:00Z` baselines (`PF-10`), true 24-bin hour-of-day profiling requires multi-day hourly raw event baselines. Legacy `hourly_temporal_zscore.yl2` and `circadian_von_mises_2stage.yl2` are retired under `D1` and hand off cleanly to `secops-statistical-hunter` `HOUR_OF_DAY_PROFILE`."*
 
 ---
 
-## 1. Parametric Standard Z-Score (`STANDARD_Z_SCORE`)
-* **Security Problem Solved**: Detects abrupt volumetric explosions exceeding an entity's personal 30-day baseline.
+## 1. Parametric Standard Z-Score (`STANDARD_Z_SCORE` — `standard_z_score.yl2`)
+* **Security Problem Solved**: Detects abrupt volumetric explosions exceeding a mature entity's personal 30-day active-day baseline (`$active_days >= 7`, `D8`).
 * **Mathematical Formulation**:
-  $$Z = \frac{x - \mu}{\sigma_{\text{safe}}}, \quad \sigma_{\text{safe}} = \text{if}(\sigma > 0, \sigma, 1.0)$$
-* **Where**:
-  * $x$: Observed 24h activity (`$stage1_extract.observed_val`)
-  * $\mu$: Historical 30d mean (`$stage1_extract.historical_avg`)
-  * $\sigma$: Historical 30d standard deviation (`$stage1_extract.historical_stddev`)
-* **Threat Meaning**: Top $0.13\%$ statistical anomaly ($Z \ge 3.0$) on normally distributed telemetry (total logins, general process counts).
+  $$\sigma_{\text{floor}} = \begin{cases} \sqrt{\max(\mu, 1.0)} & \text{count metrics} \\ \sigma_{\text{byte\_floor}} & \text{byte metrics} \end{cases}, \quad \sigma_{\text{safe}} = \max(\sigma, \sigma_{\text{floor}}), \quad Z = \frac{x - \mu}{\sigma_{\text{safe}}}$$
+* **Threat Meaning**: Upper-tail anomaly ($Z \ge 3.0\sigma$) gated on `$active_days >= 7` so zero-variance (`σ = 0`) or cold-start (`n < 7`) entities never produce artificial blowups.
 * **Post-Hunt Plain-English Cyber Impact Statement Template**:
 ```markdown
 > [!IMPORTANT]
 > **Parametric Baseline Surge Verdict: Standard Z-Score (`[target_metric]`)**
-> * **Personal Activity**: Entity `[entity]` performed **[observed]** actions today against a 30-day average of **[hist_avg]** (baseline $\sigma = [hist_stddev]$).
-> * **Standardized Deviation**: **[personal_z]σ** (Peak surge ratio: **[peak_surge_ratio]×** historical max).
-> * **Investigative Meaning**: Statistically confirmed volume explosion exceeding normal operational baseline by [personal_z] standard deviations.
+> * **Personal Activity**: Entity `[entity]` performed **[observed]** actions against a 30-day active-day mean of **[hist_avg]** ($\sigma = [hist_stddev]$, active days = **[active_days]**).
+> * **Standardized Deviation**: **[personal_z]σ** above baseline.
+> * **Investigative Meaning**: Statistically confirmed volume breakout exceeding mature 30-day operational history.
 ```
 
 ---
 
-## 2. Median Absolute Deviation (`MAD` / Modified Z-Score)
-* **Security Problem Solved**: Detects volumetric surges on heavily skewed or heavy-tailed telemetry (network egress bytes, DNS volumes) where a few historic massive bulk transfers distort and inflate the standard arithmetic mean.
+## 2. Median Absolute Deviation (`MAD` — `mad.yl2` & `mad_robust_z_4stage.yl2`)
+* **Security Problem Solved**: Detects volumetric surges on heavy-tailed telemetry (network egress bytes, DNS volumes) where historic bulk transfers inflate the arithmetic mean and standard deviation (50% breakdown point).
 * **Mathematical Formulation** (Iglewicz & Hoaglin):
   $$\tilde{x} = \text{median}(x_d), \quad \text{MAD} = \text{median}(|x_d - \tilde{x}|), \quad M_z = \frac{x - \tilde{x}}{\text{MAD}/0.6745}$$
-* **Where**:
-  * $x_d$ = the entity's daily values over the raw search window (~30d); computed natively with `window.median(..., false)` in stages `mad_center` → `mad_spread` (`stage2_math_models/mad.yl2`).
-  * MAD $= 0$ → scale $= 1.253314 \cdot \text{meanAD}$; both $0$ → $0.05\,\tilde{x} + 1$.
-  * Significance: $M_z \ge 3.5$. Reported next to the 30d metrics $Z$; `$z_gap` $= M_z - Z$.
-* **Threat Meaning**: Robust outlier detection resilient to historic masking (50% breakdown point). A large positive `$z_gap` means past bursts inflated the 30d mean/stddev and the classical $Z$ was hiding the anomaly.
-* **Related, NOT MAD**: `RELATIVE_DEVIATION` (`relative_deviation.yl2`) reports the fold change $(x-\mu)/\mu$ against the 30d mean.
+  * Computed over the ~30d raw search window (`mad_center` $\to$ `mad_spread`); MAD $= 0$ falls back to $1.253314 \cdot \text{meanAD}$, then $0.05\,\tilde{x} + 1.0$.
+  * Pre-scoring raw active-day `$personal_z` (`$in_scoring_window = 0`, `WS1-03`) provides an unstale `$z_gap = M_z - Z_{\text{raw}}$ cross-check without `[D0 - 59d, D0 - 29d)` anchor shift.
 * **Post-Hunt Plain-English Cyber Impact Statement Template**:
 ```markdown
 > [!IMPORTANT]
 > **Robust Non-Parametric Surge Verdict: MAD (`[target_metric]`)**
-> * **Observed Transfer**: Entity `[entity]` transferred **[observed] bytes/events** today.
-> * **Robust Deviation**: **[modified_z]** robust σ above the 30-day median of **[median_val]** (MAD = **[mad]**), versus a classical **[personal_z]σ** against the 30-day mean (gap **[z_gap]**).
-> * **Investigative Meaning**: High-confidence volume breakout on heavy-tailed telemetry that evades parametric Gaussian averaging traps.
+> * **Observed Transfer**: Entity `[entity]` recorded **[observed]** units on the scored day.
+> * **Robust Deviation**: **[modified_z]** Modified Z above the 30-day median **[median_val]** (MAD = **[mad]**, pre-scoring classical $Z = [personal_z]\sigma$, gap = **[z_gap]**).
+> * **Investigative Meaning**: Heavy-tailed volume breakout exposed despite historic burst contamination.
 ```
 
 ---
 
-## 3. 30-Day Baseline Dispersion Screen (`VARIANCE` / `FANO_FACTOR`)
-* **Purpose**: Provides a `NO-GATE` **baseline dispersion screen** over the 30-day pre-computed baseline ($F = \sigma^2 / \mu$, independent of today's `$observed` count) to verify whether an entity's daily baseline satisfies Poisson dispersion ($F \le 2.0$) or requires an overdispersed / robust model (`MAD`, `QUANTILE_IQR_SKEW`, or negative-binomial scaling). Active credential spray and brute-force hunts belong in `secops-statistical-hunter` `POISSON_BURST_CLUSTERING`.
+## 3. 30-Day Baseline Dispersion Screen (`VARIANCE` — `variance_fano.yl2`)
+* **Purpose**: Provides a `NO-GATE` **baseline dispersion screen** over the 30-day pre-computed baseline ($F = \sigma^2 / \mu$, independent of today's `$observed` count) to test whether an entity's daily baseline satisfies Poisson dispersion ($F \le 2.0$) or requires an overdispersed / robust model (`MAD`, `QUANTILE_IQR_SKEW`, or negative-binomial scaling). Active credential spray and brute-force hunts route to `secops-statistical-hunter` `POISSON_BURST_CLUSTERING`.
 * **Mathematical Formulation**:
-  $$F = \frac{\sigma^2}{\lambda_{\text{safe}}}, \quad \lambda_{\text{safe}} = \text{if}(\lambda > 0, \lambda, 1.0)$$
-* **Baseline Interpretation**:
-  * $F \approx 1.0$: Poisson-compatible historical arrival variance (appropriate for `POISSON`).
-  * $F > 2.0$: Overdispersed multi-day baseline (clumpy batch workloads or volatile daily totals; prefer negative-binomial scaling, `MAD`, or `QUANTILE_IQR_SKEW`).
-  * $F < 1.0$: Underdispersed regular daily baseline (candidate for `COEFFICIENT_OF_VARIATION` regular-volume surge).
-* **Post-Hunt Plain-English Baseline Screen Statement Template**:
-```markdown
-> [!IMPORTANT]
-> **Baseline Dispersion Screen: 30-Day Fano Factor (`[target_metric]`)**
-> * **Dispersion Index (F)**: **[fano_factor]** (30-day baseline mean $\lambda \approx [lambda]$, variance $\sigma^2 \approx [variance]$; `NO-GATE` baseline screen independent of today's count).
-> * **Baseline Regime**: Historical daily totals exhibit overdispersion ($F > 2.0$) rather than unit-ratio Poisson variance ($F \approx 1.0$).
-> * **Operational Routing**: Use `MAD` or `QUANTILE_IQR_SKEW` for volumetric anomaly scoring on overdispersed entities; route active credential spray or sub-hour burst hunts to `secops-statistical-hunter` `POISSON_BURST_CLUSTERING`.
-```
+  $$F = \frac{\sigma^2}{\max(\lambda, 1.0)}$$
 
 ---
 
-## 4. Discrete Poisson / Negative-Binomial Rarity Score (`POISSON_RARITY`)
-* **Security Problem Solved**: Quantifies the improbability of observing rare discrete count events (`metric: event_count_sum`; blocked on `value_sum` byte metrics) while guarding against overdispersed baselines.
+## 4. Discrete Poisson / Negative-Binomial Rarity Score (`POISSON` — `poisson_rarity.yl2`)
+* **Security Problem Solved**: Quantifies the improbability of discrete count events (`metric: event_count_sum`; blocked on `value_sum` byte metrics) using per-calendar-day rate $\lambda = S_{30}/30$ (`PF-1`, `WS1-05`) and rebuilt 30-day calendar variance $\sigma^2_{\text{cal}}$.
 * **Mathematical Formulation**:
   $$\lambda = \frac{S_{30}}{30}, \quad \lambda_{\text{safe}} = \max(\lambda, 1.0), \quad F_{\text{cal}} = \frac{\sigma_{\text{cal}}^2}{\lambda_{\text{safe}}}, \quad Z_P = \frac{k - \lambda}{\sqrt{\text{eff\_var}}}$$
-  where $\text{eff\_var} = \max(\sigma_{\text{cal}}^2, \lambda_{\text{safe}})$ when $n \ge 2$ and $F_{\text{cal}} > 2.0$ (negative-binomial overdispersion scaling), and $\lambda_{\text{safe}}$ otherwise.
-* **Threat Meaning**: Uses true Poisson $\sqrt{\lambda}$ scaling on equidispersed rare counts ($F_{\text{cal}} \le 2.0$) and automatically widens to the rebuilt 30-day calendar variance when historical counts are clumpy ($F_{\text{cal}} > 2.0$).
-* **Post-Hunt Plain-English Cyber Impact Statement Template**:
-```markdown
-> [!IMPORTANT]
-> **Discrete Rare Inception Verdict: Poisson Rarity (`[target_metric]`)**
-> * **Execution Rarity**: Entity `[entity]` executed utility **[observed]** times today against an expected baseline arrival rate of $\lambda = [lambda]\text{ runs/day}$.
-> * **Poisson Standardized Residual**: **[poisson_z]σ**.
-> * **Investigative Meaning**: Extreme mathematical anomaly on a quiet asset; represents initial tool deployment or reconnaissance on an unaccustomed host.
-```
+  where $\text{eff\_var} = \max(\sigma_{\text{cal}}^2, \lambda_{\text{safe}})$ when $n \ge 2 \land F_{\text{cal}} > 2.0$, and $\lambda_{\text{safe}}$ otherwise.
 
 ---
 
-## 5. Regular-Volume Surge (`COEFFICIENT_OF_VARIATION`)
-* **Security Problem Solved**: Detects fold-change volume surges (`$surge_ratio >= 2.0`) specifically on entities with regular, predictable day-to-day baselines (`$cv <= 0.5`).
+## 5. Regular-Volume Surge (`COEFFICIENT_OF_VARIATION` — `coefficient_of_variation.yl2`)
+* **Security Problem Solved**: Detects fold-change volume surges (`$surge_ratio >= 2.0`) specifically on mature entities (`$active_days >= 7`) with regular, predictable day-to-day baselines (`$cv <= 0.5`). *(Renamed from CV jitter under `D1`; sub-hour callback periodicity/jitter hands off to `secops-statistical-hunter` `C2_BEACONING_JITTER`.)*
 * **Mathematical Formulation**:
-  $$CV = \frac{\sigma}{\mu_{\text{safe}}}, \quad \mu_{\text{safe}} = \text{if}(\mu > 0, \mu, 1.0)$$
-* **Threat Meaning**:
-  * $CV < 0.20$: Machine-like, highly predictable automated workload (ideal candidate for tight anomaly bounds).
-  * $CV > 1.50$: Highly volatile, unpredictable human or multi-tenant system.
+  $$\mu_{\text{safe}} = \max(\mu, 1.0), \quad \text{CV} = \frac{\sigma}{\mu_{\text{safe}}}, \quad \text{Surge Ratio} = \frac{x}{\mu_{\text{safe}}} \quad (\text{gated on } N_{\text{active}} \ge 7 \land \text{Surge Ratio} \ge 2.0 \land \text{CV} \le 0.5)$$
 * **Post-Hunt Plain-English Cyber Impact Statement Template**:
 ```markdown
 > [!IMPORTANT]
-> **Behavioral Volatility Verdict: Coefficient of Variation (`[target_metric]`)**
-> * **Relative Dispersion (CV)**: **[cv]** (Mean $\mu = [hist_avg]$, StdDev $\sigma = [hist_stddev]$).
-> * **Predictability State**: High baseline volatility indicates shifting operational profiles or dual-purpose usage.
+> **Regular-Volume Surge Verdict (`[target_metric]`)**
+> * **Fold-Change Breakout**: Mature entity `[entity]` (`[active_days]` active days, baseline $\text{CV} = [cv] \le 0.50$) surged to **[surge_ratio]×** its regular 30-day average (**[observed]** vs **[hist_avg]**).
+> * **Investigative Meaning**: Acute volume departure on a normally steady, low-variance workload.
 ```
 
 ---
 
-## 6. Intra-Day Hourly Burst Localization (`HOURLY_TEMPORAL_ZSCORE`)
-* **Security Problem Solved**: Pinpoints the exact 1-hour window (`by 1h`) of an intra-day volumetric burst while anchoring against the entity's 30-day macro baseline (`period: 1d, window: 30d` — the only `period`/`window` granularity supported by `metrics.*`). For true 24-hour clock phase-shift scoring around peak operating hours, pair with `CIRCADIAN_VON_MISES` (`circadian_von_mises_2stage.yl2`).
-* **Mathematical Formulation**:
-  $$Z_{\text{hourly}} = \frac{x_{\text{hour}} - \mu_{\text{baseline}}}{\sigma_{\text{baseline, safe}}}, \quad \text{Surge Ratio} = \frac{x_{\text{hour}}}{\mu_{\text{baseline, safe}}}$$
-* **Post-Hunt Plain-English Cyber Impact Statement Template**:
-```markdown
-> [!IMPORTANT]
-> **Diurnal Circadian Rhythm Verdict: Hourly Temporal Z-Score (`[target_metric]`)**
-> * **Hourly Deviation**: Activity during hour **[hour]** reached **[observed]** actions, exceeding the 30-day baseline for this specific hour by **[z_score_hourly]σ**.
-> * **Diurnal Surge Ratio**: **[hourly_surge_ratio]×** the historical hourly expectation.
-> * **Investigative Meaning**: Activity represents an acute temporal anomaly for this time of day, evading blended daily average masking.
-```
+## 6. `HOURLY_TEMPORAL_ZSCORE` (`hourly_temporal_zscore.yl2` — Retired under `D1` -> `HOUR_OF_DAY_PROFILE`)
+* **Status**: **Retired** from `secops-risk-metrics-multistage` (`D1` / `PF-10` / `WS2-02`). Comparing 1-hour buckets against `metrics.*` daily baselines introduces severe scale distortion. Route per-hour-of-day profiling to `secops-statistical-hunter` `HOUR_OF_DAY_PROFILE` (for Mode A earlier-today context on `(1h, today)`, see `WS1-13` `--intraday-hourly` in `references/multi-stage-metrics-guide.md`).
 
 ---
 
-## 7. Empirical Bayes Poisson-Gamma Shrinkage (`BAYESIAN_GAMMA`)
-* **Security Problem Solved**: Regularizes sparse arrival counts on low-volume accounts using a fleet-fitted `Gamma(α₀, β₀)` Empirical Bayes prior (`fit_gamma_prior_from_fleet`), while scoring today's count via the posterior-predictive Negative-Binomial residual so a `+10σ` breakout on a mature stable host still fires (`WS3-BAYES`).
+## 7. Empirical Bayes Poisson-Gamma Shrinkage (`BAYESIAN_GAMMA` — `poisson_gamma_bayesian.yl2`)
+* **Security Problem Solved**: Regularizes sparse arrival counts using a fleet-fitted `Gamma(α₀, β₀)` Empirical Bayes prior (`fit_gamma_prior_from_fleet`) and scores today's count via the posterior-predictive Negative-Binomial residual (`$bayesian_z >= 3.0`) so `+10σ` spikes on mature stable hosts still fire (`WS3-BAYES`, `B-E10`).
 * **Mathematical Formulation**:
   $$\hat{\lambda}_{\text{post}} = \frac{\alpha_0 + S_{30}}{\beta_0 + 30}, \quad \sigma^2_{\text{rate}} = \frac{\alpha_0 + S_{30}}{(\beta_0 + 30)^2}, \quad \sigma^2_{\text{excess}} = \max(0, \sigma^2_{\text{cal}} - \mu_{\text{cal}})$$
   $$\sigma^2_{\text{pred}} = \hat{\lambda}_{\text{post}} + \sigma^2_{\text{rate}} + \frac{n}{n + \beta_0}\sigma^2_{\text{excess}}, \quad Z_{\text{Bayes}} = \frac{k - \hat{\lambda}_{\text{post}}}{\sqrt{\max(\sigma^2_{\text{pred}}, 1.0)}}$$
-* **Post-Hunt Plain-English Cyber Impact Statement Template**:
-```markdown
-> [!IMPORTANT]
-> **Bayesian Threat Impact Verdict: Empirical Bayes Gamma-Poisson (`[target_metric]`)**
-> * **Posterior Baseline Rate**: Entity `[entity]` regularized rate is **[posterior_rate]/day** (30-day sum $S_{30} = [hist_sum]$, credibility weight **[cred_w]**).
-> * **Posterior-Predictive Residual**: Today's count of **[observed]** scored **[bayesian_z]σ** against predictive scale **[safe_pred_sd]**.
-> * **Investigative Meaning**: Statistically significant breakout above the Empirical Bayes posterior-predictive distribution.
-```
 
 ---
 
-## 8. Empirical Bayes Paired Beta-Binomial Failure Rate (`BAYESIAN_BETA_BINOMIAL`)
-* **Security Problem Solved**: Prevents `1/1 = 100%` small-sample false alarms on discrete failure proportions (`auth_attempts_*`, `dns_queries_*`, `http_queries_*`, `file_executions_*`, `resource_*`; unpaired metrics are rejected) by pairing Stage-1 failure counts `$obs_fail` and attempt totals `$obs_total` with 30-day `metrics.*` sums and a fleet-fitted `Beta(alpha0, beta0)` prior (`fit_beta_prior_from_fleet`, default $\alpha_0 = 1.0, \beta_0 = 19.0$).
+## 8. Empirical Bayes Paired Beta-Binomial Failure Rate (`BAYESIAN_BETA_BINOMIAL` — `beta_binomial_bayesian.yl2`)
+* **Security Problem Solved**: Prevents `1/1 = 100%` single-trial false alarms on discrete failure proportions (`auth_attempts_*`, `dns_queries_*`, `http_queries_*`, `file_executions_*`, `resource_*`) by pairing Stage-1 failure counts `$obs_fail` and attempt totals `$obs_total` with 30-day sums and a fleet-fitted `Beta(alpha0, beta0)` prior (`fit_beta_prior_from_fleet`, default $\alpha_0 = 1.0, \beta_0 = 19.0$).
 * **Mathematical Formulation**:
   $$\alpha_{\text{pre}} = \alpha_0 + F_{30}, \quad \beta_{\text{pre}} = \beta_0 + \max(0, N_{30} - F_{30}), \quad M = \alpha_{\text{pre}} + \beta_{\text{pre}}, \quad \hat{p}_{\text{post}} = \frac{\alpha_{\text{pre}} + f}{M + n}$$
   $$\mu_{\text{pred}} = n \cdot \frac{\alpha_{\text{pre}}}{M}, \quad \sigma_{\text{pred}}^2 = n \cdot \frac{\alpha_{\text{pre}}}{M}\cdot\frac{\beta_{\text{pre}}}{M}\cdot\frac{M + n}{M + 1}, \quad Z_{\text{BB}} = \frac{f - \mu_{\text{pred}}}{\sqrt{\max(\sigma_{\text{pred}}^2, 0.25)}}$$
-* **Post-Hunt Plain-English Cyber Impact Statement Template**:
-```markdown
-> [!IMPORTANT]
-> **Bayesian Threat Impact Verdict: Paired Beta-Binomial Failure Rate (`[target_metric]`)**
-> * **Observed vs. Regularized Rate**: Entity recorded **[obs_fail]** failures across **[obs_total]** attempts; Empirical Bayes shrinkage adjusted the posterior failure probability to **[posterior_fail_rate]**.
-> * **Posterior-Predictive Residual**: Scored **[beta_binomial_z]σ** against the Beta-Binomial predictive distribution (prior **[prior_fail_rate]**).
-> * **Investigative Meaning**: Statistically significant failure-rate surge above both fleet and personal 30-day trial history.
-```
 
 ---
 
-## 9. Multi-Day Cumulative Drift — Windowed Slack Sum (`LONGITUDINAL_CUSUM`)
-* **Security Problem Solved**: Catches low-and-slow data exfiltration, stealth credential accumulation, or slow permission creep where daily activity stays below single-day alert thresholds ($Z \approx 1.5\sigma$) but steadily bleeds data across multiple days (one YARA-L request covers up to 14 days, the multi-stage search limit).
-* **Mathematical Formulation**:
-  * **In-Query Windowed Slack Sum Prefilter (`templates/stage2_math_models/longitudinal_cusum.yl2` & `templates/pipelines/longitudinal_cusum_2stage.yl2`, `WS6-01`)**:
+## 9. Multi-Day Cumulative Drift — Windowed Slack Sum & Page CUSUM (`LONGITUDINAL_CUSUM` — `longitudinal_cusum.yl2`)
+* **Security Problem Solved**: Catches low-and-slow data exfiltration, stealth credential accumulation, or slow permission creep across 2–30 days (**Mode A blocked** — single-day CUSUM raises an error).
+* **Mathematical Formulation (`WS6-01`)**:
+  * **Lossless Windowed Slack Sum Prefilter (`longitudinal_cusum.yl2` & `longitudinal_cusum_2stage.yl2`)**:
     $$Z_d = \frac{x_d - \mu}{\sigma_{\text{safe}}}, \quad \Delta_d = \begin{cases} \max(0, Z_d - 0.5) & \text{if } N_{\text{active}} \ge 7 \\ 0 & \text{otherwise} \end{cases}, \quad W = \sum_{d=1}^{D} \Delta_d$$
-    Because Page's recursive statistic satisfies $S_t^+ \le W$, the Windowed Slack Sum $W$ is a lossless in-query prefilter while preventing cold-start / immature entities (such as `SITE-DC$`) from inflating drift sums.
-  * **Sequential Page's CUSUM (`scripts/timeline_assembler.py`)**:
-    $$S_t^+ = \max(0, S_{t-1}^+ + Z_t - k) \quad \text{across ordered daily buckets}$$
-* **Post-Hunt Plain-English Cyber Impact Statement Template**:
-```markdown
-> [!IMPORTANT]
-> **Windowed Slack Sum Drift Verdict: Multi-Day Sub-Threshold Accumulation (`[target_metric]`)**
-> * **Daily Activity**: Observed **[observed]** vs historical mean **[hist_avg]** (Daily slack allowance $k = [slack_allowance]$).
-> * **Windowed Slack Sum**: **[windowed_slack_sum]** cumulative $\sigma$-excess above $0.5\sigma$ slack across **[drift_days]** drift days.
-> * **Investigative Meaning**: Sub-threshold, persistent drift pattern detected on a mature baseline. Pass candidate series to `timeline_assembler.py` to evaluate exact recursive Page's CUSUM $S_t^+$.
-```
+    Because Page's one-sided statistic satisfies $S_t^+ \le W$, any entity with $W < h$ cannot alarm.
+  * **Exact Sequential Page's CUSUM (`longitudinal_cusum_series_3stage.yl2` + `scripts/cusum_helper.py`)**:
+    $$S_t^+ = \max(0, S_{t-1}^+ + Z_t - 0.5)$$
+    For `<= 14d`, `longitudinal_cusum_series_3stage.yl2` emits the ungated per-day series from the single start-anchored query and `scripts/cusum_helper.py` (`calculate_page_cusum_series`) reconstructs quiet `0`-event calendar days ($Z_t < 0$) against ARL-calibrated thresholds ($h = 4.0$ `BALANCED` [$\text{ARL}_0 \approx 336$], $5.0$ `HIGH_PRECISION` [$\text{ARL}_0 \approx 930$], $3.0$ `HIGH_RECALL`). For `> 14d`, ungated candidate Mode C shards are re-standardized against **Shard 1's fixed calendar-day baseline** (`rebuild_calendar_day_stats`) with explicit reset controls (`--reset-on`, `--reset-after-alarm`, `--reset-every-days`).
 
 ---
 
-## 10. Two-Part Hurdle Model for Zero-Inflated Telemetry (`TWO_PART_HURDLE`)
-* **Security Problem Solved**: Properly evaluates dormant or sparse accounts (dormant service accounts, offboarded contractors, backup admins) that have `< 7` active days (`dormant_days = 30 - active_days`, or elapsed days since `last_seen`) without letting low-volume ephemeral activity flood the ranking.
+## 10. Two-Part Hurdle Model for Zero-Inflated Telemetry (`TWO_PART_HURDLE` — `two_part_hurdle.yl2`)
+* **Security Problem Solved**: Evaluates dormant or sparse accounts (`$active_days < 7`, `dormant_days = 30 - active_days`) without letting low-volume noise outrank true surges.
 * **Mathematical Formulation**:
-  * **Part 1 (Gated Dormant Awakening Hurdle, $N_{\text{active}} < 7$)**: Requires BOTH $x \ge V_{\min}$ (`{{min_awakening_volume}}`, default `25`) AND $x > x_{\max,30\text{d}}$:
+  * **Part 1 (Dormant Awakening, $N_{\text{active}} < 7$)**: Requires BOTH $x \ge V_{\min}$ (`{{min_awakening_volume}}`, default `25`) AND $x > x_{\max,30\text{d}}$:
     $$S_{\text{dormant}} = \begin{cases} 3.0 + \ln\!\left(\max\!\left(1, \frac{x}{\max(x_{\max,30\text{d}}, V_{\min})}\right)\right) & \text{if } N_{\text{active}} < 7 \land x \ge V_{\min} \land x > x_{\max,30\text{d}} \\ 0 & \text{otherwise} \end{cases}$$
-  * **Part 2 (Rectified Active Intensity, $N_{\text{active}} \ge 7$)**: Evaluates positive rectified Gaussian Z-score with D8 dispersion floor:
-    $$Z_{\text{intensity}} = \max\!\left(0, \frac{x - \mu}{\sigma_{\text{safe}}}\right)$$
-  * **Composite Hurdle Score (own scale, not true $\sigma$)**:
-    $$\text{Hurdle Threat Score} = \text{if}(N_{\text{active}} < 7, S_{\text{dormant}}, Z_{\text{intensity}})$$
-* **Post-Hunt Plain-English Cyber Impact Statement Template**:
-```markdown
-> [!IMPORTANT]
-> **Two-Part Hurdle Verdict: Dormant Account Awakening (`[target_metric]`)**
-> * **Account State**: Entity `[entity]` was active only **[active_days]** days out of 30 (`[dormant_days]` dormant days).
-> * **Hurdle Response**: Exceeded both minimum awakening volume (`[min_awakening_volume]`) and 30d historical peak (`[hist_max]`) with **[observed]** actions, yielding a hurdle threat score of **[hurdle_threat_score]**.
-> * **Investigative Meaning**: Dormant account awakening detected. Represents potential compromised credential reactivation or rogue staging on an abandoned asset.
-```
+  * **Part 2 (Active Intensity, $N_{\text{active}} \ge 7$)**: $Z_{\text{intensity}} = \max(0, (x - \mu)/\sigma_{\text{safe}})$. Ranked on its own hurdle scale (not true $\sigma$).
 
 ---
 
-## 11. Asymmetric Directional Surge (`ASYMMETRIC_DIRECTIONAL_Z` — Merged into `STANDARD_Z_SCORE` under `D1`)
-* **Status**: Merged into `STANDARD_Z_SCORE` (`standard_z_score.yl2`) under `D1` because upper-tail positive thresholding (`$personal_z >= 3.0`) already ignores negative deviations.
+## 11. Asymmetric Directional Surge (`ASYMMETRIC_DIRECTIONAL_Z` — `asymmetric_directional_z.yl2` Merged under `D1`)
+* **Status**: Merged into `STANDARD_Z_SCORE` (`standard_z_score.yl2`) under `D1` because upper-tail positive thresholding (`$personal_z >= 3.0`) already ignores negative deviations (`SILENCE_DETECTION` / `DROP_OUT` aliases rejected as unsupported).
 
 ---
 
-## 12. Calibrated Risk Index (`PIECEWISE_CRI` — Retired from YARA-L under `D1`)
+## 12. Calibrated Risk Index (`PIECEWISE_CRI` — `piecewise_cri.yl2` Retired under `D1`)
 * **Status**: `piecewise_cri.yl2` is retired under `D1`. Calibrated Risk Index (`CRI`) is computed canonically in Python post-processing via `ueba_constants.calculate_cri` (`WS7-01`).
 
 ---
 
-## 13. Fleet Prevalence Normalization (`FLEET_PREVALENCE_SHIELD` — Retired under `D1`)
-* **Status**: Single-plane `fleet_prevalence_shield.yl2` is retired under `D1`; use token-scoped `hybrid_metric_fleet_prevalence_2stage.yl2` (`HYBRID_METRIC_FLEET_PREVALENCE_2STAGE`) or `dual_baseline_delta_z_3stage.yl2` (`DUAL_BASELINE_3STAGE`).
+## 13. Fleet Prevalence Normalization (`FLEET_PREVALENCE_SHIELD` — `fleet_prevalence_shield.yl2` Retired under `D1`)
+* **Status**: Single-plane `fleet_prevalence_shield.yl2` is retired under `D1`; use token-scoped `hybrid_metric_fleet_prevalence_2stage.yl2` or `dual_baseline_delta_z_3stage.yl2`.
 
 ---
 
-## 14. Off-Hours & Weekend Adaptive Context Thresholding (`ADAPTIVE_CONTEXT_THRESHOLD`)
-* **Security Problem Solved**: Solves the dilemma between high false positives during busy business hours and delayed detections during quiet off-hours or weekend windows (`WS3-ADAPTIVE`, `D1c`).
+## 14. Off-Hours & Weekend Adaptive Context Thresholding (`ADAPTIVE_CONTEXT_THRESHOLD` — `adaptive_context_threshold.yl2`)
+* **Security Problem Solved**: Tightens detection sensitivity during off-hours and weekends (`WS3-ADAPTIVE`, `D1c`).
 * **Mathematical Formulation**:
-  * Stage 1 evaluates each event's local hour and weekday (`timestamp.get_hour`, `timestamp.get_day_of_week`) in `{{tenant_tz}}` (default `"UTC"`, business hours `08:00–18:00` Mon–Fri `2..6`, or per-entity learned active hours from `WS5-HOD` `HOUR_OF_DAY_PROFILE`) to accumulate `$off_hours_obs`:
-    $$Z_{\text{personal}} = \frac{x - \mu}{\sigma_{\text{safe}}}, \quad s_{\text{off}} = \frac{x_{\text{off\_hours}}}{\max(x, 1)}$$
-    $$G_{\text{eff}} = \text{if}(s_{\text{off}} \ge 0.5, 1.75, 3.00), \quad Z_{\text{adaptive}} = \frac{3.0 \cdot Z_{\text{personal}}}{G_{\text{eff}}}$$
-* **Threat Meaning**: Tightens the detection gate from $3.0\sigma$ during normal business hours to $1.75\sigma$ during off-hours or weekends, rescaling onto the canonical $Z_{\text{adaptive}} \ge 3.0$ Z-equivalent scale (`CRI = 50` at threshold).
-* **Post-Hunt Plain-English Cyber Impact Statement Template**:
-```markdown
-> [!IMPORTANT]
-> **Adaptive Context Sensitivity Verdict: Off-Hours Tightening (`[target_metric]`)**
-> * **Schedule Context**: **[off_hours_share]** of today's activity occurred outside the entity's active business schedule (`{{tenant_tz}}`).
-> * **Effective Gate**: Sensitivity tightened from $3.00\sigma$ to **[effective_gate]σ** (Z-equivalent adaptive score **[adaptive_z]**).
-> * **Investigative Meaning**: Activity represents a critical off-hours or weekend deviation that would have been missed by static daytime alerting thresholds.
-```
+  * Stage 1 evaluates each event's local hour and weekday (`timestamp.get_hour`, `timestamp.get_day_of_week`) in `{{tenant_tz}}` (default `"UTC"`, business hours `08:00–18:00` Mon–Fri `2..6`, or per-entity learned active hours from `WS5-HOD` `HOUR_OF_DAY_PROFILE`):
+    $$Z_{\text{personal}} = \frac{x - \mu}{\sigma_{\text{safe}}}, \quad s_{\text{off}} = \frac{x_{\text{off\_hours}}}{\max(x, 1)}, \quad G_{\text{eff}} = \text{if}(s_{\text{off}} \ge 0.5, 1.75, 3.00), \quad Z_{\text{adaptive}} = \frac{3.0 \cdot Z_{\text{personal}}}{G_{\text{eff}}}$$
 
 ---
 
-## 15. Above-Historical-Max Z (`MACD_MOMENTUM_VELOCITY`)
-* **Security Problem Solved**: Detects linear peak exceedance where today's volume breaks out above both the 30-day baseline mean and the 30-day historical maximum without quadratic byte overflow.
+## 15. Above-Historical-Max Z (`MACD_MOMENTUM_VELOCITY` — `macd_momentum_velocity.yl2`)
+* **Security Problem Solved**: Detects linear peak exceedance where today's volume breaks out above both the 30-day baseline mean and the 30-day historical maximum without quadratic byte overflow (`D1`).
 * **Mathematical Formulation**:
   $$Z_{\text{personal}} = \frac{x_{\text{observed}} - \mu_{\text{30d}}}{\sigma_{\text{safe}}}, \quad Z_{\text{above\_max}} = \frac{\max(0, x_{\text{observed}} - x_{\text{max,30d}})}{\sigma_{\text{safe}}}, \quad Z_{\text{macd}} = Z_{\text{personal}} + Z_{\text{above\_max}}$$
 
 ---
 
-## 16. Circadian von Mises Temporal Distance (`CIRCADIAN_VON_MISES`)
-* **Security Problem Solved**: Evaluates events across a 24-hour circular clock face to penalize off-hours and night-shift departures without circular boundary wrap distortion.
-* **Mathematical Formulation**:
-  $$H = \texttt{timestamp.get\_hour}(t_{\text{ws}})$$
-  $$\Delta H = |H - H_{\text{peak}}|, \quad \text{where } H_{\text{peak}} = 14 \text{ (2:00 PM UTC baseline anchor)}$$
-  $$D_{\text{circ}} = \text{if}(\Delta H > 12, 24 - \Delta H, \Delta H)$$
-  $$\text{Von Mises Arc Penalty} = \frac{D_{\text{circ}}^2}{72.0}$$
-  $$\text{Circadian Threat Score} = Z_{\text{hourly}} \times (1.0 + \text{Von Mises Arc Penalty})$$
-* **Where**:
-  * $t_{\text{ws}}$: Bucket start timestamp (`$ws`, UTC)
-  * $Z_{\text{hourly}} = \frac{x_{\text{hour}} - \mu_{\text{hour}}}{\sigma_{\text{safe}}}$
-  * Maximum possible circular distance $D_{\text{circ}} = 12$ hours (at opposite polarity, penalty multiplier = $1.0 + \frac{144}{72} = 3.0\times$).
-* **Threat Meaning**: Smoothly scales volumetric surges according to their temporal improbability on a cyclic 24-hour clock. An egress spike at 3:00 AM receives a $3.0\times$ multiplier penalty, while an identical spike at 2:00 PM receives a neutral $1.0\times$ multiplier.
-* **Post-Hunt Plain-English Cyber Impact Statement Template**:
-```markdown
-> [!IMPORTANT]
-> **Circadian Temporal Distance Verdict: Off-Hours von Mises Departure (`[target_metric]`)**
-> * **Hourly Observation**: Entity `[entity]` executed **[observed_hour]** events during hour **[event_hour]:00 UTC** against baseline average of **[avg_hourly]**.
-> * **Circular Clock Distance**: **[circ_dist] hours** away from normal 14:00 UTC operational peak.
-> * **Temporal Penalty**: Quadratic von Mises multiplier of **[temporal_multiplier]×**.
-> * **Combined Threat Score**: **[circadian_threat_score]** (Hourly $Z = [hourly_z]\sigma$).
-> * **Investigative Meaning**: High-confidence volumetric departure occurring at an anomalous circadian phase, indicating unauthorized off-hours operation or compromised credential replay from an opposing timezone.
-```
+## 16. `CIRCADIAN_VON_MISES` (`circadian_von_mises.yl2` & `circadian_von_mises_2stage.yl2` — Retired under `D1` -> `HOUR_OF_DAY_PROFILE`)
+* **Status**: **Retired** from `secops-risk-metrics-multistage` (`D1` / `PF-10` / `WS2-02`). Fixed 14:00 UTC peak assumptions and daily `metrics.*` baselines cannot model per-entity circadian schedules; route per-hour-of-day profiling to `secops-statistical-hunter` `HOUR_OF_DAY_PROFILE`.
 
 ---
 
-## 17. Relative Deviation / Fold Change (`RELATIVE_DEVIATION`)
-* **Security Problem Solved**: Computes a scale-free relative deviation $(x - \mu)/\mu$ and fold change $x/\mu$ ("3.2× the 30-day average") for straightforward executive and SOC communication when standard deviation is noisy or unintuitive. *(Formerly mislabelled MAD prior to v1.8.3; mean-anchored with 0% breakdown point.)*
+## 17. Relative Deviation / Fold Change (`RELATIVE_DEVIATION` — `relative_deviation.yl2`)
+* **Security Problem Solved**: Computes a scale-free relative deviation $(x - \mu)/\mu$ and fold change $x/\mu$ ("3.2× the 30-day average") with continuous `max(avg, 1.0)` floor and Z-equivalent mapping (`WS7-02`).
 * **Mathematical Formulation**:
   $$\mu_{\text{safe}} = \max(\mu, 1.0), \quad \text{Relative Deviation} = \frac{x - \mu_{\text{safe}}}{\mu_{\text{safe}}}, \quad \text{Fold Change} = \frac{x}{\mu_{\text{safe}}}, \quad Z_{\text{equiv}} = \max(0, 3.0 \times \text{Relative Deviation})$$
 
+---
+
+## 17B. 1-Stage Non-Parametric Quantiles, Bowley Skewness & Skew-Adjusted Tukey Scale-Excess (`QUANTILE_IQR_SKEW` — `quantile_iqr_skew.yl2`)
+* **Security Problem Solved**: Computes a 5-point empirical quantile envelope ($P_{10}, Q_{25}, Q_{50}, Q_{75}, P_{90}$) in **1 intermediate stage** (`stage quantile_envelope` via `window.percentile`) over a ~30d raw window (`WS1-02`), freeing a stage for Entity Context Graph or peer-cohort enrichment.
+* **Mathematical Formulation** (Bowley 1920; Moors 1988; recalibrated Bowley `1.35` exponent):
+  $$\text{IQR} = Q_{75} - Q_{25}, \quad B_{\text{skew}} = \frac{Q_{75} + Q_{25} - 2 Q_{50}}{\text{IQR}_{\text{safe}}}, \quad \text{Fence}_{\text{adj}} = Q_{75} + 1.5 \cdot e^{1.35 \cdot \max(0, B_{\text{skew}})} \cdot \text{IQR}_{\text{safe}}, \quad Z_{\text{excess}} = \frac{x - \text{Fence}_{\text{adj}}}{\text{IQR}_{\text{safe}} / 1.349}$$
 
 ---
 
-## 17B. 1-Stage Non-Parametric Quantiles, Bowley Skewness & Skew-Adjusted Tukey Scale-Excess (`QUANTILE_IQR_SKEW`)
-* **Security Problem Solved**: Computes a 5-point empirical quantile envelope ($P_{10}, Q_{25}, Q_{50}, Q_{75}, P_{90}$) in **1 intermediate stage** (`stage quantile_envelope` via `window.percentile`) instead of the 2 stages required by `MAD` (`mad_center` $\to$ `mad_spread`), saving a full stage and join slot for Entity Context Graph (`DERIVED_CONTEXT` / `GLOBAL_CONTEXT`) or peer-cohort enrichment while adjusting the Tukey upper fence for right-skewed baselines.
-* **Mathematical Formulation** (Bowley 1920; Moors 1988; Hubert & Vandervieren 2008 recalibrated for Bowley $B_{\text{skew}} \in [-1, +1]$):
-  $$\text{IQR} = Q_{75} - Q_{25}, \quad B_{\text{skew}} = \frac{Q_{75} + Q_{25} - 2 Q_{50}}{\text{IQR}_{\text{safe}}}, \quad T_{\text{ratio}} = \frac{P_{90} - P_{10}}{\text{IQR}_{\text{safe}}}$$
-  $$\text{Fence}_{\text{adj}} = Q_{75} + 1.5 \cdot e^{1.35 \cdot \max(0, B_{\text{skew}})} \cdot \text{IQR}_{\text{safe}}, \quad \sigma_{\text{IQR}} = \frac{\text{IQR}_{\text{safe}}}{1.349}, \quad Z_{\text{excess}} = \frac{x - \text{Fence}_{\text{adj}}}{\sigma_{\text{IQR}}}$$
-* **Threat Meaning**: Flags heavy-tailed breakouts (`$tukey_excess_z >= 1.0`) alongside the pre-scoring raw active-day `$personal_z` cross-check (`WS1-03`) without near-zero fence-ratio blowups or uncalibrated medcouple exponential inflation.
+## 17C. First-Seen 30-Day Boolean Novelty Flag (`FIRST_SEEN_NOVELTY` — `first_seen_novelty.yl2` & `first_seen_novelty_2stage.yl2`)
+* **Security Problem Solved**: Primary 30-day novelty detector ahead of ECG (`PF-11` / `WS1-12`): flags entities or composite `(entity, sub-key)` tuples (such as `(user, application)`, `(host, domain)`, `(host, sha256)`, or `(sa, vendor, product, resource)`) never seen in the prior 30-day `metrics.*` window (`$prior_first_seen = 0`), enriched with `last_seen` and `period_start_for_max` timestamps (`21/38` metrics populated in `gus-sdl` per `tests/live/baseline_gus_sdl.json`).
+* **Mathematical Formulation**:
+  $$\text{Novelty Flag} = \mathbb{I}\!\left(\min(\texttt{first\_seen}_{30\text{d}}) = 0 \land x \ge N_{\min}\right) \in \{0, 1\} \quad (\text{boolean flag + context; never reported as }\sigma\text{, CRI = N/A})$$
 
 ---
 
-## 18. Advanced Multi-Stage DAG Pipeline Architectures
+## 18. Complete Multi-Stage DAG Pipeline Inventory (`templates/pipelines/*.yl2` — 34 Active Templates)
 
-Beyond 2-stage models, the engine provides pre-composed multi-stage DAG pipelines for composite multi-sector attacks:
-
-### 1. Dual-Baseline Delta-Z Fleet Normalization (`DUAL_BASELINE_3STAGE`)
-* **Pipeline Architecture**: 3 Stages (Host Baseline $\to$ Fleet Aggregation $\to$ Root Join)
-* **Formulation**: $\Delta Z = Z_{\text{Personal}} - Z_{\text{Fleet Today}}$
-* **Outcome**: Isolates targeted host intrusions during enterprise-wide events.
-
-### 2. Multi-Sector Threat Vector Fusion (`MULTI_SECTOR_FUSION_4STAGE`)
-* **Pipeline Architecture**: 4 Stages (Sector A [UDM #1] $\to$ Sector B [UDM #2] $\to$ Cross-Sectional Fleet Normalization [Stage-to-Stage] $\to$ Root Join, respecting `SourceCount["udm"] <= 2`). Sectors are any two fusion-capable metrics that share the same entity identifier (see `references/metric-sector-catalog.md`); the router default is `auth_attempts_fail` + `network_bytes_outbound`.
-* **Formulation**: Rectified Euclidean Threat Distance $D^2 = \max(0, Z_A)^2 + \max(0, Z_B)^2 + \max(0, \Delta Z_A)^2 + \max(0, \Delta Z_B)^2$
-* **Outcome**: Correlates two attack steps on the same entity (e.g. DNS failures + HTTP volume, HTTP volume + outbound bytes, auth failures + outbound bytes) with cross-sectional fleet normalization into a unified incident score. User and host sectors are never mixed.
-
-### 3. Hierarchical Empirical Bayes (`EMPIRICAL_BAYES_3STAGE`)
-* **Pipeline Architecture**: 3 Stages (Individual Host $\to$ Peer-Group Hyperpriors $\to$ Root Shrinkage)
-* **Formulation**: Blends individual host history with peer-group distribution parameters ($\alpha_{\text{fleet}}, \beta_{\text{fleet}}$).
-* **Outcome**: Eliminates high-variance false positives on newly onboarded or part-time employees by anchoring them to departmental norms.
-
-### 4. Entity Context Graph (ECG) Hybrid Archetypes (`DERIVED_CONTEXT` & `GLOBAL_CONTEXT`)
-* **Pipeline Architectures**: 2–3 Stages (Macro Baseline $\to$ Entity Context Graph Lookup $\to$ Root Risk Fusion)
-* **Formulation**: Fuses universal macro $Z$-score with persistent enterprise prevalence and threat intelligence:
-  - **Derived File Prevalence** (`hybrid_metric_derived_file_prevalence_2stage.yl2`): Keeps only rare binaries (`rolling_max <= 3`, `day_count = 10`), which drops rollout binaries ($Z \times M_{\text{rare}}$). Normalizing a surge against a rollout is `hybrid_metric_fleet_prevalence_2stage.yl2`.
-  - **Derived Domain Prevalence** (`hybrid_metric_derived_domain_prevalence_2stage.yl2`): Sifts novel HTTP destinations by request count and prunes enterprise SaaS/CDN noise ($Z \times M_{\text{rare}}$). DNS volume, bytes, or any other measure against rare domains is `rare_destination_ecg_3stage.yl2`.
-  - **WHOIS Domain Lifecycle** (`hybrid_metric_whois_domain_lifecycle_2stage.yl2`): Detects high-volume egress to Newly Registered Domains ($Z \times 2.5$ for NRD $\le 30\text{d}$) and expired domain infrastructure ($Z \times 3.0$ for lapsed certs/registrations).
-  - **Derived Asset Age** (`hybrid_metric_derived_asset_age_2stage.yl2`): Sifts infant endpoints ($< 7$ days old) experiencing immediate volumetric departures ($Z \times 2.5$).
-* **Hunter Tradecraft**: Enables hunters to **Narrow** (pruning common software/domains) or **Enhance** (scaling threat scores on NRDs and expired infrastructure) without falling into the Part-of-the-Whole trap (see `references/entity-context-graph-guide.md`).
+1. **Core Single-Sector & Non-Parametric Pipelines**:
+   - `standard_z_score_2stage.yl2`: 2-stage parametric Standard Z-Score with `D8` maturity & dispersion floors.
+   - `poisson_rarity_2stage.yl2`: 2-stage calendar-rate ($\lambda = S/30$) Poisson / NB rarity pipeline.
+   - `macd_momentum_velocity_2stage.yl2`: 2-stage **Above-Historical-Max Z** ($Z_{\text{personal}} + Z_{\text{above\_max}}$) breakout pipeline.
+   - `c2_beacon_flow_frequency_2stage.yl2`: 2-stage **Outbound Flow Surge** (`metrics.network_flows_outbound` daily session-count surge + destination IP/port breadth; sub-hour C2 callback jitter hands off to `secops-statistical-hunter` `C2_BEACONING_JITTER`).
+   - `mad_robust_z_4stage.yl2`: 4-stage (1 UDM event stage) ~30d raw Median Absolute Deviation / Modified $Z$ pipeline.
+   - `quantile_iqr_skew_3stage.yl2`: 3-stage (1 UDM event stage) ~30d `window.percentile` Bowley-recalibrated Tukey scale-excess pipeline.
+   - `first_seen_novelty_2stage.yl2`: 2-stage `metric: first_seen, agg: min` 30-day boolean novelty pipeline (+ optional `(1h, today)` earlier-today first-seen context).
+   - `longitudinal_cusum_2stage.yl2`: 2-stage Windowed Slack Sum lossless prefilter ($W = \sum \max(0, Z_t - 0.5)$).
+   - `longitudinal_cusum_series_3stage.yl2`: 3-stage ungated active-day standardized series extractor feeding `scripts/cusum_helper.py` for exact Page CUSUM $S_t^+$.
+2. **Web, Cloud & Peer-Cohort Pipelines**:
+   - `http_error_ratio_surge_2stage.yl2`: 2-stage HTTP $4xx/5xx$ failure baseline + in-stage error-ratio surge.
+   - `http_target_surge_2stage.yl2`: 2-stage target-centric HTTP destination surge (`target.hostname`).
+   - `cloud_repository_scope_dual_branch.yl2`: 3-stage dual-branch service-account 4-CRUD repository + unseen caller-IP isolation.
+   - `dual_baseline_delta_z_3stage.yl2`: 3-stage Dual-Baseline $\Delta Z = Z_{\text{personal}} - Z_{\text{fleet}}$ with mature winsorized fleet center.
+   - `hierarchical_empirical_bayes_3stage.yl2`: 3-stage Hierarchical Empirical Bayes shrinkage sorted by posterior-predictive Z.
+   - `part_of_the_whole_multilevel.yl2`: 3/4-stage multilevel leave-one-out peer cohort & enterprise comparison (with `WS1-09` Samuelson cap).
+   - `part_of_the_whole_triad_multilevel.yl2`: 3/4-stage 3-sibling triad (`total` + `fail` + `success`) rectified Euclidean comparison.
+3. **Multi-Sector Euclidean Fusion & 360° Behavioral Radar** *(inter-sector correlation caveat: positively correlated sectors such as Network + DNS + Web increase false-positive tail rates above independent $\chi^2_k$ predictions)*:
+   - `dual_sector_fusion_3stage.yl2`: 3-stage union-based rectified Euclidean fusion ($D = \sqrt{\sum \max(0, Z_i)^2}$) of any 2 same-entity sectors.
+   - `multi_sector_fusion_4stage.yl2`: 4-stage union-based 2-sector rectified Euclidean fusion + cross-sectional fleet $\Delta Z$.
+   - `rollup_sector_fusion_4stage.yl2`: 4-stage composite-metric per-entity roll-up fused with a second sector.
+   - `rollup_sector_fusion_5stage.yl2`: 5-stage composite roll-up fusion + fleet normalization.
+   - `radar_360_decoupled_sector.yl2`: 2-stage `NO-GATE` decoupled 360° Radar sector micro-query.
+   - `radar_360_sector_web_http.yl2`: 2-stage `NO-GATE` 360° Radar Web & Proxy HTTP spoke.
+   - `radar_360_sector_alert.yl2`: 2-stage `NO-GATE` 360° Radar Security & EDR Alert spoke (`alert_event_name_count`).
+4. **Entity Context Graph (ECG), Hybrid Enrichment & Data Table Bridge Pipelines**:
+   - `hybrid_metric_derived_file_prevalence_2stage.yl2`: 2-stage `DERIVED_CONTEXT` rare binary hash filter (`rolling_max <= 3`, `day_count = 10`).
+   - `hybrid_metric_derived_domain_prevalence_2stage.yl2`: 2-stage `DERIVED_CONTEXT` rare HTTP domain filter (`rolling_max <= 3`, `day_count = 10`).
+   - `hybrid_metric_whois_domain_lifecycle_2stage.yl2`: 2-stage `GLOBAL_CONTEXT` WHOIS NRD (`<= 30d`) & expired-domain risk multiplier.
+   - `hybrid_metric_derived_asset_age_2stage.yl2`: 2-stage infant asset age (`$active_days >= 7` Z path vs novelty flag on immature assets).
+   - `hybrid_metric_http_ua_prevalence_2stage.yl2`: 2-stage HTTP User-Agent token fleet prevalence dampener ($1 / (k_{\text{fleet}} + 1)$).
+   - `hybrid_metric_fleet_prevalence_2stage.yl2`: 2-stage cross-sectional binary/token Patch Tuesday prevalence shield.
+   - `hybrid_metric_entropy_concentration_2stage.yl2`: 2-stage metric baseline + destination diversity deficit & elephant-flow concentration.
+   - `hybrid_metric_raw_enrichment_2stage.yl2`: 2-stage metric baseline + distinct command-line/URI/IP forensic projection.
+   - `rare_destination_ecg_3stage.yl2`: 3-stage + Root sector $Z$ narrowed to Entity Graph-rare domains or IPs.
+   - `fusion_rare_destination_3stage.yl2`: 3-stage + Root dual-sector rectified $D$ narrowed to Entity Graph-rare destinations.
+   - `hybrid_data_table_bridge_2stage.yl2`: 2-stage Phase-2 cross-entity drilldown joining `%ueba_hunt_bridge.entity` with 30-day `metrics.*`.
+   - *(Retired under `D1`: `hybrid_metric_orthogonal_space_2stage.yl2` and `circadian_von_mises_2stage.yl2`.)*
 
 ---
 
 ## 19. Operational & Statistical Assumptions Guide
 
-When communicating with analysts, SOC managers, or threat hunters, use this guide to clarify foundational assumptions:
+### 1. Maturity Gate & Dispersion Floor Protection (`D8` / `WS1-04`)
+* **The Concern**: Quiet or clockwork accounts can have $\sigma = 0$ (e.g., exactly 103 automated logins every day) or $N < 7$ active baseline days.
+* **The Clarification**: Every Z-type root requires `$active_days >= 7` and applies a continuous dispersion floor (`max(sd, sqrt(max(avg, 1.0)))` on count metrics; empirical fleet median `sd` floor on byte metrics). Immature entities (`$active_days < 7`) route to `FIRST_SEEN_NOVELTY` or `TWO_PART_HURDLE`, never raw Z.
 
-### 1. Division-by-Zero Protection on Quiet Accounts (Clean Conditional Safeguard)
-* **The Concern**: Inactive accounts have a 30-day baseline mean $\mu = 0$ and standard deviation $\sigma = 0$. In standard Z-score math, any single event triggers division-by-zero ($\frac{1 - 0}{0} = \infty$).
-* **The Clarification**: The engine applies a compiler-compliant **Clean Conditional Safeguard** (`$safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)`):
-  $$\sigma_{\text{safe}} = \text{if}(\sigma_{\text{hist}} > 0, \sigma_{\text{hist}}, 1.0)$$
-  This avoids division by zero, eliminates arbitrary constant inflation on noisy accounts, and provides clean mathematical grounding.
-
-### 2. Weekend & Cyclic Seasonality Dip
-* **The Concern**: Standard 30-day trailing averages blend weekdays and weekends together, even though enterprise activity drops by 70–90% on weekends.
-* **The Clarification**: For non-seasonal blended baselines, Mode B (Fixed-Baseline Timeline) or Mode C (Per-Day Baseline Timeline) breaks down activity day-by-day so analysts can directly inspect day-of-week cyclic trends, or analysts can leverage `HOURLY_TEMPORAL_ZSCORE` for diurnal profiles.
+### 2. Weekend & Off-Hours Seasonality
+* **The Concern**: Trailing 30-day averages blend weekdays and weekends together.
+* **The Clarification**: Use Mode B (2–3d Fixed-Baseline Timeline) or Mode C (up to 30d Per-Day Baseline Timeline) to inspect daily patterns, use `ADAPTIVE_CONTEXT_THRESHOLD` (`adaptive_context_threshold.yl2`) for local business-hours vs off-hours/weekend gating, or hand off per-hour-of-day profiling to `secops-statistical-hunter` `HOUR_OF_DAY_PROFILE`.
 
 ### 3. Cartesian Join Product Prevention (Multi-Stage DAG Isolation)
-* **The Concern**: Why can't we search for creation and deletion events in a single un-staged query?
-* **The Clarification**: When multiple distinct event types are matched together in a single stage, SIEM engines compute an $N \times M$ Cartesian product join (e.g. 10 creations $\times$ 5 deletions = 50 joined rows), inflating observed counts by 500%–1000% and completely discarding entities with 0 deletions. Multi-stage DAG pipelines isolate each event vector into its own stage before fusing $Z$-scores into an orthogonal threat distance.
+* Multi-stage DAG pipelines isolate each event vector into its own stage before fusing rectified $Z$-scores into a composite Euclidean threat distance (up to 2 UDM event stages per query).
 
-### 4. Sparse Baseline Caution & Account Maturity ($N < 7$ Days)
-* **The Concern**: Newly created accounts or ephemeral cloud workers may have only 1–2 days of historical logs.
-* **The Clarification**: Calculating a Z-score on an entity with fewer than 7 active baseline days ($N < 7$) produces high statistical variance. The skill flags a **Sparse Baseline Caution** and applies Empirical Bayes shrinkage or the Two-Part Hurdle model to regularize sparse accounts.
+### 4. Sparse Baseline Caution & Samuelson Small-Sample Cap (`PF-2` / `WS1-09`)
+* Because `metrics.*` `stddev` is the sample SD ($N-1$) over active days (`PF-2`), the maximum achievable Z-score on $N$ samples is bounded by Samuelson's inequality $(N - 1)/\sqrt{N}$ ($3.0\sigma$ requires $N \ge 11$). Small peer cohorts below this cap report `"cohort too small"`.
 
 ### 5. Multi-Cloud Provider Scoping & Dimension Partitioning
-* **The Concern**: Does a user's cloud activity in AWS affect their GCP baseline?
-* **The Clarification**: Cloud lifecycle metrics enforce compound dimensions (`metadata.vendor_name`, `metadata.product_name`). This guarantees that AWS CloudTrail, GCP Cloud Audit, and Azure Activity Logs are baselined within their respective cloud provider partitions without cross-cloud contamination.
+* Cloud lifecycle metrics enforce compound dimensions (`metadata.vendor_name`, `metadata.product_name`), baselining AWS CloudTrail, GCP Cloud Audit, and Azure Activity Logs within their respective provider partitions.
