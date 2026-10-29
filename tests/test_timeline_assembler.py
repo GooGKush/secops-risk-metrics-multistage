@@ -14,6 +14,7 @@ if REPO_DIR not in sys.path:
   sys.path.insert(0, REPO_DIR)
 
 from scripts import timeline_assembler as ta
+from scripts import ueba_constants as uc
 
 
 def _stats(columns):
@@ -85,7 +86,15 @@ class TestAssembly(unittest.TestCase):
     summary = asm.build()
     self.assertTrue(summary["meta"]["score_is_sqrt_of_field"])
     self.assertAlmostEqual(12.57, summary["top"][0]["score"], places=2)
-    self.assertEqual(ta.cri_from_score(math.sqrt(157.93450932856814)), summary["top"][0]["cri"])
+    self.assertEqual(
+        uc.cri_from_model_score("composite_threat_norm_sq", 157.93450932856814),
+        summary["top"][0]["cri"],
+    )
+    self.assertEqual(99, summary["top"][0]["cri"])
+
+    asm_thresh = ta.TimelineAssembler()
+    asm_thresh.add_shard("2026-10-01", [_fusion_rows("h-thresh", 12.25, 3.5, 0.0)])
+    self.assertEqual(50, asm_thresh.build()["top"][0]["cri"])
 
   def test_cri_anchor(self):
     self.assertEqual(50, ta.cri_from_score(3.0))
