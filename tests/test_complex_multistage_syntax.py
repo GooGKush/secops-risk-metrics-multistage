@@ -42,14 +42,14 @@ class ComplexMultiStageSyntaxTest(unittest.TestCase):
       return f.read()
 
   def test_multi_sector_fusion_4stage_template_is_generic(self):
-    """The 4-stage fusion template hardcodes no metric pair: sectors, filters and entity fields are slots."""
+    """The fleet-normalized multi-sector fusion template uses a single-stage sector_union and mature robust fleet center."""
     content = self._read_template("multi_sector_fusion_4stage.yl2")
 
-    # 1. 2 UDM sector stages + 1 stage-to-stage fleet normalization stage + root = 4 stages
-    self.assertIn("stage sector_a", content)
-    self.assertIn("stage sector_b", content)
+    # 1. Single-stage union + stage-to-stage mature fleet normalization + root (no inner-join sector drop)
+    self.assertIn("stage sector_union", content)
+    self.assertNotIn("stage sector_a", content)
+    self.assertNotIn("stage sector_b", content)
     self.assertIn("stage fleet_sector_norm", content)
-    self.assertIn("4-STAGE", content)
     self.assertIn("MULTI-SECTOR", content)
 
     # 2. No codified telemetry pair (the old template was always auth + network)
@@ -61,23 +61,25 @@ class ComplexMultiStageSyntaxTest(unittest.TestCase):
                  "{{sector_a_metric_arg}}", "{{sector_b_metric_arg}}", "{{min_baseline_days}}"):
       self.assertIn(slot, content)
 
-    # 3. Entity and window_start synchronized in the root stage
-    self.assertIn("$entity = $sector_a.entity", content)
-    self.assertIn("$entity = $sector_b.entity", content)
+    # 3. Entity and window_start synchronized via sector_union + mature window.median fleet center
+    self.assertIn("$entity = $sector_union.entity", content)
     self.assertIn("$ws = $fleet_sector_norm.ws", content)
+    self.assertIn("window.median($sector_union.z_a, false)", content)
+    self.assertIn("window.median($sector_union.z_b, false)", content)
     self.assertIn("match:\n  $entity, $ws by 1d", content)
 
-    # 4. 4-component rectified Euclidean norm (personal Z + fleet Delta-Z), ordered
-    self.assertIn("$composite_threat_norm_sq = $z_a_sq + $z_b_sq + $dz_a_sq + $dz_b_sq", content)
+    # 4. Fleet-normalized rectified Euclidean norm (personal_norm_sq tracked separately)
+    self.assertIn("$personal_norm_sq = $z_a_sq + $z_b_sq", code)
+    self.assertIn("$composite_threat_norm_sq = $dz_a_sq + $dz_b_sq", code)
     self.assertIn("$composite_threat_norm_sq desc", content)
 
   def test_dual_sector_fusion_3stage_template_is_generic(self):
-    """The 3-stage fusion template hardcodes no metric pair and joins on $entity."""
+    """The dual-sector fusion template hardcodes no metric pair and unions sectors in stage sector_union."""
     content = self._read_template("dual_sector_fusion_3stage.yl2")
-    self.assertIn("stage sector_a", content)
-    self.assertIn("stage sector_b", content)
-    self.assertIn("$entity = $sector_a.entity", content)
-    self.assertIn("$entity = $sector_b.entity", content)
+    self.assertIn("stage sector_union", content)
+    self.assertNotIn("stage sector_a", content)
+    self.assertNotIn("stage sector_b", content)
+    self.assertIn("$entity = $sector_union.entity", content)
     self.assertIn("match:\n  $entity by 1d", content)
     self.assertIn("$composite_threat_norm_sq = $z_a_sq + $z_b_sq", content)
     code = re.sub(r"//[^\n]*", "", content)
@@ -340,14 +342,14 @@ order:
     self.assertIn("$a_floor = math.sqrt(if($a_avg > 1.0, $a_avg, 1.0))", ms_content)
     self.assertIn("$z_a_raw = ($a_obs - $a_avg) / if($a_std > $a_floor, $a_std, $a_floor)", ms_content)
     self.assertIn("$z_a_pos = if($z_a_raw > 0, $z_a_raw, 0.0)", ms_content)
-    self.assertIn("$z_a = if($a_days >= {{min_baseline_days}}, $z_a_pos, 0.0)", ms_content)
+    self.assertIn("$z_a = if($a_obs > 0 and $a_days >= {{min_baseline_days}}, $z_a_pos, 0.0)", ms_content)
     self.assertIn("$b_floor = math.sqrt(if($b_avg > 1.0, $b_avg, 1.0))", ms_content)
     self.assertIn("$z_b_raw = ($b_obs - $b_avg) / if($b_std > $b_floor, $b_std, $b_floor)", ms_content)
-    self.assertIn("$z_b = if($b_days >= {{min_baseline_days}}, $z_b_pos, 0.0)", ms_content)
-    self.assertIn("$z_a = max($sector_a.z_a)", ms_content)
-    self.assertIn("$z_b = max($sector_b.z_b)", ms_content)
-    self.assertIn("$fleet_a_mu = max($fleet_sector_norm.fleet_z_a_avg)", ms_content)
-    self.assertIn("$fleet_b_mu = max($fleet_sector_norm.fleet_z_b_avg)", ms_content)
+    self.assertIn("$z_b = if($b_obs > 0 and $b_days >= {{min_baseline_days}}, $z_b_pos, 0.0)", ms_content)
+    self.assertIn("$z_a = max($sector_union.z_a)", ms_content)
+    self.assertIn("$z_b = max($sector_union.z_b)", ms_content)
+    self.assertIn("$fleet_a_mu = max($fleet_sector_norm.fleet_z_a_median)", ms_content)
+    self.assertIn("$fleet_b_mu = max($fleet_sector_norm.fleet_z_b_median)", ms_content)
 
     # 2. dual_sector_fusion_3stage.yl2
     ds_content = self._read_template("dual_sector_fusion_3stage.yl2")
@@ -355,8 +357,8 @@ order:
     self.assertIn("$z_a_raw = ($a_obs - $a_avg) / if($a_std > $a_floor, $a_std, $a_floor)", ds_content)
     self.assertIn("$b_floor = math.sqrt(if($b_avg > 1.0, $b_avg, 1.0))", ds_content)
     self.assertIn("$z_b_raw = ($b_obs - $b_avg) / if($b_std > $b_floor, $b_std, $b_floor)", ds_content)
-    self.assertIn("$z_a = max($sector_a.z_a)", ds_content)
-    self.assertIn("$z_b = max($sector_b.z_b)", ds_content)
+    self.assertIn("$z_a = max($sector_union.z_a)", ds_content)
+    self.assertIn("$z_b = max($sector_union.z_b)", ds_content)
     self.assertIn("$z_a_gated = if($a_active_days >= {{min_baseline_days}}, $z_a, 0.0)", ds_content)
 
     # 3. cloud_repository_scope_dual_branch.yl2

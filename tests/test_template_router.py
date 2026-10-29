@@ -1604,6 +1604,116 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
     self.assertIn("$active_days >= 10", MultiStageTemplateRouter.root_condition(age_custom) or "")
     self.assertIn("$asset_age_days <= 21.0", MultiStageTemplateRouter.root_condition(age_custom) or "")
 
+  def test_ws4_fusion_deltaz_union_robust_center_and_d_sq_wiring(self):
+    """WS4-FUSION-DELTAZ: union sector spine, mature robust window.median fleet center, rollup multiplicity, and D^2 threshold wiring."""
+    from scripts import malachite_catalog as mc
+    from scripts.preflight_validator import MalachiteASTValidator
+
+    # 1. dual_baseline_delta_z_3stage.yl2: mature >=7d + dispersion floor BEFORE robust window.median fleet shift
+    dz_count = self.router.build_pipeline_query(
+        PipelineArchitecture.DUAL_BASELINE_3STAGE,
+        target_metric="http_queries_total",
+        entity_type=EntityType.ASSET,
+    )
+    self.assertEqual(MalachiteASTValidator.validate_query(dz_count), [])
+    self.assertIn("$host_extract.hist_active_days >= 7", dz_count)
+    self.assertIn("$fleet_z_median = window.median($host_extract.personal_z, false)", dz_count)
+    self.assertIn("$fleet_z_winsor_avg = avg($host_extract.personal_z_winsor)", dz_count)
+    self.assertIn("$fleet_z = max($fleet_stats.fleet_z_median)", dz_count)
+    self.assertNotIn("$fleet_z = max($fleet_stats.fleet_z_avg)", dz_count)
+
+    dz_bytes = self.router.build_pipeline_query(
+        PipelineArchitecture.DUAL_BASELINE_3STAGE,
+        target_metric="network_bytes_outbound",
+        entity_type=EntityType.ASSET,
+    )
+    self.assertEqual(MalachiteASTValidator.validate_query(dz_bytes), [])
+    self.assertIn("$dispersion_floor = 44979.0", dz_bytes)
+
+    # 2. dual_sector_fusion_3stage & multi_sector_fusion_4stage: single-stage sector_union (no inner-join drop),
+    # uint64-safe 1.0/0.0 byte conditional sum, strings.coalesce for distinct entity fields, and mature window.median
+    ds_user = self.router.build_pipeline_query(
+        PipelineArchitecture.DUAL_SECTOR_FUSION_3STAGE,
+        entity_type=EntityType.USER,
+    )
+    self.assertEqual(MalachiteASTValidator.validate_query(ds_user), [])
+    self.assertIn("stage sector_union", ds_user)
+    self.assertNotIn("stage sector_a", ds_user)
+    self.assertNotIn("stage sector_b", ds_user)
+    self.assertIn("$entity = strings.coalesce(target.user.userid, principal.user.userid)", ds_user)
+    self.assertIn("sum(if(", ds_user)
+    self.assertIn(", 1.0, 0.0) * network.sent_bytes)", ds_user)
+
+    ms_user = self.router.build_pipeline_query(
+        PipelineArchitecture.MULTI_SECTOR_FUSION_4STAGE,
+        entity_type=EntityType.USER,
+    )
+    self.assertEqual(MalachiteASTValidator.validate_query(ms_user), [])
+    self.assertIn("stage sector_union", ms_user)
+    self.assertIn("stage fleet_sector_norm", ms_user)
+    self.assertIn("($sector_union.a_days >= 7 or $sector_union.b_days >= 7)", ms_user)
+    self.assertIn("$fleet_z_a_median = window.median($sector_union.z_a, false)", ms_user)
+    self.assertIn("$fleet_z_b_median = window.median($sector_union.z_b, false)", ms_user)
+    self.assertNotIn("Z_a^2 + Z_b^2 + dZ_a^2 + dZ_b^2", ms_user)
+
+    # Total-byte conditional sum uses per-branch < 1e15 clamps on sent_bytes and received_bytes
+    ds_total_bytes = self.router.build_sector_fusion_query(
+        mc.SectorSpec("network_bytes_total", "principal.asset.hostname"),
+        mc.SectorSpec("dns_queries_fail", "principal.asset.hostname"),
+    )
+    self.assertEqual(MalachiteASTValidator.validate_query(ds_total_bytes), [])
+    self.assertIn(", 1.0, 0.0) * network.sent_bytes) + sum(if(", ds_total_bytes)
+    self.assertIn(", 1.0, 0.0) * network.received_bytes)", ds_total_bytes)
+
+    # 3. rollup_sector_fusion_4stage & _5stage: union spine in both UDM stages, per-key >=7d + floor,
+    # sqrt(2 * ln(K)) multiplicity offset, mature window.median fleet center, and reconciled Math header
+    for four_stage in (False, True):
+      q_roll = self.router.build_sector_fusion_query(
+          mc.SectorSpec("file_executions_total", "principal.asset.hostname"),
+          mc.SectorSpec("network_bytes_outbound", "principal.asset.hostname"),
+          four_stage=four_stage,
+      )
+      self.assertEqual(MalachiteASTValidator.validate_query(q_roll), [])
+      self.assertEqual(mc.observed_filter_gaps(q_roll), [])
+      self.assertIn("$b_floor = 44979.0", q_roll)
+      self.assertIn("$d_novel = if($d_obs > 0 and $d_days = 0, 1, 0)", q_roll)
+      self.assertIn("$multiplicity_offset = math.sqrt(2.0 * math.log($k_eff))", q_roll)
+      # Companion != "" must NOT sit bare at top-level of sector_a_detail where it would drop Sector-B-only rows
+      detail_events = q_roll.split("stage sector_a_detail")[1].split("match:")[0]
+      self.assertNotRegex(detail_events, r"(?m)^\s*\$principal_process_file_hash\s*!=\s*\"\"\s*$")
+      # Both sector_a_detail and sector_b union both event filters so neither inner join drops single-sector entities
+      sb_events = q_roll.split("stage sector_b")[1].split("match:")[0]
+      self.assertIn('metadata.event_type = "PROCESS_LAUNCH"', sb_events)
+      self.assertIn("network.sent_bytes > 0", detail_events)
+      if four_stage:
+        self.assertIn("window.median($sector_a.z_a, false)", q_roll)
+        self.assertIn("window.median($sector_b.z_b, false)", q_roll)
+        self.assertNotIn("D^2 = Z_a^2 + Z_b^2 + dZ_a^2 + dZ_b^2", q_roll)
+
+    # 4. min_threshold / max_threshold supplied in linear D sigma-distance units must square when gating *_sq
+    q_ds_min = self.router.build_pipeline_query(
+        PipelineArchitecture.DUAL_SECTOR_FUSION_3STAGE,
+        min_threshold=4.0,
+    )
+    self.assertEqual(MultiStageTemplateRouter.root_condition(q_ds_min), "$composite_threat_norm_sq >= 16.0")
+
+    q_ms_band = self.router.build_pipeline_query(
+        PipelineArchitecture.MULTI_SECTOR_FUSION_4STAGE,
+        min_threshold=2.5,
+        max_threshold=4.0,
+    )
+    self.assertEqual(
+        MultiStageTemplateRouter.root_condition(q_ms_band),
+        "$composite_threat_norm_sq >= 6.25 and $composite_threat_norm_sq < 16.0",
+    )
+
+    q_triad_min = self.router.build_pipeline_query(
+        PipelineArchitecture.PART_OF_THE_WHOLE_TRIAD_MULTILEVEL,
+        entity_type=EntityType.USER,
+        min_threshold=3.5,
+    )
+    self.assertEqual(MultiStageTemplateRouter.root_condition(q_triad_min), "$d_vs_fleet_sq >= 12.25")
+
 
 if __name__ == "__main__":
   unittest.main()
