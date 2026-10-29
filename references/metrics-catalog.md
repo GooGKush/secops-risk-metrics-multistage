@@ -116,7 +116,7 @@ A common detection blindspot is evaluating all network anomalies through byte vo
 * **Log Scope (queries total):** `(network.dns.questions.name != "" or network.dns.answers.name != "" or network.dns.id != 0)`. No `metadata.event_type` filter in the baseline.
 * **Log Scope (queries success):** `(network.dns.questions.name != "" or network.dns.answers.name != "" or network.dns.id != 0)` + `network.dns.response_code = 0`
 * **Log Scope (queries fail):** `(network.dns.questions.name != "" or network.dns.answers.name != "" or network.dns.id != 0)` + `network.dns.response_code != 0`
-* **Log Scope (bytes outbound):** `network.sent_bytes > 0` + `((network.ip_protocol = "UDP" and target.port = 53) or (network.ip_protocol = "TCP" and (target.port = 53 or target.port = 3000)))`
+* **Log Scope (bytes outbound):** `network.sent_bytes > 0` + `network.sent_bytes < 1000000000000000` + `((network.ip_protocol = "UDP" and target.port = 53) or (network.ip_protocol = "TCP" and (target.port = 53 or target.port = 3000)))`
 * **Backing Log Types:** `INFOBLOX_DNS`, `BIND_DNS`, `WINDOWS_DNS`, `ZEEK_DNS`, `COREDNS`
 
 | Metric Function | Description | Supported Dimensions (Entity Types) |
@@ -362,9 +362,9 @@ In multi-stage YARA-L threat hunting:
 ## 8. Google Workspace Telemetry
 * **Log Scope:** per metric (no `metadata.event_type` filter in any Workspace baseline):
   - `metrics.workspace_auth_attempts_total`: `metadata.vendor_name = "Google Workspace"` + `(metadata.product_name = "login" or metadata.product_name = "saml" or metadata.product_name = "token")`
-  - `metrics.workspace_emails_sent_total`: `(metadata.product_name = "GMAIL" or metadata.product_name = "gmail")`
-  - `metrics.workspace_network_bytes_outbound`: `(metadata.product_name = "GMAIL" or metadata.product_name = "gmail")`
-  - `metrics.workspace_network_bytes_total`: `(metadata.product_name = "GMAIL" or metadata.product_name = "gmail")`
+  - `metrics.workspace_emails_sent_total`: `re.regex(metadata.product_name, `(?i)^gmail$`)` + `network.sent_bytes > 0`
+  - `metrics.workspace_network_bytes_outbound`: `re.regex(metadata.product_name, `(?i)^gmail$`)` + `network.sent_bytes > 0` + `network.sent_bytes < 1000000000000000`
+  - `metrics.workspace_network_bytes_total`: `re.regex(metadata.product_name, `(?i)^gmail$`)` + `((network.sent_bytes > 0 and network.sent_bytes < 1000000000000000) or (network.received_bytes > 0 and network.received_bytes < 1000000000000000))`
   - `metrics.workspace_total_change_actions`: `metadata.vendor_name = "Google Workspace"`
   - `metrics.workspace_total_download_actions`: `metadata.vendor_name = "Google Workspace"` + `metadata.product_event_type = "download"`
 * **Backing Log Types:** `WORKSPACE_REPORTS`, `GMAIL`

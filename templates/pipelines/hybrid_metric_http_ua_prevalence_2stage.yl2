@@ -79,7 +79,7 @@ outcome:
 
 condition:
   $active_baseline_days >= 7
-  and $personal_z >= 2.0
+  and $personal_z >= 3.0
   and $fleet_adopters <= 2
 
 order:

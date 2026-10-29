@@ -53,8 +53,10 @@ stage sector_a {
     $obs = {{sector_a_observation_agg}}
     $avg = max({{sector_a_metric_func_avg}})
     $std = max({{sector_a_metric_func_stddev}})
+    $days = max({{sector_a_metric_func_active_days}})
     $a_floor = math.sqrt(if($avg > 1.0, $avg, 1.0))
-    $z = ($obs - $avg) / if($std > $a_floor, $std, $a_floor)
+    $raw_z = ($obs - $avg) / if($std > $a_floor, $std, $a_floor)
+    $z = if($days >= {{min_baseline_days}}, $raw_z, 0.0)
 }
 
 // Stage 2: Sector B personal baseline per (host, destination) (today only)
@@ -65,6 +67,7 @@ stage sector_b_detail {
     {{dest_field}} = $dest
     $host != ""
     $dest != ""
+    not re.regex($dest, `(?i)\.(in-addr\.arpa|ip6\.arpa|local)$`)
 
   match:
     $host, $dest by 1d
@@ -73,8 +76,10 @@ stage sector_b_detail {
     $obs = {{sector_b_observation_agg}}
     $avg = max({{sector_b_metric_func_avg}})
     $std = max({{sector_b_metric_func_stddev}})
+    $days = max({{sector_b_metric_func_active_days}})
     $b_floor = math.sqrt(if($avg > 1.0, $avg, 1.0))
-    $z = ($obs - $avg) / if($std > $b_floor, $std, $b_floor)
+    $raw_z = ($obs - $avg) / if($std > $b_floor, $std, $b_floor)
+    $z = if($days >= {{min_baseline_days}}, $raw_z, 0.0)
 }
 
 // Stage 3: Entity Graph rarity filter (matched by destination key only)

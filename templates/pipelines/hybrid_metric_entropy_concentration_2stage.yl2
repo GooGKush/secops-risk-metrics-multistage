@@ -1,10 +1,10 @@
 // ============================================================================
-// ARCHITECTURE: 2-STAGE DUAL-PLANE HYBRID ENTROPY & CONCENTRATION PIPELINE
+// ARCHITECTURE: 2-STAGE DUAL-PLANE DESTINATION DIVERSITY & CONCENTRATION SCREEN (DESTINATION_DIVERSITY_CONCENTRATION)
 // Skill: secops-risk-metrics-multistage
 // Common Compiler Conformance: YARA-L 2.0 Multi-Stage DAG Engine
 // Models Supported:
-//   1. Information-Theoretic Diversity Deficit (Entropy Proxy)
-//   2. Concentration Index & "Elephant Flow" Isolation (HHI / Gini Proxy)
+//   1. Linear Destination Diversity Ratio Screen: k / (N + 1.0)
+//   2. Linear Single-Transfer Peak Concentration Screen ("Elephant Flow" Ratio): Peak / (Sum + 1.0)
 // Join Budget: 1 metric lookup (Stage 1) + 1 stage join (Root) = 2 joins total (<= 4).
 // Match Topology: Symmetrical entity match ($entity by 1d).
 //

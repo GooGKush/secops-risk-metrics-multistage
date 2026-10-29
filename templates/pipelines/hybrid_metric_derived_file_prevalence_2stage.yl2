@@ -18,8 +18,8 @@
 //   Zero rows from a window starting today is a freshness gap: rerun, do not report clean.
 // FILTER ONLY: the graph stage is an inner join. Entities with no graph record drop out
 //   (absent from the graph is not the same as rare); say so in the report.
-// Baseline days are evidence, not a gate: a gate on active days would exclude exactly the
-//   new binaries the novelty multiplier exists to catch.
+// MATURITY & NOVELTY POLICY: Parametric Z-scores require >= min_baseline_days (default 7);
+//   Day-0 / unseen binaries (< 7 active days) route to WS1-12 metrics.* first_seen novelty.
 // ============================================================================
 
 // Stage 1: Macro 30-Day Process Execution Baseline (metrics.file_executions_total)
@@ -28,7 +28,8 @@ stage stage1_process_baseline {
     timestamp.get_date(metadata.event_timestamp.seconds) = "{{today_date}}"
     $event_type = metadata.event_type
     principal.asset.hostname = $host
-    principal.process.file.sha256 = $sha256
+    $sha256 = strings.coalesce(target.process.file.sha256, principal.process.file.sha256)
+    principal.process.file.sha256 != ""
     $host != ""
     $sha256 != ""
 
@@ -71,7 +72,7 @@ stage stage2_file_derived_context {
     $file.graph.metadata.entity_type = "FILE"
     $file.graph.entity.file.sha256 = $sha256
     $file.graph.entity.file.prevalence.day_count = 10
-    $file.graph.entity.file.prevalence.rolling_max <= 3
+    $file.graph.entity.file.prevalence.rolling_max <= {{max_fleet_prevalence}}
     $file.graph.entity.file.prevalence.rolling_max > 0
     $sha256 != ""
 
@@ -120,7 +121,8 @@ outcome:
   $sample_paths = array_distinct($stage1_process_baseline.sample_path)
 
 condition:
-  $z_score >= {{anomaly_threshold}}
+  $active_baseline_days >= {{min_baseline_days}}
+  and $z_score >= {{anomaly_threshold}}
   and $fleet_prevalence <= {{max_fleet_prevalence}}
 
 order:

@@ -6,6 +6,7 @@
 //   ip, mac and email_addresses are repeated fields: one event can count toward several entities.
 stage stage1_extract {
     network.sent_bytes > 0
+    network.sent_bytes < 1000000000000000
     ((network.ip_protocol = "UDP" and target.port = 53) or (network.ip_protocol = "TCP" and (target.port = 53 or target.port = 3000)))
     $event_type = metadata.event_type
     principal.asset.hostname = $entity

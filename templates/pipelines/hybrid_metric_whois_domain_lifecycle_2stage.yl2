@@ -41,6 +41,7 @@ stage stage1_egress_baseline {
     {{domain_field}} = $domain
     $host != ""
     $domain != ""
+    not re.regex($domain, `(?i)\.(in-addr\.arpa|ip6\.arpa|local)$`)
 
   match:
     $host, $domain by 1d

@@ -71,7 +71,7 @@ stage stage2_fleet_prevalence {
     $graph.graph.metadata.source_type = "DERIVED_CONTEXT"
     $graph.graph.entity.file.sha256 = $token
     $graph.graph.entity.file.prevalence.day_count = 10
-    $graph.graph.entity.file.prevalence.rolling_max <= 3
+    $graph.graph.entity.file.prevalence.rolling_max <= {{max_fleet_prevalence}}
     $graph.graph.entity.file.prevalence.rolling_max > 0
 
   match:

@@ -294,8 +294,18 @@ class StatisticalAntipatternAuditor:
         and "metrics.resource_deletion_total" in stage_body
         and "target.resource.name" not in stage_body
     )
+    is_origin_ip_rollup = (
+        "principal.ip:" in stage_body
+        and "target.resource.name" not in stage_body
+    )
 
-    if matched_metrics and has_account_entity and not has_resource_in_match and not is_unified_cloud_crud_radar_spoke:
+    if (
+        matched_metrics
+        and has_account_entity
+        and not has_resource_in_match
+        and not is_unified_cloud_crud_radar_spoke
+        and not is_origin_ip_rollup
+    ):
       violations.append(
           StatisticalViolation(
               antipattern=StatisticalAntipatternType.DYNAMIC_RANGE_MASKING,
@@ -509,13 +519,14 @@ class StatisticalAntipatternAuditor:
 
     sa_var = sa_match.group(1)
 
-    # Check if the stage contains identity profiling (e.g. gserviceaccount, arn:aws, regex)
+    # Check if the stage contains identity profiling (e.g. gserviceaccount, arn:aws, regex, or explicit bound identity)
     has_identity_profile = any([
         "gserviceaccount" in stage_body,
         "arn:aws" in stage_body,
         "re.regex" in stage_body and sa_var in stage_body,
         "re.capture" in stage_body and sa_var in stage_body,
         bool(re.search(rf"{re.escape(sa_var)}\s*=\s*/[^/]+/", stage_body)),
+        bool(re.search(rf'{re.escape(sa_var)}\s*=\s*"[^"]+"', stage_body)),
         bool(re.search(rf"/{re.escape(sa_var)}/", stage_body)),
     ])
 

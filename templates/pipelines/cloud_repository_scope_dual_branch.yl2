@@ -1,16 +1,18 @@
 // ============================================================================
-// ARCHITECTURE: 2-STAGE DUAL-BRANCH CLOUD REPOSITORY SCOPE & ORIGIN OUTLIER PIPELINE
+// ARCHITECTURE: DUAL-BRANCH CLOUD REPOSITORY SCOPE & ORIGIN OUTLIER PIPELINE
 // Skill: secops-risk-metrics-multistage
-// Purpose: Detects service accounts accessing cloud data stores out of normal scope or from unexpected host origins
-// Methodology: Local-Baseline Isolation (Solves Elephant & Mouse Problem)
-// Branches:
-//   1. Depth Outlier: Volumetric surge in high-traffic known destinations (Obs >> mu_dest)
-//   2. Breadth Outlier: Zero-baseline acute departure on novel data repositories (dest_active_days == 0)
-//   3. Origin Outlier: Zero-baseline novel host IP or anomalous volume from caller origin (origin_active_days == 0)
-// Join Accounting: 1 UEBA Metric Join + 0 Root Stage Joins = 1 Join Total (Limit: <= 4)
+// Purpose: Detects cloud identities (GCP SAs, AWS IAM/STS roles incl. cn/us-gov, Azure AD UUIDs,
+//          and human cloud emails/UPNs) accessing cloud data stores out of normal 30-day scope
+//          or from unexpected caller origins, while excluding local OS / machine accounts.
+// Methodology: Local-Baseline Isolation across all 4 Cloud CRUD families (Read, Write, Delete, Create)
+//              on BOTH destination repositories and caller origin IPs.
+// Maturity Policy: Parametric Z-scores require >= 7 active baseline days per branch; unseen Day-0
+//                  repositories or origins (< 7 active days) route to WS1-12 metrics.* first_seen novelty.
+// Budget: 2 UDM stages (stage1_extract + stage2_origin_rollup) + 1 stage-to-stage rollup (stage3_origin_score)
+//         + Root stage = 3 named stages (<= 4 limit) and 2 UDM sources (<= 2 limit).
 // ============================================================================
 
-// --- STAGE 1: Dynamic Cloud Repository Extraction & Pre-Computed Baseline Lookups ---
+// --- STAGE 1: Dynamic Cloud Repository Extraction & 4-CRUD Destination Baselines ---
 stage stage1_extract {
     (
         metadata.event_type = "RESOURCE_READ" or
@@ -28,24 +30,25 @@ stage stage1_extract {
     $resource = target.resource.name
     $ip = principal.ip
 
-    // Identity filtering: enforce bound non-null identity; match standard cloud patterns or target account
+    // Broadened cloud principal profiling (GCP SAs, AWS/GovCloud/China ARNs, Azure UUIDs, human UPNs/emails)
+    // while explicitly excluding Windows AD computer accounts ($) and local OS service identities
     $sa != ""
-    $sa = /@.*gserviceaccount\.com$|^arn:aws:(iam|sts)::/ nocase
+    $sa = /@.*gserviceaccount\.com$|^arn:aws:(iam|sts)::|arn:aws-(cn|us-gov):(iam|sts)::|^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$|@[a-z0-9.-]+\.[a-z]{2,}$/ nocase
+    not re.regex($sa, `(?i)^(system|local service|network service|.*\$$)`)
     $vendor != ""
     $product != ""
     $resource != ""
+    $ip != ""
 
   match:
     $sa, $vendor, $product, $resource, $ip by 1d
 
   outcome:
-    // Each count matches its resource_*_total baseline population (see references/metric-sector-catalog.md)
     $observed_reads = sum(if(metadata.event_type = "RESOURCE_READ" or metadata.event_type = "USER_RESOURCE_ACCESS", 1, 0))
     $observed_writes = sum(if(metadata.event_type = "RESOURCE_WRITTEN" or metadata.event_type = "USER_RESOURCE_UPDATE_CONTENT", 1, 0))
     $observed_deletes = sum(if(metadata.event_type = "RESOURCE_DELETION" or metadata.event_type = "USER_RESOURCE_DELETION", 1, 0))
     $observed_creates = sum(if(metadata.event_type = "RESOURCE_CREATION" or metadata.event_type = "USER_RESOURCE_CREATION", 1, 0))
 
-    // 1. Destination Resource Read Baseline (Local-Baseline Isolation)
     $dest_avg = max(metrics.resource_read_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: avg,
         principal.user.userid: principal.user.userid,
@@ -60,7 +63,14 @@ stage stage1_extract {
         metadata.product_name: metadata.product_name,
         target.resource.name: target.resource.name
     ))
-    // 1b. Destination Resource Write, Deletion & Creation Baselines (4-Family Cloud CRUD Isolation)
+    $dest_active_days = max(metrics.resource_read_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+        principal.user.userid: principal.user.userid,
+        metadata.vendor_name: metadata.vendor_name,
+        metadata.product_name: metadata.product_name,
+        target.resource.name: target.resource.name
+    ))
+
     $dest_write_avg = max(metrics.resource_written_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: avg,
         principal.user.userid: principal.user.userid,
@@ -75,6 +85,14 @@ stage stage1_extract {
         metadata.product_name: metadata.product_name,
         target.resource.name: target.resource.name
     ))
+    $dest_write_days = max(metrics.resource_written_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+        principal.user.userid: principal.user.userid,
+        metadata.vendor_name: metadata.vendor_name,
+        metadata.product_name: metadata.product_name,
+        target.resource.name: target.resource.name
+    ))
+
     $dest_del_avg = max(metrics.resource_deletion_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: avg,
         principal.user.userid: principal.user.userid,
@@ -89,6 +107,14 @@ stage stage1_extract {
         metadata.product_name: metadata.product_name,
         target.resource.name: target.resource.name
     ))
+    $dest_del_days = max(metrics.resource_deletion_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+        principal.user.userid: principal.user.userid,
+        metadata.vendor_name: metadata.vendor_name,
+        metadata.product_name: metadata.product_name,
+        target.resource.name: target.resource.name
+    ))
+
     $dest_create_avg = max(metrics.resource_creation_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: avg,
         principal.user.userid: principal.user.userid,
@@ -103,96 +129,209 @@ stage stage1_extract {
         metadata.product_name: metadata.product_name,
         target.resource.name: target.resource.name
     ))
-    // 2. Caller Origin IP Baseline
-    $origin_avg = max(metrics.resource_read_total(
-        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
-        principal.user.userid: principal.user.userid,
-        principal.ip: principal.ip,
-        metadata.vendor_name: metadata.vendor_name,
-        metadata.product_name: metadata.product_name
-    ))
-    $origin_stddev = max(metrics.resource_read_total(
-        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
-        principal.user.userid: principal.user.userid,
-        principal.ip: principal.ip,
-        metadata.vendor_name: metadata.vendor_name,
-        metadata.product_name: metadata.product_name
-    ))
-
-    // In-Stage Local-Baseline Isolation (Outcomes-in-Outcomes)
-    // 1. Destination Resource Outlier Scores (Read, Write, Deletion, Creation)
-    $dest_active_days = max(metrics.resource_read_total(
+    $dest_create_days = max(metrics.resource_creation_total(
         period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
         principal.user.userid: principal.user.userid,
         metadata.vendor_name: metadata.vendor_name,
         metadata.product_name: metadata.product_name,
         target.resource.name: target.resource.name
     ))
-    $dest_z = ($observed_reads - $dest_avg) / if($dest_stddev > math.sqrt(if($dest_avg > 1.0, $dest_avg, 1.0)), $dest_stddev, math.sqrt(if($dest_avg > 1.0, $dest_avg, 1.0)))
-    $write_z = ($observed_writes - $dest_write_avg) / if($dest_write_stddev > math.sqrt(if($dest_write_avg > 1.0, $dest_write_avg, 1.0)), $dest_write_stddev, math.sqrt(if($dest_write_avg > 1.0, $dest_write_avg, 1.0)))
-    $del_z = ($observed_deletes - $dest_del_avg) / if($dest_del_stddev > math.sqrt(if($dest_del_avg > 1.0, $dest_del_avg, 1.0)), $dest_del_stddev, math.sqrt(if($dest_del_avg > 1.0, $dest_del_avg, 1.0)))
-    $create_z = ($observed_creates - $dest_create_avg) / if($dest_create_stddev > math.sqrt(if($dest_create_avg > 1.0, $dest_create_avg, 1.0)), $dest_create_stddev, math.sqrt(if($dest_create_avg > 1.0, $dest_create_avg, 1.0)))
-
-    // 2. Caller Origin IP Outlier Score
-    $origin_z = ($observed_reads - $origin_avg) / if($origin_stddev > math.sqrt(if($origin_avg > 1.0, $origin_avg, 1.0)), $origin_stddev, math.sqrt(if($origin_avg > 1.0, $origin_avg, 1.0)))
 }
 
-// --- STAGE 2: Caller Origin IP Rollup across target repositories ---
+// --- STAGE 2: Caller Origin IP 4-CRUD Extraction & Pre-Computed Baselines ---
 stage stage2_origin_rollup {
-    $sa = $stage1_extract.sa
-    $product = $stage1_extract.product
-    $ip = $stage1_extract.ip
-    $ws = $stage1_extract.window_start
+    (
+        metadata.event_type = "RESOURCE_READ" or
+        metadata.event_type = "USER_RESOURCE_ACCESS" or
+        metadata.event_type = "RESOURCE_DELETION" or
+        metadata.event_type = "USER_RESOURCE_DELETION" or
+        metadata.event_type = "RESOURCE_WRITTEN" or
+        metadata.event_type = "USER_RESOURCE_UPDATE_CONTENT" or
+        metadata.event_type = "RESOURCE_CREATION" or
+        metadata.event_type = "USER_RESOURCE_CREATION"
+    )
+    $sa = principal.user.userid
+    $vendor = metadata.vendor_name
+    $product = metadata.product_name
+    $ip = principal.ip
+
+    $sa != ""
+    $sa = /@.*gserviceaccount\.com$|^arn:aws:(iam|sts)::|arn:aws-(cn|us-gov):(iam|sts)::|^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$|@[a-z0-9.-]+\.[a-z]{2,}$/ nocase
+    not re.regex($sa, `(?i)^(system|local service|network service|.*\$$)`)
+    $vendor != ""
+    $product != ""
+    $ip != ""
 
   match:
-    $sa, $product, $ip, $ws by 1d
+    $sa, $vendor, $product, $ip by 1d
 
   outcome:
-    $ip_total_reads = sum($stage1_extract.observed_reads)
-    $origin_avg = max($stage1_extract.origin_avg)
-    $origin_stddev = max($stage1_extract.origin_stddev)
-    $origin_floor = math.sqrt(if($origin_avg > 1.0, $origin_avg, 1.0))
-    $ip_origin_z = ($ip_total_reads - $origin_avg) / if($origin_stddev > $origin_floor, $origin_stddev, $origin_floor)
+    $ip_total_reads = sum(if(metadata.event_type = "RESOURCE_READ" or metadata.event_type = "USER_RESOURCE_ACCESS", 1, 0))
+    $ip_total_writes = sum(if(metadata.event_type = "RESOURCE_WRITTEN" or metadata.event_type = "USER_RESOURCE_UPDATE_CONTENT", 1, 0))
+    $ip_total_deletes = sum(if(metadata.event_type = "RESOURCE_DELETION" or metadata.event_type = "USER_RESOURCE_DELETION", 1, 0))
+    $ip_total_creates = sum(if(metadata.event_type = "RESOURCE_CREATION" or metadata.event_type = "USER_RESOURCE_CREATION", 1, 0))
+
+    $origin_read_avg = max(metrics.resource_read_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+        principal.user.userid: principal.user.userid,
+        principal.ip: principal.ip,
+        metadata.vendor_name: metadata.vendor_name,
+        metadata.product_name: metadata.product_name
+    ))
+    $origin_read_stddev = max(metrics.resource_read_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+        principal.user.userid: principal.user.userid,
+        principal.ip: principal.ip,
+        metadata.vendor_name: metadata.vendor_name,
+        metadata.product_name: metadata.product_name
+    ))
+    $origin_read_days = max(metrics.resource_read_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+        principal.user.userid: principal.user.userid,
+        principal.ip: principal.ip,
+        metadata.vendor_name: metadata.vendor_name,
+        metadata.product_name: metadata.product_name
+    ))
+
+    $origin_write_avg = max(metrics.resource_written_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+        principal.user.userid: principal.user.userid,
+        principal.ip: principal.ip,
+        metadata.vendor_name: metadata.vendor_name,
+        metadata.product_name: metadata.product_name
+    ))
+    $origin_write_stddev = max(metrics.resource_written_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+        principal.user.userid: principal.user.userid,
+        principal.ip: principal.ip,
+        metadata.vendor_name: metadata.vendor_name,
+        metadata.product_name: metadata.product_name
+    ))
+    $origin_write_days = max(metrics.resource_written_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+        principal.user.userid: principal.user.userid,
+        principal.ip: principal.ip,
+        metadata.vendor_name: metadata.vendor_name,
+        metadata.product_name: metadata.product_name
+    ))
+
+    $origin_del_avg = max(metrics.resource_deletion_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+        principal.user.userid: principal.user.userid,
+        principal.ip: principal.ip,
+        metadata.vendor_name: metadata.vendor_name,
+        metadata.product_name: metadata.product_name
+    ))
+    $origin_del_stddev = max(metrics.resource_deletion_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+        principal.user.userid: principal.user.userid,
+        principal.ip: principal.ip,
+        metadata.vendor_name: metadata.vendor_name,
+        metadata.product_name: metadata.product_name
+    ))
+    $origin_del_days = max(metrics.resource_deletion_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+        principal.user.userid: principal.user.userid,
+        principal.ip: principal.ip,
+        metadata.vendor_name: metadata.vendor_name,
+        metadata.product_name: metadata.product_name
+    ))
+
+    $origin_create_avg = max(metrics.resource_creation_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+        principal.user.userid: principal.user.userid,
+        principal.ip: principal.ip,
+        metadata.vendor_name: metadata.vendor_name,
+        metadata.product_name: metadata.product_name
+    ))
+    $origin_create_stddev = max(metrics.resource_creation_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+        principal.user.userid: principal.user.userid,
+        principal.ip: principal.ip,
+        metadata.vendor_name: metadata.vendor_name,
+        metadata.product_name: metadata.product_name
+    ))
+    $origin_create_days = max(metrics.resource_creation_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+        principal.user.userid: principal.user.userid,
+        principal.ip: principal.ip,
+        metadata.vendor_name: metadata.vendor_name,
+        metadata.product_name: metadata.product_name
+    ))
 }
 
-// --- ROOT STAGE: Dual-Branch Evaluation & Composite Risk Ranking ---
+// --- STAGE 3: Caller Origin IP 4-CRUD Maturity-Gated Z-Score Rollup ---
+stage stage3_origin_score {
+    $sa = $stage2_origin_rollup.sa
+    $vendor = $stage2_origin_rollup.vendor
+    $product = $stage2_origin_rollup.product
+    $ip = $stage2_origin_rollup.ip
+    $ws = $stage2_origin_rollup.window_start
+
+  match:
+    $sa, $vendor, $product, $ip, $ws by 1d
+
+  outcome:
+    $r_fl = math.sqrt(if(max($stage2_origin_rollup.origin_read_avg) > 1.0, max($stage2_origin_rollup.origin_read_avg), 1.0))
+    $w_fl = math.sqrt(if(max($stage2_origin_rollup.origin_write_avg) > 1.0, max($stage2_origin_rollup.origin_write_avg), 1.0))
+    $d_fl = math.sqrt(if(max($stage2_origin_rollup.origin_del_avg) > 1.0, max($stage2_origin_rollup.origin_del_avg), 1.0))
+    $c_fl = math.sqrt(if(max($stage2_origin_rollup.origin_create_avg) > 1.0, max($stage2_origin_rollup.origin_create_avg), 1.0))
+
+    $r_raw = (max($stage2_origin_rollup.ip_total_reads) - max($stage2_origin_rollup.origin_read_avg)) / if(max($stage2_origin_rollup.origin_read_stddev) > $r_fl, max($stage2_origin_rollup.origin_read_stddev), $r_fl)
+    $w_raw = (max($stage2_origin_rollup.ip_total_writes) - max($stage2_origin_rollup.origin_write_avg)) / if(max($stage2_origin_rollup.origin_write_stddev) > $w_fl, max($stage2_origin_rollup.origin_write_stddev), $w_fl)
+    $d_raw = (max($stage2_origin_rollup.ip_total_deletes) - max($stage2_origin_rollup.origin_del_avg)) / if(max($stage2_origin_rollup.origin_del_stddev) > $d_fl, max($stage2_origin_rollup.origin_del_stddev), $d_fl)
+    $c_raw = (max($stage2_origin_rollup.ip_total_creates) - max($stage2_origin_rollup.origin_create_avg)) / if(max($stage2_origin_rollup.origin_create_stddev) > $c_fl, max($stage2_origin_rollup.origin_create_stddev), $c_fl)
+
+    $r_z = if(max($stage2_origin_rollup.origin_read_days) >= 7 and $r_raw > 0.0, $r_raw, 0.0)
+    $w_z = if(max($stage2_origin_rollup.origin_write_days) >= 7 and $w_raw > 0.0, $w_raw, 0.0)
+    $d_z = if(max($stage2_origin_rollup.origin_del_days) >= 7 and $d_raw > 0.0, $d_raw, 0.0)
+    $c_z = if(max($stage2_origin_rollup.origin_create_days) >= 7 and $c_raw > 0.0, $c_raw, 0.0)
+
+    $ip_origin_z = $r_z + $w_z + $d_z + $c_z
+}
+
+// --- ROOT STAGE: Per-Branch Maturity-Gated Evaluation & Composite Risk Ranking ---
 $sa = $stage1_extract.sa
+$vendor = $stage1_extract.vendor
 $product = $stage1_extract.product
 $resource = $stage1_extract.resource
 $ip = $stage1_extract.ip
 $ws = $stage1_extract.window_start
-$sa = $stage2_origin_rollup.sa
-$product = $stage2_origin_rollup.product
-$ip = $stage2_origin_rollup.ip
-$ws = $stage2_origin_rollup.ws
+$sa = $stage3_origin_score.sa
+$vendor = $stage3_origin_score.vendor
+$product = $stage3_origin_score.product
+$ip = $stage3_origin_score.ip
+$ws = $stage3_origin_score.ws
 
 match:
-  $sa, $product, $resource, $ws by 1d
+  $sa, $vendor, $product, $resource, $ws by 1d
 
 outcome:
-  // Sum observed CRUD counts across all caller IPs for the (sa, product, resource) tuple
   $obs = sum($stage1_extract.observed_reads)
   $obs_writes = sum($stage1_extract.observed_writes)
   $obs_deletes = sum($stage1_extract.observed_deletes)
   $obs_creates = sum($stage1_extract.observed_creates)
-  $dest_days = max($stage1_extract.dest_active_days)
+  $read_days = max($stage1_extract.dest_active_days)
+  $write_days = max($stage1_extract.dest_write_days)
+  $del_days = max($stage1_extract.dest_del_days)
+  $create_days = max($stage1_extract.dest_create_days)
   $distinct_ips = count_distinct($stage1_extract.ip)
 
-  // Destination CRUD Z-Scores evaluated on rolled-up daily totals
-  $dest_floor = math.sqrt(if(max($stage1_extract.dest_avg) > 1.0, max($stage1_extract.dest_avg), 1.0))
-  $write_floor = math.sqrt(if(max($stage1_extract.dest_write_avg) > 1.0, max($stage1_extract.dest_write_avg), 1.0))
-  $del_floor = math.sqrt(if(max($stage1_extract.dest_del_avg) > 1.0, max($stage1_extract.dest_del_avg), 1.0))
-  $create_floor = math.sqrt(if(max($stage1_extract.dest_create_avg) > 1.0, max($stage1_extract.dest_create_avg), 1.0))
-  $dest_z = ($obs - max($stage1_extract.dest_avg)) / if(max($stage1_extract.dest_stddev) > $dest_floor, max($stage1_extract.dest_stddev), $dest_floor)
-  $write_z = ($obs_writes - max($stage1_extract.dest_write_avg)) / if(max($stage1_extract.dest_write_stddev) > $write_floor, max($stage1_extract.dest_write_stddev), $write_floor)
-  $del_z = ($obs_deletes - max($stage1_extract.dest_del_avg)) / if(max($stage1_extract.dest_del_stddev) > $del_floor, max($stage1_extract.dest_del_stddev), $del_floor)
-  $create_z = ($obs_creates - max($stage1_extract.dest_create_avg)) / if(max($stage1_extract.dest_create_stddev) > $create_floor, max($stage1_extract.dest_create_stddev), $create_floor)
-  $origin_z = max($stage2_origin_rollup.ip_origin_z)
-  $composite_risk = if($dest_z > 0, $dest_z, 0.0) + if($write_z > 0, $write_z, 0.0) + if($del_z > 0, $del_z, 0.0) + if($create_z > 0, $create_z, 0.0) + if($origin_z > 0, $origin_z, 0.0)
+  $dest_raw = ($obs - max($stage1_extract.dest_avg)) / if(max($stage1_extract.dest_stddev) > math.sqrt(if(max($stage1_extract.dest_avg) > 1.0, max($stage1_extract.dest_avg), 1.0)), max($stage1_extract.dest_stddev), math.sqrt(if(max($stage1_extract.dest_avg) > 1.0, max($stage1_extract.dest_avg), 1.0)))
+  $write_raw = ($obs_writes - max($stage1_extract.dest_write_avg)) / if(max($stage1_extract.dest_write_stddev) > math.sqrt(if(max($stage1_extract.dest_write_avg) > 1.0, max($stage1_extract.dest_write_avg), 1.0)), max($stage1_extract.dest_write_stddev), math.sqrt(if(max($stage1_extract.dest_write_avg) > 1.0, max($stage1_extract.dest_write_avg), 1.0)))
+  $del_raw = ($obs_deletes - max($stage1_extract.dest_del_avg)) / if(max($stage1_extract.dest_del_stddev) > math.sqrt(if(max($stage1_extract.dest_del_avg) > 1.0, max($stage1_extract.dest_del_avg), 1.0)), max($stage1_extract.dest_del_stddev), math.sqrt(if(max($stage1_extract.dest_del_avg) > 1.0, max($stage1_extract.dest_del_avg), 1.0)))
+  $create_raw = ($obs_creates - max($stage1_extract.dest_create_avg)) / if(max($stage1_extract.dest_create_stddev) > math.sqrt(if(max($stage1_extract.dest_create_avg) > 1.0, max($stage1_extract.dest_create_avg), 1.0)), max($stage1_extract.dest_create_stddev), math.sqrt(if(max($stage1_extract.dest_create_avg) > 1.0, max($stage1_extract.dest_create_avg), 1.0)))
+
+  $dest_z = if($read_days >= 7 and $dest_raw > 0.0, $dest_raw, 0.0)
+  $write_z = if($write_days >= 7 and $write_raw > 0.0, $write_raw, 0.0)
+  $del_z = if($del_days >= 7 and $del_raw > 0.0, $del_raw, 0.0)
+  $create_z = if($create_days >= 7 and $create_raw > 0.0, $create_raw, 0.0)
+  $origin_z = max($stage3_origin_score.ip_origin_z)
+  $composite_risk = $dest_z + $write_z + $del_z + $create_z + $origin_z
 
 // Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
 condition:
-  $composite_risk >= {{anomaly_threshold}} and ($dest_days >= 7 or $dest_days = 0 or $obs_deletes > 0 or $obs_writes > 0)
+  $composite_risk >= {{anomaly_threshold}}
 
 order:
   $composite_risk desc

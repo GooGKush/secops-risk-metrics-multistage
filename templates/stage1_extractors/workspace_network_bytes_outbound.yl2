@@ -4,16 +4,17 @@
 //   - PRINCIPAL_USER (principal.user.userid | email_addresses | employee_id | product_object_id | windows_sid)
 //   ip, mac and email_addresses are repeated fields: one event can count toward several entities.
 stage stage1_extract {
-    (metadata.product_name = "GMAIL" or metadata.product_name = "gmail")
+    re.regex(metadata.product_name, `(?i)^gmail$`)
+    network.sent_bytes > 0
+    network.sent_bytes < 1000000000000000
     principal.user.userid = $user
     $user != ""
-    $sent = network.sent_bytes
 
   match:
     $user by 1d
 
   outcome:
-    $observed_val = sum($sent)
+    $observed_val = sum(if(network.sent_bytes > 0 and network.sent_bytes < 1000000000000000, 1.0, 0.0) * network.sent_bytes)
     $observed_events = count(metadata.id)
 
     $historical_avg = max(metrics.workspace_network_bytes_outbound(

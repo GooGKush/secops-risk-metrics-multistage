@@ -1090,7 +1090,24 @@ class MultiStageTemplateRouter:
       clamp = f"{bf} < 1000000000000000"
       eff_pred = pred if clamp in pred else f"{pred} and {clamp}"
       return f"sum(if({eff_pred}, 1.0, 0.0) * {bf})"
-    if obs == "sum(network.sent_bytes) + sum(network.received_bytes)":
+    m_clamped_single_byte = re.match(
+        r"^sum\(if\((network\.(?:sent|received)_bytes) > 0 and \1 < 1000000000000000, 1\.0, 0\.0\) \* \1\)$",
+        obs,
+    )
+    if m_clamped_single_byte:
+      bf = m_clamped_single_byte.group(1)
+      pos = f"{bf} > 0"
+      clamp = f"{bf} < 1000000000000000"
+      eff_pred = pred
+      if pos not in eff_pred:
+        eff_pred = f"{eff_pred} and {pos}"
+      if clamp not in eff_pred:
+        eff_pred = f"{eff_pred} and {clamp}"
+      return f"sum(if({eff_pred}, 1.0, 0.0) * {bf})"
+    if obs in (
+        "sum(network.sent_bytes) + sum(network.received_bytes)",
+        "sum(if(network.sent_bytes > 0 and network.sent_bytes < 1000000000000000, 1.0, 0.0) * network.sent_bytes) + sum(if(network.received_bytes > 0 and network.received_bytes < 1000000000000000, 1.0, 0.0) * network.received_bytes)",
+    ):
       return (
           f"sum(if({pred} and network.sent_bytes > 0 and network.sent_bytes < 1000000000000000, 1.0, 0.0) * network.sent_bytes) + "
           f"sum(if({pred} and network.received_bytes > 0 and network.received_bytes < 1000000000000000, 1.0, 0.0) * network.received_bytes)"
@@ -1363,6 +1380,23 @@ class MultiStageTemplateRouter:
       off_lines = (
           f"    $off_hours_sent = sum(if({in_sched}, 0, network.sent_bytes))\n"
           f"    $off_hours_rcvd = sum(if({in_sched}, 0, network.received_bytes))\n"
+          "    $off_hours_obs = $off_hours_sent + $off_hours_rcvd\n"
+      )
+    elif (
+        rhs
+        == "sum(if(network.sent_bytes > 0 and network.sent_bytes < 1000000000000000, 1.0, 0.0) * network.sent_bytes)"
+    ):
+      off_lines = (
+          f"    $off_hours_obs = sum(if({in_sched}, 0.0, if(network.sent_bytes > 0 and network.sent_bytes < 1000000000000000, 1.0, 0.0)) * network.sent_bytes)\n"
+      )
+    elif (
+        rhs
+        == "sum(if(network.sent_bytes > 0 and network.sent_bytes < 1000000000000000, 1.0, 0.0) * network.sent_bytes)"
+        " + sum(if(network.received_bytes > 0 and network.received_bytes < 1000000000000000, 1.0, 0.0) * network.received_bytes)"
+    ):
+      off_lines = (
+          f"    $off_hours_sent = sum(if({in_sched}, 0.0, if(network.sent_bytes > 0 and network.sent_bytes < 1000000000000000, 1.0, 0.0)) * network.sent_bytes)\n"
+          f"    $off_hours_rcvd = sum(if({in_sched}, 0.0, if(network.received_bytes > 0 and network.received_bytes < 1000000000000000, 1.0, 0.0)) * network.received_bytes)\n"
           "    $off_hours_obs = $off_hours_sent + $off_hours_rcvd\n"
       )
     else:
@@ -1719,6 +1753,11 @@ class MultiStageTemplateRouter:
       min_awakening_volume: int = DEFAULT_MIN_AWAKENING_VOLUME,
       min_active_days: Optional[int] = None,
       max_asset_age_days: float = 30.0,
+      max_fleet_prevalence: Optional[int] = None,
+      max_fleet_adopters: Optional[int] = None,
+      max_diversity_ratio: float = 0.05,
+      min_concentration_ratio: float = 0.85,
+      min_raw_events: int = 25,
   ) -> str:
     """Renders 3-Stage and 4-Stage advanced DAG pipelines, then resolves the root significance gate.
 
@@ -1728,6 +1767,8 @@ class MultiStageTemplateRouter:
     """
     if isinstance(pipeline_type, str) and not isinstance(pipeline_type, PipelineArchitecture):
       raw_pipe = pipeline_type.strip().upper().replace("-", "_").replace(" ", "_")
+      if raw_pipe == "DESTINATION_DIVERSITY_CONCENTRATION":
+        raw_pipe = "DESTINATION_DIVERSITY_CONCENTRATION_2STAGE"
       if raw_pipe in PipelineArchitecture.__members__:
         pipeline_type = PipelineArchitecture[raw_pipe]
     if pipeline_type in RETIRED_PIPELINE_ARCHITECTURES:
@@ -1756,6 +1797,11 @@ class MultiStageTemplateRouter:
         fleet_prior_payload=fleet_prior_payload,
         min_active_days=min_active_days,
         max_asset_age_days=max_asset_age_days,
+        max_fleet_prevalence=max_fleet_prevalence,
+        max_fleet_adopters=max_fleet_adopters,
+        max_diversity_ratio=max_diversity_ratio,
+        min_concentration_ratio=min_concentration_ratio,
+        min_raw_events=min_raw_events,
     )
     out = self._apply_significance_gate(
         rendered,
@@ -1797,6 +1843,11 @@ class MultiStageTemplateRouter:
       fleet_prior_payload: Optional[Any] = None,
       min_active_days: Optional[int] = None,
       max_asset_age_days: float = 30.0,
+      max_fleet_prevalence: Optional[int] = None,
+      max_fleet_adopters: Optional[int] = None,
+      max_diversity_ratio: float = 0.05,
+      min_concentration_ratio: float = 0.85,
+      min_raw_events: int = 25,
   ) -> str:
     """Renders 3-Stage and 4-Stage advanced DAG pipelines (gate placeholders left for build_pipeline_query)."""
     if identifier_field is None and identifier_coverage_payload is not None:
@@ -1853,6 +1904,15 @@ class MultiStageTemplateRouter:
           raw = raw.replace("principal.asset.hostname: principal.asset.hostname", f"{ent_field}: {ent_field}")
           raw = raw.replace("count_distinct(principal.asset.hostname)", f"count_distinct({ent_field})")
           raw = raw.replace("array_distinct(principal.asset.hostname)", f"array_distinct({ent_field})")
+      eff_days = int(min_baseline_days if min_baseline_days is not None else DEFAULT_MIN_BASELINE_DAYS)
+      eff_adopters = int(
+          max_fleet_adopters
+          if max_fleet_adopters is not None
+          else (max_fleet_prevalence if max_fleet_prevalence is not None else 2)
+      )
+      raw = raw.replace("$active_baseline_days >= 7", f"$active_baseline_days >= {eff_days}")
+      raw = raw.replace("and $personal_z >= 3.0", f"and $personal_z >= {anomaly_threshold}")
+      raw = raw.replace("and $fleet_adopters <= 2", f"and $fleet_adopters <= {eff_adopters}")
       if hypothesis_goal:
         raw = f"// Goal: {hypothesis_goal}\n" + raw
       rendered = raw
@@ -1901,6 +1961,15 @@ class MultiStageTemplateRouter:
           raw = raw.replace("principal.asset.hostname = $host", f"{ent_field} = $host")
           raw = raw.replace("principal.asset.hostname: principal.asset.hostname", f"{ent_field}: {ent_field}")
           raw = raw.replace("count_distinct(principal.asset.hostname)", f"count_distinct({ent_field})")
+      eff_days = int(min_baseline_days if min_baseline_days is not None else DEFAULT_MIN_BASELINE_DAYS)
+      eff_hosts = int(
+          max_fleet_prevalence
+          if max_fleet_prevalence is not None
+          else (max_fleet_adopters if max_fleet_adopters is not None else 2)
+      )
+      raw = raw.replace("$active_baseline_days >= 7", f"$active_baseline_days >= {eff_days}")
+      raw = raw.replace("and $target_z >= 3.0", f"and $target_z >= {anomaly_threshold}")
+      raw = raw.replace("and $connecting_fleet_hosts <= 2", f"and $connecting_fleet_hosts <= {eff_hosts}")
       if hypothesis_goal:
         raw = f"// Goal: {hypothesis_goal}\n" + raw
       return raw + "\n"
@@ -2003,6 +2072,8 @@ class MultiStageTemplateRouter:
         sa_regex_pattern = r"(?:\(\s*)?\$sa\s*=\s*/@.*?nocase(?:\s*\))?"
         sa_binding = f'    $sa = "{self._escape_yaral_literal(service_account)}"'
         raw = re.sub(sa_regex_pattern, sa_binding, raw, flags=re.DOTALL)
+      if min_baseline_days is not None and int(min_baseline_days) != 7:
+        raw = raw.replace(" >= 7 ", f" >= {int(min_baseline_days)} ")
       if hypothesis_goal:
         raw = f"// Goal: {hypothesis_goal}\n" + raw
       # Significance gate: the template's `$composite_risk >= {{anomaly_threshold}}` default (and any
@@ -2275,9 +2346,9 @@ class MultiStageTemplateRouter:
 
       rendered = rendered.replace("{{anomaly_threshold}}", str(anomaly_threshold))
       rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
-      rendered = rendered.replace("{{max_diversity_ratio}}", "0.10")
-      rendered = rendered.replace("{{min_concentration_ratio}}", "0.75")
-      rendered = rendered.replace("{{min_raw_events}}", "5")
+      rendered = rendered.replace("{{max_diversity_ratio}}", f"{float(max_diversity_ratio):.2f}")
+      rendered = rendered.replace("{{min_concentration_ratio}}", f"{float(min_concentration_ratio):.2f}")
+      rendered = rendered.replace("{{min_raw_events}}", str(int(min_raw_events)))
       rendered = _apply_byte_dispersion_floor(rendered, target_metric, byte_dispersion_floor=byte_dispersion_floor)
 
       if hypothesis_goal:
@@ -2335,9 +2406,12 @@ class MultiStageTemplateRouter:
       rendered = rendered.replace("{{raw_event_filter}}", raw_event_filter)
       rendered = rendered.replace("{{fleet_entity_field}}", fleet_entity_field)
 
+      eff_prev = int(max_fleet_prevalence if max_fleet_prevalence is not None else 3)
+      eff_adopters = int(max_fleet_adopters if max_fleet_adopters is not None else 3)
       rendered = rendered.replace("{{personal_threshold}}", str(anomaly_threshold))
       rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
-      rendered = rendered.replace("{{max_fleet_adopters}}", "3")
+      rendered = rendered.replace("{{max_fleet_prevalence}}", str(eff_prev))
+      rendered = rendered.replace("{{max_fleet_adopters}}", str(eff_adopters))
       rendered = rendered.replace("{{today_date}}", _today_date())
 
       if hypothesis_goal:
@@ -2404,9 +2478,10 @@ class MultiStageTemplateRouter:
         raw = raw.replace("    $host != \"\"", f"    {ent_var} != \"\"")
         raw = raw.replace("$host, $sha256 by 1d", f"{ent_var}, $sha256 by 1d")
         raw = raw.replace("$host = $stage1_process_baseline.host", f"{ent_var} = $stage1_process_baseline.{ent_name}")
+      eff_prev = int(max_fleet_prevalence if max_fleet_prevalence is not None else 3)
       rendered = raw.replace("{{anomaly_threshold}}", str(anomaly_threshold))
       rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
-      rendered = rendered.replace("{{max_fleet_prevalence}}", "3")
+      rendered = rendered.replace("{{max_fleet_prevalence}}", str(eff_prev))
       rendered = rendered.replace("{{today_date}}", _today_date())
       if hypothesis_goal:
         rendered = f"// Goal: {hypothesis_goal}\n" + rendered
@@ -2448,9 +2523,10 @@ class MultiStageTemplateRouter:
           "{{target_metric_func_active_days}}",
           f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: num_metric_periods, {audit['target_field']}: {audit['target_field']}, {domain_field}: {domain_field})"
       )
+      eff_prev = int(max_fleet_prevalence if max_fleet_prevalence is not None else 3)
       rendered = rendered.replace("{{anomaly_threshold}}", str(anomaly_threshold))
       rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
-      rendered = rendered.replace("{{max_fleet_prevalence}}", "3")
+      rendered = rendered.replace("{{max_fleet_prevalence}}", str(eff_prev))
       rendered = rendered.replace("{{today_date}}", _today_date())
       if hypothesis_goal:
         rendered = f"// Goal: {hypothesis_goal}\n" + rendered
@@ -2600,10 +2676,16 @@ class MultiStageTemplateRouter:
           "{{sector_metric_func_stddev}}",
           f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: stddev, {host_field}: {host_field})"
       )
+      rendered = rendered.replace(
+          "{{sector_metric_func_active_days}}",
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: num_metric_periods, {host_field}: {host_field})"
+      )
+      eff_prev = int(max_fleet_prevalence if max_fleet_prevalence is not None else 3)
       rendered = rendered.replace("{{ecg_entity_type}}", '"DOMAIN_NAME"')
       rendered = rendered.replace("{{ecg_key_path}}", "entity.domain.name")
       rendered = rendered.replace("{{ecg_prevalence_path}}", "entity.domain.prevalence")
-      rendered = rendered.replace("{{max_fleet_prevalence}}", "3")
+      rendered = rendered.replace("{{max_fleet_prevalence}}", str(eff_prev))
+      rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
       rendered = rendered.replace("{{today_date}}", _today_date())
       rendered = _apply_byte_dispersion_floor(rendered, target_metric, byte_dispersion_floor=byte_dispersion_floor)
       if hypothesis_goal:
@@ -2653,6 +2735,10 @@ class MultiStageTemplateRouter:
           f"metrics.{m_a}(period: 1d, window: 30d, metric: {audit_a['metric_arg']}, agg: stddev, {host_field}: {host_field})"
       )
       rendered = rendered.replace(
+          "{{sector_a_metric_func_active_days}}",
+          f"metrics.{m_a}(period: 1d, window: 30d, metric: {audit_a['metric_arg']}, agg: num_metric_periods, {host_field}: {host_field})"
+      )
+      rendered = rendered.replace(
           "{{sector_b_metric_func_avg}}",
           f"metrics.{m_b}(period: 1d, window: 30d, metric: {audit_b['metric_arg']}, agg: avg, {host_field}: {host_field}, {dest_field}: {dest_field})"
       )
@@ -2660,10 +2746,16 @@ class MultiStageTemplateRouter:
           "{{sector_b_metric_func_stddev}}",
           f"metrics.{m_b}(period: 1d, window: 30d, metric: {audit_b['metric_arg']}, agg: stddev, {host_field}: {host_field}, {dest_field}: {dest_field})"
       )
+      rendered = rendered.replace(
+          "{{sector_b_metric_func_active_days}}",
+          f"metrics.{m_b}(period: 1d, window: 30d, metric: {audit_b['metric_arg']}, agg: num_metric_periods, {host_field}: {host_field}, {dest_field}: {dest_field})"
+      )
+      eff_prev = int(max_fleet_prevalence if max_fleet_prevalence is not None else 3)
       rendered = rendered.replace("{{ecg_entity_type}}", '"DOMAIN_NAME"')
       rendered = rendered.replace("{{ecg_key_path}}", "entity.domain.name")
       rendered = rendered.replace("{{ecg_prevalence_path}}", "entity.domain.prevalence")
-      rendered = rendered.replace("{{max_fleet_prevalence}}", "3")
+      rendered = rendered.replace("{{max_fleet_prevalence}}", str(eff_prev))
+      rendered = rendered.replace("{{min_baseline_days}}", str(audit_a["min_baseline_days"]))
       rendered = rendered.replace("{{today_date}}", _today_date())
       rendered = _apply_byte_dispersion_floor(rendered, m_a, floor_vars=("$a_floor",))
       rendered = _apply_byte_dispersion_floor(rendered, m_b, floor_vars=("$b_floor",))
@@ -3156,14 +3248,45 @@ class MultiStageTemplateRouter:
       entity_type: EntityType = EntityType.ASSET,
       anomaly_threshold: float = 3.0,
       hypothesis_goal: Optional[str] = None,
+      min_baseline_days: Optional[int] = None,
+      max_diversity_ratio: float = 0.05,
+      min_concentration_ratio: float = 0.85,
+      min_raw_events: int = 25,
   ) -> str:
-    """Builds a verified Dual-Plane Hybrid Entropy & Concentration pipeline (Diversity Deficit & Elephant Flow)."""
+    """Builds a verified Dual-Plane Destination Diversity & Concentration Screen pipeline."""
     return self.build_pipeline_query(
         PipelineArchitecture.HYBRID_METRIC_ENTROPY_CONCENTRATION_2STAGE,
         target_metric=target_metric,
         entity_type=entity_type,
         anomaly_threshold=anomaly_threshold,
+        min_baseline_days=min_baseline_days,
         hypothesis_goal=hypothesis_goal,
+        max_diversity_ratio=max_diversity_ratio,
+        min_concentration_ratio=min_concentration_ratio,
+        min_raw_events=min_raw_events,
+    )
+
+  def build_destination_diversity_concentration_query(
+      self,
+      target_metric: str = "network_bytes_outbound",
+      entity_type: EntityType = EntityType.ASSET,
+      anomaly_threshold: float = 3.0,
+      hypothesis_goal: Optional[str] = None,
+      min_baseline_days: Optional[int] = None,
+      max_diversity_ratio: float = 0.05,
+      min_concentration_ratio: float = 0.85,
+      min_raw_events: int = 25,
+  ) -> str:
+    """Canonical WS4 builder for Destination Diversity & Concentration Screen."""
+    return self.build_hybrid_entropy_concentration_query(
+        target_metric=target_metric,
+        entity_type=entity_type,
+        anomaly_threshold=anomaly_threshold,
+        hypothesis_goal=hypothesis_goal,
+        min_baseline_days=min_baseline_days,
+        max_diversity_ratio=max_diversity_ratio,
+        min_concentration_ratio=min_concentration_ratio,
+        min_raw_events=min_raw_events,
     )
 
   def build_hybrid_orthogonal_space_query(
@@ -3188,6 +3311,9 @@ class MultiStageTemplateRouter:
       entity_type: EntityType = EntityType.ASSET,
       anomaly_threshold: float = 3.0,
       hypothesis_goal: Optional[str] = None,
+      min_baseline_days: Optional[int] = None,
+      max_fleet_prevalence: Optional[int] = None,
+      max_fleet_adopters: Optional[int] = None,
   ) -> str:
     """Builds a verified Dual-Plane Hybrid Fleet Prevalence Normalization pipeline (Patch Tuesday Shield)."""
     return self.build_pipeline_query(
@@ -3195,7 +3321,10 @@ class MultiStageTemplateRouter:
         target_metric=target_metric,
         entity_type=entity_type,
         anomaly_threshold=anomaly_threshold,
+        min_baseline_days=min_baseline_days,
         hypothesis_goal=hypothesis_goal,
+        max_fleet_prevalence=max_fleet_prevalence,
+        max_fleet_adopters=max_fleet_adopters,
     )
 
   def build_hybrid_derived_file_prevalence_query(
@@ -3204,6 +3333,9 @@ class MultiStageTemplateRouter:
       entity_type: EntityType = EntityType.ASSET,
       anomaly_threshold: float = 3.0,
       hypothesis_goal: Optional[str] = None,
+      min_baseline_days: Optional[int] = None,
+      max_fleet_prevalence: Optional[int] = None,
+      identifier_field: Optional[str] = None,
   ) -> str:
     """Builds a verified 2-Stage Derived Context File Prevalence pipeline."""
     return self.build_pipeline_query(
@@ -3211,7 +3343,10 @@ class MultiStageTemplateRouter:
         target_metric=target_metric,
         entity_type=entity_type,
         anomaly_threshold=anomaly_threshold,
+        min_baseline_days=min_baseline_days,
         hypothesis_goal=hypothesis_goal,
+        max_fleet_prevalence=max_fleet_prevalence,
+        identifier_field=identifier_field,
     )
 
   def build_hybrid_derived_domain_prevalence_query(
@@ -3222,6 +3357,8 @@ class MultiStageTemplateRouter:
       hypothesis_goal: Optional[str] = None,
       identifier_field: Optional[str] = None,
       identifier_coverage_payload: Optional[Any] = None,
+      min_baseline_days: Optional[int] = None,
+      max_fleet_prevalence: Optional[int] = None,
   ) -> str:
     """Builds a verified 2-Stage Derived Context Domain Prevalence pipeline."""
     return self.build_pipeline_query(
@@ -3229,9 +3366,11 @@ class MultiStageTemplateRouter:
         target_metric=target_metric,
         entity_type=entity_type,
         anomaly_threshold=anomaly_threshold,
+        min_baseline_days=min_baseline_days,
         hypothesis_goal=hypothesis_goal,
         identifier_field=identifier_field,
         identifier_coverage_payload=identifier_coverage_payload,
+        max_fleet_prevalence=max_fleet_prevalence,
     )
 
   def build_hybrid_whois_domain_lifecycle_query(
@@ -3326,6 +3465,8 @@ class MultiStageTemplateRouter:
       hypothesis_goal: Optional[str] = None,
       identifier_field: Optional[str] = None,
       identifier_coverage_payload: Optional[Any] = None,
+      min_baseline_days: Optional[int] = None,
+      max_fleet_prevalence: Optional[int] = None,
   ) -> str:
     """Builds a verified 3-Stage Rare Destination ECG Filter pipeline."""
     return self.build_pipeline_query(
@@ -3333,9 +3474,11 @@ class MultiStageTemplateRouter:
         target_metric=target_metric,
         entity_type=entity_type,
         anomaly_threshold=anomaly_threshold,
+        min_baseline_days=min_baseline_days,
         hypothesis_goal=hypothesis_goal,
         identifier_field=identifier_field,
         identifier_coverage_payload=identifier_coverage_payload,
+        max_fleet_prevalence=max_fleet_prevalence,
     )
 
   def build_fusion_rare_destination_query(
@@ -3346,6 +3489,8 @@ class MultiStageTemplateRouter:
       hypothesis_goal: Optional[str] = None,
       identifier_field: Optional[str] = None,
       identifier_coverage_payload: Optional[Any] = None,
+      min_baseline_days: Optional[int] = None,
+      max_fleet_prevalence: Optional[int] = None,
   ) -> str:
     """Builds a verified 3-Stage Sector Fusion + Rare Destination ECG Filter pipeline."""
     return self.build_pipeline_query(
@@ -3353,9 +3498,11 @@ class MultiStageTemplateRouter:
         target_metrics=target_metrics,
         entity_type=entity_type,
         fusion_threshold_sq=fusion_threshold_sq,
+        min_baseline_days=min_baseline_days,
         hypothesis_goal=hypothesis_goal,
         identifier_field=identifier_field,
         identifier_coverage_payload=identifier_coverage_payload,
+        max_fleet_prevalence=max_fleet_prevalence,
     )
 
   def build_bridged_host_ip_fusion_query(
@@ -3837,6 +3984,78 @@ class ChainedHuntRouter:
       filters.append(f'principal.ip = "{caller_ip}"')
     
     return " AND ".join(filters)
+
+  @classmethod
+  def build_data_table_bridge_query(
+      cls,
+      entity_type: EntityType = EntityType.ASSET,
+      target_metric: str = "network_bytes_outbound",
+      anomaly_threshold: float = 3.0,
+      min_baseline_days: int = DEFAULT_MIN_BASELINE_DAYS,
+      data_table_name: str = "ueba_hunt_bridge",
+      data_table_column: str = "entity",
+      identifier_field: Optional[str] = None,
+      byte_dispersion_floor: Optional[float] = None,
+  ) -> str:
+    """Builds a canonical 2-Stage Data Table Bridge query (`%<table_name>.<column_name>`, default `%ueba_hunt_bridge.entity`)."""
+    audit = PreFlightValidator.audit(
+        target_metric=target_metric,
+        entity_type=entity_type,
+        min_baseline_days=min_baseline_days,
+        identifier_field=identifier_field,
+    )
+    ent_field = audit["target_field"]
+    filter_block = "\n    ".join(audit["event_filter"])
+    b_floor = resolve_byte_dispersion_floor(target_metric, byte_dispersion_floor=byte_dispersion_floor)
+    if b_floor is not None:
+      floor_line = f"  $dispersion_floor = {b_floor:.1f}\n"
+    else:
+      floor_line = "  $dispersion_floor = math.sqrt(if($baseline_mean > 1.0, $baseline_mean, 1.0))\n"
+    rendered = (
+        f"// Goal: Score 30-day {target_metric} behavioral departures for bridged cohort in %{data_table_name}.{data_table_column}\n"
+        "// Architecture: 2-Stage Hybrid Data Table Bridge (HYBRID_DATA_TABLE_BRIDGE_2STAGE)\n\n"
+        "stage stage1_extract {\n"
+        f"    {filter_block}\n"
+        f"    {ent_field} in %{data_table_name}.{data_table_column}\n"
+        f"    {ent_field} = $entity\n"
+        '    $entity != ""\n\n'
+        "  match:\n"
+        "    $entity by 1d\n\n"
+        "  outcome:\n"
+        f"    $observed_val = {audit['observed_agg']}\n"
+        f"    $historical_avg = max(metrics.{target_metric}(\n"
+        f"        period: 1d, window: 30d, metric: {audit['metric_arg']}, agg: avg,\n"
+        f"        {ent_field}: {ent_field}\n"
+        "    ))\n"
+        f"    $historical_stddev = max(metrics.{target_metric}(\n"
+        f"        period: 1d, window: 30d, metric: {audit['metric_arg']}, agg: stddev,\n"
+        f"        {ent_field}: {ent_field}\n"
+        "    ))\n"
+        f"    $active_baseline_days = max(metrics.{target_metric}(\n"
+        f"        period: 1d, window: 30d, metric: {audit['metric_arg']}, agg: num_metric_periods,\n"
+        f"        {ent_field}: {ent_field}\n"
+        "    ))\n"
+        "}\n\n"
+        "$entity = $stage1_extract.entity\n\n"
+        "match:\n"
+        "  $entity by 1d\n\n"
+        "outcome:\n"
+        "  $observed_24h = max($stage1_extract.observed_val)\n"
+        "  $baseline_mean = max($stage1_extract.historical_avg)\n"
+        "  $baseline_stddev = max($stage1_extract.historical_stddev)\n"
+        "  $active_days = max($stage1_extract.active_baseline_days)\n"
+        f"{floor_line}"
+        "  $safe_stddev = if($baseline_stddev > $dispersion_floor, $baseline_stddev, $dispersion_floor)\n"
+        "  $personal_z = ($observed_24h - $baseline_mean) / $safe_stddev\n\n"
+        "condition:\n"
+        f"  $active_days >= {int(audit['min_baseline_days'])} and $personal_z >= {anomaly_threshold}\n\n"
+        "order:\n"
+        "  $personal_z desc\n"
+    )
+    errs = MalachiteASTValidator.validate_query(rendered)
+    if errs:
+      raise ValueError("Rendered Data Table bridge query failed validation: " + " | ".join(errs))
+    return rendered
 
   @classmethod
   def build_cross_entity_killchain_plan(

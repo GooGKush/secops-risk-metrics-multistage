@@ -51,6 +51,7 @@ stage stage1_query_baseline {
     {{domain_field}} = $domain
     $host != ""
     $domain != ""
+    not re.regex($domain, `(?i)\.(in-addr\.arpa|ip6\.arpa|local)$`)
 
   match:
     $host, $domain by 1d
@@ -71,7 +72,7 @@ stage stage2_domain_derived_context {
     $dom.graph.metadata.entity_type = "DOMAIN_NAME"
     $dom.graph.entity.domain.name = $domain
     $dom.graph.entity.domain.prevalence.day_count = 10
-    $dom.graph.entity.domain.prevalence.rolling_max <= 3
+    $dom.graph.entity.domain.prevalence.rolling_max <= {{max_fleet_prevalence}}
     $dom.graph.entity.domain.prevalence.rolling_max > 0
     $domain != ""
 
@@ -117,7 +118,8 @@ outcome:
   $threat_score = $z_score * $rarity_multiplier
 
 condition:
-  $z_score >= {{anomaly_threshold}}
+  $active_baseline_days >= {{min_baseline_days}}
+  and $z_score >= {{anomaly_threshold}}
   and $fleet_prevalence <= {{max_fleet_prevalence}}
 
 order:

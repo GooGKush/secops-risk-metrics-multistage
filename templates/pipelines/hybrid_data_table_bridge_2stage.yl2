@@ -7,8 +7,8 @@
 stage stage1_extract {
     network.sent_bytes > 0
     network.sent_bytes < 1000000000000000
-    // Canonical Data Table Bridge column syntax: %ueba_hunt_bridge.entity (or = %ueba_hunt_bridge.hostname)
-    principal.asset.hostname = %ueba_hunt_bridge.hostname
+    // Canonical Data Table Bridge column syntax: in %ueba_hunt_bridge.entity
+    principal.asset.hostname in %ueba_hunt_bridge.entity
     principal.asset.hostname = $entity
     $entity != ""
 

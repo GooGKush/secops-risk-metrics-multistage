@@ -1,9 +1,9 @@
 // ============================================================================
-// ARCHITECTURE: 2-STAGE TARGET HOSTNAME SURGE & BEACONING PIPELINE
+// ARCHITECTURE: 2-STAGE TARGET HOSTNAME SURGE PIPELINE
 // Skill: secops-risk-metrics-multistage
 // Common Compiler Conformance: YARA-L 2.0 Multi-Stage DAG Engine
 // Models Supported:
-//   Target Destination Rarity & Host Volume Surge
+//   Target Destination Rarity & Host Volume Surge (sub-hour C2 periodicity/jitter hands off to secops-statistical-hunter)
 // Join Budget: 1 metric lookup (Stage 1) + 1 stage join (Root) = 2 joins total (<= 4).
 // Match Topology: Destination-centric match key ($target_host by 1d) joining host surge to fleet breadth.
 // ============================================================================
@@ -15,6 +15,7 @@ stage stage1_target_surge {
     $host != ""
     target.hostname = $target_host
     $target_host != ""
+    not re.regex($target_host, `(?i)\.(in-addr\.arpa|ip6\.arpa|local)$`)
 
   match:
     $host, $target_host by 1d
@@ -49,6 +50,7 @@ stage stage2_fleet_target_breadth {
     (network.http.method != "" or network.http.user_agent != "" or network.http.response_code != 0 or network.http.referral_url != "")
     target.hostname = $target_host
     $target_host != ""
+    not re.regex($target_host, `(?i)\.(in-addr\.arpa|ip6\.arpa|local)$`)
 
   match:
     $target_host by 1d

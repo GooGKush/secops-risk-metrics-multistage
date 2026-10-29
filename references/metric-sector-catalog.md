@@ -166,10 +166,11 @@ elsewhere still fails if the combined set is not listed. Example: `auth_attempts
 ### `metrics.dns_bytes_outbound`
 
 * **Family**: dns
-* **Baseline counts**: sent_bytes != 0 and ((ip_protocol = UDP and target.port = 53) or (ip_protocol = TCP and target.port in (53, 3000))); no event_type filter
+* **Baseline counts**: sent_bytes != 0 and sent_bytes < 1e15 and ((ip_protocol = UDP and target.port = 53) or (ip_protocol = TCP and target.port in (53, 3000))); no event_type filter
 * **Observed event filter**:
   ```yara
   network.sent_bytes > 0
+  network.sent_bytes < 1000000000000000
   ((network.ip_protocol = "UDP" and target.port = 53) or (network.ip_protocol = "TCP" and (target.port = 53 or target.port = 3000)))
   ```
 * **Observed value**: `sum(network.sent_bytes)`
@@ -397,12 +398,12 @@ elsewhere still fails if the combined set is not listed. Example: `auth_attempts
 ### `metrics.network_bytes_total`
 
 * **Family**: network
-* **Baseline counts**: (received_bytes in (0, 1e15)) or (sent_bytes in (0, 1e15)); value = sent + received; no event_type filter
+* **Baseline counts**: (received_bytes in (0, 1e15)) or (sent_bytes in (0, 1e15)); value = clamped_sent + clamped_received; no event_type filter
 * **Observed event filter**:
   ```yara
   ((network.sent_bytes > 0 and network.sent_bytes < 1000000000000000) or (network.received_bytes > 0 and network.received_bytes < 1000000000000000))
   ```
-* **Observed value**: `sum(network.sent_bytes) + sum(network.received_bytes)`
+* **Observed value**: `sum(if(network.sent_bytes > 0 and network.sent_bytes < 1000000000000000, 1.0, 0.0) * network.sent_bytes) + sum(if(network.received_bytes > 0 and network.received_bytes < 1000000000000000, 1.0, 0.0) * network.received_bytes)`
 * **Metric arg**: `metric: value_sum`
 * **Entity identifier fields** (valid alone):
   * PRINCIPAL_DEVICE (device): `principal.asset.product_object_id`, `principal.asset.ip`, `principal.asset.mac`, `principal.asset.asset_id`, `principal.asset.hostname`
@@ -864,28 +865,30 @@ elsewhere still fails if the combined set is not listed. Example: `auth_attempts
 ### `metrics.workspace_emails_sent_total`
 
 * **Family**: workspace
-* **Baseline counts**: network message present (sent_bytes is not null) and product_name in ('GMAIL', 'gmail') (case-sensitive); no event_type filter
+* **Baseline counts**: network message present (sent_bytes > 0) and product_name matches Gmail case-insensitively; no event_type filter
 * **Observed event filter**:
   ```yara
-  (metadata.product_name = "GMAIL" or metadata.product_name = "gmail")
+  re.regex(metadata.product_name, `(?i)^gmail$`)
+  network.sent_bytes > 0
   ```
 * **Observed value**: `count(metadata.id)`
 * **Metric arg**: `metric: event_count_sum`
 * **Entity identifier fields** (valid alone):
   * PRINCIPAL_USER (user): `principal.user.product_object_id`, `principal.user.email_addresses`, `principal.user.userid`, `principal.user.windows_sid`, `principal.user.employee_id`
 * **Other valid dimension sets**: PRINCIPAL_USER + SECURITY_RULE_ID; PRINCIPAL_APPLICATION + PRINCIPAL_IP + PRINCIPAL_USER; PRINCIPAL_IP + PRINCIPAL_USER; PRINCIPAL_IP + PRINCIPAL_USER + TARGET_IP; PRINCIPAL_USER + TARGET_IP; EMAIL_FROM_ADDRESS + EMAIL_TO_ADDRESS; MAIL_ID + PRINCIPAL_USER; PRINCIPAL_APPLICATION + PRINCIPAL_USER
-* **Note**: The product_name match is case-sensitive in the baseline: gus-sdl logs 'Gmail', which the baseline does not count.
-* **Note**: The 'network message present' condition cannot be expressed in YARA-L and is not applied.
+* **Note**: Case-insensitive Gmail regex covers 'GMAIL', 'gmail', and 'Gmail' logs; network.sent_bytes > 0 excludes empty-network / inbound-only rows.
 
 ### `metrics.workspace_network_bytes_outbound`
 
 * **Family**: workspace
-* **Baseline counts**: network message present and product_name in ('GMAIL', 'gmail'); value = sent_bytes
+* **Baseline counts**: network message present (sent_bytes in (0, 1e15)) and product_name matches Gmail case-insensitively; value = sent_bytes
 * **Observed event filter**:
   ```yara
-  (metadata.product_name = "GMAIL" or metadata.product_name = "gmail")
+  re.regex(metadata.product_name, `(?i)^gmail$`)
+  network.sent_bytes > 0
+  network.sent_bytes < 1000000000000000
   ```
-* **Observed value**: `sum(network.sent_bytes)`
+* **Observed value**: `sum(if(network.sent_bytes > 0 and network.sent_bytes < 1000000000000000, 1.0, 0.0) * network.sent_bytes)`
 * **Metric arg**: `metric: value_sum`
 * **Entity identifier fields** (valid alone):
   * PRINCIPAL_USER (user): `principal.user.product_object_id`, `principal.user.email_addresses`, `principal.user.userid`, `principal.user.windows_sid`, `principal.user.employee_id`
@@ -894,12 +897,13 @@ elsewhere still fails if the combined set is not listed. Example: `auth_attempts
 ### `metrics.workspace_network_bytes_total`
 
 * **Family**: workspace
-* **Baseline counts**: network message present and product_name in ('GMAIL', 'gmail'); value = sent + received
+* **Baseline counts**: network message present ((sent_bytes in (0, 1e15)) or (received_bytes in (0, 1e15))) and product_name matches Gmail case-insensitively; value = clamped_sent + clamped_received
 * **Observed event filter**:
   ```yara
-  (metadata.product_name = "GMAIL" or metadata.product_name = "gmail")
+  re.regex(metadata.product_name, `(?i)^gmail$`)
+  ((network.sent_bytes > 0 and network.sent_bytes < 1000000000000000) or (network.received_bytes > 0 and network.received_bytes < 1000000000000000))
   ```
-* **Observed value**: `sum(network.sent_bytes) + sum(network.received_bytes)`
+* **Observed value**: `sum(if(network.sent_bytes > 0 and network.sent_bytes < 1000000000000000, 1.0, 0.0) * network.sent_bytes) + sum(if(network.received_bytes > 0 and network.received_bytes < 1000000000000000, 1.0, 0.0) * network.received_bytes)`
 * **Metric arg**: `metric: value_sum`
 * **Entity identifier fields** (valid alone):
   * PRINCIPAL_USER (user): `principal.user.product_object_id`, `principal.user.email_addresses`, `principal.user.userid`, `principal.user.windows_sid`, `principal.user.employee_id`
@@ -1022,7 +1026,7 @@ peer group the template also scores the group as a whole against the fleet (`$z*
   ((network.sent_bytes > 0 and network.sent_bytes < 1000000000000000) or (network.received_bytes > 0 and network.received_bytes < 1000000000000000))
   ```
 * **Observed values**:
-  * `m1_observation_agg` (network_bytes_total): `sum(network.sent_bytes) + sum(network.received_bytes)`; metric arg `metric: value_sum`
+  * `m1_observation_agg` (network_bytes_total): `sum(if(network.sent_bytes > 0 and network.sent_bytes < 1000000000000000, 1.0, 0.0) * network.sent_bytes) + sum(if(network.received_bytes > 0 and network.received_bytes < 1000000000000000, 1.0, 0.0) * network.received_bytes)`; metric arg `metric: value_sum`
   * `m2_observation_agg` (network_bytes_outbound): `sum(network.sent_bytes)`; metric arg `metric: value_sum`
   * `m3_observation_agg` (network_bytes_inbound): `sum(network.received_bytes)`; metric arg `metric: value_sum`
 
@@ -1058,12 +1062,13 @@ peer group the template also scores the group as a whole against the fleet (`$z*
 * **Entity dimensions valid for all three**: PRINCIPAL_USER (user, default `principal.user.userid`). Any field of the chosen dimension works (see *Dimension → UDM fields*).
 * **Stage event filter** (`event_filter` slot):
   ```yara
-  (metadata.product_name = "GMAIL" or metadata.product_name = "gmail")
+  re.regex(metadata.product_name, `(?i)^gmail$`)
+  ((((network.sent_bytes > 0 and network.sent_bytes < 1000000000000000) or (network.received_bytes > 0 and network.received_bytes < 1000000000000000))) or (network.sent_bytes > 0 and network.sent_bytes < 1000000000000000) or (network.sent_bytes > 0))
   ```
 * **Observed values**:
-  * `m1_observation_agg` (workspace_network_bytes_total): `sum(network.sent_bytes) + sum(network.received_bytes)`; metric arg `metric: value_sum`
-  * `m2_observation_agg` (workspace_network_bytes_outbound): `sum(network.sent_bytes)`; metric arg `metric: value_sum`
-  * `m3_observation_agg` (workspace_emails_sent_total): `count(metadata.id)`; metric arg `metric: event_count_sum`
+  * `m1_observation_agg` (workspace_network_bytes_total): `sum(if(network.sent_bytes > 0 and network.sent_bytes < 1000000000000000, 1.0, 0.0) * network.sent_bytes) + sum(if(network.received_bytes > 0 and network.received_bytes < 1000000000000000, 1.0, 0.0) * network.received_bytes)`; metric arg `metric: value_sum`
+  * `m2_observation_agg` (workspace_network_bytes_outbound): `sum(if(network.sent_bytes > 0 and network.sent_bytes < 1000000000000000, 1.0, 0.0) * network.sent_bytes)`; metric arg `metric: value_sum`
+  * `m3_observation_agg` (workspace_emails_sent_total): `sum(if(network.sent_bytes > 0, 1, 0))`; metric arg `metric: event_count_sum`
 
 ## Entity Graph filters (`DERIVED_CONTEXT`)
 
