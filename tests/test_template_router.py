@@ -607,6 +607,103 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
         self.assertEqual(res_engine["architecture"], PipelineArchitecture.LOCAL_2STAGE.value)
         self.assertIn(expected_var, res_engine["compiled_query"])
 
+  def test_ws2_01_composite_keys_expanded_across_all_18_models_and_modes(self):
+    """WS2-01: All 18 Stage-2 models and both MatchModes preserve composite baseline keys in Root match:."""
+    import re
+    from scripts.preflight_validator import MalachiteASTValidator
+
+    composite_cases = [
+        ("file_executions_total", EntityType.ASSET, "$host, $sha256"),
+        ("file_executions_total", EntityType.USER, "$host, $sha256"),
+        ("file_executions_fail", EntityType.ASSET, "$host, $sha256"),
+        ("alert_event_name_count", EntityType.ASSET, "$host, $rule_name"),
+        ("resource_read_total", EntityType.RESOURCE, "$sa, $vendor, $product, $resource"),
+        ("resource_read_total", EntityType.USER, "$sa, $vendor, $product, $resource"),
+    ]
+
+    for metric_name, ent_type, expected_tuple in composite_cases:
+      for model in StatisticalModel:
+        if (
+            metric_name == "resource_read_total"
+            and ent_type == EntityType.USER
+            and model == StatisticalModel.STANDARD_Z_SCORE
+        ):
+          # Default (resource_*, USER, STANDARD_Z_SCORE) routes to CLOUD_REPOSITORY_SCOPE_DUAL_BRANCH,
+          # which already isolates baselines per ($sa, $vendor, $product, $resource).
+          q_scope = self.router.build_query(
+              target_metric=metric_name,
+              entity_type=ent_type,
+              statistical_model=model,
+          )
+          self.assertIn("$sa, $vendor, $product, $resource", q_scope)
+          self.assertEqual(MalachiteASTValidator.validate_query(q_scope), [])
+          self.assertEqual(MalachiteASTValidator.validate_model_concordance(q_scope, model), [])
+          continue
+
+        for mode in (MatchMode.TIMELINE_BREAKDOWN, MatchMode.FLEET_ROLLUP):
+          with self.subTest(metric=metric_name, entity=ent_type.value, model=model.value, mode=mode.value):
+            q = self.router.build_query(
+                target_metric=metric_name,
+                entity_type=ent_type,
+                statistical_model=model,
+                match_mode=mode,
+                scoring_end_date="2026-10-27",
+            )
+            self.assertEqual(MalachiteASTValidator.validate_query(q), [], f"AST error on {metric_name}/{model.value}/{mode.value}")
+            self.assertEqual(
+                MalachiteASTValidator.validate_model_concordance(q, model),
+                [],
+                f"Concordance error on {metric_name}/{model.value}/{mode.value}",
+            )
+
+            clean = re.sub(r"//[^\n]*", "", q)
+            clean = re.sub(r"/\*.*?\*/", "", clean, flags=re.S)
+            root_body = re.sub(r"stage\s+[A-Za-z0-9_]+\s*\{.*?\n\}", "", clean, flags=re.S)
+            root_match = re.search(r"\bmatch:\s*\n\s*([^\n]+)", root_body)
+            self.assertIsNotNone(root_match)
+            root_keys = root_match.group(1).strip()
+
+            if model == StatisticalModel.LONGITUDINAL_CUSUM:
+              self.assertIn(f"match:\n    {expected_tuple}, $day_ws by 1d", clean)
+              self.assertEqual(root_keys, expected_tuple)
+            elif model in (StatisticalModel.MAD, StatisticalModel.QUANTILE_IQR_SKEW):
+              self.assertEqual(root_keys, f"{expected_tuple}, $ws by 1d")
+            elif model == StatisticalModel.FLEET_PREVALENCE_SHIELD:
+              # Cross-sectional fleet wave stage must stay fleet-wide ($day_ws by 1d)
+              self.assertIn("stage stage2_fleet_wave {\n    $day_ws = $stage1_extract.window_start\n\n  match:\n    $day_ws by 1d", clean)
+              expected_root = f"{expected_tuple}, $ws by 1d" if mode == MatchMode.TIMELINE_BREAKDOWN else expected_tuple
+              self.assertEqual(root_keys, expected_root)
+            elif model == StatisticalModel.CIRCADIAN_VON_MISES:
+              self.assertIn(f"match:\n    {expected_tuple} by 1h", clean)
+              expected_root = f"{expected_tuple}, $ws by 1h" if mode == MatchMode.TIMELINE_BREAKDOWN else expected_tuple
+              self.assertEqual(root_keys, expected_root)
+            elif model == StatisticalModel.HOURLY_TEMPORAL_ZSCORE:
+              expected_root = f"{expected_tuple}, $ws by 1h" if mode == MatchMode.TIMELINE_BREAKDOWN else expected_tuple
+              self.assertEqual(root_keys, expected_root)
+            else:
+              expected_root = f"{expected_tuple}, $ws by 1d" if mode == MatchMode.TIMELINE_BREAKDOWN else expected_tuple
+              self.assertEqual(root_keys, expected_root)
+
+    # Also verify _mad_group_keys handles multi-arg single-line metrics.* calls and drops non-dimension match vars ($ip).
+    synthetic_stage1 = (
+        'stage stage1_extract {\n'
+        '    metadata.event_type = "RESOURCE_READ"\n'
+        '    $sa = principal.user.userid\n'
+        '    $ip = principal.ip\n'
+        '    $vendor = metadata.vendor_name\n'
+        '    $product = metadata.product_name\n'
+        '    $resource = target.resource.name\n'
+        '  match:\n'
+        '    $sa, $ip, $vendor, $product, $resource by 1d\n'
+        '  outcome:\n'
+        '    $observed_val = count(metadata.id)\n'
+        '    $historical_avg = max(metrics.resource_read_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name, target.resource.name: target.resource.name))\n'
+        '}\n'
+    )
+    keys, dropped = self.router._mad_group_keys(synthetic_stage1)
+    self.assertEqual(keys, ["$sa", "$vendor", "$product", "$resource"])
+    self.assertEqual(dropped, ["$ip"])
+
 
 if __name__ == "__main__":
   unittest.main()

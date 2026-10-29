@@ -760,6 +760,43 @@ class TestUEBAHybridEngineCLIAndCatalog(unittest.TestCase):
     self.assertTrue(res_mad_b["ast_valid"])
     self.assertIn("$in_scoring_window = 1", res_mad_b["compiled_query"])
 
+  def test_ws2_01_resource_entity_filter_injection_and_composite_grouping(self):
+    """WS2-01: compile_hunt_plan binds $resource on EntityType.RESOURCE and preserves composite Root match keys."""
+    from scripts.ueba_hybrid_engine import compile_hunt_plan
+
+    res_resource = compile_hunt_plan(
+        statistical_model="STANDARD_Z_SCORE",
+        metrics="resource_read_total",
+        entity_type="RESOURCE",
+        entity_value="projects/gus-sdl/buckets/prod",
+    )
+    self.assertTrue(res_resource["ast_valid"], msg=res_resource["ast_errors"])
+    self.assertEqual(res_resource["entity_type"], "RESOURCE")
+    self.assertIn('$resource = "projects/gus-sdl/buckets/prod"', res_resource["compiled_query"])
+    self.assertNotIn('$sa = "projects/gus-sdl/buckets/prod"', res_resource["compiled_query"])
+    self.assertIn("match:\n  $sa, $vendor, $product, $resource, $ws by 1d", res_resource["compiled_query"])
+
+    # Default metric when entity_type="RESOURCE" and metrics is omitted must be resource_read_total (valid for RESOURCE).
+    res_default_resource = compile_hunt_plan(
+        statistical_model="STANDARD_Z_SCORE",
+        entity_type="RESOURCE",
+        entity_value="projects/gus-sdl/buckets/prod",
+    )
+    self.assertTrue(res_default_resource["ast_valid"], msg=res_default_resource["ast_errors"])
+    self.assertEqual(res_default_resource["primary_metric"], "resource_read_total")
+    self.assertEqual(res_default_resource["entity_type"], "RESOURCE")
+    self.assertIn('$resource = "projects/gus-sdl/buckets/prod"', res_default_resource["compiled_query"])
+
+    res_proc = compile_hunt_plan(
+        statistical_model="STANDARD_Z_SCORE",
+        metrics="file_executions_total",
+        entity_type="ASSET",
+        entity_value="srv-prod-01",
+    )
+    self.assertTrue(res_proc["ast_valid"], msg=res_proc["ast_errors"])
+    self.assertIn('$host = "srv-prod-01"', res_proc["compiled_query"])
+    self.assertIn("match:\n  $host, $sha256, $ws by 1d", res_proc["compiled_query"])
+
 
 if __name__ == "__main__":
 
