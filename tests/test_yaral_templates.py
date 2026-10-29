@@ -281,6 +281,10 @@ class TestYaraLTemplates(unittest.TestCase):
     for pt in PipelineArchitecture:
       if pt == PipelineArchitecture.LOCAL_2STAGE:
         continue
+      if pt == PipelineArchitecture.CIRCADIAN_VON_MISES_2STAGE:
+        with self.assertRaisesRegex(ValueError, r"retired.*HOUR_OF_DAY_PROFILE"):
+          router.build_pipeline_query(pt, entity_type=EntityType.USER)
+        continue
       for et in (EntityType.ASSET, EntityType.USER):
         q = router.build_pipeline_query(pt, entity_type=et)
         for call_name, m_args in re.findall(r"metrics\.([a-zA-Z0-9_]+)\s*\(([^)]+)\)", q, re.DOTALL):

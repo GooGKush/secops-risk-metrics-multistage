@@ -27,6 +27,7 @@ from tests.live.live_compile_harness import (
     NETWORK_IP_FALLBACK_METRICS,
     TEMPLATES_DIR,
     LiveExecutionResult,
+    active_statistical_models,
     build_all_probes,
     build_covering_compile_suite,
     build_pf10_hourly_today_probes,
@@ -72,14 +73,16 @@ class TestOfflineFullMatrixRenderer(unittest.TestCase):
 
   def test_full_matrix_counts_and_zero_render_or_ast_crashes(self) -> None:
     expected_pairs = sum(len(m.supported_entity_types) for m in METRIC_CATALOG.values())
-    expected_cells = expected_pairs * len(StatisticalModel) * len(MatchMode)
+    active_models = active_statistical_models()
+    expected_cells = expected_pairs * len(active_models) * len(MatchMode)
     disk_pipelines = sorted(p.name for p in (TEMPLATES_DIR / "pipelines").glob("*.yl2"))
 
     self.assertEqual(len(METRIC_CATALOG), 38)
     self.assertEqual(len(StatisticalModel), 18)
-    self.assertIn(StatisticalModel.QUANTILE_IQR_SKEW, set(StatisticalModel))
-    self.assertIn(StatisticalModel.RELATIVE_DEVIATION, set(StatisticalModel))
-    self.assertEqual(len(disk_pipelines), 34)
+    self.assertEqual(len(active_models), 16)
+    self.assertIn(StatisticalModel.QUANTILE_IQR_SKEW, set(active_models))
+    self.assertIn(StatisticalModel.RELATIVE_DEVIATION, set(active_models))
+    self.assertEqual(len(disk_pipelines), 33)
 
     self.assertEqual(self.summary["matrix_cell_count"], expected_cells)
     self.assertEqual(self.summary["pipeline_count"], len(disk_pipelines))
@@ -102,7 +105,7 @@ class TestOfflineFullMatrixRenderer(unittest.TestCase):
 
     # Named-cohort variants for part_of_the_whole_* also render and pass AST validation.
     with_cohorts = render_all_pipelines(include_cohort_variants=True)
-    self.assertEqual(len(with_cohorts), 36)
+    self.assertEqual(len(with_cohorts), 35)
     cohort_recs = [r for r in with_cohorts if "#named_cohort" in r.record_id]
     self.assertEqual(len(cohort_recs), 2)
     for rec in cohort_recs:
@@ -151,7 +154,7 @@ class TestCoveringLiveCompileSuite(unittest.TestCase):
       for et in mdef.supported_entity_types:
         self.assertIn(f"extractor_entity:{metric_name}:{et.value}", all_tags)
 
-    for model in StatisticalModel:
+    for model in active_statistical_models():
       self.assertIn(f"model:{model.value}", all_tags)
       for mode in MatchMode:
         self.assertIn(f"model_mode:{model.value}:{mode.value}", all_tags)

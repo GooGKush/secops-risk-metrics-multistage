@@ -31,13 +31,20 @@ NO_GATE_TEMPLATES = {
     "pipelines/radar_360_sector_web_http.yl2",
 }
 
-# Default root gate each model renders with router defaults (sigma 3.0, fold change 2.0, MAD 3.5).
+RETIRED_GATE_MODELS = {
+    StatisticalModel.HOURLY_TEMPORAL_ZSCORE: "HOUR_OF_DAY_PROFILE",
+    StatisticalModel.CIRCADIAN_VON_MISES: "HOUR_OF_DAY_PROFILE",
+}
+
+RETIRED_GATE_PIPELINES = {
+    PipelineArchitecture.CIRCADIAN_VON_MISES_2STAGE: "HOUR_OF_DAY_PROFILE",
+}
+
+# Default root gate each active model renders with router defaults (sigma 3.0, fold change 2.0, MAD 3.5).
 EXPECTED_DEFAULT_GATES = {
     StatisticalModel.STANDARD_Z_SCORE: "$active_days >= 7 and $personal_z >= 3.0",
     StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z: "$active_days >= 7 and $upper_tail_z >= 3.0",
     StatisticalModel.POISSON: "$poisson_z >= 3.0",
-    StatisticalModel.HOURLY_TEMPORAL_ZSCORE: "$active_days >= 7 and $hourly_z >= 3.0",
-    StatisticalModel.CIRCADIAN_VON_MISES: "$active_days >= 7 and $circadian_threat_score >= 3.0",
     StatisticalModel.MACD_MOMENTUM_VELOCITY: "$active_days >= 7 and $fast_z >= 3.0",
     StatisticalModel.PIECEWISE_CRI: "$active_days >= 7 and $clamped_z >= 3.0",
     StatisticalModel.FLEET_PREVALENCE_SHIELD: "$active_days >= 7 and $shielded_z >= 3.0",
@@ -103,6 +110,10 @@ class RouterGateTest(unittest.TestCase):
   def test_every_model_renders_its_default_gate(self):
     for model in StatisticalModel:
       with self.subTest(model=model.value):
+        if model in RETIRED_GATE_MODELS:
+          with self.assertRaisesRegex(ValueError, rf"retired.*{RETIRED_GATE_MODELS[model]}"):
+            self._q(model)
+          continue
         q = self._q(model)
         self.assertEqual(MultiStageTemplateRouter.root_condition(q), EXPECTED_DEFAULT_GATES[model])
         self.assertNotIn("{{", _code(q))
@@ -135,6 +146,10 @@ class RouterGateTest(unittest.TestCase):
       if arch == PipelineArchitecture.LOCAL_2STAGE:
         continue  # rendered through build_query, not build_pipeline_query
       with self.subTest(pipeline=arch.value):
+        if arch in RETIRED_GATE_PIPELINES:
+          with self.assertRaisesRegex(ValueError, rf"retired.*{RETIRED_GATE_PIPELINES[arch]}"):
+            self.router.build_pipeline_query(arch)
+          continue
         q = self.router.build_pipeline_query(arch)
         self.assertNotIn("{{", _code(q))
         self.assertLessEqual(q.count("\ncondition:"), 1)
@@ -169,6 +184,9 @@ class CardAndDocConcordanceTest(unittest.TestCase):
       row = next((ln for ln in table.splitlines() if ln.startswith(f"| `{model.value}`")), None)
       self.assertIsNotNone(row, f"§2.1 has no row for {model.value}")
       self.assertIn(DEFAULT_SIGNIFICANCE_GATES[model], row, model.value)
+      if model in RETIRED_GATE_MODELS:
+        self.assertIn("RETIRED", row.upper(), model.value)
+        continue
       gate = EXPECTED_DEFAULT_GATES[model]
       if gate and model != StatisticalModel.MAD:
         self.assertIn(f"`{gate}", row, model.value)

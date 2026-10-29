@@ -37,8 +37,26 @@ class TestUEBAHybridEngineCompile(unittest.TestCase):
   """Tests compile_hunt_pipeline across models, metrics, architectures, planes, and modes."""
 
   def test_compile_all_17_statistical_models_ast_valid(self):
-    """Every StatisticalModel enum value must compile cleanly with 0 AST or statistical errors."""
+    """Active StatisticalModels compile cleanly; retired time-of-day models hand off to HOUR_OF_DAY_PROFILE."""
+    retired_handoff_models = {
+        StatisticalModel.HOURLY_TEMPORAL_ZSCORE,
+        StatisticalModel.CIRCADIAN_VON_MISES,
+    }
     for model in StatisticalModel:
+      if model in retired_handoff_models:
+        res_ho = compile_hunt_pipeline(
+            statistical_model=model.value,
+            metrics="network_bytes_outbound",
+            entity_type="ASSET",
+            entity_value="wkst-tod-01",
+            mode="A",
+        )
+        self.assertEqual(res_ho["status"], "HANDOFF_REQUIRED", f"Expected HANDOFF_REQUIRED for {model}")
+        self.assertEqual(res_ho["target_skill"], "secops-statistical-hunter")
+        self.assertEqual(res_ho["model_routed"], "HOUR_OF_DAY_PROFILE")
+        self.assertEqual(res_ho["compiled_query"], "")
+        self.assertIn("```json:secops-threat-hunt-handoff-v1", res_ho["handoff_card"])
+        continue
       if model == StatisticalModel.LONGITUDINAL_CUSUM:
         with self.assertRaisesRegex(ValueError, "LONGITUDINAL_CUSUM cannot run in single-day Mode A"):
           compile_hunt_pipeline(
@@ -69,7 +87,7 @@ class TestUEBAHybridEngineCompile(unittest.TestCase):
       self.assertIn("```yara", res["preflight_card_markdown"])
 
   def test_compile_shorthand_model_aliases(self):
-    """Shorthand model names (zscore, mad, fano, poisson, cv, cusum, hurdle, cri, macd, circadian) must resolve."""
+    """Active shorthand model names resolve and compile; time-of-day aliases hand off to HOUR_OF_DAY_PROFILE."""
     aliases = [
         ("zscore", StatisticalModel.STANDARD_Z_SCORE.value),
         ("mad", StatisticalModel.MAD.value),
@@ -77,7 +95,6 @@ class TestUEBAHybridEngineCompile(unittest.TestCase):
         ("fano", StatisticalModel.VARIANCE.value),
         ("poisson", StatisticalModel.POISSON.value),
         ("cv", StatisticalModel.COEFFICIENT_OF_VARIATION.value),
-        ("hourly_zscore", StatisticalModel.HOURLY_TEMPORAL_ZSCORE.value),
         ("bayesian_gamma", StatisticalModel.BAYESIAN_GAMMA.value),
         ("beta_binomial", StatisticalModel.BAYESIAN_BETA_BINOMIAL.value),
         ("cusum", StatisticalModel.LONGITUDINAL_CUSUM.value),
@@ -87,7 +104,6 @@ class TestUEBAHybridEngineCompile(unittest.TestCase):
         ("patch_tuesday_shield", StatisticalModel.FLEET_PREVALENCE_SHIELD.value),
         ("adaptive_threshold", StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD.value),
         ("macd", StatisticalModel.MACD_MOMENTUM_VELOCITY.value),
-        ("circadian", StatisticalModel.CIRCADIAN_VON_MISES.value),
     ]
     for alias, expected_model in aliases:
       mode_kwargs = {"mode": "B", "window_days": 3} if expected_model == StatisticalModel.LONGITUDINAL_CUSUM.value else {}
@@ -99,6 +115,56 @@ class TestUEBAHybridEngineCompile(unittest.TestCase):
       )
       self.assertEqual(res["statistical_model"], expected_model)
       self.assertTrue(res["ast_valid"], f"Alias {alias} failed AST: {res['ast_errors']}")
+
+  def test_ws2_02_time_of_day_and_circadian_handoff_to_statistical_hunter(self):
+    """WS2-02 (D1): HOURLY_TEMPORAL_ZSCORE, CIRCADIAN_VON_MISES, and time-of-day aliases emit HOUR_OF_DAY_PROFILE handoff cards."""
+    from scripts import ueba_hybrid_engine as engine_mod
+    from scripts.ueba_hybrid_engine import resolve_statistical_model
+
+    tod_aliases = (
+        "HOURLY_TEMPORAL_ZSCORE",
+        "hourly_zscore",
+        "TEMPORAL_ZSCORE",
+        "INTRADAY_Z",
+        "CIRCADIAN_VON_MISES",
+        "circadian",
+        "VON_MISES",
+        "OFF_HOURS",
+        "TIME_OF_DAY",
+        "HOUR_OF_DAY_PROFILE",
+    )
+    for alias in tod_aliases:
+      with self.subTest(alias=alias, fn="resolve_statistical_model"):
+        with self.assertRaises(ValueError) as ctx:
+          resolve_statistical_model(alias)
+        self.assertIn("HOUR_OF_DAY_PROFILE", str(ctx.exception))
+        self.assertIn("secops-statistical-hunter", str(ctx.exception))
+
+      with self.subTest(alias=alias, fn="compile_hunt_pipeline"):
+        res = compile_hunt_pipeline(
+            statistical_model=alias,
+            metrics="auth_attempts_total",
+            entity_type="USER",
+            entity_value="charles.hardy",
+        )
+        self.assertEqual(res["status"], "HANDOFF_REQUIRED")
+        self.assertEqual(res["target_skill"], "secops-statistical-hunter")
+        self.assertEqual(res["model_routed"], "HOUR_OF_DAY_PROFILE")
+        self.assertEqual(res["compiled_query"], "")
+        self.assertIn("```json:secops-threat-hunt-handoff-v1", res["handoff_card"])
+        self.assertEqual(res["handoff_payload"]["intent"], "HOUR_OF_DAY_PROFILE")
+        self.assertEqual(res["handoff_payload"]["target_entity"]["value"], "charles.hardy")
+
+    # Architecture-level circadian_von_mises_2stage and compile_hunt_plan also hand off cleanly
+    for arch in ("circadian_von_mises_2stage", "circadian_von_mises"):
+      res_arch = engine_mod.compile_hunt_plan(
+          architecture=arch,
+          metrics="auth_attempts_total",
+          entity_type="USER",
+          entity_value="charles.hardy",
+      )
+      self.assertEqual(res_arch["status"], "HANDOFF_REQUIRED")
+      self.assertEqual(res_arch["model_routed"], "HOUR_OF_DAY_PROFILE")
 
   def test_ws2_05_silence_and_dropout_aliases_raise_not_supported(self):
     """WS2-05: SILENCE_DETECTION, DROP_OUT, SILENCE, and DROPOUT must raise 'not supported' instead of upper-tail Z."""

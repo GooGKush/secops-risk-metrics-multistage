@@ -446,15 +446,6 @@ def render_all_pipelines(
           lambda: (pipelines_dir / "c2_beacon_flow_frequency_2stage.yl2").read_text(encoding="utf-8").strip() + "\n",
       ),
       (
-          "circadian_von_mises_2stage.yl2",
-          PipelineArchitecture.CIRCADIAN_VON_MISES_2STAGE.value,
-          lambda: router.build_pipeline_query(
-              PipelineArchitecture.CIRCADIAN_VON_MISES_2STAGE,
-              target_metric="auth_attempts_total",
-              entity_type=EntityType.USER,
-          ),
-      ),
-      (
           "cloud_repository_scope_dual_branch.yl2",
           PipelineArchitecture.CLOUD_REPOSITORY_SCOPE_DUAL_BRANCH.value,
           lambda: router.build_pipeline_query(
@@ -793,19 +784,29 @@ def render_all_pipelines(
   return records
 
 
+def active_statistical_models() -> List[StatisticalModel]:
+  """Returns active (non-retired) StatisticalModel members."""
+  retired = {
+      StatisticalModel.HOURLY_TEMPORAL_ZSCORE,
+      StatisticalModel.CIRCADIAN_VON_MISES,
+  }
+  return [m for m in StatisticalModel if m not in retired]
+
+
 def render_full_matrix(
     *,
     template_dir: Path = TEMPLATES_DIR,
     target_date: str = DEFAULT_TARGET_DATE,
 ) -> List[MatrixRenderRecord]:
-  """Renders the full 38-metric x entity_type x 18-model x 2-mode matrix + 34 pipelines."""
+  """Renders the full 38-metric x entity_type x active-model x 2-mode matrix + active pipelines."""
   router = MultiStageTemplateRouter(template_dir=template_dir)
   records: List[MatrixRenderRecord] = []
+  active_models = active_statistical_models()
 
   for metric_name in sorted(METRIC_CATALOG.keys()):
     mdef = METRIC_CATALOG[metric_name]
     for entity_type in mdef.supported_entity_types:
-      for model in StatisticalModel:
+      for model in active_models:
         for mode in MatchMode:
           rec_id = f"matrix::{metric_name}::{entity_type.value}::{model.value}::{mode.value}"
           try:
@@ -946,10 +947,10 @@ def build_covering_compile_suite(
           )
       )
 
-  # 2. All 18 Stage 2 math models x both MatchModes (36 combinations)
+  # 2. All active Stage 2 math models x both MatchModes
   anchor_metric = "auth_attempts_total"
   anchor_entity = EntityType.USER
-  for model in StatisticalModel:
+  for model in active_statistical_models():
     for mode in MatchMode:
       q = router.build_query(
           target_metric=anchor_metric,

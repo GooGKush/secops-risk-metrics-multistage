@@ -638,8 +638,17 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
         ("resource_read_total", EntityType.USER, "$sa, $vendor, $product, $resource"),
     ]
 
+    retired_tod = (StatisticalModel.HOURLY_TEMPORAL_ZSCORE, StatisticalModel.CIRCADIAN_VON_MISES)
     for metric_name, ent_type, expected_tuple in composite_cases:
       for model in StatisticalModel:
+        if model in retired_tod:
+          with self.assertRaisesRegex(ValueError, r"retired.*HOUR_OF_DAY_PROFILE"):
+            self.router.build_query(
+                target_metric=metric_name,
+                entity_type=ent_type,
+                statistical_model=model,
+            )
+          continue
         if (
             metric_name == "resource_read_total"
             and ent_type == EntityType.USER
@@ -689,13 +698,6 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
               # Cross-sectional fleet wave stage must stay fleet-wide ($day_ws by 1d)
               self.assertIn("stage stage2_fleet_wave {\n    $day_ws = $stage1_extract.window_start\n\n  match:\n    $day_ws by 1d", clean)
               expected_root = f"{expected_tuple}, $ws by 1d" if mode == MatchMode.TIMELINE_BREAKDOWN else expected_tuple
-              self.assertEqual(root_keys, expected_root)
-            elif model == StatisticalModel.CIRCADIAN_VON_MISES:
-              self.assertIn(f"match:\n    {expected_tuple} by 1h", clean)
-              expected_root = f"{expected_tuple}, $ws by 1h" if mode == MatchMode.TIMELINE_BREAKDOWN else expected_tuple
-              self.assertEqual(root_keys, expected_root)
-            elif model == StatisticalModel.HOURLY_TEMPORAL_ZSCORE:
-              expected_root = f"{expected_tuple}, $ws by 1h" if mode == MatchMode.TIMELINE_BREAKDOWN else expected_tuple
               self.assertEqual(root_keys, expected_root)
             else:
               expected_root = f"{expected_tuple}, $ws by 1d" if mode == MatchMode.TIMELINE_BREAKDOWN else expected_tuple

@@ -64,13 +64,6 @@ MODEL_AST_CONTRACTS = {
         "required_ops": ["$cv = $hist_stddev / $safe_hist_avg", "$surge_ratio = $observed / $safe_hist_avg"],
         "prohibited_substitutions": ["$personal_z"],
     },
-    StatisticalModel.HOURLY_TEMPORAL_ZSCORE: {
-        "template": "hourly_temporal_zscore.yl2",
-        "mandatory_vars": ["$observed_hour", "$avg_hourly", "$hourly_diff", "$safe_stddev_hourly", "$hourly_z", "$hourly_surge_ratio"],
-        "order_var": "$hourly_z",
-        "required_ops": ["by 1h", "$hourly_diff = $observed_hour - $avg_hourly", "$hourly_z = $hourly_diff / $safe_stddev_hourly"],
-        "prohibited_substitutions": [],
-    },
     StatisticalModel.BAYESIAN_GAMMA: {
         "template": "poisson_gamma_bayesian.yl2",
         "mandatory_vars": ["$variance_raw", "$safe_variance", "$beta_prior", "$alpha_prior", "$alpha_post", "$beta_post", "$posterior_mean", "$bayes_shift_ratio"],
@@ -134,13 +127,6 @@ MODEL_AST_CONTRACTS = {
         "required_ops": ["$fast_diff = $observed - $hist_avg", "$slow_diff = $hist_max - $hist_avg", "$macd_diff = $fast_z - $slow_z", "$macd_momentum_score = if($macd_diff > 0"],
         "prohibited_substitutions": ["$personal_z"],
     },
-    StatisticalModel.CIRCADIAN_VON_MISES: {
-        "template": "circadian_von_mises.yl2",
-        "mandatory_vars": ["$avg_hourly", "$scaled_hourly_sd", "$safe_stddev_hourly", "$hourly_diff", "$hourly_z", "$event_hour", "$raw_hour_diff", "$abs_hour_diff", "$wrap_dist", "$circ_dist", "$norm_dist", "$circadian_weight", "$pos_z", "$circadian_threat_score"],
-        "order_var": "$circadian_threat_score",
-        "required_ops": ["by 1h", "max($stage1_extract.event_hour)", "$scaled_hourly_sd = $hist_stddev_daily / 4.899", "$circ_dist = if($abs_hour_diff > 12.0", "$circadian_weight = 1.0 + $norm_dist", "$circadian_threat_score = $pos_z * $circadian_weight"],
-        "prohibited_substitutions": ["$personal_z"],
-    },
     StatisticalModel.QUANTILE_IQR_SKEW: {
         "template": "quantile_iqr_skew.yl2",
         "mandatory_vars": ["$q25_val", "$q50_val", "$q75_val", "$iqr", "$safe_iqr", "$bowley_skew", "$tail_heaviness", "$adj_upper_fence", "$tukey_fence_ratio", "$personal_z", "$raw_active_days", "$in_scoring_window"],
@@ -150,9 +136,20 @@ MODEL_AST_CONTRACTS = {
     },
 }
 
+RETIRED_MODEL_CONTRACTS = {
+    StatisticalModel.HOURLY_TEMPORAL_ZSCORE: {
+        "removed_template": "hourly_temporal_zscore.yl2",
+        "replacement": "HOUR_OF_DAY_PROFILE",
+    },
+    StatisticalModel.CIRCADIAN_VON_MISES: {
+        "removed_template": "circadian_von_mises.yl2",
+        "replacement": "HOUR_OF_DAY_PROFILE",
+    },
+}
+
 
 class TestModelConcordance(unittest.TestCase):
-  """Validates that all 16 models adhere to their AST concordance contracts."""
+  """Validates that active models adhere to AST concordance contracts and retired models fail closed."""
 
   def setUp(self):
     self.repo_root = Path(__file__).resolve().parent.parent
@@ -160,9 +157,35 @@ class TestModelConcordance(unittest.TestCase):
     self.router = MultiStageTemplateRouter()
 
   def test_all_statistical_models_covered_in_contracts(self):
-    """Every enum in StatisticalModel must have an explicit AST contract."""
+    """Every enum in StatisticalModel must have an active or retired AST contract."""
     for model in StatisticalModel:
-      self.assertIn(model, MODEL_AST_CONTRACTS, f"Model {model} missing from MODEL_AST_CONTRACTS")
+      self.assertTrue(
+          model in MODEL_AST_CONTRACTS or model in RETIRED_MODEL_CONTRACTS,
+          f"Model {model} missing from MODEL_AST_CONTRACTS / RETIRED_MODEL_CONTRACTS",
+      )
+
+  def test_retired_models_removed_from_disk_and_rejected_by_router_and_validator(self):
+    """WS2-02 (D1): Retired Stage-2 templates must be removed and raise clear replacement errors."""
+    from scripts.preflight_validator import MalachiteASTValidator
+
+    for model, spec in RETIRED_MODEL_CONTRACTS.items():
+      removed_path = self.templates_dir / spec["removed_template"]
+      self.assertFalse(removed_path.exists(), f"Retired template still on disk: {removed_path}")
+      with self.assertRaisesRegex(ValueError, rf"retired.*{spec['replacement']}"):
+        self.router.build_query(
+            target_metric="auth_attempts_total",
+            entity_type=EntityType.USER,
+            statistical_model=model,
+        )
+      errs = MalachiteASTValidator.validate_model_concordance("// dummy", model)
+      self.assertTrue(
+          any("RETIRED" in e.upper() and spec["replacement"] in e for e in errs),
+          f"Expected RETIRED error mentioning {spec['replacement']} for {model.value}, got {errs}",
+      )
+    self.assertFalse(
+        (self.repo_root / "templates" / "pipelines" / "circadian_von_mises_2stage.yl2").exists(),
+        "Retired circadian_von_mises_2stage.yl2 still on disk",
+    )
 
   def test_templates_exist_and_match_contract_definitions(self):
     """Each template file must exist and satisfy all mandatory AST contract items."""
@@ -340,6 +363,14 @@ class TestModelConcordance(unittest.TestCase):
     ]
     for metric, entity_type in representative_targets:
       for model in StatisticalModel:
+        if model in RETIRED_MODEL_CONTRACTS:
+          with self.assertRaisesRegex(ValueError, "retired"):
+            self.router.build_query(
+                target_metric=metric,
+                entity_type=entity_type,
+                statistical_model=model,
+            )
+          continue
         for mode in (MatchMode.TIMELINE_BREAKDOWN, MatchMode.FLEET_ROLLUP):
           with self.subTest(metric=metric, entity_type=entity_type.value, model=model.value, mode=mode.value):
             query = self.router.build_query(

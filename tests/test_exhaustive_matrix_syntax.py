@@ -75,12 +75,13 @@ class ExhaustiveMatrixSyntaxTest(unittest.TestCase):
     math_models = [
         StatisticalModel.STANDARD_Z_SCORE,
         StatisticalModel.MAD,
+        StatisticalModel.QUANTILE_IQR_SKEW,
+        StatisticalModel.RELATIVE_DEVIATION,
         StatisticalModel.VARIANCE,
         StatisticalModel.POISSON,
         StatisticalModel.COEFFICIENT_OF_VARIATION,
         StatisticalModel.BAYESIAN_GAMMA,
         StatisticalModel.BAYESIAN_BETA_BINOMIAL,
-        StatisticalModel.HOURLY_TEMPORAL_ZSCORE,
         StatisticalModel.LONGITUDINAL_CUSUM,
         StatisticalModel.TWO_PART_HURDLE,
         StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z,
@@ -88,8 +89,11 @@ class ExhaustiveMatrixSyntaxTest(unittest.TestCase):
         StatisticalModel.FLEET_PREVALENCE_SHIELD,
         StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD,
         StatisticalModel.MACD_MOMENTUM_VELOCITY,
-        StatisticalModel.CIRCADIAN_VON_MISES,
     ]
+    retired_time_of_day_models = (
+        StatisticalModel.HOURLY_TEMPORAL_ZSCORE,
+        StatisticalModel.CIRCADIAN_VON_MISES,
+    )
     match_modes = [MatchMode.TIMELINE_BREAKDOWN, MatchMode.FLEET_ROLLUP]
 
     tested_permutations = 0
@@ -101,6 +105,15 @@ class ExhaustiveMatrixSyntaxTest(unittest.TestCase):
         continue
 
       entity_type = mdef.supported_entity_types[0]
+
+      for retired_model in retired_time_of_day_models:
+        with self.assertRaisesRegex(ValueError, r"retired.*HOUR_OF_DAY_PROFILE"):
+          self.router.build_query(
+              target_metric=metric_name,
+              entity_type=entity_type,
+              statistical_model=retired_model,
+              anomaly_threshold=3.0,
+          )
 
       for model in math_models:
         for mode in match_modes:
@@ -123,12 +136,11 @@ class ExhaustiveMatrixSyntaxTest(unittest.TestCase):
     )
 
   def test_advanced_pipeline_templates_grammar(self):
-    """Validates syntax and invariants across all advanced multi-stage pipeline templates."""
+    """Validates syntax and invariants across active advanced multi-stage pipelines and rejects retired ones."""
     pipelines = [
         PipelineArchitecture.MULTI_SECTOR_FUSION_4STAGE,
         PipelineArchitecture.DUAL_BASELINE_3STAGE,
         PipelineArchitecture.MACD_MOMENTUM_VELOCITY_2STAGE,
-        PipelineArchitecture.CIRCADIAN_VON_MISES_2STAGE,
     ]
     for ptype in pipelines:
       context = f"Pipeline={ptype.value}"
@@ -139,6 +151,16 @@ class ExhaustiveMatrixSyntaxTest(unittest.TestCase):
           anomaly_threshold=3.0,
       )
       self._assert_query_grammar_invariants(query, context)
+
+    # WS2-02 (D1): CIRCADIAN_VON_MISES / CIRCADIAN_VON_MISES_2STAGE enum alias retained but retired at render time.
+    self.assertTrue(hasattr(PipelineArchitecture, "CIRCADIAN_VON_MISES"))
+    for retired_pipe in (PipelineArchitecture.CIRCADIAN_VON_MISES_2STAGE, getattr(PipelineArchitecture, "CIRCADIAN_VON_MISES")):
+      with self.assertRaisesRegex(ValueError, r"retired.*HOUR_OF_DAY_PROFILE"):
+        self.router.build_pipeline_query(
+            pipeline_type=retired_pipe,
+            target_metric="http_queries_total",
+            entity_type=EntityType.ASSET,
+        )
 
 
 if __name__ == '__main__':
