@@ -8,8 +8,20 @@ match:
 
 outcome:
   $k = max($stage1_extract.observed_val)
-  $lambda = max($stage1_extract.historical_avg)
+  $hist_sum = max($stage1_extract.historical_sum)
+  $hist_avg = max($stage1_extract.historical_avg)
+  $hist_stddev = max($stage1_extract.historical_stddev)
   $active_days = max($stage1_extract.historical_active_days)
+
+  // Per-calendar-day rate & rebuilt 30-day calendar statistics (PF-1, PF-2, WS1-05)
+  $lambda = $hist_sum / 30.0
+  $sum_x = $active_days * $hist_avg
+  $df_minus_one = if($active_days > 1, $active_days, 1) - 1
+  $sum_x2 = ($df_minus_one * $hist_stddev * $hist_stddev) + ($active_days * $hist_avg * $hist_avg)
+  $mu_cal = $sum_x / 30.0
+  $raw_var_cal = ($sum_x2 / 30.0) - ($mu_cal * $mu_cal)
+  $var_cal = if($raw_var_cal > 0.0, $raw_var_cal, 0.0)
+  $sd_cal = math.sqrt($var_cal)
 
   // Discrete Poisson Rarity Z-Score: (k - lambda) / math.sqrt(Safe Lambda)
   $diff = $k - $lambda

@@ -7,17 +7,26 @@ match:
 
 outcome:
   $observed = max($stage1_extract.observed_val)
+  $hist_sum = max($stage1_extract.historical_sum)
   $hist_avg = max($stage1_extract.historical_avg)
   $hist_stddev = max($stage1_extract.historical_stddev)
   $active_days = max($stage1_extract.historical_active_days)
-  $hist_max = max($stage1_extract.historical_max)
+
+  // Per-calendar-day rate, dormancy & rebuilt 30d calendar statistics (PF-1, PF-2, WS1-05)
+  $mu_cal = $hist_sum / 30.0
+  $dormant_days = 30.0 - $active_days
+  $df_minus_one = if($active_days > 1, $active_days, 1) - 1
+  $sum_x2 = ($df_minus_one * $hist_stddev * $hist_stddev) + ($active_days * $hist_avg * $hist_avg)
+  $raw_var_cal = ($sum_x2 / 30.0) - ($mu_cal * $mu_cal)
+  $sd_cal = math.sqrt(if($raw_var_cal > 0.0, $raw_var_cal, 0.0))
 
   // Part 1 (Binary Hurdle): Dormant Entity Awakening (0-2 active days in 30d window)
   $is_dormant_awakening = if($active_days <= 2 and $observed > 0, 1.0, 0.0)
 
-  // Part 2 (Truncated Normal Intensity): Standard Z-Score for active baseline entities
+  // Part 2 (Truncated Normal Intensity): Standard Z-Score with D8 floor for active baseline entities
   $raw_diff = $observed - $hist_avg
-  $safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)
+  $dispersion_floor = math.sqrt(if($hist_avg > 1.0, $hist_avg, 1.0))
+  $safe_stddev = if($hist_stddev > $dispersion_floor, $hist_stddev, $dispersion_floor)
   $intensity_z = $raw_diff / $safe_stddev
 
   // Unified Two-Part Hurdle Score: scales dormant awakenings smoothly by log volume (10.0 + ln(obs + 1))

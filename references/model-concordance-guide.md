@@ -180,13 +180,24 @@ order:
 ```
 
 ### 4. `POISSON` (`poisson_rarity.yl2`)
-* **Hypothesis**: Discrete integer event arrival rarity where variance equals mean ($\sigma = \sqrt{\lambda}$).
+* **Hypothesis**: Discrete integer event arrival rarity where variance equals per-calendar-day mean ($\lambda = S/30$, $\sigma = \sqrt{\lambda}$), with rebuilt 30-day calendar variance (`PF-1`, `PF-2`, `WS1-05`).
 * **Mandatory AST Contract**:
 ```yara
 outcome:
   $k = max($stage1_extract.observed_val)
-  $lambda = max($stage1_extract.historical_avg)
+  $hist_sum = max($stage1_extract.historical_sum)
+  $hist_avg = max($stage1_extract.historical_avg)
+  $hist_stddev = max($stage1_extract.historical_stddev)
   $active_days = max($stage1_extract.historical_active_days)
+
+  $lambda = $hist_sum / 30.0
+  $sum_x = $active_days * $hist_avg
+  $df_minus_one = if($active_days > 1, $active_days, 1) - 1
+  $sum_x2 = ($df_minus_one * $hist_stddev * $hist_stddev) + ($active_days * $hist_avg * $hist_avg)
+  $mu_cal = $sum_x / 30.0
+  $raw_var_cal = ($sum_x2 / 30.0) - ($mu_cal * $mu_cal)
+  $var_cal = if($raw_var_cal > 0.0, $raw_var_cal, 0.0)
+  $sd_cal = math.sqrt($var_cal)
 
   $diff = $k - $lambda
   $safe_lambda = if($lambda > 0, $lambda, 1.0)
@@ -373,20 +384,28 @@ order:
 ```
 
 ### 10. `TWO_PART_HURDLE` (`two_part_hurdle.yl2`)
-* **Hypothesis**: Zero-inflated dormant account reactivation: crossing the zero-hurdle warrants a log-scaled awakening score (`10.0 + math.log($observed + 1.0)`), while active baseline entities are scored by continuous intensity $Z$.
+* **Hypothesis**: Zero-inflated dormant account reactivation: crossing the zero-hurdle warrants a log-scaled awakening score (`10.0 + math.log($observed + 1.0)`), with per-calendar-day rate (`$hist_sum / 30.0`), `$dormant_days`, and rebuilt calendar statistics (`PF-1`, `PF-2`, `WS1-05`), while active baseline entities are scored by continuous intensity $Z$ with D8 dispersion floor.
 * **Mandatory AST Contract**:
 ```yara
 outcome:
   $observed = max($stage1_extract.observed_val)
+  $hist_sum = max($stage1_extract.historical_sum)
   $hist_avg = max($stage1_extract.historical_avg)
   $hist_stddev = max($stage1_extract.historical_stddev)
   $active_days = max($stage1_extract.historical_active_days)
-  $hist_max = max($stage1_extract.historical_max)
+
+  $mu_cal = $hist_sum / 30.0
+  $dormant_days = 30.0 - $active_days
+  $df_minus_one = if($active_days > 1, $active_days, 1) - 1
+  $sum_x2 = ($df_minus_one * $hist_stddev * $hist_stddev) + ($active_days * $hist_avg * $hist_avg)
+  $raw_var_cal = ($sum_x2 / 30.0) - ($mu_cal * $mu_cal)
+  $sd_cal = math.sqrt(if($raw_var_cal > 0.0, $raw_var_cal, 0.0))
 
   $is_dormant_awakening = if($active_days <= 2 and $observed > 0, 1.0, 0.0)
 
   $raw_diff = $observed - $hist_avg
-  $safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)
+  $dispersion_floor = math.sqrt(if($hist_avg > 1.0, $hist_avg, 1.0))
+  $safe_stddev = if($hist_stddev > $dispersion_floor, $hist_stddev, $dispersion_floor)
   $intensity_z = $raw_diff / $safe_stddev
 
   $obs_plus_one = $observed + 1.0

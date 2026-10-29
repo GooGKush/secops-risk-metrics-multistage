@@ -705,6 +705,53 @@ class EntityTimelineSeries:
       self.peak_day = peak_d
 
 
+def rebuild_calendar_day_stats(
+    active_days: float,
+    active_avg: float,
+    active_sd: float,
+    historical_sum: Optional[float] = None,
+    window_days: float = 30.0,
+) -> Dict[str, float]:
+  """Rebuilds 30-day calendar-day statistics from active-day metrics.* outputs (PF-1, PF-2, WS1-05).
+
+  Malachite `metrics.*` computes `avg` and sample `stddev` (N-1) over `num_metric_periods`
+  (active days only), omitting zero-activity days. Given (n, avg, sd), this helper reconstructs:
+    sum_x      = historical_sum if provided else n * avg
+    sum_x2     = max(n - 1, 0) * sd^2 + n * avg^2
+    lambda_cal = sum_x / window_days
+    mu_cal     = sum_x / window_days
+    var_cal    = max(sum_x2 / window_days - mu_cal^2, 0.0)
+    sd_cal     = sqrt(var_cal)
+  """
+  win = float(window_days) if float(window_days) > 0.0 else 30.0
+  n = max(0.0, float(active_days))
+  avg = float(active_avg) if n > 0.0 else 0.0
+  sd = max(0.0, float(active_sd)) if n > 1.0 else 0.0
+  if n <= 0.0:
+    sum_x = 0.0
+    sum_x2 = 0.0
+  else:
+    sum_x = float(historical_sum) if historical_sum is not None else (n * avg)
+    df_minus_one = max(n - 1.0, 0.0)
+    sum_x2 = (df_minus_one * sd * sd) + (n * avg * avg)
+  mu_cal = sum_x / win
+  raw_var_cal = (sum_x2 / win) - (mu_cal * mu_cal)
+  var_cal = max(raw_var_cal, 0.0)
+  sd_cal = math.sqrt(var_cal)
+  return {
+      "active_days": n,
+      "window_days": win,
+      "dormant_days": max(0.0, win - n),
+      "active_day_fraction": min(1.0, max(0.0, n / win)),
+      "sum_x": sum_x,
+      "sum_x2": sum_x2,
+      "lambda_cal": mu_cal,
+      "mu_cal": mu_cal,
+      "var_cal": var_cal,
+      "sd_cal": sd_cal,
+  }
+
+
 def calculate_page_cusum_series(z_scores: Sequence[Any], slack_k: float = 0.5) -> List[Any]:
   """Computes sequential Page one-sided upper CUSUM S_t = max(0.0, S_{t-1} + z_t - k)."""
   out: List[Any] = []

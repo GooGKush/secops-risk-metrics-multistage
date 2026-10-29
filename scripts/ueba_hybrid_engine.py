@@ -2919,6 +2919,24 @@ def calculate_hourly_zscore(
   return round((float(observed_hour) - float(avg_hourly)) / safe_std, 4)
 
 
+def rebuild_calendar_day_stats(
+    active_days: float,
+    active_avg: float,
+    active_sd: float,
+    historical_sum: Optional[float] = None,
+    window_days: float = 30.0,
+) -> Dict[str, float]:
+  """Rebuilds 30-day calendar-day statistics from active-day metrics.* outputs (PF-1, PF-2, WS1-05)."""
+  from .timeline_assembler import rebuild_calendar_day_stats as _ta_rebuild
+  return _ta_rebuild(
+      active_days=active_days,
+      active_avg=active_avg,
+      active_sd=active_sd,
+      historical_sum=historical_sum,
+      window_days=window_days,
+  )
+
+
 compile_hunt_plan = compile_hunt_pipeline
 
 
@@ -2936,6 +2954,7 @@ class UEBAHybridEngine:
   calculate_bayesian_joint_odds = staticmethod(calculate_bayesian_joint_odds)
   calculate_macd_momentum = staticmethod(calculate_macd_momentum)
   calculate_hourly_zscore = staticmethod(calculate_hourly_zscore)
+  rebuild_calendar_day_stats = staticmethod(rebuild_calendar_day_stats)
 
 
 # ---------------------------------------------------------------------------
