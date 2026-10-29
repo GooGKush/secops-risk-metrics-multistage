@@ -48,7 +48,7 @@ EXPECTED_DEFAULT_GATES = {
     StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z: "$active_days >= 7 and $personal_z >= 3.0",
     StatisticalModel.POISSON: "$poisson_z >= 3.0",
     StatisticalModel.MACD_MOMENTUM_VELOCITY: "$active_days >= 7 and $macd_z >= 3.0",
-    StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD: "$active_days >= 7 and $sensitivity_excess >= 0.0",
+    StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD: "$active_days >= 7 and $adaptive_z >= 3.0",
     StatisticalModel.LONGITUDINAL_CUSUM: "$active_days >= 7 and $cusum_drift_score >= 3.0 and $drift_days >= 2",
     StatisticalModel.TWO_PART_HURDLE: "$hurdle_threat_score >= 3.0",
     StatisticalModel.BAYESIAN_GAMMA: "$bayesian_z >= 3.0",

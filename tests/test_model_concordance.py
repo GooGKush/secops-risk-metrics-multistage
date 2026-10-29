@@ -176,10 +176,23 @@ MODEL_AST_CONTRACTS = {
     },
     StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD: {
         "template": "adaptive_context_threshold.yl2",
-        "mandatory_vars": ["$raw_diff", "$safe_stddev", "$personal_z", "$sparse_threshold", "$mature_threshold", "$effective_threshold", "$sensitivity_excess"],
-        "order_var": "$sensitivity_excess",
-        "required_ops": ["$effective_threshold = if($active_days < 7, $sparse_threshold, $mature_threshold)", "$sensitivity_excess = $personal_z - $effective_threshold"],
-        "prohibited_substitutions": [],
+        "mandatory_vars": [
+            "$off_hours_obs",
+            "$raw_diff",
+            "$safe_stddev",
+            "$personal_z",
+            "$off_hours_share",
+            "$effective_gate",
+            "$adaptive_z",
+            "$sensitivity_excess",
+        ],
+        "order_var": "$adaptive_z",
+        "required_ops": [
+            "$effective_gate = if($off_hours_share >= 0.5, 1.75, 3.0)",
+            "$adaptive_z = ($personal_z * 3.0) / $effective_gate",
+            "$sensitivity_excess = $personal_z - $effective_gate",
+        ],
+        "prohibited_substitutions": ["$personal_z"],
     },
     StatisticalModel.MACD_MOMENTUM_VELOCITY: {
         "template": "macd_momentum_velocity.yl2",

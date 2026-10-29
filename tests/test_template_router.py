@@ -122,7 +122,7 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
         (StatisticalModel.LONGITUDINAL_CUSUM, "cusum_drift_score"),
         (StatisticalModel.TWO_PART_HURDLE, "hurdle_threat_score"),
         (StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z, "personal_z"),
-        (StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD, "sensitivity_excess"),
+        (StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD, "adaptive_z"),
     ]
 
     for model, order_var in test_models:
@@ -1324,6 +1324,138 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
     self.assertEqual(dossier["outliers"][0]["entity"], "charles.hardy")
     self.assertFalse(dossier["outliers"][0]["is_true_sigma"])
     self.assertNotIn("σ", dossier["outliers"][0]["score_display"])
+
+  def test_ws3_adaptive_context_schedule_and_golden_alerts(self):
+    """WS3-ADAPTIVE (D1c): off-hours/weekend schedule in {{tenant_tz}}, 1.75σ/3.0σ gates, Z-equivalent adaptive_z, and WS5-HOD learned hours."""
+    from scripts.preflight_validator import MalachiteASTValidator
+    from scripts.ueba_constants import cri_from_model_score
+    from scripts import ueba_hybrid_engine as engine_mod
+
+    # 1. Default UTC Mon-Fri 08:00-18:00 schedule + concordance 1.75 / 3.0 gates + adaptive_z
+    q_default = self.router.build_query(
+        target_metric="auth_attempts_total",
+        entity_type=EntityType.USER,
+        statistical_model=StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD,
+    )
+    self.assertIn('$hour = timestamp.get_hour(metadata.event_timestamp.seconds, "UTC")', q_default)
+    self.assertIn('$dow = timestamp.get_day_of_week(metadata.event_timestamp.seconds, "UTC")', q_default)
+    self.assertIn("$dow >= 2 and $dow <= 6 and $hour >= 8 and $hour < 18", q_default)
+    self.assertIn("$off_hours_obs = sum(if($dow >= 2 and $dow <= 6 and $hour >= 8 and $hour < 18, 0, 1))", q_default)
+    self.assertIn("$effective_gate = if($off_hours_share >= 0.5, 1.75, 3.0)", q_default)
+    self.assertIn("$adaptive_z = ($personal_z * 3.0) / $effective_gate", q_default)
+    self.assertEqual(
+        MultiStageTemplateRouter.root_condition(q_default),
+        "$active_days >= 7 and $adaptive_z >= 3.0",
+    )
+    self.assertIn("order:\n  $adaptive_z desc", q_default)
+    self.assertNotIn("$sparse_threshold", q_default)
+
+    # 2. All 5 Stage-1 $observed_val shapes pass AST, concordance, and antipattern checks
+    shape_metrics = [
+        ("auth_attempts_total", EntityType.USER),
+        ("network_bytes_outbound", EntityType.ASSET),
+        ("network_bytes_inbound", EntityType.ASSET),
+        ("network_bytes_total", EntityType.ASSET),
+        ("workspace_network_bytes_total", EntityType.USER),
+    ]
+    for metric_name, ent_type in shape_metrics:
+      with self.subTest(metric=metric_name):
+        q_shape = self.router.build_query(
+            target_metric=metric_name,
+            entity_type=ent_type,
+            statistical_model=StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD,
+            tenant_tz="America/Los_Angeles",
+            biz_start_hour=9,
+            biz_end_hour=17,
+        )
+        self.assertIn('"America/Los_Angeles"', q_shape)
+        self.assertIn("$hour >= 9 and $hour < 17", q_shape)
+        self.assertEqual(MalachiteASTValidator.validate_query(q_shape), [])
+        self.assertEqual(
+            MalachiteASTValidator.validate_model_concordance(q_shape, StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD),
+            [],
+        )
+        self.assertEqual(StatisticalAntipatternAuditor.audit_query(q_shape), [])
+
+    # 3. Per-entity learned active hours from WS5-HOD (HOUR_OF_DAY_PROFILE) via compile_hunt_pipeline
+    compiled_hod = engine_mod.compile_hunt_pipeline(
+        statistical_model="ADAPTIVE_CONTEXT_THRESHOLD",
+        metrics="auth_attempts_total",
+        entity_type="USER",
+        tenant_tz="America/New_York",
+        learned_active_hours=[8, 9, 10, 11, 12, 13, 14, 15, 16],
+    )
+    self.assertTrue(compiled_hod["ast_valid"], compiled_hod["ast_errors"])
+    self.assertEqual(compiled_hod["statistical_violations"], [])
+    self.assertIn('"America/New_York"', compiled_hod["compiled_query"])
+    self.assertIn("$hour >= 8 and $hour <= 16", compiled_hod["compiled_query"])
+    self.assertNotIn("$dow >= 2", compiled_hod["compiled_query"])
+
+    # 4. Golden alerts: off-hours 2.0σ alerts (CRI >= 50, NOT 14); identical 2.0σ in business hours does not alert
+    off_hours_res = engine_mod.calculate_adaptive_context_z(
+        observed=120.0,
+        hist_avg=100.0,
+        hist_stddev=10.0,
+        active_days=20,
+        event_hour=2,
+        event_dow=7,  # Saturday 02:00
+    )
+    self.assertAlmostEqual(off_hours_res["personal_z"], 2.0, places=4)
+    self.assertEqual(off_hours_res["effective_gate"], 1.75)
+    self.assertAlmostEqual(off_hours_res["adaptive_z"], round(2.0 * 3.0 / 1.75, 4), places=4)
+    self.assertTrue(off_hours_res["alerts"])
+    self.assertGreaterEqual(cri_from_model_score("adaptive_z", off_hours_res["adaptive_z"]), 50)
+
+    in_hours_res = engine_mod.calculate_adaptive_context_z(
+        observed=120.0,
+        hist_avg=100.0,
+        hist_stddev=10.0,
+        active_days=20,
+        event_hour=10,
+        event_dow=3,  # Tuesday 10:00
+    )
+    self.assertAlmostEqual(in_hours_res["personal_z"], 2.0, places=4)
+    self.assertEqual(in_hours_res["effective_gate"], 3.0)
+    self.assertAlmostEqual(in_hours_res["adaptive_z"], 2.0, places=4)
+    self.assertFalse(in_hours_res["alerts"])
+
+    # 5. Learned night-shift schedule [22, 23, 0, 1, 2, 3]: 02:00 is normal (no alert at 2.0σ), 14:00 is off-schedule (alerts at 2.0σ)
+    night_in_sched = engine_mod.calculate_adaptive_context_z(
+        observed=120.0,
+        hist_avg=100.0,
+        hist_stddev=10.0,
+        active_days=20,
+        event_hour=2,
+        event_dow=7,
+        learned_active_hours=[22, 23, 0, 1, 2, 3],
+    )
+    self.assertEqual(night_in_sched["effective_gate"], 3.0)
+    self.assertFalse(night_in_sched["alerts"])
+
+    night_off_sched = engine_mod.calculate_adaptive_context_z(
+        observed=120.0,
+        hist_avg=100.0,
+        hist_stddev=10.0,
+        active_days=20,
+        event_hour=14,
+        event_dow=3,
+        learned_active_hours=[22, 23, 0, 1, 2, 3],
+    )
+    self.assertEqual(night_off_sched["effective_gate"], 1.75)
+    self.assertTrue(night_off_sched["alerts"])
+
+    # 6. Negative / zero Z yields CRI 0 and never alerts
+    quiet_res = engine_mod.calculate_adaptive_context_z(
+        observed=80.0,
+        hist_avg=100.0,
+        hist_stddev=10.0,
+        active_days=20,
+        event_hour=2,
+        event_dow=1,
+    )
+    self.assertLess(quiet_res["adaptive_z"], 0.0)
+    self.assertFalse(quiet_res["alerts"])
+    self.assertEqual(cri_from_model_score("adaptive_z", quiet_res["adaptive_z"]), 0)
 
 
 if __name__ == "__main__":
