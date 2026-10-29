@@ -1,6 +1,6 @@
 # Google SecOps Multi-Stage Risk Metrics Threat Hunter (`secops-risk-metrics-multistage`)
 
-[![Version](https://img.shields.io/badge/version-v2.2.0-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-433%2F433%20passing%20(100%25)-brightgreen.svg)](tests/) [![Submission Tests](https://img.shields.io/badge/submission%20tests-32%2F32%20passing%20(100%25)-brightgreen.svg)](scripts/submission_tests.py) [![Live Regression](https://img.shields.io/badge/dual--engine%20regression-60%2F60%20live%20passing%20(100%25)-brightgreen.svg)](tests/)
+[![Version](https://img.shields.io/badge/version-v2.3.0-blue.svg)](RELEASE_NOTES.md) [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Unit Tests](https://img.shields.io/badge/unit%20tests-612%2F612%20passing%20(100%25)-brightgreen.svg)](tests/) [![Submission Tests](https://img.shields.io/badge/submission%20tests-32%2F32%20passing%20(100%25)-brightgreen.svg)](scripts/submission_tests.py) [![Live Regression](https://img.shields.io/badge/dual--engine%20regression-60%2F60%20live%20passing%20(100%25)-brightgreen.svg)](tests/)
 
 A specialized, production-grade AI agent skill package for **Google Security Operations (SecOps / Chronicle SIEM & SOAR)** that constructs, validates, and executes **Multi-Stage YARA-L 2.0 Directed Acyclic Graph (DAG) statistical threat hunting pipelines**, **360° Entity Behavioral Risk Radars**, and **Progressively Disclosed Consultative Threat Hunting**.
 
@@ -47,20 +47,21 @@ secops-risk-metrics-multistage/
 │   ├── malachite-function-factory-matrix.md # Chronicle Function Factory built-in functions & AST grammar contracts
 │   ├── metric-sector-catalog.md          # GENERATED: per-metric observed filter, value, metric arg, entity fields, fusion rules
 │   ├── metrics-catalog.md                # GENERATED: catalog of 38 pre-computed behavioral risk metrics
-│   ├── model-concordance-guide.md        # AST concordance contracts, outcome variables & prohibited fallbacks across all 17 models
+│   ├── model-concordance-guide.md        # AST concordance contracts, outcome variables & prohibited fallbacks across all 14 active models
 │   ├── multi-stage-metrics-guide.md      # Multi-stage YARA-L DAG contracts, condition gating, & Entity Graph rules
 │   ├── soar-playbook-radar-integration.md# Chronicle SOAR playbook integration for 360° radar
 │   ├── statistical-hunting-cooperative-framework.md # Federated bilateral handoff protocol
-│   ├── statistical-models-taxonomy.md    # Mathematical taxonomy of all 17 statistical models
-│   ├── timeline-modes-guide.md           # Per-request 30d baseline anchoring, Mode B fixed-baseline bias, Mode C per-day shards
+│   ├── statistical-models-taxonomy.md    # Mathematical taxonomy of all 14 active statistical models
+│   ├── timeline-modes-guide.md           # Per-request 30d baseline anchoring, D-1 Mode A default, Mode B 5d cap, Mode C 30d shards
 │   ├── turn-execution-lifecycle.md       # Codified turn lifecycle, transition invariants, & quiet baseline protocol
 │   └── udm-hunting-field-dictionary.md   # Field-level dictionary mapping UDM protobuf fields to hunter dimensions
 ├── templates/                            # Composable YARA-L 2.0 template library
-│   ├── pipelines/                        # Pre-composed multi-stage DAG pipelines
-│   │   ├── c2_beacon_flow_frequency_2stage.yl2         # Outbound Flow Surge (D1 rename)
+│   ├── pipelines/                        # 34 pre-composed multi-stage DAG pipelines
+│   │   ├── c2_beacon_flow_frequency_2stage.yl2         # Regular-Volume Outbound Flow Surge (D1 rename)
 │   │   ├── cloud_repository_scope_dual_branch.yl2
 │   │   ├── dual_baseline_delta_z_3stage.yl2
 │   │   ├── dual_sector_fusion_3stage.yl2           # Generic 2-sector fusion, sectors filled from the catalog
+│   │   ├── first_seen_novelty_2stage.yl2           # Brand-new (entity, dimension) baseline novelty ($active_days = 0)
 │   │   ├── fusion_rare_destination_3stage.yl2      # 2-sector fusion filtered to rare destinations (Entity Graph)
 │   │   ├── hierarchical_empirical_bayes_3stage.yl2
 │   │   ├── http_error_ratio_surge_2stage.yl2
@@ -74,14 +75,15 @@ secops-risk-metrics-multistage/
 │   │   ├── hybrid_metric_http_ua_prevalence_2stage.yl2
 │   │   ├── hybrid_metric_raw_enrichment_2stage.yl2
 │   │   ├── hybrid_metric_whois_domain_lifecycle_2stage.yl2
-│   │   ├── longitudinal_cusum_2stage.yl2
-│   │   ├── macd_momentum_velocity_2stage.yl2
-│   │   ├── mad_robust_z_4stage.yl2               # True median/MAD over the raw window + 30d metrics Z cross-check
+│   │   ├── longitudinal_cusum_2stage.yl2           # Windowed Positive Slack Sum fleet prefilter (up to 14d)
+│   │   ├── longitudinal_cusum_series_3stage.yl2    # Per-(entity, day) Z series for cusum_helper.py Page CUSUM
+│   │   ├── macd_momentum_velocity_2stage.yl2       # Above-Historical-Max Z (D1 rename)
+│   │   ├── mad_robust_z_4stage.yl2                 # True median/MAD over the raw window + 30d metrics Z cross-check
 │   │   ├── multi_sector_fusion_4stage.yl2          # Generic 2-sector fusion plus each sector's deviation from the fleet
 │   │   ├── part_of_the_whole_multilevel.yl2        # User vs. self, vs. peer group, vs. enterprise
 │   │   ├── part_of_the_whole_triad_multilevel.yl2
 │   │   ├── poisson_rarity_2stage.yl2
-│   │   ├── quantile_iqr_skew_3stage.yl2          # 1-stage 5-point quantiles, Bowley skewness & Tukey fence + 30d Z
+│   │   ├── quantile_iqr_skew_3stage.yl2            # 1-stage 5-point quantiles, Bowley skewness & Tukey fence + 30d Z
 │   │   ├── radar_360_decoupled_sector.yl2
 │   │   ├── radar_360_sector_alert.yl2
 │   │   ├── radar_360_sector_web_http.yl2
@@ -98,43 +100,41 @@ secops-risk-metrics-multistage/
 │   │   ├── dns_queries_* / dns_bytes_* (fail, success, total)
 │   │   ├── http_queries_* (fail, success, total)
 │   │   └── workspace_* (auth, emails sent, network bytes, downloads, changes)
-│   └── stage2_math_models/               # 18 plug-and-play mathematical model templates
+│   └── stage2_math_models/               # 14 plug-and-play mathematical model templates (D1 concordance)
 │       ├── adaptive_context_threshold.yl2
-│       ├── asymmetric_directional_z.yl2
 │       ├── beta_binomial_bayesian.yl2
-│       ├── circadian_von_mises.yl2
 │       ├── coefficient_of_variation.yl2
-│       ├── fleet_prevalence_shield.yl2
-│       ├── hourly_temporal_zscore.yl2
-│       ├── longitudinal_cusum.yl2
-│       ├── macd_momentum_velocity.yl2
+│       ├── first_seen_novelty.yl2                # Brand-new baseline novelty ($active_days = 0)
+│       ├── longitudinal_cusum.yl2                # Windowed Positive Slack Sum Stage 2 module
+│       ├── macd_momentum_velocity.yl2            # Above-Historical-Max Z Stage 2 module
 │       ├── mad.yl2                               # True MAD module (mad_center -> mad_spread -> root)
-│       ├── piecewise_cri.yl2
 │       ├── poisson_gamma_bayesian.yl2
 │       ├── poisson_rarity.yl2
 │       ├── quantile_iqr_skew.yl2                 # 1-stage quantile envelope, Bowley skewness & Tukey fence
-│       ├── relative_deviation.yl2                # Fold change vs 30d mean (formerly mislabelled MAD)
+│       ├── relative_deviation.yl2                # Fold change vs 30d mean
 │       ├── standard_z_score.yl2
 │       ├── two_part_hurdle.yl2
 │       └── variance_fano.yl2
 ├── scripts/                              # Verification, execution, collector, & formatting utilities
 │   ├── __init__.py
 │   ├── chart_generator.py                # Formats hunt outputs into Vega-Lite & Chart.js specs
-│   ├── chronicle_ingest.py               # Direct ImportEvents REST ingestion (MCP-independent path)
+│   ├── chronicle_ingest.py               # Direct ImportEvents REST ingestion (frozen D7 write-back interface)
+│   ├── cusum_helper.py                   # Sequential Page's one-sided CUSUM helper over daily YARA-L series/shards
 │   ├── federated_handoff.py              # Cross-skill bilateral threat hunt handoff protocol
 │   ├── generate_metric_sector_catalog.py # Generates references/metric-sector-catalog.md from data/ (--check for drift)
 │   ├── generate_references.py            # Code-as-SSOT reference documentation generator
 │   ├── malachite_catalog.py              # Parses data/malachite: valid dimension sets, entity bindings, fusion rules, filter gaps
-│   ├── preflight_validator.py            # Pre-flight AST validator + QueryIntegrityGate (pre-dispatch & post-execution verification)
+│   ├── preflight_validator.py            # Pre-flight AST validator + QueryIntegrityGate (PF-1..PF-11 static & post-exec checks)
 │   ├── radar_collector.py                # 6-Sector 360° radar SVG/HTML generator & score collector
 │   ├── statistical_validator.py          # Static auditor for statistical antipatterns in candidate queries
 │   ├── submission_tests.py               # Canonical 32-case compiler verification test harness
 │   ├── sync_malachite_catalog.py         # Re-syncs / drift-checks data/malachite against google3
 │   ├── template_router.py                # Maps natural language intent to .yl2 templates with condition filtering & 11 MITRE kill-chains
-│   ├── timeline_assembler.py             # Mode C collator: merges per-day single-query or 6-sector 360° radar shards into one timeline report
+│   ├── timeline_assembler.py             # Mode C collator: merges per-day single-query or 6-sector 360° radar shards (up to 30d)
 │   ├── triage_formatter.py               # Generates 5-section triage reports, CRI scores & Post-Data Agentic Next Steps
+│   ├── ueba_constants.py                 # Shared bilateral UEBA constants (synchronized with secops-statistical-hunter)
 │   └── ueba_hybrid_engine.py             # Unified Python Hybrid Engine (compile_hunt_pipeline, dispatch_hybrid_handoff, render_forensic_dossier)
-└── tests/                                # Automated unit test suite (433 tests across 25 test modules, 100% pass rate)
+└── tests/                                # Automated unit test suite (612 offline tests across 45 test modules + live/ manifest, 100% pass rate)
     ├── test_chart_specifications.py
     ├── test_chronicle_ingest.py
     ├── test_complex_multistage_syntax.py
@@ -172,9 +172,9 @@ secops-risk-metrics-multistage/
 2. **Progressively Disclosed Consultative Support & Turn Execution Lifecycle**:
    * Bridges data science and operational SOC workflows without requiring mathematical background or formula knowledge.
    * Progressively discloses guidance across three analytical tiers:
-     * **Tier 1 (Known Knowns)**: Volumetric spikes and acute bursts (Standard $Z$, Piecewise CRI).
-     * **Tier 2 (Known Unknowns / Static Rule Blind Spots)**: Low-and-slow trickles, dormancy breaks, off-hours circadian shifts, beaconing jitter, and persistent baseline drift (CUSUM, Two-Part Hurdle, Hourly $Z$, Poisson Rarity).
-     * **Tier 3 (Unknown Unknowns / Cross-Silo Anomalies)**: Multi-vector orthogonal dispersion across disparate telemetry silos ($D \ge 3.5\sigma$ 360° Risk Radar).
+     * **Tier 1 (Known Knowns)**: Volumetric spikes and acute bursts (Standard $Z$, True MAD, Quantile IQR / Bowley Skewness).
+     * **Tier 2 (Known Unknowns / Static Rule Blind Spots)**: Low-and-slow trickles, dormancy breaks, first-seen novelty, regular-volume surges, and persistent baseline drift (Sequential Page CUSUM, Two-Part Hurdle, First-Seen Novelty, Poisson Rarity).
+     * **Tier 3 (Unknown Unknowns / Cross-Silo Anomalies)**: Multi-vector dispersion across disparate telemetry silos ($D \ge 3.5\sigma$ 360° Risk Radar).
    * Enforces the **Phase 1A-to-1B Transition Invariant**: upon analyst vector selection during consultative discovery, the agent immediately probes the candidate's event filter alone (`udm_search`, `maxEvents: 1`; never the multi-stage candidate itself), renders the structured Pre-Flight Specification Card, displays the candidate multi-stage YARA-L preview, and solicits clearance (Mode A vs Mode B) within the same turn.
    * Enforces the **Expert Bypass Fast-Track Protocol**: when an experienced practitioner specifies both scope/vector and statistical model up front, consultation is cleanly bypassed directly to Phase 1B pre-flight clearance.
 3. **Turn 2 Deterministic Execution Mandate & Quiet Entity Protocol**:
@@ -196,7 +196,7 @@ secops-risk-metrics-multistage/
      * `DERIVED_CONTEXT` on `DOMAIN_NAME`: Correlates HTTP request-count surges with enterprise domain rarity (`hybrid_metric_derived_domain_prevalence_2stage.yl2`). Bytes or DNS volume to rare domains use the rare-destination filter below.
      * `GLOBAL_CONTEXT` on WHOIS: Correlates outbound connections with newly registered domain (NRD) lifecycles (`hybrid_metric_whois_domain_lifecycle_2stage.yl2`).
      * **Rare destinations** (`DERIVED_CONTEXT` on `DOMAIN_NAME` / `IP_ADDRESS`, used as a filter): keeps a sector's anomalies only for hosts that contacted destinations seen on 3 or fewer hosts — one sector (`rare_destination_ecg_3stage.yl2`) or two fused sectors (`fusion_rare_destination_3stage.yl2`). Domains match on `target.hostname` or `network.dns.questions.name`; IPs on `target.ip`.
-   * **Entity Graph freshness (Mode A)**: prevalence records are built once a day and lag about a day, so a window starting today joins nothing. Mode A queries with a graph stage start at D-2 00:00Z and pin every event stage to today with `timestamp.get_date(metadata.event_timestamp.seconds) = "<today, YYYY-MM-DD>"`; the graph stage stays time-free. Zero rows from a window starting today is a freshness gap, not a quiet baseline (`references/entity-context-graph-guide.md`, Rule 5).
+   * **Entity Graph freshness (Mode A)**: prevalence records are built once a day and lag about a day. Mode A defaults to yesterday's complete 24-hour UTC day (`D-1`); Mode A queries with a graph stage search from `D-2 00:00Z` to `D 00:00Z` and pin every event stage to yesterday (`D-1`) with `timestamp.get_date(metadata.event_timestamp.seconds) = "<D-1, YYYY-MM-DD>"` (or `<D, YYYY-MM-DD>` with `endTime = now` when intraday partial-day Mode A is explicitly requested); the graph stage stays time-free (`references/entity-context-graph-guide.md`, Rule 5).
 7. **Bi-Directional Federated Skill Steering (`secops-threat-hunt-handoff-v1`) & The Bilateral UEBA Harness**:
    * Formulates a federated, cooperative threat hunting funnel between macro 30-day baselines (`secops-risk-metrics-multistage`), micro raw UDM event telemetry (`secops-statistical-hunter`), and `agentic_ueba` (`PlaybookRunner`) connective tissue.
    * For open-ended threat, exploit, CTI, or detection-gap UEBA inquiries (when `Active Skill:` is not restricted to a single skill), synthesizes a multi-horizon **Bilateral UEBA Harness** combining Plane 1 (30d `by 1d` `metrics.*` baselines & multi-sector fusion), Plane 2 (bounded-window raw `UDM_EVENTS` Markov process transitions, Shannon entropy, and Poisson burst dispersion via `secops-statistical-hunter`), and Plane 3 (`PlaybookRunner` Options 1–3 chaining) while enforcing the **Telemetry Physics & Window Guardrail**.
@@ -219,9 +219,9 @@ secops-risk-metrics-multistage/
     * Strictly bans heuristic username synthesis. Resolves human display names (e.g. `"Frank"`, `"Frank Kolzig"`) and corporate user email addresses (`"admin@demo.wsexample.org"`, whose UDM `user.userid` may be indexed as the local username `"admin"`) against UDM telemetry before binding `user.userid`, while standard machine/service accounts (`@*.iam.gserviceaccount.com`, `arn:aws:...`, `sa-*`), hostnames, and fleet-wide scopes proceed directly to the 1-shot event-filter probe.
     * Anchors the UDM identity spot-check to the requested target historical window (when a target date/range is specified) or the last 14 days (`maxEvents: 5`) across `userid`, `email_addresses`, and `user_display_name` on both `principal.user` and `target.user`. Halts immediately and prompts the analyst if an unqualified human name cannot be resolved from telemetry.
 12. **Comprehensive 38-Metric Extractor Matrix & Stage 2 Math Models**:
-    * 100% coverage across 38 Stage 1 extractors (Authentication, Cloud CRUD, File Execution, Network Egress/Flows, DNS Activity, HTTP, Google Workspace, Security/EDR Alerts) and 17 Stage 2 model templates (Standard $Z$, True MAD / Modified $Z$, Relative Deviation, Poisson Rarity, Hourly Temporal $Z$, $CV$, Fano Factor, Asymmetric $Z$, CUSUM, Two-Part Hurdle, Piecewise CRI, Empirical Bayes Gamma, Beta-Binomial, Fleet Shield, Adaptive Thresholds, MACD Momentum Velocity, Circadian von Mises).
+    * 100% coverage across 38 Stage 1 extractors (Authentication, Cloud CRUD, File Execution, Network Egress/Flows, DNS Activity, HTTP, Google Workspace, Security/EDR Alerts) and 14 Stage 2 model templates (Standard $Z$, True MAD / Modified $Z$, Quantile IQR / Bowley Skewness, Relative Deviation, Poisson Rarity, First-Seen Novelty, $CV$, Fano Factor, CUSUM / Windowed Slack Sum, Two-Part Hurdle, Empirical Bayes Gamma, Beta-Binomial, Adaptive Thresholds, Above-Historical-Max $Z$).
     * Every Stage 1 extractor's observed event filter matches what its pre-computed baseline counts, and each carries a note listing the identifier fields valid for that metric.
-    * Pre-composed in 33 pipeline templates in `templates/pipelines/` (including `hybrid_data_table_bridge_2stage.yl2`).
+    * Pre-composed in 34 pipeline templates in `templates/pipelines/` (including `hybrid_data_table_bridge_2stage.yl2`, `first_seen_novelty_2stage.yl2`, and `longitudinal_cusum_series_3stage.yl2`).
 13. **Calibrated Risk Index (CRI [0–100])**:
     * Standardizes multi-dimensional statistics onto a unified piecewise logistic sigmoid 0–100 scale ($\text{CRI}(Z) = 0$ for $Z \le 0$; $\text{CRI}(Z) = \text{round}(100 / (1 + e^{-0.6(Z - 3.0)}))$ for $Z > 0$), anchoring $3.0\sigma$ at CRI 50 across 5 operational triage bands: 🟢 Nominal (0–25), 🟡 Low Drift (26–45), 🟠 Medium Outlier (46–69), 🔴 High Threat (70–89), and 🚨 Critical Outlier (90–100).
 14. **Adaptive Multi-Surface Single-Surface Visualizations**:
@@ -242,7 +242,7 @@ secops-risk-metrics-multistage/
     * `ChainedHuntRouter.build_cross_entity_killchain_plan()` automates two-query sequential bridges across Chronicle's single-identifier-type-per-DAG boundary (`HOST_TO_USER`, `USER_TO_HOST`, and `CLOUD_TO_HOST`). When a cohort exceeds 25 entities or requires persistent cohort bridging, upon explicit analyst approval in **State 3** the workflow materializes Phase 1 outlier cohorts into SecOps Data Table `%ueba_hunt_bridge` (`create_data_table` / `add_rows_to_data_table`) and joins them via `templates/pipelines/hybrid_data_table_bridge_2stage.yl2` (`ChainedHuntRouter.build_data_table_bridge_query()`).
 19. **Unified Python Hybrid Engine (`scripts/ueba_hybrid_engine.py`) & Dual-Surface MCP Tooling**:
     * Consolidates pipeline compilation (`compile_hunt_pipeline`), cross-skill federated handoffs (`dispatch_hybrid_handoff`), and 5-section forensic dossier rendering (`render_forensic_dossier`) into a single composable Python engine (`compile`, `handoff`, `render`, `catalog` CLI subcommands).
-    * Exposes the same three primitives as native Gemini `FunctionDeclaration` tools in headless MCP clients (`DirectMCPEngine`, `agentic_ueba`), offloading `24.4%` (`177.6 KB` per turn) of static reference/template prose while preserving full combinatorial flexibility across all 12 statistical models, 38 Malachite metrics, and 8 `secops-statistical-hunter` hybrid enrichment topologies.
+    * Exposes the same three primitives as native Gemini `FunctionDeclaration` tools in headless MCP clients (`DirectMCPEngine`, `agentic_ueba`), offloading `24.4%` (`177.6 KB` per turn) of static reference/template prose while preserving full combinatorial flexibility across all 14 active statistical models, 38 Malachite metrics, and 8 `secops-statistical-hunter` hybrid enrichment topologies.
 
 ---
 
@@ -265,15 +265,15 @@ Every threat physically deforms telemetry in one of ten distinct ways. The skill
 
 | Telemetry Deformation | Physical Telemetry Signature | Recommended Mathematical Model | Primary Metric / Telemetry Dimension |
 | :--- | :--- | :--- | :--- |
-| **1. Persistent Accumulation**<br>*(The Slow Creep)* | Low-and-slow volume creep staying below static threshold alerts | Longitudinal CUSUM Drift (`longitudinal_cusum_2stage.yl2`) or Poisson Rarity | `metrics.network_bytes_outbound`, `metrics.dns_bytes_outbound` |
-| **2. State Transition**<br>*(The Dormancy Break)* | Transition from zero historical activity to positive volume | Two-Part Hurdle Model (`two_part_hurdle.yl2`) (Zero-Inflation Logistic Gate) | `metrics.resource_read_total`, `metrics.workspace_total_download_actions` |
-| **3. Volumetric Shock**<br>*(The Spiky Rupture)* | Sudden explosive surge over individual or peer baseline | Piecewise CRI (Shock Absorber) or Asymmetric Directional $Z$ (ReLU) | `metrics.auth_attempts_fail`, `metrics.resource_deletion_total` |
-| **4. Volatility Regularity**<br>*(The Machine Pulse)* | Unnatural clockwork intervals or cyclic 24-hour clock shifts | Circadian von Mises Temporal Distance (`circadian_von_mises_2stage.yl2`), Hourly Temporal $Z$-Score (`hourly_temporal_zscore.yl2`), or Fano Factor | `metrics.auth_attempts_total`, `metrics.dns_queries_total`, `metrics.http_queries_total` |
-| **5. Orthogonal Dispersion**<br>*(The Multi-Vector Fog)* | Mild elevations across 3–6 unrelated telemetry sectors | 360° Decoupled Behavioral Radar (`radar_360_decoupled_sector.yl2`, $D \ge 3.5\sigma$) | All 6 Canonical Risk Sectors Coupled |
-| **6. Kinetic Acceleration**<br>*(The Runaway Train)* | Runaway velocity departure breaking historical ceilings | MACD Dual-Spine Momentum Indicator (`macd_momentum_velocity_2stage.yl2`) | `metrics.network_bytes_outbound`, `metrics.auth_attempts_total` |
+| **1. Persistent Accumulation**<br>*(The Slow Creep)* | Low-and-slow volume creep staying below static threshold alerts | Sequential Page CUSUM (`longitudinal_cusum_series_3stage.yl2` + `cusum_helper.py`), Windowed Slack Sum (`longitudinal_cusum_2stage.yl2`), or Poisson Rarity | `metrics.network_bytes_outbound`, `metrics.dns_bytes_outbound` |
+| **2. State Transition**<br>*(The Dormancy Break)* | Transition from zero historical activity or brand-new pair to positive volume | Two-Part Hurdle Model (`two_part_hurdle.yl2`) or First-Seen Novelty (`first_seen_novelty_2stage.yl2`) | `metrics.resource_read_total`, `metrics.workspace_total_download_actions` |
+| **3. Volumetric Shock**<br>*(The Spiky Rupture)* | Sudden explosive surge over individual or peer baseline | Standard $Z$-Score (`standard_z_score_2stage.yl2`), True MAD (`mad_robust_z_4stage.yl2`), or Quantile/Bowley Tukey Fence (`quantile_iqr_skew_3stage.yl2`) | `metrics.auth_attempts_fail`, `metrics.resource_deletion_total` |
+| **4. Volatility Regularity**<br>*(The Machine Pulse)* | Regular-volume outbound surge or sub-hour clockwork / off-hours shifts | Regular-Volume Outbound Flow Surge (`c2_beacon_flow_frequency_2stage.yl2`), Fano Factor (`variance_fano.yl2`), or Handoff to `secops-statistical-hunter` (`HOUR_OF_DAY_PROFILE`, `C2_BEACONING_JITTER`) | `metrics.network_flows_outbound`, `metrics.dns_queries_total`, `metrics.http_queries_total` |
+| **5. Multi-Sector Dispersion**<br>*(The Multi-Vector Fog)* | Mild elevations across 3–6 telemetry sectors | 360° Decoupled Behavioral Radar (`radar_360_decoupled_sector.yl2`, $D \ge 3.5\sigma$) | All 6 Canonical Risk Sectors Coupled |
+| **6. Kinetic Acceleration**<br>*(The Runaway Train)* | Runaway departure breaking historical 30-day peak ceilings | Above-Historical-Max $Z$ (`macd_momentum_velocity_2stage.yl2`) | `metrics.network_bytes_outbound`, `metrics.auth_attempts_total` |
 | **7. Graph / Bipartite Fan-Out & Fan-In**<br>*(The Lateral Spray)* | $1 \rightarrow N$ target sweep or $N \rightarrow 1$ distributed concentration | Target Surge (`http_target_surge_2stage.yl2`), Part-of-the-Whole Triad, or Rare Destination ECG (`rare_destination_ecg_3stage.yl2`) | `metrics.http_queries_total`, `metrics.auth_attempts_fail`, `metrics.network_flows_total` |
-| **8. Producer-Consumer Role Inversion**<br>*(The Staging Flip)* | Endpoint shifts from net data consumer to net data producer | Directional Asymmetric Z (`asymmetric_directional_z.yl2`) + Outbound/Inbound Fusion or Handoff to `secops-statistical-hunter` (`PRODUCER_CONSUMER_RATIO_INVERSION`) | `metrics.network_bytes_outbound` vs. `metrics.network_bytes_inbound` |
-| **9. Geospatial / Physical Velocity**<br>*(Impossible Travel)* | Logins from physically distant coordinates within an impossible time delta | Federated Handoff to `secops-statistical-hunter` (`IMPOSSIBLE_TRAVEL_GEO_VELOCITY`, `math.geo_distance`) or Macro Auth + Asset Age (`hybrid_metric_derived_asset_age_2stage.yl2`) | `principal.ip_geo_artifact.location.*` / `metrics.auth_attempts_success` |
+| **8. Producer-Consumer Role Inversion**<br>*(The Staging Flip)* | Endpoint shifts from net data consumer to net data producer | Standard $Z$-Score (`standard_z_score_2stage.yl2`) + Outbound/Inbound Fusion (`dual_sector_fusion_3stage.yl2`) or Handoff to `secops-statistical-hunter` (`PRODUCER_CONSUMER_RATIO_INVERSION`) | `metrics.network_bytes_outbound` vs. `metrics.network_bytes_inbound` |
+| **9. Geospatial / Physical Velocity**<br>*(Impossible Travel & Asset Novelty)* | Logins from physically distant coordinates or brand-new assets | Macro Auth + Asset Age (`hybrid_metric_derived_asset_age_2stage.yl2`), First-Seen Novelty (`first_seen_novelty_2stage.yl2`), or Federated Handoff to `secops-statistical-hunter` (`math.geo_distance`) | `principal.ip_geo_artifact.location.*` / `metrics.auth_attempts_success` |
 | **10. Persona-Conditioned Priors & Changepoints**<br>*(Role & Event Anchoring)* | Sensitivity conditioned on executive/contractor persona or pre/post incident changepoints | Data Table Priors (`%ueba_entity_priors`) + Dual-Baseline Delta-Z (`dual_baseline_delta_z_3stage.yl2`) | Any `metrics.*` vector joined with `%ueba_entity_priors` or anchored at $T_{\text{event}}$ |
 
 ### 2. Common-Sense Analytical Rigor: The 4 Investigative Inquiries
@@ -296,8 +296,8 @@ For deep domain investigations, the skill references specialized consultative wo
 
 ### 4. Evaluation Modes: Mode A, Mode B, and Mode C
 During the Pre-Flight Clearance gate, analysts choose a temporal evaluation horizon. One search request anchors one 30-day `metrics.*` baseline at its start day (Malachite `query_engine/qesql/ueba.go`), which shapes Modes B and C:
-* **Mode A (Current-Day Snapshot)**: Evaluates today so far (00:00Z to now) against the 30-day historical baseline. Designed for rapid triage, immediate threshold breach identification, and daily operational sweeps. Queries that join the Entity Graph widen the search window to D-2 00:00Z but still score only today's events (see capability 6).
-* **Mode B (Fixed-Baseline Timeline, 2–7 days)**: One query with daily buckets (`by 1d`). Every scored day reuses the baseline anchored at the first day, so later days face an older baseline; the card states the baseline dates. Works in every client. Longitudinal CUSUM is the exception: it wants that fixed reference and may span up to 14 days in one query.
+* **Mode A (Complete Yesterday UTC Day — Default)**: Evaluates yesterday's complete 24-hour UTC day (`D-1 00:00Z` to `D 00:00Z`) against the trailing 30-day historical baseline, preventing incomplete-day Z-score suppression. Explicit intraday requests (*"today so far"*, *"right now"*) opt into intraday hourly (`by 1h`) or elapsed-hours-scaled Mode A (`D 00:00Z` to `now`). Queries that join the Entity Graph widen the search window to `D-2 00:00Z` through `D 00:00Z` while pinning event stages to `D-1` (see capability 6).
+* **Mode B (Fixed-Baseline Timeline, 2–5 days, default 3 days)**: One query with daily buckets (`by 1d`), capped at 5 days so fixed-baseline anchor drift stays bounded ($\le 4$ days); the Pre-Flight card states the exact baseline dates. Sequential Page CUSUM runs up to 14 days in one query via `longitudinal_cusum_series_3stage.yl2` + `scripts/cusum_helper.py` (or fleet prefiltering via `longitudinal_cusum_2stage.yl2`).
 * **Mode C (Per-Day Baseline Timeline)**: Offered only when the client can run local scripts (`run_command`). Runs the approved query once per UTC day so each day gets its own trailing 30-day baseline, then collates the saved results with `scripts/timeline_assembler.py` (default cap 30 days) — supporting both single-vector (`--shard YYYY-MM-DD=<path>`) and 6-sector 360° Behavioral Radar (`--shard YYYY-MM-DD:<sector>=<path>` with active-sector pre-screening) timelines. See `references/timeline-modes-guide.md`.
 
 ### 5. Natural Language Prompt Examples & Consultative Sample Queries
@@ -467,19 +467,19 @@ order:
 * *"Show me hosts with an outbound bytes spike that talked to low-prevalence domains."*
 * *"Can we compare process activity and failed logins on the same machines?"* (the agent checks the pair against the catalog first, picks the template, or explains why the pair can't be joined)
 
-#### 📉 Low-and-Slow Trickle Exfiltration & Drift (CUSUM & Hourly Z)
+#### 📉 Low-and-Slow Trickle Exfiltration & Drift (Sequential Page CUSUM & Windowed Slack Sum)
 * *"Check for low and slow data exfiltration over the last 14 days using longitudinal CUSUM drift."*
 * *"Check for subtle, cumulative baseline drift in DNS query volumes over the past 30 days that might indicate covert tunneling."*
-* *"Find users authenticating or touching cloud repositories at abnormal hours relative to their typical 30-day circadian schedule."*
+* *"Check if any workstation is bursting outbound bytes right now compared to its scaled hourly 30-day rate."*
 
-#### ⚡ Dormancy Awakening & Sudden Spikes (Hurdle & Asymmetric Z)
-* *"Look for dormant service accounts or identities that suddenly woke up and began downloading large files today (Two-Part Hurdle model)."*
-* *"Hunt for workstations uploading an abnormal volume of outbound bytes using an asymmetric directional z-score."*
+#### ⚡ Dormancy Awakening, First-Seen Novelty & Sudden Spikes
+* *"Look for dormant service accounts or identities that suddenly woke up and began downloading large files yesterday (Two-Part Hurdle model)."*
+* *"Find users or hosts accessing cloud resources or target domains for the very first time in 30 days (First-Seen Novelty)."*
 * *"Hunt for accounts with an authentication spike between 2 and 3 standard deviations to uncover emerging low-and-slow drift."*
 
-#### 🛡️ Fleet Prevalence & Noise Shielding
+#### 🛡️ Cross-Entity Fleet Prevalence & Noise Shielding
 * *"Hunt across the fleet for workstations with abnormal file execution spikes compared to their historical baseline that are launching rare binaries."*
-* *"Find hosts with anomalous outbound network connections, but apply a fleet prevalence shield to dampen false positives from enterprise-wide software updates."*
+* *"Find hosts with anomalous outbound network connections while discounting enterprise-wide waves via cross-entity fleet prevalence (`hybrid_metric_fleet_prevalence_2stage.yl2`)."*
 * *"Hunt across the enterprise for hosts with coordinated anomalies across authentication failures and outbound network bytes."*
 
 #### 🔀 Bilateral Handoff Triggers (Routing to `secops-statistical-hunter`)
@@ -500,7 +500,7 @@ The skill package ships with two test tiers that anyone can run from a clone:
 pytest tests/
 # or: python3 -m unittest discover tests
 ```
-* **Status**: **433 / 433 passing unit tests** (plus 218 subtests) across 25 test modules (100% pass rate).
+* **Status**: **612 / 612 passing offline unit tests** (plus 961 subtests and 4 opt-in `@pytest.mark.live` checks) across 45 test modules (100% pass rate).
 * **Scope**: Enforces Chronicle AST grammar rules, `QueryIntegrityGate` pre-dispatch and post-execution validation, `%<table_name>.<column>` Data Table syntax rules, KaTeX formatting compliance, prompt guardrail contracts, 28,672-byte (28.0 KB) progressive-loading budget ceilings, template router permutations across all 38 metrics and 11 MITRE ATT&CK kill-chains, metric-sector catalog drift against `data/`, and Entity Graph freshness filters in every graph template.
 
 ### 2. Google SecOps Malachite Compiler Submission Harness
@@ -518,6 +518,14 @@ python3 scripts/submission_tests.py --dump-dir <OUTPUT_DIR>
 ---
 
 ## 📦 Recent Releases
+
+### v2.3.0 (October 2026) — Bilateral UEBA Cross-Review Remediation (`D1`–`D10`, `WS0`–`WS9`)
+* **14-Model Statistical Concordance & First-Seen Novelty (`D1`, `WS1-01`..`12`, `WS9-02`)**: Retired redundant/unsupported Stage 2 wrappers (`asymmetric_directional_z`, `piecewise_cri`, `fleet_prevalence_shield`, `hourly_temporal_zscore`, `circadian_von_mises`) with explicit `"retired; use X"` enum aliases, renamed `ABOVE_HISTORICAL_MAX_Z` and `REGULAR_VOLUME_SURGE` honestly, added `first_seen_novelty.yl2` / `first_seen_novelty_2stage.yl2` (`$active_days = 0`), converted active-day `agg: avg` means to 30-day calendar rates (`WS1-05`), and enforced `$active_days >= 7` maturity gates and metric-class dispersion floors (`D4`, `WS1-04`).
+* **Yesterday (`D-1`) Mode A Default, Mode B `5d` Cap & Unified Sequential Page CUSUM (`D3`, `D5`, `D9`, `WS1-08`, `WS1-11`, `WS1-13`, `WS6-01`, `WS9-01`, `WS9-07`)**: Shifted Mode A default to complete yesterday (`D-1 00:00Z`–`D 00:00Z`) with intraday `by 1h` / elapsed-hours opt-in, aligned all 7 ECG pipelines (`D-2 00:00Z`–`D 00:00Z` pinned to `D-1`), capped Mode B at 5 days (default 3 days), unified `longitudinal_cusum_series_3stage.yl2` + `scripts/cusum_helper.py` (exact Page's CUSUM with `>14d` `--reference-stats` fixed-reference shards) alongside the `longitudinal_cusum_2stage.yl2` Windowed Slack Sum prefilter, and aligned Mode C to 30 days with fade diagnostics.
+* **Validator Hardening (`PF-1`..`PF-11`), Helper Guardrails (`G1`–`G5`), Fusion Correlation Disclosure & Frozen Bilateral Contracts (`D6`–`D8`, `D10`, `WS2`, `WS4`, `WS7`, `WS8`, `WS9-04`..`06`)**: Added `scripts/ueba_constants.py`, enforced the 5-script helper allow-list, hardened `scripts/preflight_validator.py` (`PF-1`, `PF-2`, `PF-10` vs. `PF-10b`, `PF-11`), disclosed inter-sector correlation and $\sqrt{2 \ln N}$ Gaussian expected-maximum labeling (`WS7-03`), locked `CANONICAL_SKILL_ROUTING_TABLE` parity (`WS8-02`), `%ueba_hunt_bridge.entity` (`WS8-05`), and the frozen `D7` write-back interface (`WS8-03`), and verified **612/612 unit tests** (+961 subtests) and **32/32 submission tests**.
+
+### v2.2.0 (October 2026) — 1-Stage Non-Parametric Quantiles (`window.percentile`), Bowley Skewness & Skewness-Adjusted Tukey Fences
+* **1-Stage Empirical Quantile Envelope (`quantile_iqr_skew.yl2`, `quantile_iqr_skew_3stage.yl2`)**: Computes 5 empirical quantiles (`$p10`, `$q25`, `$q50`, `$q75`, `$p90`), Bowley quartile skewness, Moors tail-heaviness ratio, and Hubert–Vandervieren skewness-adjusted Tukey upper fences in 3 stages alongside the 30d `metrics.*` `$personal_z` cross-check.
 
 ### v2.1.4 (October 2026) — Documentation & GitHub Markdown Math Rendering Fixes
 * **GitHub `cmark-gfm` LaTeX Math & Formatting Fixes (`references/statistical-models-taxonomy.md`, `references/multi-stage-metrics-guide.md`, `references/calibrated-risk-index-guide.md`, `references/consultative/mitre-attack-killchain.md`, `SKILL.md`)**: Resolved KaTeX/MathJax rendering breaks caused by YARA-L `$placeholder` tokens inside single-line `$$...$$` display math blocks and multi-line `$$` fences, and cleaned up minor list/apostrophe/inline-math delimiters (`433/433` unit tests passing; `SKILL.md` is 25,807 bytes / 143 lines).
