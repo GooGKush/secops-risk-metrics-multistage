@@ -16,6 +16,7 @@ from .preflight_validator import (
     EntityType,
     MalachiteASTValidator,
     MatchMode,
+    PF11_POPULATED_FIRST_SEEN_METRICS,
     PipelineArchitecture,
     PreFlightValidator,
     RETIRED_PIPELINE_ARCHITECTURES,
@@ -785,9 +786,11 @@ class MultiStageTemplateRouter:
       StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD: "adaptive_context_threshold.yl2",
       StatisticalModel.MACD_MOMENTUM_VELOCITY: "macd_momentum_velocity.yl2",
       StatisticalModel.QUANTILE_IQR_SKEW: "quantile_iqr_skew.yl2",
+      StatisticalModel.FIRST_SEEN_NOVELTY: "first_seen_novelty.yl2",
       "macd_momentum": "macd_momentum_velocity.yl2",
       "macd_momentum_velocity": "macd_momentum_velocity.yl2",
       "longitudinal_cusum": "longitudinal_cusum.yl2",
+      "first_seen_novelty": "first_seen_novelty.yl2",
   }
 
   STAGE2_FALLBACK_TEMPLATES: Dict[str, str] = {}
@@ -811,6 +814,8 @@ class MultiStageTemplateRouter:
       "macd_momentum": "Above-Historical-Max Z (Linear Peak Exceedance)",
       "macd_momentum_velocity": "Above-Historical-Max Z (Linear Peak Exceedance)",
       StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z: "Standard Z-Score (Merged from ASYMMETRIC_DIRECTIONAL_Z per D1)",
+      StatisticalModel.FIRST_SEEN_NOVELTY: "First-Seen 30-Day Boolean Novelty Flag (metrics.* first_seen = 0; Never σ)",
+      "first_seen_novelty": "First-Seen 30-Day Boolean Novelty Flag (metrics.* first_seen = 0; Never σ)",
       "diversity_deficit": "Lexical Diversity Deficit & Target Concentration",
       "diversity_deficit_entropy": "Lexical Diversity Deficit & Target Concentration",
   }
@@ -1242,9 +1247,97 @@ class MultiStageTemplateRouter:
     return re.sub(r'(\border:\s*)', f"{cond_block}\\1", rendered, count=1)
 
   _METRICS_OUTCOME_RE = re.compile(
-      r'^[ \t]*\$([A-Za-z0-9_]+)[ \t]*=[ \t]*max\(metrics\.[A-Za-z0-9_]+\([^()]*\)\)[ \t]*\n', re.M)
+      r'^[ \t]*\$([A-Za-z0-9_]+)[ \t]*=[ \t]*(?:max|min)\(metrics\.[A-Za-z0-9_]+\([^()]*\)\)[ \t]*\n', re.M)
   _METRICS_ALIAS_RE = re.compile(
       r'^[ \t]*\$([A-Za-z0-9_]+)[ \t]*=[ \t]*\$(historical_[A-Za-z0-9_]+)[ \t]*\n', re.M)
+
+  _NOVELTY_SUBKEY_VARS: Dict[str, str] = {
+      "target.application": "$app",
+      "target.hostname": "$dest_host",
+      "network.dns_domain": "$domain",
+      "network.dns.questions.type": "$qtype",
+      "target.resource.name": "$resource",
+      "principal.process.file.sha256": "$sha256",
+      "security_result.rule_name": "$rule_name",
+      "principal.ip": "$src_ip",
+      "target.ip": "$dest_ip",
+      "target.asset.ip": "$dest_ip",
+  }
+
+  @classmethod
+  def _inject_stage1_first_seen_novelty(
+      cls,
+      stage1_content: str,
+      extractor_metric: str,
+      metric_arg: str,
+      novelty_subkey_field: Optional[str] = None,
+  ) -> str:
+    """Injects PF-11 first_seen/last_seen/period_start_for_max lookups and optional composite subkey."""
+    out = stage1_content
+    if novelty_subkey_field:
+      sub_field = novelty_subkey_field.strip()
+      already_present = bool(re.search(rf"(?<![\w.]){re.escape(sub_field)}\s*(?:=|:)", out))
+      if not already_present:
+        sub_var = cls._NOVELTY_SUBKEY_VARS.get(
+            sub_field,
+            f"$sub_{re.sub(r'[^a-zA-Z0-9_]', '_', sub_field.rsplit('.', 1)[-1])}",
+        )
+        if re.search(rf"{re.escape(sub_var)}\b", out):
+          sub_var = f"{sub_var}_key"
+        out = re.sub(
+            r"(\n[ \t]*match:\s*\n)",
+            f"\n    {sub_field} = {sub_var}\n    {sub_var} != \"\"\\1",
+            out,
+            count=1,
+        )
+        out = re.sub(
+            r"(\bmatch:\s*\n[ \t]*[^\n]+?)(\s+by\s+\d+[dh])",
+            rf"\1, {sub_var}\2",
+            out,
+            count=1,
+        )
+        call_re = re.compile(
+            r"(metrics\." + re.escape(extractor_metric) + r"\(\s*[^)]+?)"
+            r"(\n[ \t]*\)\))",
+            re.S,
+        )
+        out = call_re.sub(rf"\1,\n        {sub_field}: {sub_field}\2", out)
+        for m_name, body in re.findall(r"metrics\.([a-zA-Z0-9_]+)\s*\(([^)]*)\)", out, re.S):
+          fields = [
+              x for x in re.findall(r"([a-zA-Z0-9_.]+)\s*:", body)
+              if x not in ("period", "window", "metric", "agg")
+          ]
+          err = mc.validate_filter_fields(m_name, fields)
+          if err:
+            raise ValueError(
+                f"Cannot combine {extractor_metric} with novelty_subkey_field='{sub_field}': {err}"
+            )
+
+    active_re = re.compile(
+        r"^[ \t]*\$historical_active_days\s*=\s*max\(metrics\."
+        + re.escape(extractor_metric)
+        + r"\(\s*period:\s*1d,\s*window:\s*30d,\s*metric:\s*[a-zA-Z0-9_]+,\s*agg:\s*num_metric_periods,\s*([^)]+?)\s*\)\)[ \t]*\n",
+        re.M | re.S,
+    )
+    active_m = active_re.search(out)
+    if not active_m:
+      raise ValueError(f"Could not locate $historical_active_days metrics lookup in {extractor_metric}.yl2")
+    dims_block = active_m.group(1).strip()
+    novelty_lookups = (
+        f"    $prior_first_seen = min(metrics.{extractor_metric}(\n"
+        "        period: 1d, window: 30d, metric: first_seen, agg: min,\n"
+        f"        {dims_block}\n"
+        "    ))\n"
+        f"    $prior_last_seen = max(metrics.{extractor_metric}(\n"
+        "        period: 1d, window: 30d, metric: last_seen, agg: max,\n"
+        f"        {dims_block}\n"
+        "    ))\n"
+        f"    $peak_period_start = max(metrics.{extractor_metric}(\n"
+        f"        period: 1d, window: 30d, metric: {metric_arg}, agg: period_start_for_max,\n"
+        f"        {dims_block}\n"
+        "    ))\n"
+    )
+    return out[:active_m.end()] + novelty_lookups + out[active_m.end():]
 
   @classmethod
   def _prune_unused_metrics_lookups(cls, stage1_content: str, downstream: str) -> str:
@@ -1434,6 +1527,8 @@ class MultiStageTemplateRouter:
       biz_start_hour: int = DEFAULT_BIZ_START_HOUR,
       biz_end_hour: int = DEFAULT_BIZ_END_HOUR,
       learned_active_hours: Optional[Any] = None,
+      novelty_subkey_field: Optional[str] = None,
+      min_novelty_events: int = 1,
   ) -> str:
     """Renders stage1 extractor + stage2 math model.
 
@@ -1539,6 +1634,22 @@ class MultiStageTemplateRouter:
       raise FileNotFoundError(f"Missing Stage 2 template: {stage2_path}")
     stage2_raw = stage2_path.read_text().strip()
 
+    if statistical_model == StatisticalModel.FIRST_SEEN_NOVELTY:
+      if int(min_novelty_events) < 1:
+        raise ValueError(f"min_novelty_events must be >= 1, got {min_novelty_events}.")
+      if target_metric not in PF11_POPULATED_FIRST_SEEN_METRICS:
+        self.last_advisories.append(
+            f"PF-11 coverage advisory: metrics.{target_metric}(..., metric: first_seen) returned 0 rows "
+            "in the empirical gus-sdl baseline (17/38 unpopulated metrics); verify tenant population or "
+            "pair with raw/ECG context if 0 rows return."
+        )
+      stage1_content = self._inject_stage1_first_seen_novelty(
+          stage1_content,
+          extractor_metric=extractor_metric,
+          metric_arg=audit["metric_arg"],
+          novelty_subkey_field=novelty_subkey_field,
+      )
+
     # Multi-key extractors: determine the metric's full baseline tuple and drop non-dimension Stage 1 match keys.
     group_keys, dropped_keys = self._mad_group_keys(stage1_content)
     stage1_content = self._drop_stage1_match_keys(stage1_content, dropped_keys)
@@ -1588,6 +1699,8 @@ class MultiStageTemplateRouter:
           biz_end_hour=biz_end_hour,
           learned_active_hours=learned_active_hours,
       )
+      stage1_content = self._prune_unused_metrics_lookups(stage1_content, stage2_raw)
+    elif statistical_model == StatisticalModel.FIRST_SEEN_NOVELTY:
       stage1_content = self._prune_unused_metrics_lookups(stage1_content, stage2_raw)
 
     # Harmonize Stage 2 entity variable with Stage 1 match variable ($user, $host, $entity, $sa)
@@ -1653,6 +1766,8 @@ class MultiStageTemplateRouter:
       stage2_raw = self._expand_mad_keys(stage2_raw, primary_var, group_keys[1:])
 
     stage2_rendered = stage2_raw.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
+    if "{{min_novelty_events}}" in stage2_rendered:
+      stage2_rendered = stage2_rendered.replace("{{min_novelty_events}}", str(max(1, int(min_novelty_events))))
     if "{{min_awakening_volume}}" in stage2_rendered:
       if int(min_awakening_volume) < 1:
         raise ValueError(f"min_awakening_volume must be >= 1, got {min_awakening_volume}.")
@@ -1758,6 +1873,8 @@ class MultiStageTemplateRouter:
       max_diversity_ratio: float = 0.05,
       min_concentration_ratio: float = 0.85,
       min_raw_events: int = 25,
+      novelty_subkey_field: Optional[str] = None,
+      min_novelty_events: int = 1,
   ) -> str:
     """Renders 3-Stage and 4-Stage advanced DAG pipelines, then resolves the root significance gate.
 
@@ -1802,6 +1919,8 @@ class MultiStageTemplateRouter:
         max_diversity_ratio=max_diversity_ratio,
         min_concentration_ratio=min_concentration_ratio,
         min_raw_events=min_raw_events,
+        novelty_subkey_field=novelty_subkey_field,
+        min_novelty_events=min_novelty_events,
     )
     out = self._apply_significance_gate(
         rendered,
@@ -1848,6 +1967,8 @@ class MultiStageTemplateRouter:
       max_diversity_ratio: float = 0.05,
       min_concentration_ratio: float = 0.85,
       min_raw_events: int = 25,
+      novelty_subkey_field: Optional[str] = None,
+      min_novelty_events: int = 1,
   ) -> str:
     """Renders 3-Stage and 4-Stage advanced DAG pipelines (gate placeholders left for build_pipeline_query)."""
     if identifier_field is None and identifier_coverage_payload is not None:
@@ -2763,6 +2884,99 @@ class MultiStageTemplateRouter:
         rendered = f"// Goal: {hypothesis_goal}\n" + rendered
       return rendered + "\n"
 
+    elif pipeline_type == PipelineArchitecture.FIRST_SEEN_NOVELTY_2STAGE:
+      if target_metric:
+        eff_metric = target_metric
+      elif entity_type == EntityType.USER:
+        eff_metric = "auth_attempts_total"
+      elif entity_type == EntityType.RESOURCE:
+        eff_metric = "resource_read_total"
+      else:
+        eff_metric = "http_queries_total"
+
+      if novelty_subkey_field:
+        eff_subkey: Optional[str] = novelty_subkey_field.strip()
+      elif eff_metric.startswith("auth_attempts_") and entity_type == EntityType.USER:
+        eff_subkey = "target.application"
+      elif eff_metric.startswith("http_queries_"):
+        eff_subkey = "target.hostname"
+      elif eff_metric.startswith("dns_queries_"):
+        eff_subkey = "network.dns_domain"
+      else:
+        eff_subkey = None
+
+      if mc.is_composite_only(eff_metric) or eff_metric.startswith("resource_"):
+        return self.build_query(
+            target_metric=eff_metric,
+            entity_type=entity_type,
+            statistical_model=StatisticalModel.FIRST_SEEN_NOVELTY,
+            min_baseline_days=min_baseline_days,
+            hypothesis_goal=hypothesis_goal,
+            min_threshold=min_threshold,
+            max_threshold=max_threshold,
+            condition_expression=condition_expression,
+            identifier_field=identifier_field,
+            identifier_coverage_payload=identifier_coverage_payload,
+            novelty_subkey_field=eff_subkey,
+            min_novelty_events=min_novelty_events,
+        )
+
+      self.last_advisories = []
+      if eff_metric not in PF11_POPULATED_FIRST_SEEN_METRICS:
+        self.last_advisories.append(
+            f"PF-11 coverage advisory: metrics.{eff_metric}(..., metric: first_seen) returned 0 rows "
+            "in the empirical gus-sdl baseline (17/38 unpopulated metrics); verify tenant population or "
+            "pair with raw/ECG context if 0 rows return."
+        )
+      audit = PreFlightValidator.audit(
+          target_metric=eff_metric,
+          entity_type=entity_type,
+          min_baseline_days=min_baseline_days,
+          identifier_field=identifier_field,
+      )
+      pipeline_file = self.template_dir / "pipelines" / "first_seen_novelty_2stage.yl2"
+      if not pipeline_file.exists():
+        raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
+      raw = pipeline_file.read_text(encoding="utf-8").strip()
+      ent_field = audit["target_field"]
+      ent_var = "$user" if entity_type == EntityType.USER else ("$resource" if entity_type == EntityType.RESOURCE else "$host")
+      ent_name = ent_var.lstrip("$")
+      filter_dims = [ent_field]
+      if eff_subkey:
+        sub_var = self._NOVELTY_SUBKEY_VARS.get(
+            eff_subkey,
+            f"$sub_{re.sub(r'[^a-zA-Z0-9_]', '_', eff_subkey.rsplit('.', 1)[-1])}",
+        )
+        sub_name = sub_var.lstrip("$")
+        subkey_binding_block = f"    {eff_subkey} = {sub_var}\n    {sub_var} != \"\"\n"
+        match_keys = f"{ent_var}, {sub_var}"
+        dims_block = f"{ent_field}: {ent_field},\n        {eff_subkey}: {eff_subkey}"
+        root_bindings = f"{ent_var} = $stage1_extract.{ent_name}\n{sub_var} = $stage1_extract.{sub_name}"
+        filter_dims.append(eff_subkey)
+      else:
+        subkey_binding_block = ""
+        match_keys = ent_var
+        dims_block = f"{ent_field}: {ent_field}"
+        root_bindings = f"{ent_var} = $stage1_extract.{ent_name}"
+      dim_err = mc.validate_filter_fields(eff_metric, filter_dims)
+      if dim_err:
+        raise ValueError(f"Invalid dimension set for {eff_metric}: {dim_err}")
+
+      rendered = _fill_event_filter(raw, "{{event_filter}}", audit["event_filter"])
+      rendered = rendered.replace("{{entity_field}}", ent_field)
+      rendered = rendered.replace("{{entity_var}}", ent_var)
+      rendered = rendered.replace("{{subkey_binding_block}}\n", subkey_binding_block)
+      rendered = rendered.replace("{{match_keys}}", match_keys)
+      rendered = rendered.replace("{{observed_aggregation}}", audit["observed_agg"])
+      rendered = rendered.replace("{{target_metric_name}}", eff_metric)
+      rendered = rendered.replace("{{metric_type_val}}", audit["metric_arg"])
+      rendered = rendered.replace("{{dimensions_block}}", dims_block)
+      rendered = rendered.replace("{{root_entity_bindings}}", root_bindings)
+      rendered = rendered.replace("{{min_novelty_events}}", str(max(1, int(min_novelty_events))))
+      if hypothesis_goal:
+        rendered = f"// Goal: {hypothesis_goal}\n" + rendered
+      return rendered + "\n"
+
     elif pipeline_type == PipelineArchitecture.LOCAL_2STAGE:
       return self.build_query(
           target_metric=target_metric or "network_bytes_outbound",
@@ -3252,6 +3466,8 @@ class MultiStageTemplateRouter:
       max_diversity_ratio: float = 0.05,
       min_concentration_ratio: float = 0.85,
       min_raw_events: int = 25,
+      novelty_subkey_field: Optional[str] = None,
+      min_novelty_events: int = 1,
   ) -> str:
     """Builds a verified Dual-Plane Destination Diversity & Concentration Screen pipeline."""
     return self.build_pipeline_query(
@@ -3264,6 +3480,8 @@ class MultiStageTemplateRouter:
         max_diversity_ratio=max_diversity_ratio,
         min_concentration_ratio=min_concentration_ratio,
         min_raw_events=min_raw_events,
+        novelty_subkey_field=novelty_subkey_field,
+        min_novelty_events=min_novelty_events,
     )
 
   def build_destination_diversity_concentration_query(
@@ -3276,6 +3494,8 @@ class MultiStageTemplateRouter:
       max_diversity_ratio: float = 0.05,
       min_concentration_ratio: float = 0.85,
       min_raw_events: int = 25,
+      novelty_subkey_field: Optional[str] = None,
+      min_novelty_events: int = 1,
   ) -> str:
     """Canonical WS4 builder for Destination Diversity & Concentration Screen."""
     return self.build_hybrid_entropy_concentration_query(
@@ -3287,6 +3507,8 @@ class MultiStageTemplateRouter:
         max_diversity_ratio=max_diversity_ratio,
         min_concentration_ratio=min_concentration_ratio,
         min_raw_events=min_raw_events,
+        novelty_subkey_field=novelty_subkey_field,
+        min_novelty_events=min_novelty_events,
     )
 
   def build_hybrid_orthogonal_space_query(

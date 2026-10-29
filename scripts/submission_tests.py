@@ -861,6 +861,7 @@ order:
         "first_scored_date",
         "prior_alpha0",
         "prior_beta0",
+        "min_novelty_events",
     }
     for p in sorted(s1_dir.glob("*.yl2")):
       raw = p.read_text(encoding="utf-8")

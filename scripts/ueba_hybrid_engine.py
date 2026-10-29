@@ -194,6 +194,12 @@ MODEL_ALIAS_MAP: Dict[str, StatisticalModel] = {
     "BOWLEY_SKEW": StatisticalModel.QUANTILE_IQR_SKEW,
     "TUKEY_FENCE": StatisticalModel.QUANTILE_IQR_SKEW,
     "TUKEY_SKEW_FENCE": StatisticalModel.QUANTILE_IQR_SKEW,
+    # 19. First-Seen 30-Day Novelty Flag (PF-11 / WS1-12; primary novelty path ahead of ECG)
+    "FIRST_SEEN_NOVELTY": StatisticalModel.FIRST_SEEN_NOVELTY,
+    "FIRST_SEEN": StatisticalModel.FIRST_SEEN_NOVELTY,
+    "NOVELTY": StatisticalModel.FIRST_SEEN_NOVELTY,
+    "UNSEEN": StatisticalModel.FIRST_SEEN_NOVELTY,
+    "NEW_ACTIVITY": StatisticalModel.FIRST_SEEN_NOVELTY,
 }
 
 # Models that automatically imply an advanced multi-stage pipeline architecture
@@ -994,6 +1000,8 @@ def compile_hunt_pipeline(
     start_time: Optional[str] = None,
     end_time: Optional[str] = None,
     target_date: Optional[str] = None,
+    novelty_subkey_field: Optional[str] = None,
+    min_novelty_events: int = 1,
     **kwargs: Any,
 ) -> Dict[str, Any]:
   """Compiles a multi-stage YARA-L 2.0 hunt pipeline, pre-flight specification card, and time windows.
@@ -1159,6 +1167,8 @@ def compile_hunt_pipeline(
     stat_model_enum = StatisticalModel.MAD
   elif arch_key in ("longitudinal_cusum", "longitudinal_cusum_2stage"):
     stat_model_enum = StatisticalModel.LONGITUDINAL_CUSUM
+  elif arch_key in ("first_seen_novelty", "first_seen_novelty_2stage"):
+    stat_model_enum = StatisticalModel.FIRST_SEEN_NOVELTY
 
   mode_norm_early = (mode or "A").strip().upper()
   if mode_norm_early.startswith("MODE"):
@@ -1608,6 +1618,8 @@ def compile_hunt_pipeline(
       "hybrid_metric_derived_asset_age_2stage",
       "http_target_surge_2stage",
       "macd_momentum_velocity_2stage",
+      "first_seen_novelty",
+      "first_seen_novelty_2stage",
   ):
     hybrid_arch_map = {
         "hybrid_enrichment": PipelineArchitecture.HYBRID_METRIC_RAW_ENRICHMENT_2STAGE,
@@ -1630,8 +1642,17 @@ def compile_hunt_pipeline(
         "hybrid_metric_derived_asset_age_2stage": PipelineArchitecture.HYBRID_METRIC_DERIVED_ASSET_AGE_2STAGE,
         "http_target_surge_2stage": PipelineArchitecture.HTTP_TARGET_SURGE_2STAGE,
         "macd_momentum_velocity_2stage": PipelineArchitecture.MACD_MOMENTUM_VELOCITY_2STAGE,
+        "first_seen_novelty": PipelineArchitecture.FIRST_SEEN_NOVELTY_2STAGE,
+        "first_seen_novelty_2stage": PipelineArchitecture.FIRST_SEEN_NOVELTY_2STAGE,
     }
     pipe_enum = hybrid_arch_map[arch_key]
+    if pipe_enum == PipelineArchitecture.FIRST_SEEN_NOVELTY_2STAGE and metrics is None:
+      primary_metric = (
+          "auth_attempts_total"
+          if ent_enum == EntityType.USER
+          else ("resource_read_total" if ent_enum == EntityType.RESOURCE else "http_queries_total")
+      )
+      metric_list = [primary_metric]
     plane_upper = "HYBRID" if "HYBRID" in pipe_enum.value else plane_upper
     if ent_enum not in METRIC_CATALOG[primary_metric].supported_entity_types:
       ent_enum = METRIC_CATALOG[primary_metric].supported_entity_types[0]
@@ -1646,6 +1667,8 @@ def compile_hunt_pipeline(
         max_threshold=max_threshold,
         condition_expression=condition_expression,
         identifier_field=identifier_field,
+        novelty_subkey_field=novelty_subkey_field,
+        min_novelty_events=min_novelty_events,
     )
     compiled_query = _inject_stage1_filters(compiled_query, entity_value=entity_value, custom_filter=custom_filter, entity_type=ent_enum)
     audit_info = PreFlightValidator.audit(target_metric=primary_metric, entity_type=ent_enum, min_baseline_days=min_baseline_days, identifier_field=identifier_field)
@@ -1657,7 +1680,7 @@ def compile_hunt_pipeline(
 
   else:
     # Default: 2-Stage Single Metric + Stage 2 Mathematical Model (or auto-routed composite/cloud scope)
-    if primary_metric == "alert_event_name_count":
+    if primary_metric == "alert_event_name_count" and stat_model_enum != StatisticalModel.FIRST_SEEN_NOVELTY:
       compiled_query = router.build_alert_surge_query(
           entity_type=ent_enum,
           anomaly_threshold=eff_anomaly,
@@ -1730,6 +1753,8 @@ def compile_hunt_pipeline(
           biz_start_hour=biz_start_hour,
           biz_end_hour=biz_end_hour,
           learned_active_hours=learned_active_hours,
+          novelty_subkey_field=novelty_subkey_field,
+          min_novelty_events=min_novelty_events,
       )
       audit_info = PreFlightValidator.audit(
           target_metric=primary_metric,
@@ -2184,6 +2209,7 @@ def _normalize_single_row(raw_row: Dict[str, Any]) -> Dict[str, Any]:
       "bayesian_z",
       "beta_binomial_z",
       "adaptive_z",
+      "novelty_flag",
       "tukey_fence_ratio",
       "fold_change",
       "surge_ratio",
@@ -2336,8 +2362,13 @@ def _normalize_single_row(raw_row: Dict[str, Any]) -> Dict[str, Any]:
       if raw_score > unboosted_cap:
         raw_score = unboosted_cap
 
-  if raw_score is not None and matched_key is not None:
-    display_score: Optional[float] = (
+  if raw_score is not None and matched_key == "novelty_flag":
+    display_score: Optional[float] = raw_score
+    z_equiv = None
+    true_sigma = False
+    score_display = "NOVEL (flag=1)" if raw_score >= 1.0 else "SEEN (flag=0)"
+  elif raw_score is not None and matched_key is not None:
+    display_score = (
         math.sqrt(max(0.0, raw_score)) if matched_is_sq else raw_score
     )
     z_equiv = score_to_z_equivalent(matched_key, raw_score, already_sqrt=False)
@@ -2359,13 +2390,24 @@ def _normalize_single_row(raw_row: Dict[str, Any]) -> Dict[str, Any]:
   )
   if explicit_cri is not None:
     cri_int: Optional[int] = explicit_cri
+  elif matched_key == "novelty_flag":
+    cri_int = None
   elif has_explicit_cri and not has_any_score_key:
     cri_int = None
   elif raw_score is not None and matched_key is not None:
     cri_int = cri_from_model_score(matched_key, raw_score, already_sqrt=False)
   else:
     cri_int = None
-  short_badge, full_band, bar = _cri_band_metadata(cri_int)
+  if matched_key == "novelty_flag" and cri_int is None and raw_score is not None:
+    short_badge = "NOVELTY" if raw_score >= 1.0 else "SEEN"
+    full_band = (
+        "🆕 Novelty Flag (30d first_seen = 0)"
+        if raw_score >= 1.0
+        else "🟢 Seen in 30d Baseline"
+    )
+    bar = "█" * 5 + "░" * 5 if raw_score >= 1.0 else "░" * 10
+  else:
+    short_badge, full_band, bar = _cri_band_metadata(cri_int)
 
   z_score_val: Optional[float] = (
       round(display_score, 2) if display_score is not None else None
@@ -2623,9 +2665,16 @@ def render_forensic_dossier(
       r
       for r in outliers
       if (
-          (r.get("z_equivalent") is not None and r["z_equivalent"] >= anomaly_threshold)
-          if anomaly_threshold == 3.0
-          else (r.get("z_score") is not None and r["z_score"] >= anomaly_threshold)
+          (r.get("anomaly_score") or 0.0) >= 1.0
+          if (
+              r.get("score_key") == "novelty_flag"
+              or stat_model_enum == StatisticalModel.FIRST_SEEN_NOVELTY
+          )
+          else (
+              (r.get("z_equivalent") is not None and r["z_equivalent"] >= anomaly_threshold)
+              if anomaly_threshold == 3.0
+              else (r.get("z_score") is not None and r["z_score"] >= anomaly_threshold)
+          )
       )
   ]
   primary_metric_col = (

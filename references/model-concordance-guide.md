@@ -42,6 +42,7 @@ In multi-stage hunting workflows:
 | 16 | `CIRCADIAN_VON_MISES` *(RETIRED D1)* | Retired — Hand off to `HOUR_OF_DAY_PROFILE` | — | Handed off to `secops-statistical-hunter` `HOUR_OF_DAY_PROFILE` (`PF-10` / `WS2-02`) | — | Comparing 1h counts or fixed 14:00 UTC centers against 24h `metrics.*` baselines |
 | 17 | `RELATIVE_DEVIATION` | Relative Deviation / Fold Change vs 30d Mean | `$safe_hist_avg`, `$dev`, `$ratio`, `$fold_change`, `$rel_dev_z_equiv` | Continuous `max(avg, 1.0)` floor, `(x - safe_avg) / safe_avg`, Z-equivalent `max(0, 3 * ratio)` | `order: $ratio desc` | Discontinuous `if(avg > 0, avg, 1)` floor or labelling it MAD |
 | 18 | `QUANTILE_IQR_SKEW` | 1-Stage Non-Parametric Quantiles, Bowley Skewness & Skew-Adjusted Tukey Scale-Excess | `$q25_val`, `$q50_val`, `$q75_val`, `$iqr`, `$safe_iqr`, `$bowley_skew`, `$tail_heaviness`, `$adj_upper_fence`, `$robust_scale`, `$tukey_excess_z` | `window.percentile` 5-point envelope in 1 stage, Bowley `1.35` fence, `(obs - fence) / (IQR / 1.349)` | `order: $tukey_excess_z desc` | Using `e^{3.0 * B_skew}` medcouple constant on Bowley `B` or `obs / fence` near-zero ratio |
+| 19 | `FIRST_SEEN_NOVELTY` | First-Seen 30-Day Boolean Novelty Flag (`PF-11` / `WS1-12`) | `$observed`, `$prior_first_seen`, `$prior_last_seen`, `$peak_period_start`, `$active_days`, `$novelty_flag` | `min(metrics.*(..., metric: first_seen, agg: min))`, `max(metrics.*(..., metric: last_seen, agg: max))`, `max(metrics.*(..., agg: period_start_for_max))`, `if($prior_first_seen = 0 and $observed >= {{min_novelty_events}}, 1, 0)` | `order: $novelty_flag desc` | Reporting boolean novelty as `σ` / CRI, or substituting `$personal_z` / `$ratio` |
 
 ### 2.1 Default Root Significance Gate (the card's `Significance Threshold`)
 
@@ -66,6 +67,7 @@ Every query carries the model's significance gate as a root `condition:` placed 
 | `RELATIVE_DEVIATION` | `$fold_change` | `$fold_change >= 2.0` (ranked by `$ratio`) | fold change | `>= 2.0× baseline` | `{{fold_change_threshold}}` |
 | `MAD` | `$modified_z` | `... and $modified_z >= 3.5` (AND-ed with the scoring-window and sample-size gates) | modified Z | `Modified Z >= 3.5` | `{{robust_threshold}}` |
 | `QUANTILE_IQR_SKEW` | `$tukey_excess_z` | `$in_scoring_window = 1 and $raw_active_days >= 7 and $tukey_excess_z >= 1.0` | robust scale-excess | `Tukey Scale-Excess >= 1.0` | `{{tukey_excess_threshold}}` |
+| `FIRST_SEEN_NOVELTY` | `$novelty_flag` | `$novelty_flag = 1` | boolean novelty flag (never σ) | `Novelty Flag = 1 (30d first_seen = 0)` | `{{min_novelty_events}}` |
 | `VARIANCE` (Fano) | — | **none** (`// NO-GATE`) | — | `N/A (baseline dispersion screen)` | — |
 
 * **Why fold change for the ratio models**: their scores are not in σ, and a fold change ("2× the usual") needs no statistical background to read. The 2.0× default is a convention, not a calibrated tail probability. Tune it like any other threshold.
@@ -534,6 +536,26 @@ condition:
 
 order:
   $tukey_excess_z desc
+```
+
+### 19. `FIRST_SEEN_NOVELTY` (`first_seen_novelty.yl2`)
+* **Hypothesis**: Primary 30-day novelty detector ahead of ECG (`PF-11` / `WS1-12`): detects entities or composite `(entity, sub-key)` tuples (such as `(target.user.userid, target.application)`, `(principal.asset.hostname, target.hostname)`, or `(principal.asset.hostname, principal.process.file.sha256)`) never observed in the prior 30-day `metrics.*` window (`$prior_first_seen = 0`), enriched with `$prior_last_seen` and `$peak_period_start`. Reported strictly as a boolean novelty flag + context (`CRI = N/A`), **never as `σ`**.
+* **Empirical `gus-sdl` Coverage (`WS0-03`)**: All 38/38 metrics compile; 21/38 metrics return populated `first_seen` rows in `gus-sdl` (`PF11_POPULATED_FIRST_SEEN_METRICS`), while 17/38 emit a pre-flight coverage advisory.
+* **Mandatory AST Contract**:
+```yara
+outcome:
+  $observed = max($stage1_extract.observed_val)
+  $prior_first_seen = min($stage1_extract.prior_first_seen)
+  $prior_last_seen = max($stage1_extract.prior_last_seen)
+  $peak_period_start = max($stage1_extract.peak_period_start)
+  $active_days = max($stage1_extract.historical_active_days)
+  $novelty_flag = if($prior_first_seen = 0 and $observed >= 1, 1, 0)
+
+condition:
+  $novelty_flag = 1
+
+order:
+  $novelty_flag desc
 ```
 
 ---

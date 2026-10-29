@@ -55,6 +55,7 @@ class StatisticalModel(str, Enum):
   MACD_MOMENTUM_VELOCITY = "MACD_MOMENTUM_VELOCITY"
   CIRCADIAN_VON_MISES = "CIRCADIAN_VON_MISES"
   QUANTILE_IQR_SKEW = "QUANTILE_IQR_SKEW"
+  FIRST_SEEN_NOVELTY = "FIRST_SEEN_NOVELTY"
 
 
 # Pre-Flight card wording of each model's default root significance gate. Mirrors the default
@@ -79,6 +80,7 @@ DEFAULT_SIGNIFICANCE_GATES: Dict["StatisticalModel", str] = {
     StatisticalModel.MACD_MOMENTUM_VELOCITY: "Above-Max Z >= 3.0σ",
     StatisticalModel.CIRCADIAN_VON_MISES: "RETIRED (D1 -> HOUR_OF_DAY_PROFILE)",
     StatisticalModel.QUANTILE_IQR_SKEW: "Tukey Scale-Excess >= 1.0",
+    StatisticalModel.FIRST_SEEN_NOVELTY: "Novelty Flag = 1 (30d first_seen = 0)",
 }
 
 
@@ -147,6 +149,36 @@ class PipelineArchitecture(str, Enum):
   CIRCADIAN_VON_MISES = "CIRCADIAN_VON_MISES_2STAGE"
   RARE_DESTINATION_ECG_3STAGE = "RARE_DESTINATION_ECG_3STAGE"
   FUSION_RARE_DESTINATION_3STAGE = "FUSION_RARE_DESTINATION_3STAGE"
+  FIRST_SEEN_NOVELTY_2STAGE = "FIRST_SEEN_NOVELTY_2STAGE"
+
+
+# Empirically verified 21/38 metrics returning non-zero `metric: first_seen` rows in `gus-sdl`
+# (`WS0-03` / `PF-11`, `tests/live/baseline_gus_sdl.json`). All 38/38 compile; the remaining 17/38
+# returned 0 rows in the reference tenant (`resource_creation_*`, `resource_deletion_*`,
+# `resource_written_*`, `workspace_*`, `file_executions_success`, `alert_event_name_count`).
+PF11_POPULATED_FIRST_SEEN_METRICS: frozenset[str] = frozenset({
+    "auth_attempts_fail",
+    "auth_attempts_success",
+    "auth_attempts_total",
+    "dns_bytes_outbound",
+    "dns_queries_fail",
+    "dns_queries_success",
+    "dns_queries_total",
+    "file_executions_fail",
+    "file_executions_total",
+    "http_queries_fail",
+    "http_queries_success",
+    "http_queries_total",
+    "network_bytes_inbound",
+    "network_bytes_outbound",
+    "network_bytes_total",
+    "network_flows_inbound",
+    "network_flows_outbound",
+    "network_flows_total",
+    "resource_read_fail",
+    "resource_read_success",
+    "resource_read_total",
+})
 
 
 RETIRED_PIPELINE_ARCHITECTURES: Dict[PipelineArchitecture, str] = {
@@ -877,6 +909,31 @@ class MalachiteASTValidator:
 
   CLOUD_RESOURCE_EVENTS = frozenset({"RESOURCE_CREATION", "RESOURCE_READ", "RESOURCE_WRITTEN", "RESOURCE_DELETION"})
   STANDARD_METRIC_PARAMS = frozenset({"period", "window", "metric", "agg", "filter"})
+  VALID_PERIOD_WINDOW_PAIRS = frozenset({("1d", "30d"), ("1h", "today")})
+  VALID_METRIC_TYPES = frozenset({
+      "event_count_sum",
+      "value_sum",
+      "first_seen",
+      "last_seen",
+      "num_unique_filter_values",
+  })
+  VALID_METRIC_AGGS = frozenset({
+      "max",
+      "min",
+      "avg",
+      "stddev",
+      "num_metric_periods",
+      "sum",
+      "period_start_for_max",
+      "period_start_for_min",
+  })
+  VALID_TIMESTAMP_METRIC_AGGS = frozenset({
+      "min",
+      "max",
+      "num_metric_periods",
+      "period_start_for_max",
+      "period_start_for_min",
+  })
 
   @staticmethod
   def _metric_filter_hint(m_lower: str, param: str, valid_filters: Set[str]) -> str:
@@ -947,31 +1004,92 @@ class MalachiteASTValidator:
               f"{_mc.valid_dimension_sets_text(m_lower)}"
           )
 
-      # Metric type parameter (value_sum vs event_count_sum)
+      # Period / window validation (ueba.go:142-152 + ueba_validator.go: only (1d, 30d) and (1h, today))
+      period_match = re.search(r"\bperiod\s*:\s*([a-zA-Z0-9_]+)", args_body)
+      window_match = re.search(r"\bwindow\s*:\s*([a-zA-Z0-9_]+)", args_body)
+      if period_match and window_match and not has_slots:
+        pw_pair = (period_match.group(1), window_match.group(1))
+        if pw_pair not in MalachiteASTValidator.VALID_PERIOD_WINDOW_PAIRS:
+          errors.append(
+              f"INVALID_METRIC_PERIOD_WINDOW in {location}: Unsupported (period: {pw_pair[0]}, window: {pw_pair[1]}) "
+              f"for 'metrics.{m_name}'. Google SecOps Malachite strictly accepts (period: 1d, window: 30d) or "
+              "(period: 1h, window: today)."
+          )
+
+      # Aggregation parameter validation (ueba.go:180-219)
+      agg_match = re.search(r"\bagg\s*:\s*([a-zA-Z0-9_]+)", args_body)
+      agg_val = agg_match.group(1) if agg_match else None
+      if agg_val and not has_slots and agg_val not in MalachiteASTValidator.VALID_METRIC_AGGS:
+        errors.append(
+            f"INVALID_METRIC_AGG in {location}: Unsupported aggregation 'agg: {agg_val}' for 'metrics.{m_name}'. "
+            f"Valid aggregations: {sorted(MalachiteASTValidator.VALID_METRIC_AGGS)}."
+        )
+
+      # Metric type parameter & PF-11 capability validation (ueba.go + ueba_validator.go)
       if "metric_value_sum" in args_body:
         errors.append(
             f"INVALID_METRIC_TYPE in {location}: 'metric_value_sum' is invalid in Google SecOps YARA-L 2.0. "
             "Use 'metric: value_sum' for volume metrics or 'metric: event_count_sum' for count metrics."
         )
       m_type_match = re.search(r"\bmetric\s*:\s*([a-zA-Z0-9_]+)", args_body)
-      if m_type_match:
-        m_type_val = m_type_match.group(1)
+      m_type_val = m_type_match.group(1) if m_type_match else None
+      if m_type_val and not has_slots:
         if m_lower in _mc.known_metrics():
           expected = _mc.baseline_semantics(m_lower).metric_arg
         else:
           expected = "value_sum" if "bytes" in m_lower else "event_count_sum"
-        if m_type_val not in ("value_sum", "event_count_sum"):
+        if m_type_val not in MalachiteASTValidator.VALID_METRIC_TYPES:
           errors.append(
               f"INVALID_METRIC_TYPE in {location}: Unsupported metric type '{m_type_val}' for 'metrics.{m_name}'. "
-              "In Google SecOps YARA-L 2.0, metric baseline functions strictly accept 'value_sum' or 'event_count_sum'."
+              f"Supported metric types: {sorted(MalachiteASTValidator.VALID_METRIC_TYPES)}."
           )
-        elif expected == "value_sum" and m_type_val != "value_sum":
+        elif m_type_val in ("value_sum", "event_count_sum"):
+          if expected == "value_sum" and m_type_val != "value_sum":
+            errors.append(
+                f"METRIC_TYPE_MISMATCH in {location}: Byte-volume metric 'metrics.{m_name}' must use 'metric: value_sum', found '{m_type_val}'."
+            )
+          elif expected == "event_count_sum" and m_type_val == "value_sum":
+            errors.append(
+                f"METRIC_TYPE_MISMATCH in {location}: Count-based metric 'metrics.{m_name}' must use 'metric: event_count_sum', found '{m_type_val}'."
+            )
+        elif m_type_val in ("first_seen", "last_seen"):
+          if agg_val and agg_val not in MalachiteASTValidator.VALID_TIMESTAMP_METRIC_AGGS:
+            errors.append(
+                f"INVALID_TIMESTAMP_AGGREGATION in {location}: Timestamp metric 'metric: {m_type_val}' on "
+                f"'metrics.{m_name}' does not support 'agg: {agg_val}'. Use min, max, num_metric_periods, "
+                "period_start_for_max, or period_start_for_min."
+            )
+
+      # Wildcard '*' & num_unique_filter_values rules (ueba_validator.go)
+      if not has_slots:
+        filter_pairs: List[Tuple[str, str]] = []
+        for raw_arg in MalachiteASTValidator._split_top_level_csv(args_body):
+          if ":" not in raw_arg:
+            continue
+          k_raw, v_raw = raw_arg.split(":", 1)
+          k_clean = k_raw.strip()
+          if k_clean and k_clean not in MalachiteASTValidator.STANDARD_METRIC_PARAMS:
+            filter_pairs.append((k_clean, v_raw.strip()))
+        wildcard_keys = [k for k, v in filter_pairs if v == "*"]
+        concrete_keys = [k for k, v in filter_pairs if v != "*"]
+        for wk in wildcard_keys:
+          if wk.endswith(".namespace"):
+            errors.append(
+                f"INVALID_WILDCARD_NAMESPACE_FILTER in {location}: Wildcard '*' cannot be used on namespace "
+                f"dimension '{wk}' in 'metrics.{m_name}'."
+            )
+        if m_type_val == "num_unique_filter_values":
+          if len(wildcard_keys) != 1 or len(concrete_keys) < 1:
+            errors.append(
+                f"INVALID_NUM_UNIQUE_FILTER_VALUES in {location}: 'metric: num_unique_filter_values' on "
+                f"'metrics.{m_name}' requires exactly 1 wildcard '*' filter on a non-namespace dimension "
+                f"alongside at least 1 concrete dimension filter (found {len(wildcard_keys)} wildcard(s) and "
+                f"{len(concrete_keys)} concrete filter(s))."
+            )
+        elif wildcard_keys:
           errors.append(
-              f"METRIC_TYPE_MISMATCH in {location}: Byte-volume metric 'metrics.{m_name}' must use 'metric: value_sum', found '{m_type_val}'."
-          )
-        elif expected == "event_count_sum" and m_type_val == "value_sum":
-          errors.append(
-              f"METRIC_TYPE_MISMATCH in {location}: Count-based metric 'metrics.{m_name}' must use 'metric: event_count_sum', found '{m_type_val}'."
+              f"INVALID_WILDCARD_METRIC_FILTER in {location}: Wildcard '*' filter ({wildcard_keys}) on "
+              f"'metrics.{m_name}' is only valid with 'metric: num_unique_filter_values', not 'metric: {m_type_val}'."
           )
     return errors
 
@@ -1664,6 +1782,16 @@ class MalachiteASTValidator:
         errors.append(
             "MODEL_FORMULA_MISMATCH: ADAPTIVE_CONTEXT_THRESHOLD must compute event-level "
             "$off_hours_obs, concordance gate $effective_gate (1.75 / 3.0), and Z-equivalent $adaptive_z."
+        )
+    elif model == StatisticalModel.FIRST_SEEN_NOVELTY:
+      if (
+          "first_seen" not in clean_query
+          or "$prior_first_seen" not in clean_query
+          or "$novelty_flag" not in clean_query
+      ):
+        errors.append(
+            "MODEL_FORMULA_MISMATCH: FIRST_SEEN_NOVELTY must extract metrics.*(..., metric: first_seen, agg: min) "
+            "into $prior_first_seen and emit boolean $novelty_flag."
         )
 
     return errors

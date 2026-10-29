@@ -80,6 +80,14 @@ class CommonMarkTriageFormatter:
       parsed = _coerce_finite_float(raw_score)
       if parsed is not None:
         scores.append(parsed)
+    if score_key == "novelty_flag":
+      if scores and max(scores) < 1.0:
+        return "CLEAN_OR_SUBTHRESHOLD"
+      qualifying_count = sum(1 for s in scores if s >= 1.0) if scores else len(outliers)
+      if reduced_data.get("fleet_wave") is True or qualifying_count >= 10:
+        return "FLEET_WAVE"
+      return "ACUTE_OUTLIER"
+
     if is_inverted_score_key(score_key):
       if anomaly_threshold >= 1.0 and score_key == "cv":
         z_eqs = [z for s in scores if (z := score_to_z_equivalent(score_key, s)) is not None]
@@ -412,12 +420,23 @@ class CommonMarkTriageFormatter:
           score_val = record.get("anomaly_score", "-")
         score_num = _coerce_finite_float(score_val)
         explicit_cri = coerce_cri_int(record.get("cri", record.get("cri_score")))
-        cri_int = explicit_cri if explicit_cri is not None else cri_from_model_score(eff_key, score_num)
-        default_badge, _, default_bar = get_cri_band_metadata(cri_int)
-        cri_cell = format_cri(cri_int)
-        cri_badge = record.get("cri_badge", default_badge)
-        bar = record.get("visual_bar", default_bar)
-        score_cell = record.get("score_display") if (record.get("score_display") and score_num is not None and score_key not in record) else format_score_with_unit(eff_key, score_num)
+        if eff_key == "novelty_flag":
+          cri_int = explicit_cri
+          default_badge = "NOVELTY" if (score_num or 0.0) >= 1.0 else "SEEN"
+          default_bar = "█" * 5 + "░" * 5 if (score_num or 0.0) >= 1.0 else "░" * 10
+          cri_cell = format_cri(cri_int)
+          cri_badge = record.get("cri_badge", default_badge)
+          bar = record.get("visual_bar", default_bar)
+          score_cell = record.get("score_display") or (
+              "NOVEL (flag=1)" if (score_num or 0.0) >= 1.0 else "SEEN (flag=0)"
+          )
+        else:
+          cri_int = explicit_cri if explicit_cri is not None else cri_from_model_score(eff_key, score_num)
+          default_badge, _, default_bar = get_cri_band_metadata(cri_int)
+          cri_cell = format_cri(cri_int)
+          cri_badge = record.get("cri_badge", default_badge)
+          bar = record.get("visual_bar", default_bar)
+          score_cell = record.get("score_display") if (record.get("score_display") and score_num is not None and score_key not in record) else format_score_with_unit(eff_key, score_num)
         report.append(f"| `{entity}` | `{observed}` | `{hist_avg}` | `{hist_std}` | `{score_cell}` | **`{cri_cell}`** ({cri_badge}) | `{bar}` |")
 
     report.extend([
