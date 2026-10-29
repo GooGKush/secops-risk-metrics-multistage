@@ -789,6 +789,8 @@ def active_statistical_models() -> List[StatisticalModel]:
   retired = {
       StatisticalModel.HOURLY_TEMPORAL_ZSCORE,
       StatisticalModel.CIRCADIAN_VON_MISES,
+      StatisticalModel.PIECEWISE_CRI,
+      StatisticalModel.FLEET_PREVALENCE_SHIELD,
   }
   return [m for m in StatisticalModel if m not in retired]
 

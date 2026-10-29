@@ -79,9 +79,11 @@ class TestOfflineFullMatrixRenderer(unittest.TestCase):
 
     self.assertEqual(len(METRIC_CATALOG), 38)
     self.assertEqual(len(StatisticalModel), 18)
-    self.assertEqual(len(active_models), 16)
+    self.assertEqual(len(active_models), 14)
     self.assertIn(StatisticalModel.QUANTILE_IQR_SKEW, set(active_models))
     self.assertIn(StatisticalModel.RELATIVE_DEVIATION, set(active_models))
+    self.assertNotIn(StatisticalModel.PIECEWISE_CRI, set(active_models))
+    self.assertNotIn(StatisticalModel.FLEET_PREVALENCE_SHIELD, set(active_models))
     self.assertEqual(len(disk_pipelines), 33)
 
     self.assertEqual(self.summary["matrix_cell_count"], expected_cells)

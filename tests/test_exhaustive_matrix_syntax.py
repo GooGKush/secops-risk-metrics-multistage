@@ -85,14 +85,14 @@ class ExhaustiveMatrixSyntaxTest(unittest.TestCase):
         StatisticalModel.LONGITUDINAL_CUSUM,
         StatisticalModel.TWO_PART_HURDLE,
         StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z,
-        StatisticalModel.PIECEWISE_CRI,
-        StatisticalModel.FLEET_PREVALENCE_SHIELD,
         StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD,
         StatisticalModel.MACD_MOMENTUM_VELOCITY,
     ]
-    retired_time_of_day_models = (
-        StatisticalModel.HOURLY_TEMPORAL_ZSCORE,
-        StatisticalModel.CIRCADIAN_VON_MISES,
+    retired_models_and_replacements = (
+        (StatisticalModel.HOURLY_TEMPORAL_ZSCORE, r"retired.*HOUR_OF_DAY_PROFILE"),
+        (StatisticalModel.CIRCADIAN_VON_MISES, r"retired.*HOUR_OF_DAY_PROFILE"),
+        (StatisticalModel.PIECEWISE_CRI, r"retired.*calculate_cri"),
+        (StatisticalModel.FLEET_PREVALENCE_SHIELD, r"retired.*hybrid_metric_fleet_prevalence_2stage"),
     )
     match_modes = [MatchMode.TIMELINE_BREAKDOWN, MatchMode.FLEET_ROLLUP]
 
@@ -106,8 +106,8 @@ class ExhaustiveMatrixSyntaxTest(unittest.TestCase):
 
       entity_type = mdef.supported_entity_types[0]
 
-      for retired_model in retired_time_of_day_models:
-        with self.assertRaisesRegex(ValueError, r"retired.*HOUR_OF_DAY_PROFILE"):
+      for retired_model, expected_regex in retired_models_and_replacements:
+        with self.assertRaisesRegex(ValueError, expected_regex):
           self.router.build_query(
               target_metric=metric_name,
               entity_type=entity_type,

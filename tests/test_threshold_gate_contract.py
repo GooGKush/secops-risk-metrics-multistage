@@ -34,6 +34,8 @@ NO_GATE_TEMPLATES = {
 RETIRED_GATE_MODELS = {
     StatisticalModel.HOURLY_TEMPORAL_ZSCORE: "HOUR_OF_DAY_PROFILE",
     StatisticalModel.CIRCADIAN_VON_MISES: "HOUR_OF_DAY_PROFILE",
+    StatisticalModel.PIECEWISE_CRI: "ueba_constants.calculate_cri",
+    StatisticalModel.FLEET_PREVALENCE_SHIELD: "hybrid_metric_fleet_prevalence_2stage.yl2",
 }
 
 RETIRED_GATE_PIPELINES = {
@@ -43,11 +45,9 @@ RETIRED_GATE_PIPELINES = {
 # Default root gate each active model renders with router defaults (sigma 3.0, fold change 2.0, MAD 3.5).
 EXPECTED_DEFAULT_GATES = {
     StatisticalModel.STANDARD_Z_SCORE: "$active_days >= 7 and $personal_z >= 3.0",
-    StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z: "$active_days >= 7 and $upper_tail_z >= 3.0",
+    StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z: "$active_days >= 7 and $personal_z >= 3.0",
     StatisticalModel.POISSON: "$poisson_z >= 3.0",
-    StatisticalModel.MACD_MOMENTUM_VELOCITY: "$active_days >= 7 and $fast_z >= 3.0",
-    StatisticalModel.PIECEWISE_CRI: "$active_days >= 7 and $clamped_z >= 3.0",
-    StatisticalModel.FLEET_PREVALENCE_SHIELD: "$active_days >= 7 and $shielded_z >= 3.0",
+    StatisticalModel.MACD_MOMENTUM_VELOCITY: "$active_days >= 7 and $macd_z >= 3.0",
     StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD: "$active_days >= 7 and $sensitivity_excess >= 0.0",
     StatisticalModel.LONGITUDINAL_CUSUM: "$active_days >= 7 and $cusum_drift_score >= 3.0 and $drift_days >= 2",
     StatisticalModel.TWO_PART_HURDLE: "$active_days <= 2 or $intensity_z >= 3.0",

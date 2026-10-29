@@ -42,6 +42,10 @@ class TestUEBAHybridEngineCompile(unittest.TestCase):
         StatisticalModel.HOURLY_TEMPORAL_ZSCORE,
         StatisticalModel.CIRCADIAN_VON_MISES,
     }
+    retired_error_models = {
+        StatisticalModel.PIECEWISE_CRI: r"retired \(D1\).*calculate_cri",
+        StatisticalModel.FLEET_PREVALENCE_SHIELD: r"retired \(D1\).*hybrid_metric_fleet_prevalence_2stage",
+    }
     for model in StatisticalModel:
       if model in retired_handoff_models:
         res_ho = compile_hunt_pipeline(
@@ -56,6 +60,15 @@ class TestUEBAHybridEngineCompile(unittest.TestCase):
         self.assertEqual(res_ho["model_routed"], "HOUR_OF_DAY_PROFILE")
         self.assertEqual(res_ho["compiled_query"], "")
         self.assertIn("```json:secops-threat-hunt-handoff-v1", res_ho["handoff_card"])
+        continue
+      if model in retired_error_models:
+        with self.assertRaisesRegex(ValueError, retired_error_models[model]):
+          compile_hunt_pipeline(
+              statistical_model=model.value,
+              metrics="network_bytes_outbound",
+              entity_type="ASSET",
+              mode="A",
+          )
         continue
       if model == StatisticalModel.LONGITUDINAL_CUSUM:
         with self.assertRaisesRegex(ValueError, "LONGITUDINAL_CUSUM cannot run in single-day Mode A"):
@@ -99,9 +112,7 @@ class TestUEBAHybridEngineCompile(unittest.TestCase):
         ("beta_binomial", StatisticalModel.BAYESIAN_BETA_BINOMIAL.value),
         ("cusum", StatisticalModel.LONGITUDINAL_CUSUM.value),
         ("hurdle", StatisticalModel.TWO_PART_HURDLE.value),
-        ("asymmetric_z", StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z.value),
-        ("cri", StatisticalModel.PIECEWISE_CRI.value),
-        ("patch_tuesday_shield", StatisticalModel.FLEET_PREVALENCE_SHIELD.value),
+        ("ASYMMETRIC_DIRECTIONAL_Z", StatisticalModel.STANDARD_Z_SCORE.value),
         ("adaptive_threshold", StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD.value),
         ("macd", StatisticalModel.MACD_MOMENTUM_VELOCITY.value),
     ]
@@ -1384,6 +1395,64 @@ class TestUEBAHybridEngineCLIAndCatalog(unittest.TestCase):
           ],
           entity_type="ASSET",
       )
+
+  def test_ws3_d1_retired_and_merged_models_and_linear_above_max_z(self):
+    """WS3-D1: Retires FLEET_PREVALENCE_SHIELD & PIECEWISE_CRI, merges ASYMMETRIC_DIRECTIONAL_Z into STANDARD_Z_SCORE, and linearizes Above-Historical-Max Z."""
+    from scripts.ueba_hybrid_engine import (
+        SECTOR_HYBRID_MODELS,
+        calculate_macd_momentum,
+        compile_hunt_plan,
+        resolve_statistical_model,
+    )
+
+    for shield_alias in ("FLEET_PREVALENCE_SHIELD", "PATCH_TUESDAY_SHIELD", "PREVALENCE_SHIELD", "patch_tuesday_shield"):
+      with self.subTest(shield_alias=shield_alias):
+        with self.assertRaisesRegex(ValueError, r"retired \(D1\).*hybrid_metric_fleet_prevalence_2stage"):
+          resolve_statistical_model(shield_alias)
+        with self.assertRaisesRegex(ValueError, r"retired \(D1\).*hybrid_metric_fleet_prevalence_2stage"):
+          compile_hunt_pipeline(statistical_model=shield_alias, metrics="auth_attempts_total", entity_type="USER")
+
+    for cri_alias in ("PIECEWISE_CRI", "CRI", "CALIBRATED_RISK_INDEX", "SIGMOID_CRI", "cri"):
+      with self.subTest(cri_alias=cri_alias):
+        with self.assertRaisesRegex(ValueError, r"retired \(D1\).*calculate_cri"):
+          resolve_statistical_model(cri_alias)
+        with self.assertRaisesRegex(ValueError, r"retired \(D1\).*calculate_cri"):
+          compile_hunt_pipeline(statistical_model=cri_alias, metrics="auth_attempts_total", entity_type="USER")
+
+    # ASYMMETRIC_DIRECTIONAL_Z maps cleanly to STANDARD_Z_SCORE with advisory; separate ASYMMETRIC_Z / DIRECTIONAL_Z aliases are removed
+    self.assertEqual(resolve_statistical_model("ASYMMETRIC_DIRECTIONAL_Z"), StatisticalModel.STANDARD_Z_SCORE)
+    res_asym = compile_hunt_pipeline(
+        statistical_model="ASYMMETRIC_DIRECTIONAL_Z",
+        metrics="auth_attempts_total",
+        entity_type="USER",
+    )
+    self.assertEqual(res_asym["statistical_model"], StatisticalModel.STANDARD_Z_SCORE.value)
+    self.assertTrue(any("merged into STANDARD_Z_SCORE" in a for a in res_asym.get("advisories", [])))
+    self.assertIn("$personal_z", res_asym["compiled_query"])
+    self.assertNotIn("$upper_tail_z", res_asym["compiled_query"])
+
+    for removed_alias in ("ASYMMETRIC_Z", "DIRECTIONAL_Z", "asymmetric_z"):
+      with self.subTest(removed_alias=removed_alias):
+        with self.assertRaisesRegex(ValueError, "STANDARD_Z_SCORE"):
+          resolve_statistical_model(removed_alias)
+
+    # SECTOR_HYBRID_MODELS must not contain retired or merged models
+    for sector_name, models in SECTOR_HYBRID_MODELS.items():
+      for forbidden in ("fleet_prevalence_shield", "piecewise_cri", "asymmetric_directional_z"):
+        self.assertNotIn(forbidden, models, f"Sector {sector_name} still references {forbidden}")
+
+    # Linear Above-Historical-Max Z: fixes dropped personal_z + term and prevents byte quadratic overflow
+    # Sub-peak surge: obs=150, avg=100, std=10, hmax=200 -> personal_z=5.0, above_max_z=0.0 -> 5.0
+    self.assertAlmostEqual(calculate_macd_momentum(150.0, 100.0, 10.0, 200.0), 5.0, places=4)
+    # Peak breakout: obs=250, avg=100, std=10, hmax=200 -> personal_z=15.0, above_max_z=5.0 -> 20.0 (monotone > 10.0 at obs=200!)
+    self.assertAlmostEqual(calculate_macd_momentum(200.0, 100.0, 10.0, 200.0), 10.0, places=4)
+    self.assertAlmostEqual(calculate_macd_momentum(250.0, 100.0, 10.0, 200.0), 20.0, places=4)
+    # 10 GB egress breakout (10e9 vs avg=1e9, std=5e8, hmax=2e9): personal_z=18.0, above_max_z=16.0 -> linear 34.0 (NOT quadratic 90.0!)
+    self.assertAlmostEqual(
+        calculate_macd_momentum(10_000_000_000.0, 1_000_000_000.0, 500_000_000.0, 2_000_000_000.0, dispersion_floor=1.0),
+        34.0,
+        places=4,
+    )
 
 
 if __name__ == "__main__":

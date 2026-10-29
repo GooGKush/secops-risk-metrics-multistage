@@ -93,24 +93,13 @@ MODEL_AST_CONTRACTS = {
         "prohibited_substitutions": ["$personal_z"],
     },
     StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z: {
-        "template": "asymmetric_directional_z.yl2",
-        "mandatory_vars": ["$diff", "$excess_surge", "$safe_stddev", "$upper_tail_z"],
-        "order_var": "$upper_tail_z",
-        "required_ops": ["$excess_surge = if($diff > 0, $diff, 0.0)", "$upper_tail_z = $excess_surge / $safe_stddev"],
-        "prohibited_substitutions": ["$personal_z"],
-    },
-    StatisticalModel.PIECEWISE_CRI: {
-        "template": "piecewise_cri.yl2",
-        "mandatory_vars": ["$diff", "$safe_stddev", "$raw_z", "$clamped_low", "$clamped_z", "$cri_tier4", "$cri_tier3", "$cri_tier2", "$cri_score"],
-        "order_var": "$cri_score",
-        "required_ops": ["$clamped_low = if($raw_z < -4.0, -4.0, $raw_z)", "$cri_score = if($clamped_z >= 1.0"],
-        "prohibited_substitutions": ["$personal_z"],
-    },
-    StatisticalModel.FLEET_PREVALENCE_SHIELD: {
-        "template": "fleet_prevalence_shield.yl2",
-        "mandatory_vars": ["$fleet_entities", "$raw_diff", "$safe_stddev", "$personal_z", "$fleet_count", "$log_fleet", "$prevalence_factor", "$shielded_z"],
-        "order_var": "$shielded_z",
-        "required_ops": ["$fleet_entities = count_distinct($stage1_extract", "$prevalence_factor = 1.0 + $log_fleet", "$shielded_z = $personal_z / $prevalence_factor"],
+        "template": "standard_z_score.yl2",
+        "mandatory_vars": ["$personal_diff", "$safe_stddev", "$personal_z"],
+        "order_var": "$personal_z",
+        "required_ops": [
+            "$personal_diff = $observed - $hist_avg",
+            "$safe_stddev = if($hist_stddev > $dispersion_floor, $hist_stddev, $dispersion_floor)",
+        ],
         "prohibited_substitutions": [],
     },
     StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD: {
@@ -122,10 +111,24 @@ MODEL_AST_CONTRACTS = {
     },
     StatisticalModel.MACD_MOMENTUM_VELOCITY: {
         "template": "macd_momentum_velocity.yl2",
-        "mandatory_vars": ["$fast_diff", "$safe_stddev", "$fast_z", "$slow_diff", "$slow_z", "$macd_diff", "$safe_max", "$velocity_ratio", "$breakout_boost", "$breakout_score", "$macd_momentum_score"],
-        "order_var": "$macd_momentum_score",
-        "required_ops": ["$fast_diff = $observed - $hist_avg", "$slow_diff = $hist_max - $hist_avg", "$macd_diff = $fast_z - $slow_z", "$macd_momentum_score = if($macd_diff > 0"],
-        "prohibited_substitutions": ["$personal_z"],
+        "mandatory_vars": [
+            "$personal_diff",
+            "$safe_stddev",
+            "$personal_z",
+            "$exceed_raw",
+            "$exceed_pos",
+            "$above_max_z",
+            "$macd_z",
+            "$macd_momentum_score",
+        ],
+        "order_var": "$macd_z",
+        "required_ops": [
+            "$personal_diff = $observed - $hist_avg",
+            "$exceed_raw = $observed - $hist_max",
+            "$above_max_z = $exceed_pos / $safe_stddev",
+            "$macd_z = $personal_z + $above_max_z",
+        ],
+        "prohibited_substitutions": ["$ratio"],
     },
     StatisticalModel.QUANTILE_IQR_SKEW: {
         "template": "quantile_iqr_skew.yl2",
@@ -144,6 +147,14 @@ RETIRED_MODEL_CONTRACTS = {
     StatisticalModel.CIRCADIAN_VON_MISES: {
         "removed_template": "circadian_von_mises.yl2",
         "replacement": "HOUR_OF_DAY_PROFILE",
+    },
+    StatisticalModel.PIECEWISE_CRI: {
+        "removed_template": "piecewise_cri.yl2",
+        "replacement": "ueba_constants.calculate_cri",
+    },
+    StatisticalModel.FLEET_PREVALENCE_SHIELD: {
+        "removed_template": "fleet_prevalence_shield.yl2",
+        "replacement": "hybrid_metric_fleet_prevalence_2stage.yl2",
     },
 }
 
@@ -185,6 +196,10 @@ class TestModelConcordance(unittest.TestCase):
     self.assertFalse(
         (self.repo_root / "templates" / "pipelines" / "circadian_von_mises_2stage.yl2").exists(),
         "Retired circadian_von_mises_2stage.yl2 still on disk",
+    )
+    self.assertFalse(
+        (self.templates_dir / "asymmetric_directional_z.yl2").exists(),
+        "Merged asymmetric_directional_z.yl2 must be removed from disk (D1 -> standard_z_score.yl2)",
     )
 
   def test_templates_exist_and_match_contract_definitions(self):
@@ -416,7 +431,6 @@ class TestModelConcordance(unittest.TestCase):
     # Multi-stage Stage-2 models must reject a 1-named-stage query
     for multi_stage_model in (
         StatisticalModel.LONGITUDINAL_CUSUM,
-        StatisticalModel.FLEET_PREVALENCE_SHIELD,
         StatisticalModel.QUANTILE_IQR_SKEW,
         StatisticalModel.MAD,
     ):

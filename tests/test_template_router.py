@@ -117,13 +117,11 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
     self.assertIn("order:\n  $composite_risk desc", query)
 
   def test_stage2_new_models_routing_and_antipattern_cleanliness(self):
-    """Verifies that all 6 new Stage 2 math models route correctly and have zero statistical violations."""
+    """Verifies active Stage 2 math models route cleanly and retired D1 models raise clear ValueErrors."""
     test_models = [
         (StatisticalModel.LONGITUDINAL_CUSUM, "cusum_drift_score"),
         (StatisticalModel.TWO_PART_HURDLE, "hurdle_threat_score"),
-        (StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z, "upper_tail_z"),
-        (StatisticalModel.PIECEWISE_CRI, "cri_score"),
-        (StatisticalModel.FLEET_PREVALENCE_SHIELD, "shielded_z"),
+        (StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z, "personal_z"),
         (StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD, "sensitivity_excess"),
     ]
 
@@ -135,11 +133,29 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
           anomaly_threshold=2.5,
       )
       self.assertIn(f"order:\n  ${order_var} desc", query)
+      if model == StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z:
+        self.assertTrue(
+            any("merged into STANDARD_Z_SCORE" in adv for adv in self.router.last_advisories),
+            f"Expected merge advisory on ASYMMETRIC_DIRECTIONAL_Z, got {self.router.last_advisories}",
+        )
       violations = StatisticalAntipatternAuditor.audit_query(query)
       self.assertEqual(
           violations,
           [],
           f"Model {model.value} produced unexpected statistical violations: {violations}",
+      )
+
+    with self.assertRaisesRegex(ValueError, r"retired \(D1\).*calculate_cri"):
+      self.router.build_query(
+          target_metric="network_bytes_outbound",
+          entity_type=EntityType.ASSET,
+          statistical_model=StatisticalModel.PIECEWISE_CRI,
+      )
+    with self.assertRaisesRegex(ValueError, r"retired \(D1\).*hybrid_metric_fleet_prevalence_2stage"):
+      self.router.build_query(
+          target_metric="network_bytes_outbound",
+          entity_type=EntityType.ASSET,
+          statistical_model=StatisticalModel.FLEET_PREVALENCE_SHIELD,
       )
 
   def test_part_of_the_whole_multilevel_pipeline(self):
@@ -638,11 +654,16 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
         ("resource_read_total", EntityType.USER, "$sa, $vendor, $product, $resource"),
     ]
 
-    retired_tod = (StatisticalModel.HOURLY_TEMPORAL_ZSCORE, StatisticalModel.CIRCADIAN_VON_MISES)
+    retired_models = {
+        StatisticalModel.HOURLY_TEMPORAL_ZSCORE: r"retired.*HOUR_OF_DAY_PROFILE",
+        StatisticalModel.CIRCADIAN_VON_MISES: r"retired.*HOUR_OF_DAY_PROFILE",
+        StatisticalModel.PIECEWISE_CRI: r"retired.*calculate_cri",
+        StatisticalModel.FLEET_PREVALENCE_SHIELD: r"retired.*hybrid_metric_fleet_prevalence_2stage",
+    }
     for metric_name, ent_type, expected_tuple in composite_cases:
       for model in StatisticalModel:
-        if model in retired_tod:
-          with self.assertRaisesRegex(ValueError, r"retired.*HOUR_OF_DAY_PROFILE"):
+        if model in retired_models:
+          with self.assertRaisesRegex(ValueError, retired_models[model]):
             self.router.build_query(
                 target_metric=metric_name,
                 entity_type=ent_type,
@@ -694,11 +715,6 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
               self.assertEqual(root_keys, expected_tuple)
             elif model in (StatisticalModel.MAD, StatisticalModel.QUANTILE_IQR_SKEW):
               self.assertEqual(root_keys, f"{expected_tuple}, $ws by 1d")
-            elif model == StatisticalModel.FLEET_PREVALENCE_SHIELD:
-              # Cross-sectional fleet wave stage must stay fleet-wide ($day_ws by 1d)
-              self.assertIn("stage stage2_fleet_wave {\n    $day_ws = $stage1_extract.window_start\n\n  match:\n    $day_ws by 1d", clean)
-              expected_root = f"{expected_tuple}, $ws by 1d" if mode == MatchMode.TIMELINE_BREAKDOWN else expected_tuple
-              self.assertEqual(root_keys, expected_root)
             else:
               expected_root = f"{expected_tuple}, $ws by 1d" if mode == MatchMode.TIMELINE_BREAKDOWN else expected_tuple
               self.assertEqual(root_keys, expected_root)
@@ -793,6 +809,49 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
         "$alert_z >= 3.0",
         self.router.build_alert_surge_query(entity_type=EntityType.ASSET),
     )
+
+  def test_ws3_d1_model_renames_and_killchain_routing(self):
+    """WS3-D1: Renames CV to regular-volume surge and MACD to above-historical-max Z; killchain avoids retired PIECEWISE_CRI."""
+    from scripts.preflight_validator import MalachiteASTValidator
+    from scripts.template_router import ChainedHuntRouter
+
+    cv_desc = MultiStageTemplateRouter.MODEL_DESCRIPTIONS[StatisticalModel.COEFFICIENT_OF_VARIATION].lower()
+    self.assertIn("regular-volume surge", cv_desc)
+    q_cv = self.router.build_query(
+        target_metric="auth_attempts_total",
+        entity_type=EntityType.USER,
+        statistical_model=StatisticalModel.COEFFICIENT_OF_VARIATION,
+    )
+    self.assertIn("regular-volume surge", q_cv.lower())
+    self.assertIn("$active_days >= 7", q_cv)
+
+    macd_desc = MultiStageTemplateRouter.MODEL_DESCRIPTIONS[StatisticalModel.MACD_MOMENTUM_VELOCITY].lower()
+    self.assertIn("above-historical-max z", macd_desc)
+    for q_macd in (
+        self.router.build_query(
+            target_metric="network_bytes_outbound",
+            entity_type=EntityType.ASSET,
+            statistical_model=StatisticalModel.MACD_MOMENTUM_VELOCITY,
+        ),
+        self.router.build_pipeline_query(
+            PipelineArchitecture.MACD_MOMENTUM_VELOCITY_2STAGE,
+            target_metric="network_bytes_outbound",
+            entity_type=EntityType.ASSET,
+        ),
+    ):
+      self.assertIn("above-historical-max z", q_macd.lower())
+      self.assertIn("$exceed_raw = $observed - $hist_max", q_macd)
+      self.assertIn("$above_max_z =", q_macd)
+      self.assertIn("$macd_z = $personal_z + $above_max_z", q_macd)
+      self.assertNotIn("$velocity_ratio", q_macd)
+      self.assertNotIn("* $velocity_ratio", q_macd)
+      self.assertEqual(MalachiteASTValidator.validate_query(q_macd), [])
+
+    killchain_plan = ChainedHuntRouter().build_cross_entity_killchain_plan(
+        "USER_WORKSPACE_HOARDING_TO_HOST_EGRESS"
+    )
+    self.assertIn("phase1_query", killchain_plan)
+    self.assertEqual(MalachiteASTValidator.validate_query(killchain_plan["phase1_query"]), [])
 
 
 if __name__ == "__main__":
