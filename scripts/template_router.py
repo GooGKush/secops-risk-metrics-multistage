@@ -36,6 +36,102 @@ DEFAULT_GAMMA_PRIOR_BETA0 = 0.1
 DEFAULT_BETA_PRIOR_ALPHA0 = 1.0
 DEFAULT_BETA_PRIOR_BETA0 = 19.0
 DEFAULT_MIN_AWAKENING_VOLUME = 25
+DEFAULT_TENANT_TZ = "UTC"
+DEFAULT_BIZ_START_HOUR = 8
+DEFAULT_BIZ_END_HOUR = 18
+
+
+def normalize_learned_active_hours(learned_active_hours: Optional[Any]) -> Optional[Tuple[List[int], bool]]:
+  """Normalizes optional WS5-HOD (HOUR_OF_DAY_PROFILE) learned active-hour schedules (0..23)."""
+  if learned_active_hours is None:
+    return None
+  weekdays_only = False
+  raw_items: Any = learned_active_hours
+  if isinstance(learned_active_hours, dict):
+    weekdays_only = bool(learned_active_hours.get("weekdays_only", False))
+    if "active_hours" in learned_active_hours:
+      raw_items = learned_active_hours["active_hours"]
+    elif "learned_active_hours" in learned_active_hours:
+      raw_items = learned_active_hours["learned_active_hours"]
+    else:
+      raw_items = [
+          k for k, v in learned_active_hours.items()
+          if k != "weekdays_only" and float(v) > 0.0
+      ]
+  hours: List[int] = []
+  for item in raw_items:
+    if isinstance(item, bool):
+      raise ValueError(f"Invalid hour '{item}' in learned_active_hours; expected int in 0..23.")
+    h = int(item)
+    if h < 0 or h > 23:
+      raise ValueError(f"learned_active_hours entry {h} out of valid 0..23 range.")
+    hours.append(h)
+  return (sorted(set(hours)), weekdays_only)
+
+
+def _compact_hour_runs(hours: Sequence[int]) -> List[Tuple[int, int]]:
+  """Compacts sorted unique integer hours (0..23) into inclusive (lo, hi) contiguous runs."""
+  if not hours:
+    return []
+  runs: List[Tuple[int, int]] = []
+  lo = hi = int(hours[0])
+  for h_raw in hours[1:]:
+    h = int(h_raw)
+    if h == hi + 1:
+      hi = h
+    else:
+      runs.append((lo, hi))
+      lo = hi = h
+  runs.append((lo, hi))
+  return runs
+
+
+def _build_in_schedule_condition(
+    biz_start_hour: int,
+    biz_end_hour: int,
+    learned_active_hours: Optional[Any],
+) -> Optional[str]:
+  """Builds the Stage-1 YARA-L boolean condition for in-schedule events (or None / 'ALL_ACTIVE')."""
+  if learned_active_hours is not None:
+    norm = normalize_learned_active_hours(learned_active_hours)
+    assert norm is not None
+    hrs, weekdays_only = norm
+    if not hrs:
+      return None
+    if len(hrs) == 24:
+      return "$dow >= 2 and $dow <= 6" if weekdays_only else "ALL_ACTIVE"
+    runs = _compact_hour_runs(hrs)
+    parts: List[str] = []
+    for lo, hi in runs:
+      if lo == hi:
+        parts.append(f"$hour = {lo}")
+      elif len(runs) == 1 and not weekdays_only:
+        parts.append(f"$hour >= {lo} and $hour <= {hi}")
+      else:
+        parts.append(f"($hour >= {lo} and $hour <= {hi})")
+    if len(parts) == 1:
+      hr_expr = parts[0]
+    else:
+      hr_expr = "(" + " or ".join(parts) + ")"
+    if weekdays_only:
+      return f"$dow >= 2 and $dow <= 6 and {hr_expr}"
+    return hr_expr
+
+  if isinstance(biz_start_hour, bool) or isinstance(biz_end_hour, bool):
+    raise ValueError("biz_start_hour and biz_end_hour must be integers.")
+  s = int(biz_start_hour)
+  e = int(biz_end_hour)
+  if s < 0 or s > 23 or e < 0 or e > 24:
+    raise ValueError(
+        f"Business hours out of bounds: biz_start_hour={s} (expected 0..23), biz_end_hour={e} (expected 0..24)."
+    )
+  if s == e:
+    return None
+  if s == 0 and e == 24:
+    return "$dow >= 2 and $dow <= 6"
+  if s < e:
+    return f"$dow >= 2 and $dow <= 6 and $hour >= {s} and $hour < {e}"
+  return f"$dow >= 2 and $dow <= 6 and ($hour >= {s} or $hour < {e})"
 
 
 def resolve_beta_binomial_pair(metric_name: str) -> Tuple[str, str]:
@@ -709,6 +805,8 @@ class MultiStageTemplateRouter:
       "longitudinal_cusum": "Multi-Day Cumulative Drift (Windowed Slack Sum)",
       StatisticalModel.TWO_PART_HURDLE: "Two-Part Hurdle Model (Dormant Awakening Volume + Active Intensity)",
       "two_part_hurdle": "Two-Part Hurdle Model (Dormant Awakening Volume + Active Intensity)",
+      StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD: "Off-Hours & Weekend Adaptive Context Threshold (1.75σ Off-Hours / 3.0σ In-Hours)",
+      "adaptive_context_threshold": "Off-Hours & Weekend Adaptive Context Threshold (1.75σ Off-Hours / 3.0σ In-Hours)",
       StatisticalModel.MACD_MOMENTUM_VELOCITY: "Above-Historical-Max Z (Linear Peak Exceedance)",
       "macd_momentum": "Above-Historical-Max Z (Linear Peak Exceedance)",
       "macd_momentum_velocity": "Above-Historical-Max Z (Linear Peak Exceedance)",
@@ -1126,6 +1224,68 @@ class MultiStageTemplateRouter:
                         stage2_raw)
     return stage2_raw
 
+  @classmethod
+  def _inject_stage1_adaptive_schedule(
+      cls,
+      stage1_content: str,
+      *,
+      tenant_tz: str,
+      biz_start_hour: int,
+      biz_end_hour: int,
+      learned_active_hours: Optional[Any],
+  ) -> str:
+    """Injects {{tenant_tz}} event-level hour/weekday extraction and $off_hours_obs into Stage 1 (WS3-ADAPTIVE / D1c)."""
+    eff_tz = str(tenant_tz or "").strip()
+    if not eff_tz:
+      raise ValueError("tenant_tz must be a non-empty IANA time-zone string (e.g. 'UTC' or 'America/Los_Angeles').")
+    in_sched = _build_in_schedule_condition(
+        biz_start_hour=biz_start_hour,
+        biz_end_hour=biz_end_hour,
+        learned_active_hours=learned_active_hours,
+    )
+    tz_bindings = (
+        '    $hour = timestamp.get_hour(metadata.event_timestamp.seconds, "{{tenant_tz}}")\n'
+        '    $dow = timestamp.get_day_of_week(metadata.event_timestamp.seconds, "{{tenant_tz}}")\n'
+    )
+    stage1_out = re.sub(
+        r"(\n[ \t]*match:\s*\n)",
+        "\n" + tz_bindings + r"\1",
+        stage1_content,
+        count=1,
+    ).replace("{{tenant_tz}}", cls._escape_yaral_literal(eff_tz))
+
+    obs_m = re.search(r"^[ \t]*\$observed_val\s*=\s*([^\n]+)\n", stage1_out, flags=re.M)
+    if not obs_m:
+      raise ValueError("Stage 1 extractor missing $observed_val assignment for ADAPTIVE_CONTEXT_THRESHOLD.")
+    rhs = obs_m.group(1).strip()
+
+    if in_sched is None:
+      off_lines = "    $off_hours_obs = $observed_val\n"
+    elif in_sched == "ALL_ACTIVE":
+      off_lines = "    $off_hours_obs = 0 * $observed_val\n"
+    elif rhs == "count(metadata.id)":
+      off_lines = f"    $off_hours_obs = sum(if({in_sched}, 0, 1))\n"
+    elif rhs == "sum($sent)":
+      off_lines = f"    $off_hours_obs = sum(if({in_sched}, 0, $sent))\n"
+    elif rhs == "sum($received)":
+      off_lines = f"    $off_hours_obs = sum(if({in_sched}, 0, $received))\n"
+    elif rhs == "sum($sent) + sum($received)":
+      off_lines = (
+          f"    $off_hours_sent = sum(if({in_sched}, 0, $sent))\n"
+          f"    $off_hours_rcvd = sum(if({in_sched}, 0, $received))\n"
+          "    $off_hours_obs = $off_hours_sent + $off_hours_rcvd\n"
+      )
+    elif rhs == "sum(network.sent_bytes) + sum(network.received_bytes)":
+      off_lines = (
+          f"    $off_hours_sent = sum(if({in_sched}, 0, network.sent_bytes))\n"
+          f"    $off_hours_rcvd = sum(if({in_sched}, 0, network.received_bytes))\n"
+          "    $off_hours_obs = $off_hours_sent + $off_hours_rcvd\n"
+      )
+    else:
+      raise ValueError(f"Unsupported Stage 1 $observed_val expression '{rhs}' for ADAPTIVE_CONTEXT_THRESHOLD.")
+
+    return stage1_out[:obs_m.end()] + off_lines + stage1_out[obs_m.end():]
+
   def build_query(
       self,
       target_metric: str,
@@ -1152,6 +1312,10 @@ class MultiStageTemplateRouter:
       prior_beta0: Optional[float] = None,
       fleet_prior_payload: Optional[Any] = None,
       min_awakening_volume: int = DEFAULT_MIN_AWAKENING_VOLUME,
+      tenant_tz: str = DEFAULT_TENANT_TZ,
+      biz_start_hour: int = DEFAULT_BIZ_START_HOUR,
+      biz_end_hour: int = DEFAULT_BIZ_END_HOUR,
+      learned_active_hours: Optional[Any] = None,
   ) -> str:
     """Renders stage1 extractor + stage2 math model.
 
@@ -1297,6 +1461,15 @@ class MultiStageTemplateRouter:
           "    ))\n"
       )
       stage1_content = stage1_content[:sum_match.start()] + paired_sums + stage1_content[sum_match.end():]
+      stage1_content = self._prune_unused_metrics_lookups(stage1_content, stage2_raw)
+    elif statistical_model == StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD:
+      stage1_content = self._inject_stage1_adaptive_schedule(
+          stage1_content,
+          tenant_tz=tenant_tz,
+          biz_start_hour=biz_start_hour,
+          biz_end_hour=biz_end_hour,
+          learned_active_hours=learned_active_hours,
+      )
       stage1_content = self._prune_unused_metrics_lookups(stage1_content, stage2_raw)
 
     # Harmonize Stage 2 entity variable with Stage 1 match variable ($user, $host, $entity, $sa)

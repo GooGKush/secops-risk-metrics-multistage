@@ -987,6 +987,10 @@ def compile_hunt_pipeline(
     prior_beta0: Optional[float] = None,
     fleet_prior_payload: Optional[Any] = None,
     min_awakening_volume: int = 25,
+    tenant_tz: str = "UTC",
+    biz_start_hour: int = 8,
+    biz_end_hour: int = 18,
+    learned_active_hours: Optional[Any] = None,
     start_time: Optional[str] = None,
     end_time: Optional[str] = None,
     target_date: Optional[str] = None,
@@ -1721,6 +1725,10 @@ def compile_hunt_pipeline(
           prior_beta0=prior_beta0,
           fleet_prior_payload=fleet_prior_payload,
           min_awakening_volume=min_awakening_volume,
+          tenant_tz=tenant_tz,
+          biz_start_hour=biz_start_hour,
+          biz_end_hour=biz_end_hour,
+          learned_active_hours=learned_active_hours,
       )
       audit_info = PreFlightValidator.audit(
           target_metric=primary_metric,
@@ -3692,6 +3700,98 @@ def calculate_hourly_zscore(
   return round((float(observed_hour) - float(avg_hourly)) / safe_std, 4)
 
 
+def calculate_adaptive_context_z(
+    observed: float,
+    hist_avg: float,
+    hist_stddev: float,
+    active_days: int = DEFAULT_MIN_BASELINE_DAYS,
+    off_hours_obs: Optional[float] = None,
+    event_timestamp_seconds: Optional[float] = None,
+    event_hour: Optional[int] = None,
+    event_dow: Optional[int] = None,
+    tenant_tz: str = "UTC",
+    biz_start_hour: int = 8,
+    biz_end_hour: int = 18,
+    learned_active_hours: Optional[Any] = None,
+    min_baseline_days: int = DEFAULT_MIN_BASELINE_DAYS,
+    anomaly_threshold: float = 3.0,
+    byte_dispersion_floor: Optional[float] = None,
+) -> Dict[str, Any]:
+  """Computes concordance-aligned off-hours (1.75σ) vs in-hours (3.0σ) Z-equivalent adaptive_z (WS3-ADAPTIVE / D1c).
+
+  `event_dow` follows Chronicle `timestamp.get_day_of_week`: 1 = Sunday, 2 = Monday .. 6 = Friday, 7 = Saturday.
+  """
+  import zoneinfo
+  from .template_router import normalize_learned_active_hours
+
+  eff_tz = str(tenant_tz or "").strip()
+  if not eff_tz:
+    raise ValueError("tenant_tz must be a non-empty IANA time-zone string.")
+
+  obs = float(observed)
+  avg = float(hist_avg)
+  std = float(hist_stddev)
+  n_days = int(active_days)
+
+  if off_hours_obs is not None:
+    eff_off_hours = max(0.0, float(off_hours_obs))
+  else:
+    hr = event_hour
+    dow = event_dow
+    if event_timestamp_seconds is not None and (hr is None or dow is None):
+      dt = datetime.datetime.fromtimestamp(float(event_timestamp_seconds), tz=zoneinfo.ZoneInfo(eff_tz))
+      if hr is None:
+        hr = dt.hour
+      if dow is None:
+        dow = 1 if dt.weekday() == 6 else dt.weekday() + 2
+
+    if learned_active_hours is not None:
+      norm = normalize_learned_active_hours(learned_active_hours)
+      assert norm is not None
+      hrs, weekdays_only = norm
+      hr_ok = (int(hr) in set(hrs)) if hr is not None else bool(hrs)
+      dow_ok = (2 <= int(dow) <= 6) if (weekdays_only and dow is not None) else True
+      in_sched = hr_ok and dow_ok
+    else:
+      s = int(biz_start_hour)
+      e = int(biz_end_hour)
+      if s < 0 or s > 23 or e < 0 or e > 24:
+        raise ValueError(f"Business hours out of bounds: biz_start_hour={s}, biz_end_hour={e}.")
+      dow_ok = (2 <= int(dow) <= 6) if dow is not None else True
+      if hr is None:
+        hr_ok = s != e
+      elif s == e:
+        hr_ok = False
+      elif s < e:
+        hr_ok = s <= int(hr) < e
+      else:
+        hr_ok = int(hr) >= s or int(hr) < e
+      in_sched = dow_ok and hr_ok
+    eff_off_hours = 0.0 if in_sched else max(0.0, obs)
+
+  floor = float(byte_dispersion_floor) if byte_dispersion_floor is not None else math.sqrt(max(avg, 1.0))
+  safe_stddev = max(std, floor)
+  personal_z = (obs - avg) / safe_stddev
+  safe_obs = obs if obs > 0.0 else 1.0
+  off_hours_share = max(0.0, min(1.0, eff_off_hours / safe_obs))
+  effective_gate = 1.75 if off_hours_share >= 0.5 else 3.0
+  adaptive_z = (personal_z * 3.0) / effective_gate
+  sensitivity_excess = personal_z - effective_gate
+  is_mature = n_days >= int(min_baseline_days)
+  alerts = bool(is_mature and adaptive_z >= float(anomaly_threshold))
+  return {
+      "personal_z": round(personal_z, 4),
+      "off_hours_obs": round(eff_off_hours, 4),
+      "off_hours_share": round(off_hours_share, 4),
+      "effective_gate": effective_gate,
+      "adaptive_z": round(adaptive_z, 4),
+      "sensitivity_excess": round(sensitivity_excess, 4),
+      "is_mature": is_mature,
+      "alerts": alerts,
+      "is_true_sigma": False,
+  }
+
+
 def rebuild_calendar_day_stats(
     active_days: float,
     active_avg: float,
@@ -3729,6 +3829,7 @@ class UEBAHybridEngine:
   calculate_bayesian_joint_odds = staticmethod(calculate_bayesian_joint_odds)
   calculate_macd_momentum = staticmethod(calculate_macd_momentum)
   calculate_hourly_zscore = staticmethod(calculate_hourly_zscore)
+  calculate_adaptive_context_z = staticmethod(calculate_adaptive_context_z)
   rebuild_calendar_day_stats = staticmethod(rebuild_calendar_day_stats)
   build_identifier_coverage_probe = staticmethod(build_identifier_coverage_probe)
   select_identifier_from_coverage = staticmethod(select_identifier_from_coverage)

@@ -75,7 +75,7 @@ DEFAULT_SIGNIFICANCE_GATES: Dict["StatisticalModel", str] = {
     StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z: "Z >= 3.0σ (merged into STANDARD_Z_SCORE)",
     StatisticalModel.PIECEWISE_CRI: "RETIRED (D1 -> ueba_constants.calculate_cri)",
     StatisticalModel.FLEET_PREVALENCE_SHIELD: "RETIRED (D1 -> hybrid_metric_fleet_prevalence_2stage.yl2)",
-    StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD: "Z >= context threshold",
+    StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD: "Adaptive Z >= 3.0 (1.75σ off / 3.0σ)",
     StatisticalModel.MACD_MOMENTUM_VELOCITY: "Above-Max Z >= 3.0σ",
     StatisticalModel.CIRCADIAN_VON_MISES: "RETIRED (D1 -> HOUR_OF_DAY_PROFILE)",
     StatisticalModel.QUANTILE_IQR_SKEW: "Tukey Scale-Excess >= 1.0",
@@ -1626,6 +1626,16 @@ class MalachiteASTValidator:
         errors.append(
             "MODEL_FORMULA_MISMATCH: TWO_PART_HURDLE must gate dormant awakenings on $hist_max and "
             "awakening volume and score via $hurdle_threat_score."
+        )
+    elif model == StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD:
+      if (
+          "$off_hours_obs" not in query_text
+          or "$effective_gate" not in query_text
+          or "$adaptive_z" not in query_text
+      ):
+        errors.append(
+            "MODEL_FORMULA_MISMATCH: ADAPTIVE_CONTEXT_THRESHOLD must compute event-level "
+            "$off_hours_obs, concordance gate $effective_gate (1.75 / 3.0), and Z-equivalent $adaptive_z."
         )
 
     return errors

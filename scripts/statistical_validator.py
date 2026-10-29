@@ -220,6 +220,8 @@ class StatisticalAntipatternAuditor:
 
     # Check B: Hardcoded product/vendor filter while metric does not bind product
     for metric_name, args_body in metrics_calls:
+      if metric_name.startswith("workspace_"):
+        continue
       product_filter_match = re.search(r"metadata\.product_name\s*==?\s*[\"']([^\"']+)[\"']", stage_body)
       if product_filter_match:
         hardcoded_product = product_filter_match.group(1)

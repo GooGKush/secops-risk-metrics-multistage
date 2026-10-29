@@ -259,21 +259,20 @@ Before running a multi-stage statistical hunt, explain the approach to the secur
 
 ---
 
-## 14. Context-Modulated Sensitivity Tightening (`ADAPTIVE_CONTEXT_THRESHOLD`)
-* **Security Problem Solved**: Solves the dilemma between high false positives during busy business hours and delayed detections during quiet off-hours or weekend shifts.
+## 14. Off-Hours & Weekend Adaptive Context Thresholding (`ADAPTIVE_CONTEXT_THRESHOLD`)
+* **Security Problem Solved**: Solves the dilemma between high false positives during busy business hours and delayed detections during quiet off-hours or weekend windows (`WS3-ADAPTIVE`, `D1c`).
 * **Mathematical Formulation**:
-  $$Z_{\text{personal}} = \frac{x - \mu}{\sigma_{\text{safe}}}$$
-  $$\text{Dynamic Hurdle} = \text{if}(\text{Active Days} \le 5, 1.75, 3.00)$$
-  $$\text{Sensitivity Excess} = Z_{\text{personal}} - \text{Dynamic Hurdle}$$
-* **Threat Meaning**: Lowers the detection hurdle from $3.0\sigma$ during standard operations to $1.75\sigma$ when evaluating entities with sparse or off-hours operational footprints.
+  * Stage 1 evaluates each event's local hour and weekday (`timestamp.get_hour`, `timestamp.get_day_of_week`) in `{{tenant_tz}}` (default `"UTC"`, business hours `08:00–18:00` Mon–Fri `2..6`, or per-entity learned active hours from `WS5-HOD` `HOUR_OF_DAY_PROFILE`) to accumulate `$off_hours_obs`:
+    $$Z_{\text{personal}} = \frac{x - \mu}{\sigma_{\text{safe}}}, \quad s_{\text{off}} = \frac{x_{\text{off\_hours}}}{\max(x, 1)}$$
+    $$G_{\text{eff}} = \text{if}(s_{\text{off}} \ge 0.5, 1.75, 3.00), \quad Z_{\text{adaptive}} = \frac{3.0 \cdot Z_{\text{personal}}}{G_{\text{eff}}}$$
+* **Threat Meaning**: Tightens the detection gate from $3.0\sigma$ during normal business hours to $1.75\sigma$ during off-hours or weekends, rescaling onto the canonical $Z_{\text{adaptive}} \ge 3.0$ Z-equivalent scale (`CRI = 50` at threshold).
 * **Post-Hunt Plain-English Cyber Impact Statement Template**:
 ```markdown
 > [!IMPORTANT]
 > **Adaptive Context Sensitivity Verdict: Off-Hours Tightening (`[target_metric]`)**
-> * **Operational Profile**: Entity operates on a quiet/sparse schedule ([active_days] active days).
-> * **Dynamic Hurdle**: Sensitivity automatically tightened from $3.00\sigma$ to **[dynamic_threshold]σ**.
-> * **Sensitivity Excess**: Exceeded adaptive threshold by **+[sensitivity_excess]σ**.
-> * **Investigative Meaning**: Activity represents a critical off-hours deviation that would have been missed by static daytime alerting thresholds.
+> * **Schedule Context**: **[off_hours_share]** of today's activity occurred outside the entity's active business schedule (`{{tenant_tz}}`).
+> * **Effective Gate**: Sensitivity tightened from $3.00\sigma$ to **[effective_gate]σ** (Z-equivalent adaptive score **[adaptive_z]**).
+> * **Investigative Meaning**: Activity represents a critical off-hours or weekend deviation that would have been missed by static daytime alerting thresholds.
 ```
 
 ---

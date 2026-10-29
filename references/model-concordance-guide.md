@@ -37,7 +37,7 @@ In multi-stage hunting workflows:
 | 11 | `ASYMMETRIC_DIRECTIONAL_Z` *(MERGED D1)* | Merged into `STANDARD_Z_SCORE` | `$personal_diff`, `$dispersion_floor`, `$safe_stddev`, `$personal_z` | Upper-tail positive `$personal_z >= 3.0` is identical to `STANDARD_Z_SCORE` (`standard_z_score.yl2`) | `order: $personal_z desc` | Maintaining duplicate `asymmetric_directional_z.yl2` |
 | 12 | `PIECEWISE_CRI` *(RETIRED D1)* | Retired — Computed via `ueba_constants.calculate_cri` | — | CRI is a reporting-only translation computed in Python (`WS7-01`), never in YARA-L | — | Emitting discrete step-ladder CRI in YARA-L |
 | 13 | `FLEET_PREVALENCE_SHIELD` *(RETIRED D1)* | Retired — Replaced by `hybrid_metric_fleet_prevalence_2stage.yl2` | — | Replaced by token-scoped `hybrid_metric_fleet_prevalence_2stage.yl2` or `dual_baseline_delta_z_3stage.yl2` | — | Dividing personal Z by raw daily active-entity count `1 + ln(fleet_count)` |
-| 14 | `ADAPTIVE_CONTEXT_THRESHOLD` | Baseline-Maturity Adaptive Sensitivity | `$raw_diff`, `$safe_stddev`, `$personal_z`, `$sparse_threshold`, `$mature_threshold`, `$effective_threshold`, `$sensitivity_excess` | Baseline-maturity thresholding ($3.5\sigma$ for sparse `< 7d` vs $2.5\sigma$ for mature `>= 7d`) | `order: $sensitivity_excess desc` | Static uniform threshold or loosening threshold on noisy sparse baselines |
+| 14 | `ADAPTIVE_CONTEXT_THRESHOLD` | Off-Hours & Weekend Adaptive Context Threshold | `$off_hours_obs`, `$raw_diff`, `$safe_stddev`, `$personal_z`, `$off_hours_share`, `$effective_gate`, `$adaptive_z`, `$sensitivity_excess` | `timestamp.get_hour` / `timestamp.get_day_of_week` in `{{tenant_tz}}`, Mon–Fri `08:00–18:00` (or `WS5-HOD` learned hours), `1.75σ` off-hours vs `3.0σ` in-hours, Z-equivalent `$adaptive_z = ($personal_z * 3.0) / $effective_gate` | `order: $adaptive_z desc` | Static active-days `3.5/2.5` proxy or raw `$sensitivity_excess` scoring (CRI 14) |
 | 15 | `MACD_MOMENTUM_VELOCITY` | Above-Historical-Max Z (Linear Peak Exceedance) | `$personal_diff`, `$safe_stddev`, `$personal_z`, `$exceed_raw`, `$exceed_pos`, `$above_max_z`, `$macd_z`, `$macd_momentum_score` | Linear peak exceedance (`$above_max_z = max(0, obs - hist_max) / safe_stddev`, `$macd_z = $personal_z + $above_max_z`) | `order: $macd_z desc` | Quadratic `* $velocity_ratio` byte overflow or dropping `$personal_z` |
 | 16 | `CIRCADIAN_VON_MISES` *(RETIRED D1)* | Retired — Hand off to `HOUR_OF_DAY_PROFILE` | — | Handed off to `secops-statistical-hunter` `HOUR_OF_DAY_PROFILE` (`PF-10` / `WS2-02`) | — | Comparing 1h counts or fixed 14:00 UTC centers against 24h `metrics.*` baselines |
 | 17 | `RELATIVE_DEVIATION` | Relative Deviation / Fold Change vs 30d Mean | `$safe_hist_avg`, `$dev`, `$ratio`, `$fold_change`, `$rel_dev_z_equiv` | Continuous `max(avg, 1.0)` floor, `(x - safe_avg) / safe_avg`, Z-equivalent `max(0, 3 * ratio)` | `order: $ratio desc` | Discontinuous `if(avg > 0, avg, 1)` floor or labelling it MAD |
@@ -58,7 +58,7 @@ Every query carries the model's significance gate as a root `condition:` placed 
 | `PIECEWISE_CRI` | — | **retired (`D1`)** | — | `RETIRED (D1 -> ueba_constants.calculate_cri)` | — |
 | `FLEET_PREVALENCE_SHIELD` | — | **retired (`D1`)** | — | `RETIRED (D1 -> hybrid_metric_fleet_prevalence_2stage.yl2)` | — |
 | `TWO_PART_HURDLE` | `$hurdle_threat_score` | `$hurdle_threat_score >= 3.0` | hurdle score (own scale, not σ) | `Hurdle Score >= 3.0 (Dormant >= 25 & > Max, OR Active Z >= 3.0σ)` | `{{anomaly_threshold}}` |
-| `ADAPTIVE_CONTEXT_THRESHOLD` | `$active_days`, `$sensitivity_excess` | `$active_days >= 7 and $sensitivity_excess >= 0.0` | σ above the context threshold (1.75σ / 3.00σ) | `Z >= context threshold` | none (built into the score) |
+| `ADAPTIVE_CONTEXT_THRESHOLD` | `$active_days`, `$adaptive_z` | `$active_days >= 7 and $adaptive_z >= 3.0` | Z-equivalent (1.75σ off-hours / 3.0σ in-hours -> 3.0) | `Adaptive Z >= 3.0 (1.75σ off / 3.0σ)` | `{{anomaly_threshold}}` |
 | `LONGITUDINAL_CUSUM` | `$active_days`, `$cusum_drift_score`, `$drift_days` | `$active_days >= 7 and $cusum_drift_score >= 3.0 and $drift_days >= 2` | cumulative σ excess over 0.5σ slack | `Windowed Slack Sum >= 3.0σ (>= 2 drift days)` | `{{anomaly_threshold}}` |
 | `BAYESIAN_GAMMA` | `$bayesian_z` | `$bayesian_z >= 3.0` | σ (NB posterior-predictive) | `Bayesian Z >= 3.0σ` | `{{anomaly_threshold}}` |
 | `BAYESIAN_BETA_BINOMIAL` | `$beta_binomial_z` | `$beta_binomial_z >= 3.0` | σ (Beta-Binomial posterior-predictive) | `Beta-Binomial Z >= 3.0σ` | `{{anomaly_threshold}}` |
@@ -411,11 +411,12 @@ order:
 
 
 ### 14. `ADAPTIVE_CONTEXT_THRESHOLD` (`adaptive_context_threshold.yl2`)
-* **Hypothesis**: Baseline-maturity adaptive thresholding: sparse baselines (`$active_days < 7`) require a stricter $3.5\sigma$ threshold to suppress cold-start noise, whereas mature baselines (`$active_days >= 7`) use a $2.5\sigma$ sensitivity threshold.
+* **Hypothesis**: Event-level off-hours and weekend sensitivity tightening (`WS3-ADAPTIVE`, `D1c`): Stage 1 evaluates each event's local hour and weekday (`timestamp.get_hour`, `timestamp.get_day_of_week`) in `{{tenant_tz}}` (default `"UTC"`, business hours `08:00–18:00` Mon–Fri `2..6`, or per-entity learned active hours from `WS5-HOD` `HOUR_OF_DAY_PROFILE`). When off-schedule activity accounts for $\ge 50\%$ of today's observed volume (`$off_hours_share >= 0.5`), the detection gate tightens from `3.0σ` to `1.75σ`, rescaled to Z-equivalent `$adaptive_z = ($personal_z * 3.0) / $effective_gate` so the threshold maps cleanly to `3.0` (`CRI = 50`).
 * **Mandatory AST Contract**:
 ```yara
 outcome:
   $observed = max($stage1_extract.observed_val)
+  $off_hours_obs = max($stage1_extract.off_hours_obs)
   $hist_avg = max($stage1_extract.historical_avg)
   $hist_stddev = max($stage1_extract.historical_stddev)
   $active_days = max($stage1_extract.historical_active_days)
@@ -425,17 +426,18 @@ outcome:
   $safe_stddev = if($hist_stddev > $dispersion_floor, $hist_stddev, $dispersion_floor)
   $personal_z = $raw_diff / $safe_stddev
 
-  $sparse_threshold = 3.5
-  $mature_threshold = 2.5
-  $effective_threshold = if($active_days < 7, $sparse_threshold, $mature_threshold)
+  $safe_obs = if($observed > 0, $observed, 1)
+  $off_hours_share = (1.0 * $off_hours_obs) / $safe_obs
+  $effective_gate = if($off_hours_share >= 0.5, 1.75, 3.0)
 
-  $sensitivity_excess = $personal_z - $effective_threshold
+  $adaptive_z = ($personal_z * 3.0) / $effective_gate
+  $sensitivity_excess = $personal_z - $effective_gate
 
 condition:
-  $active_days >= 7 and $sensitivity_excess >= 0.0
+  $active_days >= 7 and $adaptive_z >= 3.0
 
 order:
-  $sensitivity_excess desc
+  $adaptive_z desc
 ```
 
 ### 15. `MACD_MOMENTUM_VELOCITY` — Above-Historical-Max Z (`macd_momentum_velocity.yl2`)
