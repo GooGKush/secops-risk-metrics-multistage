@@ -1356,8 +1356,24 @@ class MalachiteASTValidator:
     return errors
 
   @staticmethod
+  def _is_constant_literal_expr(expr: str) -> bool:
+    """Returns True if expr is a constant string, numeric, or boolean literal."""
+    s = expr.strip()
+    while s.startswith("(") and s.endswith(")") and len(s) >= 2:
+      s = s[1:-1].strip()
+    if re.match(r'^"(?:\\.|[^"\\])*"(?:\s+nocase)?$', s, flags=re.IGNORECASE):
+      return True
+    if re.match(r"^'(?:\\.|[^'\\])*'(?:\s+nocase)?$", s, flags=re.IGNORECASE):
+      return True
+    if re.match(r"^[+-]?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?$", s):
+      return True
+    if s.lower() in ("true", "false"):
+      return True
+    return False
+
+  @staticmethod
   def _check_match_placeholders_bound(stage_name: str, event_part: str, match_part: str) -> List[str]:
-    """Ensures every placeholder used in match: has an explicit binding in event_part."""
+    """Ensures every placeholder used in match: has a non-literal field/stage/function binding in event_part."""
     errors = []
     # Check for member access or stage-scoped dot references in match: (e.g. $s1.host)
     if re.search(r"\$[a-zA-Z0-9_]+\.[a-zA-Z0-9_.]+", match_part):
@@ -1366,24 +1382,57 @@ class MalachiteASTValidator:
           "stage-scoped dot references like '$s1.host'. In YARA-L, match variables must be simple identifiers ('$host'). "
           "Bind stage variables in events ('$host = $stage.host') before match:."
       )
+    clean_event = re.sub(r"/\*.*?\*/", "", event_part, flags=re.DOTALL)
     match_vars = re.findall(r"\$([a-zA-Z0-9_]+)", match_part)
     for mv in match_vars:
-      # Must be bound via $mv = ... or field = $mv
+      # Must be bound via $mv = ... or field = $mv (not only a constant literal)
       is_bound = False
-      for line in event_part.splitlines():
+      has_non_literal_binding = False
+      literal_rhs_seen: List[str] = []
+      for line in clean_event.splitlines():
         clean = re.sub(r"//.*", "", line).strip()
         if not clean or "=" not in clean:
           continue
-        parts = clean.split("=", 1)
-        lhs = parts[0].strip()
-        rhs = parts[1].strip()
-        if lhs == f"${mv}" or re.search(rf"\${mv}\b", rhs):
+        # Inspect equality predicates (excluding !=, <=, >=)
+        eq_parts = re.split(r"(?<![!<>])==?(?!=)", clean, maxsplit=1)
+        if len(eq_parts) != 2:
+          continue
+        lhs = eq_parts[0].strip()
+        rhs = eq_parts[1].strip()
+        if lhs == f"${mv}":
           is_bound = True
-          break
+          if MalachiteASTValidator._is_constant_literal_expr(rhs):
+            literal_rhs_seen.append(rhs)
+          else:
+            has_non_literal_binding = True
+        elif rhs == f"${mv}":
+          is_bound = True
+          if MalachiteASTValidator._is_constant_literal_expr(lhs):
+            literal_rhs_seen.append(lhs)
+          else:
+            has_non_literal_binding = True
+        elif re.search(rf"\${mv}\b", rhs) or re.search(rf"\${mv}\b", lhs):
+          # E.g. ($u = "a" or $u = "b") vs function/field involvement
+          sub_literals = re.findall(
+              rf"""\${mv}\s*==?\s*("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[+-]?\d+(?:\.\d+)?)""",
+              clean,
+          )
+          is_bound = True
+          if sub_literals:
+            literal_rhs_seen.extend(sub_literals)
+          else:
+            has_non_literal_binding = True
       if not is_bound:
         errors.append(
             f"UNBOUND_MATCH_VARIABLE in stage '{stage_name}': Match placeholder '${mv}' is not bound to any event field "
             "or stage field in the event section. Common Compiler requires all match variables to be explicitly assigned in events."
+        )
+      elif literal_rhs_seen and not has_non_literal_binding:
+        errors.append(
+            f"CONSTANT_LITERAL_MATCH_VARIABLE in stage '{stage_name}': Match placeholder '${mv}' is bound only to "
+            f"constant literal {literal_rhs_seen[0]} in the event section; Google SecOps Malachite compiler rejects "
+            "constant string/numeric literals in 'match:' (INVALID_ARGUMENT). Bind the match variable to a UDM event "
+            "field (e.g., '$event_type = metadata.event_type') or an upstream stage field."
         )
     return errors
 

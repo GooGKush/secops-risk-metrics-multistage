@@ -208,35 +208,26 @@ def build_identifier_coverage_probe(
     target_metric: str,
     entity_type: EntityType = EntityType.ASSET,
 ) -> str:
-  """Builds a read-only 2-stage YARA-L probe measuring hostname vs IP (or userid vs email) coverage (D4 / WS1-07)."""
+  """Builds a read-only single-stage YARA-L stats probe measuring hostname vs IP (or userid vs email) coverage (D4 / WS1-07)."""
   if target_metric not in METRIC_CATALOG:
     raise ValueError(f"Unknown risk metric: {target_metric}")
   sem = mc.baseline_semantics(target_metric)
-  filter_block = "\n    ".join(sem.observed_filter)
+  filter_block = "\n".join(sem.observed_filter)
   if entity_type == EntityType.USER:
     primary_field = PreFlightValidator.resolve_identifier_field(target_metric, EntityType.USER, "userid")
     alt_field = PreFlightValidator.resolve_identifier_field(target_metric, EntityType.USER, "email_addresses")
     return (
         f"// Goal: Per-tenant D4 identifier coverage probe for {target_metric} (userid vs email_addresses)\n"
-        "stage stage1_coverage_probe {\n"
-        f"    {filter_block}\n"
-        '    $bucket = "coverage"\n\n'
-        "  match:\n"
-        "    $bucket by 1d\n\n"
-        "  outcome:\n"
-        "    $total_events = count(metadata.id)\n"
-        f'    $userid_events = sum(if({primary_field} != "", 1, 0))\n'
-        f"    $distinct_userids = count_distinct({primary_field})\n"
-        f"    $distinct_emails = count_distinct({alt_field})\n"
-        "}\n\n"
-        "$bucket = $stage1_coverage_probe.bucket\n\n"
+        f"{filter_block}\n"
+        "$event_type = metadata.event_type\n\n"
         "match:\n"
-        "  $bucket\n\n"
+        "  $event_type\n\n"
         "outcome:\n"
-        "  $total_events = sum($stage1_coverage_probe.total_events)\n"
-        "  $userid_events = sum($stage1_coverage_probe.userid_events)\n"
-        "  $distinct_userids = max($stage1_coverage_probe.distinct_userids)\n"
-        "  $distinct_emails = max($stage1_coverage_probe.distinct_emails)\n\n"
+        "  $total_events = count(metadata.id)\n"
+        f'  $userid_events = sum(if({primary_field} != "", 1, 0))\n'
+        f'  $email_events = sum(if({alt_field} != "", 1, 0))\n'
+        f"  $distinct_userids = count_distinct({primary_field})\n"
+        f"  $distinct_emails = count_distinct({alt_field})\n\n"
         "order:\n"
         "  $total_events desc\n"
     )
@@ -245,25 +236,16 @@ def build_identifier_coverage_probe(
   alt_field = PreFlightValidator.resolve_identifier_field(target_metric, EntityType.ASSET, "ip")
   return (
       f"// Goal: Per-tenant D4 identifier coverage probe for {target_metric} (hostname vs IP)\n"
-      "stage stage1_coverage_probe {\n"
-      f"    {filter_block}\n"
-      '    $bucket = "coverage"\n\n'
-      "  match:\n"
-      "    $bucket by 1d\n\n"
-      "  outcome:\n"
-      "    $total_events = count(metadata.id)\n"
-      f'    $hostname_events = sum(if({primary_field} != "", 1, 0))\n'
-      f"    $distinct_hostnames = count_distinct({primary_field})\n"
-      f"    $distinct_ips = count_distinct({alt_field})\n"
-      "}\n\n"
-      "$bucket = $stage1_coverage_probe.bucket\n\n"
+      f"{filter_block}\n"
+      "$event_type = metadata.event_type\n\n"
       "match:\n"
-      "  $bucket\n\n"
+      "  $event_type\n\n"
       "outcome:\n"
-      "  $total_events = sum($stage1_coverage_probe.total_events)\n"
-      "  $hostname_events = sum($stage1_coverage_probe.hostname_events)\n"
-      "  $distinct_hostnames = max($stage1_coverage_probe.distinct_hostnames)\n"
-      "  $distinct_ips = max($stage1_coverage_probe.distinct_ips)\n\n"
+      "  $total_events = count(metadata.id)\n"
+      f'  $hostname_events = sum(if({primary_field} != "", 1, 0))\n'
+      f'  $ip_events = sum(if({alt_field} != "", 1, 0))\n'
+      f"  $distinct_hostnames = count_distinct({primary_field})\n"
+      f"  $distinct_ips = count_distinct({alt_field})\n\n"
       "order:\n"
       "  $total_events desc\n"
   )
@@ -304,21 +286,22 @@ def select_identifier_from_coverage(
   if entity_type == EntityType.USER:
     primary = PreFlightValidator.resolve_identifier_field(target_metric, EntityType.USER, "userid")
     alternate = PreFlightValidator.resolve_identifier_field(target_metric, EntityType.USER, "email_addresses")
-    ev_key, dp_key, da_key = "userid_events", "distinct_userids", "distinct_emails"
+    ev_key, alt_ev_key, dp_key, da_key = "userid_events", "email_events", "distinct_userids", "distinct_emails"
   else:
     primary = PreFlightValidator.resolve_identifier_field(target_metric, EntityType.ASSET, "hostname")
     alternate = PreFlightValidator.resolve_identifier_field(target_metric, EntityType.ASSET, "ip")
-    ev_key, dp_key, da_key = "hostname_events", "distinct_hostnames", "distinct_ips"
+    ev_key, alt_ev_key, dp_key, da_key = "hostname_events", "ip_events", "distinct_hostnames", "distinct_ips"
 
   rows = _extract_probe_rows(coverage_payload)
   if not rows and isinstance(coverage_payload, dict) and any(
-      k in coverage_payload for k in ("total_events", ev_key, dp_key, da_key)
+      k in coverage_payload for k in ("total_events", ev_key, alt_ev_key, dp_key, da_key)
   ):
     rows = [coverage_payload]
 
   if rows:
     total_events = 0.0
     primary_events: Optional[float] = None
+    alt_events: Optional[float] = None
     distinct_primary: Optional[float] = None
     distinct_alt: Optional[float] = None
     for row in rows:
@@ -326,6 +309,8 @@ def select_identifier_from_coverage(
         total_events += float(row["total_events"])
       if row.get(ev_key) is not None:
         primary_events = (primary_events or 0.0) + float(row[ev_key])
+      if row.get(alt_ev_key) is not None:
+        alt_events = (alt_events or 0.0) + float(row[alt_ev_key])
       if row.get(dp_key) is not None:
         distinct_primary = max(distinct_primary or 0.0, float(row[dp_key]))
       if row.get(da_key) is not None:
@@ -333,7 +318,10 @@ def select_identifier_from_coverage(
 
     if total_events > 0.0 and primary_events is not None:
       ratio = primary_events / total_events
-      if ratio < min_primary_ratio and (distinct_alt is None or distinct_alt > (distinct_primary or 0.0)):
+      if ratio < min_primary_ratio and (
+          (alt_events is not None and alt_events > primary_events)
+          or (distinct_alt is None or distinct_alt > (distinct_primary or 0.0))
+      ):
         return alternate
       return primary
     if distinct_primary is not None or distinct_alt is not None:
