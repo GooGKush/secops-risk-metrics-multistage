@@ -5,6 +5,32 @@ Author: Greg Kushmerek
 
 from typing import Any, Dict, List, Optional
 
+try:
+  from .ueba_constants import (
+      _coerce_finite_float,
+      calculate_cri,
+      coerce_cri_int,
+      format_cri,
+      get_cri_band_metadata,
+  )
+except ImportError:
+  try:
+    from scripts.ueba_constants import (
+        _coerce_finite_float,
+        calculate_cri,
+        coerce_cri_int,
+        format_cri,
+        get_cri_band_metadata,
+    )
+  except ImportError:
+    from ueba_constants import (  # type: ignore[no-redef]
+        _coerce_finite_float,
+        calculate_cri,
+        coerce_cri_int,
+        format_cri,
+        get_cri_band_metadata,
+    )
+
 
 class CommonMarkTriageFormatter:
   """Formats outlier findings into executive markdown triage reports with plain-English impact cards."""
@@ -269,11 +295,16 @@ class CommonMarkTriageFormatter:
         z_auth = record.get("z_auth", 0.0)
         z_proc = record.get("z_proc", 0.0)
         z_net = record.get("z_net", 0.0)
-        d_val = record.get("threat_distance", record.get("threat_norm", record.get("anomaly_score", 0.0)))
-        cri_val = record.get("cri", record.get("cri_score", 99))
-        cri_badge = record.get("cri_badge", "CRITICAL")
-        bar = record.get("visual_bar", "████████")
-        report.append(f"| `{entity}` | `+{z_auth:.1f}σ` | `+{z_proc:.1f}σ` | `+{z_net:.1f}σ` | `+{d_val:.2f}σ` | **`{cri_val}`** ({cri_badge}) | `{bar}` |")
+        raw_d = record.get("threat_distance", record.get("threat_norm", record.get("anomaly_score")))
+        d_num = _coerce_finite_float(raw_d)
+        explicit_cri = coerce_cri_int(record.get("cri", record.get("cri_score")))
+        cri_int = explicit_cri if explicit_cri is not None else calculate_cri(d_num)
+        default_badge, _, default_bar = get_cri_band_metadata(cri_int)
+        cri_cell = format_cri(cri_int)
+        cri_badge = record.get("cri_badge", default_badge)
+        bar = record.get("visual_bar", default_bar)
+        d_cell = "N/A" if d_num is None else f"{d_num:+.2f}σ"
+        report.append(f"| `{entity}` | `+{z_auth:.1f}σ` | `+{z_proc:.1f}σ` | `+{z_net:.1f}σ` | `{d_cell}` | **`{cri_cell}`** ({cri_badge}) | `{bar}` |")
     else:
       report.extend([
           "| Entity Identifier | 24h Observed | Baseline Mean (30d) | Baseline StdDev | Credibility / Z-Score | CRI Score (0–100) | Visual Magnitude |",
@@ -285,10 +316,15 @@ class CommonMarkTriageFormatter:
         hist_avg = record.get("hist_avg", record.get("historical_avg", record.get("avg_30d", "-")))
         hist_std = record.get("hist_stddev", record.get("historical_stddev", record.get("stddev_30d", "-")))
         score_val = record.get(score_key, record.get("z_score", record.get("anomaly_score", "-")))
-        cri_val = record.get("cri", record.get("cri_score", 99))
-        cri_badge = record.get("cri_badge", "CRITICAL")
-        bar = record.get("visual_bar", "████████")
-        report.append(f"| `{entity}` | `{observed}` | `{hist_avg}` | `{hist_std}` | `+{score_val}σ` | **`{cri_val}`** ({cri_badge}) | `{bar}` |")
+        score_num = _coerce_finite_float(score_val)
+        explicit_cri = coerce_cri_int(record.get("cri", record.get("cri_score")))
+        cri_int = explicit_cri if explicit_cri is not None else calculate_cri(score_num)
+        default_badge, _, default_bar = get_cri_band_metadata(cri_int)
+        cri_cell = format_cri(cri_int)
+        cri_badge = record.get("cri_badge", default_badge)
+        bar = record.get("visual_bar", default_bar)
+        score_cell = "N/A" if score_num is None else f"+{score_val}σ"
+        report.append(f"| `{entity}` | `{observed}` | `{hist_avg}` | `{hist_std}` | `{score_cell}` | **`{cri_cell}`** ({cri_badge}) | `{bar}` |")
 
     report.extend([
         "",
@@ -333,7 +369,7 @@ class CommonMarkTriageFormatter:
         f"* **Model Formulation**: {statistical_model}",
         "* **Degrees of Freedom ($N$)**: 30 daily observation periods.",
         r"* **Multi-Sector Threat Norm ($D$)**: Euclidean Distance $D = \sqrt{\sum \max(0, Z_i)^2}$ over $K = 3$ sectors. Clamping makes $D$ a rectified norm, not $\chi_3$: null mean $\mathbb{E}[D] \approx 0.97$, with point mass $P(D = 0) = 12.5\%$ when no sector exceeds baseline.",
-        r"* **Calibrated Risk Index**: $\text{CRI} = \text{clamp}\left(\text{round}\left(\frac{100}{1 + \exp(-0.6 \cdot (S - 3.0))}\right),\, 0,\, 100\right)$, evaluated on the score column $S$ defined above. Because $S$ is non-negative under clamping, the attainable floor is $\text{CRI} = 14$ at $S = 0$.",
+        r"* **Calibrated Risk Index**: For $S > 0$, $\text{CRI} = \text{clamp}\left(\text{round}\left(\frac{100}{1 + \exp(-0.6 \cdot (S - 3.0))}\right),\, 0,\, 100\right)$; for $S \le 0$, $\text{CRI} = 0$ (nominal zero floor); missing or non-finite scores report `N/A`.",
         "</details>",
     ])
 

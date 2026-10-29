@@ -76,6 +76,11 @@ from scripts.ueba_constants import (
     SENSITIVITY_ALIASES,
     SENSITIVITY_THRESHOLD_MAP,
     WRITEBACK_CRI_THRESHOLD,
+    _coerce_finite_float,
+    calculate_cri,
+    coerce_cri_int,
+    format_cri,
+    get_cri_band_metadata,
     resolve_sensitivity_thresholds,
 )
 
@@ -1613,19 +1618,9 @@ def dispatch_hybrid_handoff(
 # ---------------------------------------------------------------------------
 
 
-def _cri_band_metadata(cri: int) -> Tuple[str, str, str]:
-  """Returns (short_badge, full_band_label, unicode_bar) for a CRI [0..100] score."""
-  blocks = max(0, min(8, int(round((cri / 100.0) * 8))))
-  bar = ("█" * blocks) + ("░" * (8 - blocks))
-  if cri >= 90:
-    return "CRITICAL", "🚨 Critical Outlier", bar
-  if cri >= 70:
-    return "HIGH", "🔴 High Threat", bar
-  if cri >= 46:
-    return "MEDIUM", "🟠 Medium Outlier", bar
-  if cri >= 26:
-    return "LOW", "🟡 Low Drift", bar
-  return "INFORMATIONAL", "🟢 Nominal", bar
+def _cri_band_metadata(cri: Any) -> Tuple[str, str, str]:
+  """Returns (short_badge, full_band_label, unicode_bar) for a CRI [0..100] or None score."""
+  return get_cri_band_metadata(cri)
 
 
 def _normalize_single_row(raw_row: Dict[str, Any]) -> Dict[str, Any]:
@@ -1664,13 +1659,12 @@ def _normalize_single_row(raw_row: Dict[str, Any]) -> Dict[str, Any]:
         val = row[k]
         if isinstance(val, list) and val:
           val = val[0]
-        try:
-          return float(val)
-        except (TypeError, ValueError):
-          continue
+        parsed = _coerce_finite_float(val)
+        if parsed is not None:
+          return parsed
     return default
 
-  observed = _first_float((
+  obs_keys = (
       "observed",
       "observed_val",
       "observed_24h",
@@ -1684,9 +1678,8 @@ def _normalize_single_row(raw_row: Dict[str, Any]) -> Dict[str, Any]:
       "observed_fails",
       "m1_obs",
       "sector_a_obs",
-  ), 0.0)
-
-  hist_avg = _first_float((
+  )
+  avg_keys = (
       "hist_avg",
       "historical_avg",
       "avg_30d",
@@ -1700,9 +1693,8 @@ def _normalize_single_row(raw_row: Dict[str, Any]) -> Dict[str, Any]:
       "q50_val",
       "d_mu",
       "m1_avg",
-  ), 0.0)
-
-  hist_stddev = _first_float((
+  )
+  std_keys = (
       "hist_stddev",
       "historical_stddev",
       "stddev_30d",
@@ -1715,7 +1707,13 @@ def _normalize_single_row(raw_row: Dict[str, Any]) -> Dict[str, Any]:
       "safe_robust_scale",
       "safe_iqr",
       "d_sigma",
-  ), 1.0)
+  )
+  raw_obs = _first_float(obs_keys)
+  raw_avg = _first_float(avg_keys)
+  raw_std = _first_float(std_keys)
+  observed = raw_obs if raw_obs is not None else 0.0
+  hist_avg = raw_avg if raw_avg is not None else 0.0
+  hist_stddev = raw_std if raw_std is not None else 1.0
 
   active_days = _first_float((
       "active_days",
@@ -1730,7 +1728,7 @@ def _normalize_single_row(raw_row: Dict[str, Any]) -> Dict[str, Any]:
       "raw_active_days",
   ), 30.0)
 
-  score = _first_float((
+  score_keys = (
       "z_score",
       "modified_z",
       "quantile_z",
@@ -1780,21 +1778,34 @@ def _normalize_single_row(raw_row: Dict[str, Any]) -> Dict[str, Any]:
       "anomaly_score",
       "ratio",
       "z",
-  ))
+  )
+  sq_score_keys = (
+      "threat_distance_sq",
+      "composite_threat_norm_sq",
+      "d_vs_fleet_sq",
+      "d_vs_team_sq",
+      "d_sq",
+      "norm_sq",
+  )
+  has_any_score_key = any(k in row for k in score_keys + sq_score_keys)
+  score = _first_float(score_keys)
 
   if score is None:
-    sq_val = _first_float(("threat_distance_sq", "composite_threat_norm_sq", "d_vs_fleet_sq", "d_vs_team_sq", "d_sq", "norm_sq"))
+    sq_val = _first_float(sq_score_keys)
     if sq_val is not None:
       score = math.sqrt(max(0.0, sq_val))
-    elif observed is not None and hist_avg is not None:
-      denom = hist_stddev if (hist_stddev and hist_stddev > 0) else 1.0
-      score = (observed - hist_avg) / denom
-    else:
-      score = 0.0
+    elif not has_any_score_key and raw_obs is not None and raw_avg is not None:
+      denom = raw_std if (raw_std is not None and raw_std > 0) else 1.0
+      score = (raw_obs - raw_avg) / denom
 
-  explicit_cri = _first_float(("cri", "cri_score"))
-  cri_int = int(round(explicit_cri)) if explicit_cri is not None else cri_from_score(score)
-  cri_int = max(0, min(100, cri_int))
+  has_explicit_cri = any(k in row for k in ("cri", "cri_score"))
+  explicit_cri = coerce_cri_int(row.get("cri") if "cri" in row else row.get("cri_score")) if has_explicit_cri else None
+  if explicit_cri is not None:
+    cri_int: Optional[int] = explicit_cri
+  elif has_explicit_cri and not has_any_score_key:
+    cri_int = None
+  else:
+    cri_int = calculate_cri(score)
   short_badge, full_band, bar = _cri_band_metadata(cri_int)
 
   normalized = dict(row)
@@ -1807,10 +1818,11 @@ def _normalize_single_row(raw_row: Dict[str, Any]) -> Dict[str, Any]:
       "hist_stddev": round(hist_stddev, 2) if hist_stddev is not None else 1.0,
       "historical_stddev": round(hist_stddev, 2) if hist_stddev is not None else 1.0,
       "active_days": int(round(active_days)) if active_days is not None else 30,
-      "z_score": round(score, 2),
-      "anomaly_score": round(score, 2),
+      "z_score": round(score, 2) if score is not None else None,
+      "anomaly_score": round(score, 2) if score is not None else None,
       "cri": cri_int,
       "cri_score": cri_int,
+      "cri_display": format_cri(cri_int),
       "cri_badge": short_badge,
       "cri_band_label": full_band,
       "visual_bar": bar,
@@ -1840,7 +1852,7 @@ def _extract_and_normalize_rows(
         r_copy = dict(r)
         r_copy.setdefault("day", day_str)
         combined.append(_normalize_single_row(r_copy))
-    combined.sort(key=lambda x: x.get("z_score", 0.0), reverse=True)
+    combined.sort(key=lambda x: x["z_score"] if x.get("z_score") is not None else -math.inf, reverse=True)
     return combined, {"stats": {"results": combined}}
 
   if isinstance(rows_input, str):
@@ -1858,13 +1870,13 @@ def _extract_and_normalize_rows(
       return [], rows_input
     if "top_outliers" in rows_input and isinstance(rows_input["top_outliers"], list):
       normalized = [_normalize_single_row(r) for r in rows_input["top_outliers"]]
-      normalized.sort(key=lambda x: x.get("z_score", 0.0), reverse=True)
+      normalized.sort(key=lambda x: x["z_score"] if x.get("z_score") is not None else -math.inf, reverse=True)
       return normalized, {"stats": {"results": normalized}}
     if "results" in rows_input and "stats" not in rows_input and isinstance(rows_input["results"], list):
       return _extract_and_normalize_rows(rows_input["results"])
     parsed = parse_stats_payload(rows_input)
     normalized = [_normalize_single_row(r) for r in parsed]
-    normalized.sort(key=lambda x: x.get("z_score", 0.0), reverse=True)
+    normalized.sort(key=lambda x: x["z_score"] if x.get("z_score") is not None else -math.inf, reverse=True)
     return normalized, rows_input
 
   if isinstance(rows_input, (list, tuple)):
@@ -1874,7 +1886,7 @@ def _extract_and_normalize_rows(
       normalized = [_normalize_single_row(r) for r in parsed]
     else:
       normalized = [_normalize_single_row(r) for r in rows_input if isinstance(r, dict)]
-    normalized.sort(key=lambda x: x.get("z_score", 0.0), reverse=True)
+    normalized.sort(key=lambda x: x["z_score"] if x.get("z_score") is not None else -math.inf, reverse=True)
     return normalized, {"stats": {"results": normalized}}
 
   return [], {"stats": {"results": []}}
@@ -2000,7 +2012,9 @@ def render_forensic_dossier(
           "audit_result": audit_result,
       }
 
-  qualifying_outliers = [r for r in outliers if r.get("z_score", 0.0) >= anomaly_threshold]
+  qualifying_outliers = [
+      r for r in outliers if r.get("z_score") is not None and r["z_score"] >= anomaly_threshold
+  ]
   reduced_data: Dict[str, Any] = {
       "outlier_count": len(outliers),
       "top_outliers": outliers,
@@ -2091,9 +2105,9 @@ def render_forensic_dossier(
   ranked_entities_for_chart = [
       {
           "entity": r["entity"],
-          "threat_distance_d": r["z_score"],
-          "z_score": r["z_score"],
-          "cri": r["cri"],
+          "threat_distance_d": r["z_score"] if r.get("z_score") is not None else 0.0,
+          "z_score": r["z_score"] if r.get("z_score") is not None else 0.0,
+          "cri": r["cri"] if r.get("cri") is not None else 0,
           "observed": r["observed"],
           "baseline_mean": r["hist_avg"],
           "status": r["cri_badge"],
@@ -2274,9 +2288,11 @@ def render_forensic_dossier(
       "| :----- | :------- | :----------- | :------------- | :------ | :---------------- | :--------------- |",
   ]
   for r in outliers:
+    score_cell = "N/A" if r.get("z_score") is None else f"{r['z_score']:+.2f}σ"
+    cri_cell = format_cri(r.get("cri"))
     table_lines.append(
         f"| `{r['entity']}` | `{r['observed']}` | `{r['hist_avg']}` | `{r['hist_stddev']}` | "
-        f"`+{r['z_score']:.2f}σ` | **`{r['cri']}`** ({r['cri_badge']}) | `{r['visual_bar']}` |"
+        f"`{score_cell}` | **`{cri_cell}`** ({r['cri_badge']}) | `{r['visual_bar']}` |"
     )
 
   projected_cols = sorted(list(outliers[0].keys())) if outliers else []
@@ -2332,9 +2348,13 @@ def render_forensic_dossier(
     ])
 
   if outliers:
+    top_score_cell = (
+        "N/A" if outliers[0].get("z_score") is None else f"{outliers[0]['z_score']:+.2f}σ"
+    )
+    top_cri_cell = format_cri(outliers[0].get("cri"))
     core_finding_line = (
-        f"> * **The Core Finding**: Top entity `{top_entity}` registered `+{outliers[0]['z_score']:.2f}σ` "
-        f"(`CRI = {outliers[0]['cri']}`, {outliers[0]['cri_band_label']}) against its 30-day behavioral baseline "
+        f"> * **The Core Finding**: Top entity `{top_entity}` registered `{top_score_cell}` "
+        f"(`CRI = {top_cri_cell}`, {outliers[0]['cri_band_label']}) against its 30-day behavioral baseline "
         f"(`μ = {outliers[0]['hist_avg']}`, `σ = {outliers[0]['hist_stddev']}`)."
     )
   elif radar_payload:

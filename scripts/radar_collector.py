@@ -17,12 +17,27 @@ import sys
 from typing import Any, Dict, List, Optional, Tuple
 
 try:
-  from .ueba_constants import RADAR_FUSION_DISTANCE_THRESHOLD
+  from .ueba_constants import (
+      RADAR_FUSION_DISTANCE_THRESHOLD,
+      _coerce_finite_float,
+      calculate_cri,
+      format_cri,
+  )
 except ImportError:
   try:
-    from scripts.ueba_constants import RADAR_FUSION_DISTANCE_THRESHOLD
+    from scripts.ueba_constants import (
+        RADAR_FUSION_DISTANCE_THRESHOLD,
+        _coerce_finite_float,
+        calculate_cri,
+        format_cri,
+    )
   except ImportError:
-    from ueba_constants import RADAR_FUSION_DISTANCE_THRESHOLD  # type: ignore[no-redef]
+    from ueba_constants import (  # type: ignore[no-redef]
+        RADAR_FUSION_DISTANCE_THRESHOLD,
+        _coerce_finite_float,
+        calculate_cri,
+        format_cri,
+    )
 
 
 HELPER_VERSION = "2.3.0"
@@ -288,11 +303,11 @@ class MetricSpoke:
   baseline_stddev: float
   z_score: float
   unit: str = "events"
-  cri_score: int = 0
+  cri_score: Optional[int] = None
 
   def __post_init__(self):
-    if self.cri_score == 0 and self.z_score is not None:
-      self.cri_score = round(100.0 / (1.0 + math.exp(-0.6 * (max(0.0, self.z_score) - 3.0))))
+    if self.cri_score is None:
+      self.cri_score = calculate_cri(self.z_score)
 
   def to_dict(self) -> Dict[str, Any]:
     return asdict(self)
@@ -776,8 +791,7 @@ outcome:
       canonical[idx].baseline_mean = avg_val
       canonical[idx].baseline_stddev = std_val
       canonical[idx].z_score = z_val
-      canonical[idx].cri_score = 0
-      canonical[idx].__post_init__()
+      canonical[idx].cri_score = calculate_cri(z_val)
 
     payload_sha256 = _canonical_json_sha256(sector_payloads)
     query_sha256 = _canonical_json_sha256(query_texts) if query_texts else "N/A"
@@ -791,15 +805,24 @@ outcome:
     return canonical, provenance
 
   @staticmethod
-  def calculate_composite_risk(spokes: List[MetricSpoke]) -> Tuple[float, int]:
+  def calculate_composite_risk(spokes: List[MetricSpoke]) -> Tuple[float, Optional[int]]:
     """Calculates the Euclidean Composite Distance D and Calibrated Risk Index (CRI)."""
     if not spokes:
       return 0.0, 0
 
-    sum_z_sq = sum(max(0.0, s.z_score) ** 2 for s in spokes)
+    finite_z = [
+        parsed
+        for s in spokes
+        for parsed in (_coerce_finite_float(s.z_score),)
+        if parsed is not None
+    ]
+    if not finite_z:
+      return 0.0, None
+
+    sum_z_sq = sum(max(0.0, z) ** 2 for z in finite_z)
     composite_d = math.sqrt(sum_z_sq)
-    cri_score = round(100.0 / (1.0 + math.exp(-0.6 * (composite_d - 3.0))))
-    return round(composite_d, 2), max(0, min(100, cri_score))
+    cri_score = calculate_cri(composite_d)
+    return round(composite_d, 2), cri_score
 
   def build_radar_payload(
       self,
@@ -927,7 +950,7 @@ outcome:
       svg_parts.append(f'  <line x1="{cx}" y1="{cy}" x2="{ax:.1f}" y2="{ay:.1f}" stroke="#eeeeee" stroke-width="1"/>')
 
       if is_cri_mode:
-        val_for_radius = min(max(0.0, float(s.cri_score)), 100.0)
+        val_for_radius = min(max(0.0, float(s.cri_score or 0)), 100.0)
         dr = (val_for_radius / 100.0) * max_radius
       else:
         raw_z = max(0.0, s.z_score)
@@ -960,7 +983,7 @@ outcome:
         ly -= 2
 
       if is_cri_mode:
-        score_subtext = f"(CRI {s.cri_score} | {z_formatted}{outlier_tag})"
+        score_subtext = f"(CRI {format_cri(s.cri_score)} | {z_formatted}{outlier_tag})"
       else:
         score_subtext = f"({z_formatted}{outlier_tag})"
 
@@ -1071,8 +1094,9 @@ outcome:
       filled = int(round((capped_z / 4.0) * bar_width))
       bar = "▰" * filled + "▱" * (bar_width - filled)
       outlier_icon = " 🚨" if s.z_score >= 3.0 else (" ⚠️" if s.z_score >= 2.0 else "   ")
+      spoke_cri_str = format_cri(s.cri_score)
       lines.append(
-          f"{s.spoke_name:<{max_label_len}}  [{bar}]  +{s.z_score:>5.2f}σ  (CRI {s.cri_score:>3}/100){outlier_icon}"
+          f"{s.spoke_name:<{max_label_len}}  [{bar}]  +{s.z_score:>5.2f}σ  (CRI {spoke_cri_str:>3}/100){outlier_icon}"
       )
 
     lines.append(separator)
@@ -1106,8 +1130,9 @@ outcome:
       bar_str = "▰" * bar_units + "▱" * (20 - bar_units)
 
       status = "🚨 **Anomaly**" if s.z_score >= 3.0 else ("⚠️ Elevated" if s.z_score >= 2.0 else "🟢 Nominal")
+      spoke_cri_cell = f"{format_cri(s.cri_score)}/100" if s.cri_score is not None else "N/A"
       lines.append(
-          f"| **{s.spoke_name}** ({s.sector}) | `{s.observed:,.0f} {s.unit}` | `{s.baseline_mean:,.1f} ± {s.baseline_stddev:,.1f}` | **`+{s.z_score:.2f}σ`** | `{s.cri_score}/100` | `{bar_str}` | {status} |"
+          f"| **{s.spoke_name}** ({s.sector}) | `{s.observed:,.0f} {s.unit}` | `{s.baseline_mean:,.1f} ± {s.baseline_stddev:,.1f}` | **`+{s.z_score:.2f}σ`** | `{spoke_cri_cell}` | `{bar_str}` | {status} |"
       )
 
     lines.append("")

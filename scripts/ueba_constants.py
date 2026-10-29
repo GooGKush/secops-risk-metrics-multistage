@@ -1,7 +1,7 @@
 # Copyright 2026 Google LLC. All Rights Reserved.
 # Author: Greg Kushmerek
 
-"""Canonical Shared UEBA Thresholds and Sensitivity Tiers (WS2-08).
+"""Canonical Shared UEBA Thresholds, Tiers, and CRI Semantics (WS2-08, WS7-01).
 
 This module is duplicated byte-for-byte identically across both skills in the
 Bilateral UEBA Harness (`secops-risk-metrics-multistage` and
@@ -9,10 +9,11 @@ Bilateral UEBA Harness (`secops-risk-metrics-multistage` and
 imports at runtime) and verified via SHA-256 contract tests.
 """
 
-from typing import Dict, Optional, Tuple
+import math
+from typing import Any, Dict, Optional, Tuple
 
 # ---------------------------------------------------------------------------
-# Sensitivity Tier Thresholds & Cross-Skill Alias Resolution
+# Sensitivity Tier Thresholds & Cross-Skill Alias Resolution (WS2-08)
 # ---------------------------------------------------------------------------
 
 DEFAULT_SENSITIVITY_TIER: str = "BALANCED"
@@ -72,7 +73,7 @@ CANONICAL_FROM_MICRO_SENSITIVITY: Dict[str, str] = {
 }
 
 # ---------------------------------------------------------------------------
-# Operational Baselines, Fusion, Write-Back, Loopback & Window Caps
+# Operational Baselines, Fusion, Write-Back, Loopback & Window Caps (WS2-08)
 # ---------------------------------------------------------------------------
 
 DEFAULT_MIN_BASELINE_DAYS: int = 7
@@ -85,6 +86,126 @@ MAX_MODE_B_DAYS_MACRO: int = 3
 MAX_CUSUM_MODE_B_DAYS_MACRO: int = 14
 MAX_MODE_C_DAYS_MACRO: int = 30
 MAX_MODE_B_DAYS_MICRO: int = 14
+
+# ---------------------------------------------------------------------------
+# Canonical Calibrated Risk Index (CRI) Contract (WS7-01 / D5)
+# ---------------------------------------------------------------------------
+
+CRI_BANDS: Tuple[Tuple[int, int, str, str, str], ...] = (
+    (0, 25, "INFORMATIONAL", "Nominal", "🟢"),
+    (26, 45, "LOW", "Low Drift", "🟡"),
+    (46, 69, "MEDIUM", "Medium Outlier", "🟠"),
+    (70, 89, "HIGH", "High Threat", "🔴"),
+    (90, 100, "CRITICAL", "Critical Outlier", "🚨"),
+)
+
+_INVALID_NUMERIC_STRINGS = frozenset({
+    "",
+    "-",
+    "—",
+    "N/A",
+    "NA",
+    "NAN",
+    "INF",
+    "+INF",
+    "-INF",
+    "INFINITY",
+    "+INFINITY",
+    "-INFINITY",
+    "NONE",
+    "NULL",
+})
+
+
+def _coerce_finite_float(value: Any) -> Optional[float]:
+  """Coerces finite numeric scalars/strings to float; returns None on missing/error."""
+  if value is None or isinstance(value, bool):
+    return None
+  if isinstance(value, str):
+    stripped = value.strip()
+    if stripped.upper() in _INVALID_NUMERIC_STRINGS:
+      return None
+    try:
+      parsed = float(stripped)
+    except (TypeError, ValueError):
+      return None
+    return parsed if math.isfinite(parsed) else None
+  try:
+    parsed = float(value)
+  except (TypeError, ValueError):
+    return None
+  return parsed if math.isfinite(parsed) else None
+
+
+def calculate_cri(
+    score: Any,
+    baseline_threshold: float = DEFAULT_ANOMALY_THRESHOLD,
+) -> Optional[int]:
+  """Canonical Calibrated Risk Index [0..100] with zero floor for Z<=0 and None on missing/error."""
+  val = _coerce_finite_float(score)
+  thresh = _coerce_finite_float(baseline_threshold)
+  if val is None or thresh is None:
+    return None
+  if val <= 0.0:
+    return 0
+  exp_arg = -0.6 * (val - thresh)
+  if exp_arg > 50.0:
+    return 0
+  if exp_arg < -50.0:
+    return 100
+  raw_cri = int(round(100.0 / (1.0 + math.exp(exp_arg))))
+  return max(0, min(100, raw_cri))
+
+
+cri_from_score = calculate_cri
+
+
+def coerce_cri_int(cri: Any) -> Optional[int]:
+  """Clamps a valid finite CRI value to [0..100], or returns None on missing/error."""
+  val = _coerce_finite_float(cri)
+  if val is None:
+    return None
+  return max(0, min(100, int(round(val))))
+
+
+def format_cri(cri: Any) -> str:
+  """Formats a CRI score as '0'..'100', or 'N/A' when missing/invalid."""
+  val = coerce_cri_int(cri)
+  return "N/A" if val is None else str(val)
+
+
+def get_cri_band_info(cri: Any) -> Tuple[str, str, str]:
+  """Returns `(short_code, band_label, emoji)` for a CRI value across 26/46/70/90 cutoffs."""
+  val = coerce_cri_int(cri)
+  if val is None:
+    return "N/A", "N/A", "⚪"
+  for low, high, code, label, emoji in CRI_BANDS:
+    if low <= val <= high:
+      return code, label, emoji
+  return "CRITICAL", "Critical Outlier", "🚨"
+
+
+def get_cri_badge(cri: Any) -> Tuple[str, str]:
+  """Returns `(formatted_badge, band_label)` for micro/macro triage tables."""
+  val = coerce_cri_int(cri)
+  if val is None:
+    return "⚪ `[CRI: N/A]`", "N/A"
+  _, label, emoji = get_cri_band_info(val)
+  return f"{emoji} `[CRI: {val}]`", label
+
+
+def get_cri_band_metadata(
+    cri: Any,
+    bar_blocks: int = 8,
+) -> Tuple[str, str, str]:
+  """Returns `(short_code, emoji_band_label, unicode_bar)` for macro dossiers."""
+  val = coerce_cri_int(cri)
+  if val is None:
+    return "N/A", "⚪ N/A", "░" * bar_blocks
+  code, label, emoji = get_cri_band_info(val)
+  blocks = max(0, min(bar_blocks, int(round((val / 100.0) * bar_blocks))))
+  bar = ("█" * blocks) + ("░" * (bar_blocks - blocks))
+  return code, f"{emoji} {label}", bar
 
 
 def resolve_sensitivity_tier(

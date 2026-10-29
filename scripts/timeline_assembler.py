@@ -25,6 +25,29 @@ _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 if _SCRIPT_DIR not in sys.path:
   sys.path.insert(0, _SCRIPT_DIR)
 
+try:
+  from .ueba_constants import (
+      _coerce_finite_float,
+      calculate_cri,
+      coerce_cri_int,
+      format_cri,
+  )
+except ImportError:
+  try:
+    from scripts.ueba_constants import (
+        _coerce_finite_float,
+        calculate_cri,
+        coerce_cri_int,
+        format_cri,
+    )
+  except ImportError:
+    from ueba_constants import (  # type: ignore[no-redef]
+        _coerce_finite_float,
+        calculate_cri,
+        coerce_cri_int,
+        format_cri,
+    )
+
 ENTITY_CANDIDATES = ("entity", "host", "hostname", "user", "userid", "principal", "asset", "token")
 NON_ENTITY_COLUMNS = {"ws", "TIME_BUCKET", "window_start"}
 # (column, is_squared): first match wins.
@@ -68,9 +91,9 @@ SCORE_CANDIDATES = (
 SECTOR_Z_EXCLUDED_SUFFIXES = ("_sq", "_raw", "_pos")
 
 
-def cri_from_score(score: float) -> int:
-  """Canonical Calibrated Risk Index sigmoid (anchored at 3.0σ = 50)."""
-  return round(100.0 / (1.0 + math.exp(-0.6 * (max(0.0, score) - 3.0))))
+def cri_from_score(score: Any) -> Optional[int]:
+  """Canonical Calibrated Risk Index [0..100] (0 for Z<=0, 50 at 3.0σ, None on missing/error)."""
+  return calculate_cri(score)
 
 
 def _parse_day(day: str) -> datetime.date:
@@ -257,13 +280,16 @@ class TimelineAssembler:
       squared: bool,
   ) -> Optional[float]:
     if score_field and row.get(score_field) is not None:
-      raw = float(row[score_field])
+      raw = _coerce_finite_float(row[score_field])
+      if raw is None:
+        return None
       return math.sqrt(max(0.0, raw)) if squared else raw
-    z_vals = [
-        float(v)
-        for k, v in row.items()
-        if k.startswith("z_") and not k.endswith(SECTOR_Z_EXCLUDED_SUFFIXES) and v is not None
-    ]
+    z_vals = []
+    for k, v in row.items():
+      if k.startswith("z_") and not k.endswith(SECTOR_Z_EXCLUDED_SUFFIXES) and v is not None:
+        parsed_v = _coerce_finite_float(v)
+        if parsed_v is not None:
+          z_vals.append(parsed_v)
     return max(z_vals) if z_vals else None
 
   @staticmethod
@@ -500,7 +526,7 @@ class TimelineAssembler:
         onsets = ", ".join(f"{k}: {v}" for k, v in e["sector_onsets"].items()) if sector_fields else "—"
         lines.append(
             f"| `{entity}` | {e['days_flagged']} | {e['first_day']} | {e['last_day']} | "
-            f"{e['longest_run']} | {e['peak_score']} ({e['peak_day']}) | {e['peak_cri']} | "
+            f"{e['longest_run']} | {e['peak_score']} ({e['peak_day']}) | {format_cri(e.get('peak_cri'))} | "
             f"{'yes' if e['escalating'] else 'no'} | {onsets or '—'} |")
 
     if summary["top"]:
@@ -510,7 +536,7 @@ class TimelineAssembler:
       for c in summary["top"][:top_n]:
         sectors = ", ".join(
             f"{k}={float(v):.2f}" for k, v in c["sectors"].items() if v is not None) or "—"
-        lines.append(f"| `{c['entity']}` | {c['day']} | {c['score']} | {c['cri']} | {sectors} |")
+        lines.append(f"| `{c['entity']}` | {c['day']} | {c['score']} | {format_cri(c.get('cri'))} | {sectors} |")
 
     if summary["sparse_baseline"]:
       lines += ["", f"#### Too New to Baseline (< {meta['min_baseline_days']} baseline days; sector scored 0)", "",
@@ -546,16 +572,16 @@ class TimelineAssembler:
 class TimelinePoint:
   """Single daily observation point in an entity timeline series."""
   day: str
-  z_score: float = 0.0
+  z_score: Optional[float] = 0.0
   observed: float = 0.0
   baseline_mean: float = 0.0
   baseline_stddev: float = 1.0
   cumulative_z: float = 0.0
   cusum_pos: float = 0.0
-  cri: int = 0
+  cri: Optional[int] = None
 
   def __post_init__(self) -> None:
-    if self.cri == 0 and self.z_score != 0.0:
+    if self.cri is None:
       self.cri = cri_from_score(self.z_score)
 
 
@@ -580,19 +606,25 @@ class EntityTimelineSeries:
     peak_z = -math.inf
     peak_d = ""
     for pt in self.points:
-      z_val = float(pt.z_score)
+      z_val = _coerce_finite_float(pt.z_score)
+      if z_val is None:
+        pt.cumulative_z = round(cum_z, 4)
+        pt.cusum_pos = round(s_t, 4)
+        if pt.cri is None:
+          pt.cri = None
+        continue
       cum_z += z_val
       s_t = max(0.0, s_t + z_val - slack_k)
       pt.cumulative_z = round(cum_z, 4)
       pt.cusum_pos = round(s_t, 4)
-      if pt.cri == 0:
+      if pt.cri is None:
         pt.cri = cri_from_score(z_val)
       if z_val > peak_z:
         peak_z = z_val
         peak_d = pt.day
     self.cumulative_z = round(cum_z, 4)
     self.cusum_pos = round(s_t, 4)
-    if self.points:
+    if peak_z > -math.inf:
       self.peak_score = round(peak_z, 4)
       self.peak_day = peak_d
 
@@ -642,16 +674,20 @@ def format_markdown_table(
       if isinstance(item, TimelinePoint):
         raw_pts.append(item)
       elif isinstance(item, dict):
+        has_raw_z = any(k in item for k in ("z_score", "z", "score"))
+        raw_z = item.get("z_score", item.get("z", item.get("score"))) if has_raw_z else 0.0
+        parsed_z = _coerce_finite_float(raw_z)
+        explicit_cri = coerce_cri_int(item.get("cri")) if "cri" in item and item.get("cri") is not None else None
         raw_pts.append(
             TimelinePoint(
                 day=str(item.get("day", item.get("date", ""))),
-                z_score=float(item.get("z_score", item.get("z", item.get("score", 0.0)))),
+                z_score=parsed_z,
                 observed=float(item.get("observed", item.get("observed_val", 0.0))),
                 baseline_mean=float(item.get("baseline_mean", item.get("hist_avg", 0.0))),
                 baseline_stddev=float(item.get("baseline_stddev", item.get("hist_stddev", 1.0))),
                 cumulative_z=float(item.get("cumulative_z", 0.0)),
                 cusum_pos=float(item.get("cusum_pos", 0.0)),
-                cri=int(item.get("cri", 0)),
+                cri=explicit_cri,
             )
         )
     temp_series = EntityTimelineSeries(entity="target_entity", points=raw_pts, slack_k=slack_k)
@@ -670,9 +706,12 @@ def format_markdown_table(
   ]
   lines = [ln for ln in lines if ln != ""]
   for pt in points:
+    z_num = _coerce_finite_float(pt.z_score)
+    z_cell = "N/A" if z_num is None else f"{z_num:+.2f}σ"
+    cri_cell = format_cri(pt.cri)
     lines.append(
-        f"| `{pt.day}` | `{pt.observed:.2f}` | `{pt.z_score:+.2f}σ` | "
-        f"`{pt.cumulative_z:+.2f}σ` | `{pt.cusum_pos:.2f}σ` | **`{pt.cri}`** |"
+        f"| `{pt.day}` | `{pt.observed:.2f}` | `{z_cell}` | "
+        f"`{pt.cumulative_z:+.2f}σ` | `{pt.cusum_pos:.2f}σ` | **`{cri_cell}`** |"
     )
   return "\n".join(lines)
 
