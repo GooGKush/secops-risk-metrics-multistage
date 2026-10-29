@@ -346,7 +346,7 @@ class TestUEBAHybridEngineCompile(unittest.TestCase):
     """Tests time window computation across Modes A, B, C, D and ECG 72h anchor."""
     ref_time = datetime.datetime(2026, 10, 17, 15, 30, 0, tzinfo=datetime.timezone.utc)
 
-    # Mode A standard metric -> today 00:00:00Z
+    # Mode A standard metric -> last complete UTC day [yesterday 00:00:00Z, today 00:00:00Z) per D3 / WS1-01
     res_a = compile_hunt_pipeline(
         statistical_model="zscore",
         metrics="auth_attempts_total",
@@ -354,12 +354,12 @@ class TestUEBAHybridEngineCompile(unittest.TestCase):
         mode="A",
         reference_time=ref_time,
     )
-    self.assertEqual(res_a["start_time"], "2026-10-17T00:00:00Z")
-    self.assertEqual(res_a["end_time"], "2026-10-17T15:30:00Z")
+    self.assertEqual(res_a["start_time"], "2026-10-16T00:00:00Z")
+    self.assertEqual(res_a["end_time"], "2026-10-17T00:00:00Z")
     self.assertEqual(res_a["probe_start_time"], "2026-10-17T15:20:00Z")
     self.assertFalse(res_a["search_window"]["ecg_72h_anchor_applied"])
 
-    # Mode A with ECG (`graph.`) -> -2d at 00:00:00Z (72h anchor)
+    # Mode A with ECG (`graph.`) -> scored day -2d at 00:00:00Z (72h anchor on 2026-10-16 -> 2026-10-14T00:00:00Z)
     res_ecg = compile_hunt_pipeline(
         architecture="hybrid_derived_file_prevalence",
         metrics="file_executions_total",
@@ -368,7 +368,9 @@ class TestUEBAHybridEngineCompile(unittest.TestCase):
         reference_time=ref_time,
     )
     self.assertTrue(res_ecg["search_window"]["ecg_72h_anchor_applied"])
-    self.assertEqual(res_ecg["start_time"], "2026-10-15T00:00:00Z")
+    self.assertEqual(res_ecg["start_time"], "2026-10-14T00:00:00Z")
+    self.assertEqual(res_ecg["end_time"], "2026-10-17T00:00:00Z")
+    self.assertIn('"2026-10-16"', res_ecg["compiled_query"])
 
     # Mode B 7-day fixed-baseline timeline
     res_b = compile_hunt_pipeline(
@@ -1036,6 +1038,112 @@ class TestUEBAHybridEngineCLIAndCatalog(unittest.TestCase):
     for alias in ("QUANTILE_IQR_SKEW", "QUANTILE", "IQR_FENCE", "TUKEY_FENCE", "BOWLEY_SKEW"):
       with self.subTest(alias=alias):
         self.assertEqual(resolve_statistical_model(alias), StatisticalModel.QUANTILE_IQR_SKEW)
+
+  def test_ws1_01_mode_a_defaults_to_last_complete_utc_day_and_labels_today_so_far(self):
+    """WS1-01 / D3: Default Mode A scores last complete UTC day; Today So Far is an explicit low-bias-labeled option."""
+    from scripts.ueba_hybrid_engine import main as cli_main
+
+    ref_time = datetime.datetime(2026, 10, 28, 8, 0, 0, tzinfo=datetime.timezone.utc)
+
+    with self.subTest("default_mode_a_last_complete_utc_day"):
+      res_default = compile_hunt_pipeline(
+          statistical_model="STANDARD_Z_SCORE",
+          metrics="auth_attempts_total",
+          entity_type="USER",
+          entity_value="charles.hardy",
+          mode="A",
+          reference_time=ref_time,
+      )
+      self.assertEqual(res_default["start_time"], "2026-10-27T00:00:00Z")
+      self.assertEqual(res_default["end_time"], "2026-10-28T00:00:00Z")
+      self.assertEqual(res_default["search_window"]["baseline_start_date"], "2026-09-27")
+      self.assertEqual(res_default["search_window"]["baseline_end_date"], "2026-10-26")
+      self.assertEqual(res_default["evaluation_mode_label"], "Mode A: Last Complete UTC Day (2026-10-27)")
+      self.assertFalse(res_default["is_partial_day"])
+      self.assertIsNone(res_default["partial_day_warning"])
+      self.assertEqual(res_default["shards"][0]["day"], "2026-10-27")
+      self.assertEqual(res_default["shards"][0]["start_time"], "2026-10-27T00:00:00Z")
+      self.assertEqual(res_default["shards"][0]["end_time"], "2026-10-28T00:00:00Z")
+
+    with self.subTest("mad_and_quantile_default_mode_a_gate_yesterday"):
+      for model_name in ("MAD", "QUANTILE_IQR_SKEW"):
+        res_mq = compile_hunt_pipeline(
+            statistical_model=model_name,
+            metrics="auth_attempts_total",
+            entity_type="USER",
+            mode="A",
+            reference_time=ref_time,
+        )
+        self.assertEqual(res_mq["start_time"], "2026-09-28T00:00:00Z")
+        self.assertEqual(res_mq["end_time"], "2026-10-28T00:00:00Z")
+        self.assertIn('>= "2026-10-27"', res_mq["compiled_query"])
+
+    with self.subTest("ecg_default_mode_a_pins_yesterday_and_d_minus_2"):
+      res_ecg = compile_hunt_pipeline(
+          architecture="hybrid_derived_file_prevalence",
+          metrics="file_executions_total",
+          entity_type="ASSET",
+          mode="A",
+          reference_time=ref_time,
+      )
+      self.assertEqual(res_ecg["start_time"], "2026-10-25T00:00:00Z")
+      self.assertEqual(res_ecg["end_time"], "2026-10-28T00:00:00Z")
+      self.assertIn('"2026-10-27"', res_ecg["compiled_query"])
+
+    with self.subTest("today_so_far_explicit_flag_and_aliases"):
+      for call_kwargs in (
+          {"mode": "A", "today_so_far": True},
+          {"mode": "A_TODAY"},
+          {"mode": "A_PARTIAL"},
+      ):
+        res_today = compile_hunt_pipeline(
+            statistical_model="STANDARD_Z_SCORE",
+            metrics="auth_attempts_total",
+            entity_type="USER",
+            entity_value="charles.hardy",
+            reference_time=ref_time,
+            **call_kwargs,
+        )
+        self.assertEqual(res_today["mode"], "A")
+        self.assertEqual(res_today["start_time"], "2026-10-28T00:00:00Z")
+        self.assertEqual(res_today["end_time"], "2026-10-28T08:00:00Z")
+        self.assertEqual(
+            res_today["evaluation_mode_label"],
+            "Mode A: Today So Far (Partial UTC Day — Low-Biased vs Full-Day Baseline)",
+        )
+        self.assertTrue(res_today["is_partial_day"])
+        self.assertTrue(res_today["partial_day_warning"])
+        self.assertIn("Low-Biased", res_today["preflight_card_markdown"])
+        self.assertIn("low-biased", res_today["partial_day_warning"].lower())
+
+    with self.subTest("cli_today_so_far_and_dossier_pillar3_warning"):
+      buf = io.StringIO()
+      with patch("sys.stdout", buf):
+        rc = cli_main(["compile", "--metrics", "auth_attempts_total", "--mode", "A", "--today-so-far", "--format", "json"])
+      self.assertEqual(rc, 0)
+      cli_res = json.loads(buf.getvalue())
+      self.assertTrue(cli_res["is_partial_day"])
+      self.assertIn("Today So Far", cli_res["evaluation_mode_label"])
+
+      sample_row = [{"user": "charles.hardy", "observed": 120, "hist_avg": 164.6, "hist_stddev": 114.49, "z_score": -0.39, "active_days": 14}]
+      dossier = render_forensic_dossier(
+          rows=sample_row,
+          executed_query=cli_res["compiled_query"],
+          statistical_model="STANDARD_Z_SCORE",
+          metric_name="auth_attempts_total",
+          entity_type="USER",
+          mode="A",
+          today_so_far=True,
+          skip_postflight_audit=True,
+      )
+      self.assertTrue(dossier["is_partial_day"])
+      self.assertIn("Today So Far", dossier["dossier_markdown"])
+      pillar3_idx = dossier["dossier_markdown"].index("#### 3. Forensic Vector Breakdown")
+      pillar4_idx = dossier["dossier_markdown"].index("#### 4. Chronicle UI Manual Pivot")
+      pillar3_slice = dossier["dossier_markdown"][pillar3_idx:pillar4_idx]
+      self.assertIn("low-biased", pillar3_slice.lower())
+      # Verify zero elapsed-fraction scaling of observed or z_score
+      self.assertEqual(dossier["outliers"][0]["observed"], 120.0)
 
 
 if __name__ == "__main__":

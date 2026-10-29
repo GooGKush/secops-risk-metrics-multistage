@@ -206,7 +206,8 @@ class TestGuardrailContracts(unittest.TestCase):
     multi-day single query is a fixed-baseline timeline, not a sliding one.
     """
     self.assertIn("Evaluation Modes", self.skill_content)
-    self.assertIn("Mode A: Current-Day Snapshot", self.skill_content)
+    self.assertIn("Mode A: Last Complete UTC Day Snapshot", self.skill_content)
+    self.assertIn("Today So Far", self.skill_content)
     self.assertIn("Mode B: Fixed-Baseline Timeline", self.skill_content)
     self.assertIn("Mode C: Per-Day Baseline Timeline", self.skill_content)
     self.assertIn("Window Invariant", self.skill_content)
