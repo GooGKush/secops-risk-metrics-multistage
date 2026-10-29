@@ -2142,62 +2142,7 @@ class MultiStageTemplateRouter:
       return rendered + "\n"
 
     elif pipeline_type == PipelineArchitecture.HYBRID_METRIC_ORTHOGONAL_SPACE_2STAGE:
-      if not target_metric:
-        target_metric = "network_bytes_outbound"
-      audit = PreFlightValidator.audit(
-          target_metric=target_metric,
-          entity_type=entity_type,
-          min_baseline_days=min_baseline_days,
-          identifier_field=identifier_field,
-      )
-      pipeline_file = self.template_dir / "pipelines" / "hybrid_metric_orthogonal_space_2stage.yl2"
-      if not pipeline_file.exists():
-        raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
-      raw = pipeline_file.read_text().strip()
-      metric_type_arg = f"metric: {audit['metric_arg']}"
-
-      macro_entity_field = audit["target_field"]
-      macro_observed_agg = audit["observed_agg"]
-
-      raw_event_type = "NETWORK_CONNECTION"
-      raw_entity_field = _swap_identifier_leaf(
-          "principal.asset.hostname" if entity_type == EntityType.ASSET else "principal.user.userid", audit["target_field"])
-      raw_event_filter = ""
-      raw_breadth_field = "target.ip"
-
-      rendered = raw.replace("{{macro_entity_field}}", macro_entity_field)
-      rendered = _fill_event_filter(rendered, "{{macro_event_filter}}", audit["event_filter"])
-      rendered = rendered.replace("{{macro_observed_agg}}", macro_observed_agg)
-
-      rendered = rendered.replace(
-          "{{target_metric_func_avg}}",
-          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: avg, {audit['target_field']}: {audit['target_field']})"
-      )
-      rendered = rendered.replace(
-          "{{target_metric_func_stddev}}",
-          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: stddev, {audit['target_field']}: {audit['target_field']})"
-      )
-      rendered = rendered.replace(
-          "{{target_metric_func_active_days}}",
-          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: num_metric_periods, {audit['target_field']}: {audit['target_field']})"
-      )
-
-      rendered = rendered.replace("{{raw_event_type}}", raw_event_type)
-      rendered = rendered.replace("{{raw_entity_field}}", raw_entity_field)
-      rendered = rendered.replace("{{raw_event_filter}}", raw_event_filter)
-      rendered = rendered.replace("{{raw_breadth_field}}", raw_breadth_field)
-
-      rendered = rendered.replace("{{min_threat_distance_sq}}", "16.0")
-      rendered = rendered.replace("{{min_joint_odds}}", "2.5")
-      rendered = rendered.replace("{{min_raw_hits}}", "3")
-      rendered = rendered.replace("{{max_dormant_days}}", "2")
-      rendered = rendered.replace("{{min_breadth_count}}", "3")
-      rendered = _apply_byte_dispersion_floor(rendered, target_metric, byte_dispersion_floor=byte_dispersion_floor)
-
-      if hypothesis_goal:
-        rendered = f"// Goal: {hypothesis_goal}\n" + rendered
-
-      return rendered + "\n"
+      raise ValueError(RETIRED_PIPELINE_ARCHITECTURES[PipelineArchitecture.HYBRID_METRIC_ORTHOGONAL_SPACE_2STAGE])
 
     elif pipeline_type == PipelineArchitecture.HYBRID_METRIC_FLEET_PREVALENCE_2STAGE:
       if not target_metric:
@@ -2765,7 +2710,7 @@ class MultiStageTemplateRouter:
         "  $recon_score desc\n"
     )
 
-  def build_c2_beacon_flow_query(
+  def build_outbound_flow_surge_query(
       self,
       target_metric: str = "network_flows_outbound",
       entity_type: EntityType = EntityType.ASSET,
@@ -2774,7 +2719,7 @@ class MultiStageTemplateRouter:
       hypothesis_goal: Optional[str] = None,
       identifier_field: Optional[str] = None,
   ) -> str:
-    """Builds a 2-Stage C2 Beacon Flow Frequency & Regularity pipeline for network_flows_* metrics."""
+    """Builds a 2-Stage Outbound Flow Surge pipeline (D1 / WS4-D1; sub-hour C2 jitter hands off to stats-hunter)."""
     valid_flow_metrics = ("network_flows_outbound", "network_flows_inbound", "network_flows_total")
     if target_metric not in valid_flow_metrics:
       raise ValueError(f"Unsupported flow metric '{target_metric}'. Must be one of {valid_flow_metrics}")
@@ -2789,18 +2734,23 @@ class MultiStageTemplateRouter:
     ent_name = ent_var.lstrip("$")
     filter_block = "\n    ".join(audit["event_filter"])
     if target_metric == "network_flows_outbound":
-      bytes_expr = "sum(network.sent_bytes)"
+      bytes_block = "    $observed_bytes = sum(network.sent_bytes)\n"
     elif target_metric == "network_flows_inbound":
-      bytes_expr = "sum(network.received_bytes)"
+      bytes_block = "    $observed_bytes = sum(network.received_bytes)\n"
     else:
-      bytes_expr = "sum(network.sent_bytes) + sum(network.received_bytes)"
+      bytes_block = (
+          "    $clamped_sent = sum(if(network.sent_bytes < 1000000000000000, network.sent_bytes, 0))\n"
+          "    $clamped_rcvd = sum(if(network.received_bytes < 1000000000000000, network.received_bytes, 0))\n"
+          "    $observed_bytes = $clamped_sent + $clamped_rcvd\n"
+      )
     goal_line = f"// Goal: {hypothesis_goal}\n" if hypothesis_goal else ""
     return (
-        f"{goal_line}// Purpose: Hunt for C2 beaconing flow frequency surge and timing regularity in {target_metric}\n"
+        f"{goal_line}// Purpose: Hunt for daily outbound network flow count surges in {target_metric} "
+        "(sub-hour C2 periodicity/jitter hands off to secops-statistical-hunter C2_BEACONING_JITTER)\n"
         "// ============================================================================\n"
-        "// ARCHITECTURE: 2-STAGE C2 BEACON FLOW FREQUENCY & REGULARITY PIPELINE\n"
+        "// ARCHITECTURE: 2-STAGE OUTBOUND FLOW SURGE PIPELINE\n"
         "// ============================================================================\n\n"
-        "stage stage1_flow_frequency {\n"
+        "stage stage1_flow_surge {\n"
         f"    {filter_block}\n"
         f"    {ent_field} = {ent_var}\n"
         f"    {ent_var} != \"\"\n\n"
@@ -2808,8 +2758,9 @@ class MultiStageTemplateRouter:
         f"    {ent_var} by 1d\n\n"
         "  outcome:\n"
         "    $observed_flows = count(metadata.id)\n"
-        f"    $observed_bytes = {bytes_expr}\n"
+        f"{bytes_block}"
         "    $distinct_targets = count_distinct(target.ip)\n"
+        "    $distinct_ports = count_distinct(target.port)\n"
         f"    $hist_flow_avg = max(metrics.{target_metric}(\n"
         "        period: 1d, window: 30d, metric: event_count_sum, agg: avg,\n"
         f"        {ent_field}: {ent_field}\n"
@@ -2824,27 +2775,87 @@ class MultiStageTemplateRouter:
         "    ))\n"
         "    $dispersion_floor = math.sqrt(if($hist_flow_avg > 1.0, $hist_flow_avg, 1.0))\n"
         "    $flow_z = ($observed_flows - $hist_flow_avg) / if($hist_flow_stddev > $dispersion_floor, $hist_flow_stddev, $dispersion_floor)\n"
-        "    $flow_cv = $hist_flow_stddev / if($hist_flow_avg > 0, $hist_flow_avg, 1.0)\n"
-        "    $bytes_per_flow = $observed_bytes / ($observed_flows + 0.001)\n"
+        "    $bytes_per_flow = (1.0 * $observed_bytes) / ($observed_flows + 0.001)\n"
         "}\n\n"
-        f"{ent_var} = $stage1_flow_frequency.{ent_name}\n\n"
+        f"{ent_var} = $stage1_flow_surge.{ent_name}\n\n"
         "match:\n"
         f"  {ent_var} by 1d\n\n"
         "outcome:\n"
-        "  $flow_z = max($stage1_flow_frequency.flow_z)\n"
-        "  $flow_cv = min($stage1_flow_frequency.flow_cv)\n"
-        "  $observed_flows = max($stage1_flow_frequency.observed_flows)\n"
-        "  $historical_flow_avg = max($stage1_flow_frequency.hist_flow_avg)\n"
-        "  $active_days = max($stage1_flow_frequency.hist_flow_active_days)\n"
-        "  $bytes_per_flow = min($stage1_flow_frequency.bytes_per_flow)\n"
-        "  $distinct_targets = max($stage1_flow_frequency.distinct_targets)\n"
-        "  $beacon_score = $flow_z * (1.0 / ($flow_cv + 0.1))\n\n"
+        "  $flow_z = max($stage1_flow_surge.flow_z)\n"
+        "  $flow_surge_score = $flow_z\n"
+        "  $observed_flows = max($stage1_flow_surge.observed_flows)\n"
+        "  $historical_flow_avg = max($stage1_flow_surge.hist_flow_avg)\n"
+        "  $active_days = max($stage1_flow_surge.hist_flow_active_days)\n"
+        "  $bytes_per_flow = min($stage1_flow_surge.bytes_per_flow)\n"
+        "  $distinct_targets = max($stage1_flow_surge.distinct_targets)\n"
+        "  $distinct_ports = max($stage1_flow_surge.distinct_ports)\n\n"
         "condition:\n"
-        f"  $flow_z >= {anomaly_threshold}\n"
-        f"  and $active_days >= {audit['min_baseline_days']}\n\n"
+        f"  $active_days >= {audit['min_baseline_days']}\n"
+        f"  and $flow_z >= {anomaly_threshold}\n\n"
         "order:\n"
-        "  $beacon_score desc\n"
+        "  $flow_surge_score desc\n"
     )
+
+  def build_c2_beacon_flow_query(
+      self,
+      target_metric: str = "network_flows_outbound",
+      entity_type: EntityType = EntityType.ASSET,
+      anomaly_threshold: float = 3.0,
+      min_baseline_days: int = 7,
+      hypothesis_goal: Optional[str] = None,
+      identifier_field: Optional[str] = None,
+  ) -> str:
+    """Backward-compatible alias for build_outbound_flow_surge_query (D1 / WS4-D1)."""
+    return self.build_outbound_flow_surge_query(
+        target_metric=target_metric,
+        entity_type=entity_type,
+        anomaly_threshold=anomaly_threshold,
+        min_baseline_days=min_baseline_days,
+        hypothesis_goal=hypothesis_goal,
+        identifier_field=identifier_field,
+    )
+
+  def build_longitudinal_cusum_pipeline_query(
+      self,
+      target_metric: str = "network_bytes_outbound",
+      entity_type: EntityType = EntityType.ASSET,
+      cusum_h_threshold: float = 4.0,
+      min_baseline_days: Optional[int] = None,
+      hypothesis_goal: Optional[str] = None,
+      identifier_field: Optional[str] = None,
+      include_significance_gate: bool = True,
+      byte_dispersion_floor: Optional[float] = None,
+  ) -> str:
+    """Renders longitudinal_cusum_2stage.yl2 (Windowed Slack Sum) with domain-aware dispersion floor and NO-GATE option."""
+    audit = PreFlightValidator.audit(
+        target_metric=target_metric,
+        entity_type=entity_type,
+        min_baseline_days=min_baseline_days,
+        identifier_field=identifier_field,
+    )
+    pipeline_file = self.template_dir / "pipelines" / "longitudinal_cusum_2stage.yl2"
+    if not pipeline_file.exists():
+      raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
+    raw = pipeline_file.read_text(encoding="utf-8").strip()
+    rendered = _fill_event_filter(raw, "{{event_filter}}", audit["event_filter"])
+    rendered = rendered.replace("{{entity_field}}", audit["target_field"])
+    rendered = rendered.replace("{{observed_aggregation}}", audit["observed_agg"])
+    rendered = rendered.replace("{{target_metric_name}}", target_metric)
+    rendered = rendered.replace("{{metric_type_val}}", audit["metric_arg"])
+    rendered = rendered.replace("{{dimension_key}}", audit["target_field"])
+    rendered = rendered.replace("{{extra_dimensions}}", "")
+    rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
+    rendered = _apply_byte_dispersion_floor(rendered, target_metric, byte_dispersion_floor=byte_dispersion_floor)
+    if hypothesis_goal:
+      rendered = f"// Goal: {hypothesis_goal}\n" + rendered
+    out = self._apply_significance_gate(
+        rendered + "\n",
+        anomaly_threshold=cusum_h_threshold,
+        include_significance_gate=include_significance_gate,
+    )
+    if not include_significance_gate and "// Significance Gate: NONE" not in out:
+      out = "// Significance Gate: NONE (NO-GATE Windowed Slack Sum series prefilter)\n" + out
+    return out
 
   def build_alert_surge_query(
       self,

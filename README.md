@@ -56,9 +56,8 @@ secops-risk-metrics-multistage/
 │   ├── turn-execution-lifecycle.md       # Codified turn lifecycle, transition invariants, & quiet baseline protocol
 │   └── udm-hunting-field-dictionary.md   # Field-level dictionary mapping UDM protobuf fields to hunter dimensions
 ├── templates/                            # Composable YARA-L 2.0 template library
-│   ├── pipelines/                        # Pre-composed multi-stage DAG pipelines (34 templates)
-│   │   ├── c2_beacon_flow_frequency_2stage.yl2
-│   │   ├── circadian_von_mises_2stage.yl2
+│   ├── pipelines/                        # Pre-composed multi-stage DAG pipelines
+│   │   ├── c2_beacon_flow_frequency_2stage.yl2         # Outbound Flow Surge (D1 rename)
 │   │   ├── cloud_repository_scope_dual_branch.yl2
 │   │   ├── dual_baseline_delta_z_3stage.yl2
 │   │   ├── dual_sector_fusion_3stage.yl2           # Generic 2-sector fusion, sectors filled from the catalog
@@ -73,7 +72,6 @@ secops-risk-metrics-multistage/
 │   │   ├── hybrid_metric_entropy_concentration_2stage.yl2
 │   │   ├── hybrid_metric_fleet_prevalence_2stage.yl2
 │   │   ├── hybrid_metric_http_ua_prevalence_2stage.yl2
-│   │   ├── hybrid_metric_orthogonal_space_2stage.yl2
 │   │   ├── hybrid_metric_raw_enrichment_2stage.yl2
 │   │   ├── hybrid_metric_whois_domain_lifecycle_2stage.yl2
 │   │   ├── longitudinal_cusum_2stage.yl2

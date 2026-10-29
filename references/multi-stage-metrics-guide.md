@@ -527,10 +527,9 @@ To prevent runtime syntactic improvisation and avoid streaming rule syntax confu
 | **`mad_robust_z_4stage.yl2`** | 4 Stages (1 event stage) | True Median Absolute Deviation / Modified $Z$ ($M_Z$) next to the 30d metrics $Z$ | Heavy-tailed or burst-contaminated baselines (egress bytes, DNS volume); exposes $Z$ masking via `$z_gap`. Search window ~30d = robust baseline. |
 | **`standard_z_score_2stage.yl2`** | 2 Stages | Parametric Standard $Z$-Score ($Z$) | Volumetric bursts, auth attempts, process counts. |
 | **`poisson_rarity_2stage.yl2`** | 2 Stages | Discrete Poisson Rarity ($Z_P$) | Rare administrative binary launches, low $\lambda$. |
-| **`longitudinal_cusum_2stage.yl2`** | 2 Stages | Longitudinal CUSUM Drift ($S^+$) | Multi-day low-and-slow exfiltration and behavioral drift. |
-| **`macd_momentum_velocity_2stage.yl2`** | 2 Stages | MACD Dual-Spine Momentum ($\Delta Z = Z_{\text{fast}} - Z_{\text{slow}}$) | Kinetic acceleration breakouts past 30-day ceiling and historical max. |
-| **`circadian_von_mises_2stage.yl2`** | 2 Stages | Circadian von Mises Temporal Distance ($D_{\text{circ}}^2 / 72.0$) | Cyclic 24-hour clock-face departures, off-hours authentication & bandwidth. |
-| **`c2_beacon_flow_frequency_2stage.yl2`** | 2 Stages | Outbound Flow Frequency Baseline ($Z_{\text{flows}}$) | High-frequency micro-session C2 beaconing and keep-alive heartbeats. |
+| **`longitudinal_cusum_2stage.yl2`** | 2 Stages | Windowed Slack Sum Prefilter ($W = \sum \max(0, Z_t - 0.5)$) | Multi-day low-and-slow exfiltration and behavioral drift (Page's recursive CUSUM $S_t$ computed in `timeline_assembler.py`). |
+| **`macd_momentum_velocity_2stage.yl2`** | 2 Stages | Above-Historical-Max Z ($Z_{\text{personal}} + \max(0, \text{obs} - \text{max}_{30\text{d}})/\sigma_{\text{safe}}$) | Linear peak exceedance breakouts past 30-day ceiling and historical max. |
+| **`c2_beacon_flow_frequency_2stage.yl2`** | 2 Stages | Outbound Flow Surge ($Z_{\text{flows}}$) | Daily outbound session-count surges and destination breadth (sub-hour C2 callback jitter hands off to `secops-statistical-hunter` `C2_BEACONING_JITTER`). |
 | **`http_error_ratio_surge_2stage.yl2`** | 2 Stages | HTTP Failure Baseline + Error Ratio Surge | Web application/proxy $4xx/5xx$ fuzzing, API enumeration, broken C2 loops. |
 | **`http_target_surge_2stage.yl2`** | 2 Stages | Target-Centric HTTP Surge (`target.hostname`) | Web server hammering, automated scraping, cloud API gateway abuse. |
 | **`cloud_repository_scope_dual_branch.yl2`** | 3 Stages | Dual-Branch Cloud Repository & Origin IP Isolation | 5-tuple service account resource CRUD isolation + unseen source IP pivot. |
@@ -552,7 +551,6 @@ To prevent runtime syntactic improvisation and avoid streaming rule syntax confu
 | **`hybrid_metric_http_ua_prevalence_2stage.yl2`** | 2 Stages | HTTP User-Agent Token Fleet Prevalence Shield | Hyperbolic fleet adopter dampening ($1 / (k_{\text{fleet}} + 1)$) for custom/rare user-agent strings. |
 | **`hybrid_metric_fleet_prevalence_2stage.yl2`** | 2 Stages | Cross-Sectional Token Fleet Prevalence Shield | Normalizes host/user surges against concurrent enterprise token adoption. |
 | **`hybrid_metric_entropy_concentration_2stage.yl2`** | 2 Stages | Metric Baseline + Target Concentration / Diversity Deficit | Fuses 30-day volume surge with single-destination elephant flow concentration. |
-| **`hybrid_metric_orthogonal_space_2stage.yl2`** | 2 Stages | Metric Baseline + Orthogonal Companion Dimension | Fuses 30-day metric baseline with unindexed raw UDM companion dimensions. |
 | **`hybrid_metric_raw_enrichment_2stage.yl2`** | 2 Stages | Metric Baseline + Raw Forensic Enrichment | Projects distinct command lines, URIs, and IPs onto 30-day metric outliers. |
 | **`rare_destination_ecg_3stage.yl2`** | 3 Stages + Root (2 UDM + graph) | Sector $Z$ filtered to Entity Graph-rare destinations | "Unusual outbound bytes / DNS / HTTP to low-prevalence domains or IPs" (domain via `target.hostname` or `network.dns.questions.name`; IP via `target.ip`). |
 | **`fusion_rare_destination_3stage.yl2`** | 3 Stages + Root (2 UDM + graph) | Dual-sector rectified $D$ through rare destinations | Two sectors on one host where the second is per (host, destination) and the destination is rare (e.g. DNS volume + HTTP to rare domains). |
@@ -916,10 +914,10 @@ To eliminate runtime syntax failures and semantic distortions, assemble every mu
    - *Single-sector volumetric / count Z-score*: `standard_z_score_2stage.yl2` (or `stage1_extractors/<metric>.yl2` + `stage2_math_models/<model>.yl2`)
    - *Heavy-tailed / burst-contaminated MAD*: `mad_robust_z_4stage.yl2` (or `stage2_math_models/mad.yl2`)
    - *Rare binary / low-$\lambda$ Poisson*: `poisson_rarity_2stage.yl2`
-   - *Multi-day low-and-slow drift*: `longitudinal_cusum_2stage.yl2`
-   - *Dual-spine velocity / acceleration*: `macd_momentum_velocity_2stage.yl2`
-   - *Off-hours / circadian anomaly*: `circadian_von_mises_2stage.yl2`
-   - *Outbound flow-frequency C2 beaconing*: `c2_beacon_flow_frequency_2stage.yl2`
+   - *Multi-day low-and-slow drift*: `longitudinal_cusum_2stage.yl2` (Windowed Slack Sum)
+   - *Above-historical-max peak breakout*: `macd_momentum_velocity_2stage.yl2`
+   - *Off-hours / hour-of-day anomaly*: hand off to `secops-statistical-hunter` `HOUR_OF_DAY_PROFILE` (`circadian_von_mises_2stage.yl2` retired per D1)
+   - *Outbound flow surge*: `c2_beacon_flow_frequency_2stage.yl2` (sub-hour C2 jitter hands off to `secops-statistical-hunter` `C2_BEACONING_JITTER`)
    - *HTTP 4xx/5xx error ratio or target surge*: `http_error_ratio_surge_2stage.yl2`, `http_target_surge_2stage.yl2`
    - *Service account 4-CRUD repository + caller IP scope*: `cloud_repository_scope_dual_branch.yl2`
    - *Fleet rollout / Patch Tuesday subtraction*: `dual_baseline_delta_z_3stage.yl2` or `hybrid_metric_fleet_prevalence_2stage.yl2`
@@ -927,7 +925,7 @@ To eliminate runtime syntax failures and semantic distortions, assemble every mu
    - *2-sector Euclidean fusion*: `dual_sector_fusion_3stage.yl2`, `multi_sector_fusion_4stage.yl2`, `rollup_sector_fusion_4stage.yl2`
    - *6-sector 360° Behavioral Risk Radar*: `radar_360_decoupled_sector.yl2`, `radar_360_sector_web_http.yl2`, `radar_360_sector_alert.yl2`
    - *Entity Graph rarity / novelty / WHOIS fusion*: `hybrid_metric_derived_file_prevalence_2stage.yl2`, `hybrid_metric_derived_domain_prevalence_2stage.yl2`, `hybrid_metric_derived_asset_age_2stage.yl2`, `hybrid_metric_whois_domain_lifecycle_2stage.yl2`, `rare_destination_ecg_3stage.yl2`, `fusion_rare_destination_3stage.yl2`
-   - *Macro baseline + micro raw telemetry enrichment / concentration / orthogonal breadth / Data Table bridge*: `hybrid_metric_raw_enrichment_2stage.yl2`, `hybrid_metric_entropy_concentration_2stage.yl2`, `hybrid_metric_orthogonal_space_2stage.yl2`, `hybrid_metric_http_ua_prevalence_2stage.yl2`, `hybrid_data_table_bridge_2stage.yl2`
+   - *Macro baseline + micro raw telemetry enrichment / concentration / Data Table bridge*: `hybrid_metric_raw_enrichment_2stage.yl2`, `hybrid_metric_entropy_concentration_2stage.yl2`, `hybrid_metric_http_ua_prevalence_2stage.yl2`, `hybrid_data_table_bridge_2stage.yl2`
 
 ### B. The `RAW_LOG_DUMP_DETECTED` Post-Flight Inspection Rule
 Before generating any report, audit which responses the analysis rests on. Two things separate a legitimate call from a violation: its position in the hunt lifecycle, and whether it carries its own aggregation.
@@ -1194,98 +1192,8 @@ To operationalize advanced statistical models without tripping Chronicle's join 
   $$\text{Concentration Ratio} = \frac{\text{Peak Single Event Transfer}}{\sum \text{Raw Transfers} + 1.0}$$
   A high ratio ($\ge 0.75$) isolates massive single-destination transfers (elephant flows) from diffuse distributed web traffic.
 
-### Archetype 2: Orthogonal Threat Space (`hybrid_metric_orthogonal_space_2stage.yl2`)
-* **Routing Triggers**: Dormant account awakening, cold-start entity activity, sub-threshold multi-target probing, orthogonal threat space, joint Bayesian log-odds fusion, or multi-dimensional threat distance norm ($D^2$).
-* **Match Topology**: Symmetrical entity match (`$entity by 1d`).
-* **Telemetry Join**: Macro historical intensity baseline $\bowtie$ Contemporary forensic breadth hits.
-* **Model 3: Joint Bayesian Additive Log-Odds Score**:
-  $$\text{Joint Odds} = (0.6 \cdot Z_{\text{intensity}}) + (0.4 \cdot Z_{\text{breadth}})$$
-  Fuses two sub-threshold anomalies ($Z \approx 2.2\sigma$) that individually escape alerting into a high-confidence compound detection.
-* **Model 4: Two-Part Hurdle Model (Dormant Account / Cold-Start Awakening)**:
-  $$\text{Condition: } \text{Active Days} \le 2 \land \text{Breadth} \ge 3 \land N_{\text{raw}} \ge 1$$
-  Accounts for zero-inflated distributions by checking the discrete hurdle (was entity dormant?) before measuring contemporary burst volume.
-* **Model 5: 2D Euclidean Threat Distance Norm**:
-  $$D^2 = Z_{\text{intensity}}^2 + Z_{\text{breadth}}^2 \ge 16.0 \quad (\implies D \ge 4.0\sigma)$$
-  Evaluates geometric distance from nominal behavior in coordinate space. Ranking directly by squared threat norm ($D^2$) avoids unnecessary square root computations; when deriving Euclidean distance $D$, use namespaced `math.sqrt($norm_sq)` (bare `sqrt()` is invalid).
-* **Canonical YARA-L 2.0 Multi-Stage Search DAG**:
-  ```yara
-  // Stage 1: Macro Baseline (Axis 1: Historical Intensity)
-  stage stage1_macro_intensity {
-      network.sent_bytes > 0
-      network.sent_bytes < 1000000000000000
-      principal.asset.hostname = $host
-      $host != ""
-
-    match:
-      $host by 1d
-
-    outcome:
-      $observed_intensity = sum(network.sent_bytes)
-      $hist_mean = max(metrics.network_bytes_outbound(
-          period: 1d, window: 30d, metric: value_sum, agg: avg,
-          principal.asset.hostname: principal.asset.hostname
-      ))
-      $hist_stddev = max(metrics.network_bytes_outbound(
-          period: 1d, window: 30d, metric: value_sum, agg: stddev,
-          principal.asset.hostname: principal.asset.hostname
-      ))
-      $hist_active_days = max(metrics.network_bytes_outbound(
-          period: 1d, window: 30d, metric: value_sum, agg: num_metric_periods,
-          principal.asset.hostname: principal.asset.hostname
-      ))
-
-      $z_intensity = ($observed_intensity - $hist_mean) / if($hist_stddev > 0, $hist_stddev, 1.0)
-  }
-
-  // Stage 2: Micro Telemetry (Axis 2: Contemporary Forensic Breadth)
-  stage stage2_micro_breadth {
-      metadata.event_type = "NETWORK_CONNECTION"
-      principal.asset.hostname = $host
-      $host != ""
-      target.ip != ""
-
-    match:
-      $host by 1d
-
-    outcome:
-      $raw_hits = count(metadata.id)
-      $distinct_breadth = count_distinct(target.ip)
-      $destination_sample = array_distinct(target.ip)
-  }
-
-  // Root Stage: Common Compiler Orthogonal Threat Space Fusion
-  $host = $stage1_macro_intensity.host
-  $host = $stage2_micro_breadth.host
-
-  match:
-    $host by 1d
-
-  outcome:
-    $z_intensity = max($stage1_macro_intensity.z_intensity)
-    $hist_days = max($stage1_macro_intensity.hist_active_days)
-    $raw_hits = max($stage2_micro_breadth.raw_hits)
-    $breadth_count = max($stage2_micro_breadth.distinct_breadth)
-
-    // Standardized Micro Breadth Score (Zero-dispersion floor safe)
-    $z_breadth = ($breadth_count - 1.0) / (2.0 + 1.0)
-
-    // Model 5: 2D Euclidean Threat Distance (Squared Norm)
-    $intensity_sq = $z_intensity * $z_intensity
-    $breadth_sq = $z_breadth * $z_breadth
-    $threat_distance_sq = $intensity_sq + $breadth_sq
-
-    // Model 3: Joint Bayesian Additive Log-Odds Score
-    $joint_odds_score = (0.6 * $z_intensity) + (0.4 * $z_breadth)
-
-    // Continuous Linear Outcome Regularization
-    $z = (0.5 * $joint_odds_score) + (0.5 * $threat_distance_sq)
-
-  condition:
-    $threat_distance_sq >= 16.0 or ($joint_odds_score >= 2.5 and $raw_hits >= 3) or ($hist_days <= 2 and $breadth_count >= 3 and $raw_hits >= 1)
-
-  order:
-    $threat_distance_sq desc
-  ```
+### Archetype 2: Retired (`hybrid_metric_orthogonal_space_2stage.yl2` — D1)
+* **Disposition (D1)**: Retired. Uncalibrated micro-breadth Z standardization (`(breadth - 1.0) / 3.0`) and arbitrary `0.6 / 0.4` weights have been removed. Use `dual_sector_fusion_3stage.yl2` / `multi_sector_fusion_4stage.yl2` for calibrated two-sector Euclidean fusion, or `two_part_hurdle.yl2` (`StatisticalModel.TWO_PART_HURDLE`) for dormant-entity awakening.
 
 ### Archetype 3: Fleet Prevalence Normalization (`hybrid_metric_fleet_prevalence_2stage.yl2`)
 * **Routing Triggers**: Workstations with abnormal file execution spikes launching rare binaries or unfamiliar hashes, Patch Tuesday fleet rollouts, corporate software rollout shielding, or fleet-wide token prevalence normalization (`prevalence.rolling_max <= 3`).
@@ -1353,8 +1261,8 @@ $$\text{Payload Concentration} = \frac{\sum \text{network.sent\_bytes}}{\text{co
 * **Low Payload Concentration (< 2,048 bytes/flow) + High $Z_{\text{flows}}$**: Confirms lightweight C2 heartbeats, port scanning, or recon polling.
 * **High Payload Concentration (> 1,000,000 bytes/flow) + High $Z_{\text{bytes}}$**: Confirms bulk exfiltration or "Elephant Flow" data staging.
 
-### D. Canonical Pipeline Template: `c2_beacon_flow_frequency_2stage.yl2`
-Use the pre-built pipeline in `templates/pipelines/c2_beacon_flow_frequency_2stage.yl2` for out-of-the-box C2 beaconing detection combining flow frequency baselining with target IP persistence analysis.
+### D. Canonical Pipeline Template: `c2_beacon_flow_frequency_2stage.yl2` (Outbound Flow Surge)
+Use `templates/pipelines/c2_beacon_flow_frequency_2stage.yl2` (`build_outbound_flow_surge_query`) for daily outbound flow-count surge detection combining `metrics.network_flows_outbound` baselining with single-scan target IP/port breadth. Sub-hour callback periodicity and interval jitter hand off to `secops-statistical-hunter` `C2_BEACONING_JITTER`.
 
 ---
 

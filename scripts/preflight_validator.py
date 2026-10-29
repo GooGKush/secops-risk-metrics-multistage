@@ -154,6 +154,12 @@ RETIRED_PIPELINE_ARCHITECTURES: Dict[PipelineArchitecture, str] = {
         "provides only daily (period: 1d, window: 30d) baselines; hand off to "
         "'secops-statistical-hunter' model 'HOUR_OF_DAY_PROFILE'."
     ),
+    PipelineArchitecture.HYBRID_METRIC_ORTHOGONAL_SPACE_2STAGE: (
+        "Pipeline architecture 'HYBRID_METRIC_ORTHOGONAL_SPACE_2STAGE' is retired (D1): "
+        "arbitrary micro-breadth Z standardization ((breadth - 1)/3) and ad-hoc 0.6/0.4 linear "
+        "weights are invalid; use 'DUAL_SECTOR_FUSION_3STAGE', 'MULTI_SECTOR_FUSION_4STAGE', or "
+        "StatisticalModel.TWO_PART_HURDLE instead."
+    ),
 }
 
 

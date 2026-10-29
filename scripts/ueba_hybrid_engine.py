@@ -373,7 +373,7 @@ def normalize_metrics_list(
       return ["http_queries_total"]
     if arch in ("failure_ratio", "http_error_ratio_surge_2stage"):
       return ["http_queries_fail"]
-    if arch == "c2_beacon_flow":
+    if arch in ("outbound_flow_surge", "outbound_flow_surge_2stage", "c2_beacon_flow", "c2_beacon_flow_frequency_2stage"):
       return ["network_flows_outbound"]
     if arch == "alert_surge":
       return ["alert_event_name_count"]
@@ -1545,10 +1545,11 @@ def compile_hunt_pipeline(
     audit_info = PreFlightValidator.audit(target_metric=primary_metric, entity_type=ent_enum, min_baseline_days=min_baseline_days, identifier_field=identifier_field)
     canonical_arch = PipelineArchitecture.HTTP_ERROR_RATIO_SURGE_2STAGE.value
 
-  elif arch_key == "c2_beacon_flow":
+  elif arch_key in ("outbound_flow_surge", "outbound_flow_surge_2stage", "c2_beacon_flow", "c2_beacon_flow_frequency_2stage"):
     flow_m = primary_metric if primary_metric.startswith("network_flows_") else "network_flows_outbound"
-    ent_enum = EntityType.ASSET
-    compiled_query = router.build_c2_beacon_flow_query(
+    if ent_enum not in METRIC_CATALOG[flow_m].supported_entity_types:
+      ent_enum = EntityType.ASSET
+    compiled_query = router.build_outbound_flow_surge_query(
         target_metric=flow_m,
         entity_type=ent_enum,
         anomaly_threshold=eff_anomaly,
@@ -1559,7 +1560,7 @@ def compile_hunt_pipeline(
     compiled_query = _inject_stage1_filters(compiled_query, entity_value=entity_value, custom_filter=custom_filter)
     primary_metric = flow_m
     audit_info = PreFlightValidator.audit(target_metric=primary_metric, entity_type=ent_enum, min_baseline_days=min_baseline_days, identifier_field=identifier_field)
-    canonical_arch = "C2_BEACON_FLOW_2STAGE"
+    canonical_arch = "OUTBOUND_FLOW_SURGE_2STAGE"
 
   elif arch_key == "alert_surge":
     primary_metric = "alert_event_name_count"
