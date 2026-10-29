@@ -422,6 +422,7 @@ def _render_standalone_slot_pipeline(
   rendered = rendered.replace("{{fusion_threshold_sq}}", "12.25")
   rendered = rendered.replace("{{robust_threshold}}", "3.5")
   rendered = rendered.replace("{{tukey_excess_threshold}}", "1.0")
+  rendered = rendered.replace("{{cusum_h}}", "4.0")
   rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
   rendered = rendered.replace("{{first_scored_date}}", target_date)
   if not re.search(r"//\s*(?:Goal:|ARCHITECTURE:|Sector:|Stage\s*\d*:)", rendered, re.I):
@@ -590,6 +591,15 @@ def render_all_pipelines(
               EntityType.ASSET,
               template_dir=router.template_dir,
               target_date=target_date,
+          ),
+      ),
+      (
+          "longitudinal_cusum_series_3stage.yl2",
+          PipelineArchitecture.LONGITUDINAL_CUSUM_SERIES_3STAGE.value,
+          lambda: router.build_longitudinal_cusum_series_query(
+              target_metric="network_bytes_outbound",
+              entity_type=EntityType.ASSET,
+              cusum_h_threshold=4.0,
           ),
       ),
       (

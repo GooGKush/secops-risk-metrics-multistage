@@ -106,7 +106,7 @@ class TestOfflineFullMatrixRenderer(unittest.TestCase):
     self.assertIn(StatisticalModel.FIRST_SEEN_NOVELTY, set(active_models))
     self.assertNotIn(StatisticalModel.PIECEWISE_CRI, set(active_models))
     self.assertNotIn(StatisticalModel.FLEET_PREVALENCE_SHIELD, set(active_models))
-    self.assertEqual(len(disk_pipelines), 33)
+    self.assertEqual(len(disk_pipelines), 34)
 
     self.assertEqual(self.summary["matrix_cell_count"], expected_cells)
     self.assertEqual(self.summary["pipeline_count"], len(disk_pipelines))
@@ -129,7 +129,7 @@ class TestOfflineFullMatrixRenderer(unittest.TestCase):
 
     # Named-cohort variants for part_of_the_whole_* also render and pass AST validation.
     with_cohorts = render_all_pipelines(include_cohort_variants=True)
-    self.assertEqual(len(with_cohorts), 35)
+    self.assertEqual(len(with_cohorts), 36)
     cohort_recs = [r for r in with_cohorts if "#named_cohort" in r.record_id]
     self.assertEqual(len(cohort_recs), 2)
     for rec in cohort_recs:

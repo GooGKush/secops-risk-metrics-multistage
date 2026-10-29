@@ -305,9 +305,9 @@ order:
     pipe_errs = MultiStageTemplateRouter.validate_rendered_pipeline(five_join_query)
     self.assertTrue(any("JOIN_LIMIT_EXCEEDED" in e for e in pipe_errs))
 
-    # 2. All 125 covering suite queries (including part_of_the_whole_triad_multilevel.yl2#named_cohort) must have <= 4 joins
+    # 2. All 126 covering suite queries (including longitudinal_cusum_series_3stage.yl2 and part_of_the_whole_triad_multilevel.yl2#named_cohort) must have <= 4 joins
     suite = build_covering_compile_suite()
-    self.assertEqual(len(suite), 125)
+    self.assertEqual(len(suite), 126)
     for mq in suite:
       joins = MalachiteASTValidator.count_query_joins(mq.query)
       self.assertLessEqual(joins, 4, msg=f"{mq.query_id} has {joins} joins (> 4)")
