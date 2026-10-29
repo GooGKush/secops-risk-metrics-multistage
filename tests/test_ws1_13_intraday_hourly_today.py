@@ -343,6 +343,84 @@ class TestWS113GoldenCharlesHardyEngineAndDossier(unittest.TestCase):
     ])
     self.assertEqual(rc, 0)
 
+  def test_render_forensic_dossier_midnight_00z_surfaces_empty_interval_note(self) -> None:
+    """Verifies render_forensic_dossier surfaces earlier_today_interval_note when start_time is 00:00Z."""
+    ref_now = datetime.datetime(2026, 10, 28, 6, 0, 0, tzinfo=datetime.timezone.utc)
+    compiled_midnight = compile_hunt_pipeline(
+        statistical_model="STANDARD_Z_SCORE",
+        metrics="auth_attempts_total",
+        entity_type="USER",
+        entity_value="charles.hardy",
+        intraday_hourly=True,
+        start_time="2026-10-28T00:00:00Z",
+        end_time="2026-10-28T06:00:00Z",
+        reference_time=ref_now,
+    )
+    expected_midnight_meta = validate_intraday_hourly_window(
+        "2026-10-28T00:00:00Z",
+        "2026-10-28T06:00:00Z",
+        allow_short_window=True,
+    )
+    self.assertTrue(expected_midnight_meta["empty_earlier_today_interval"])
+    expected_note = expected_midnight_meta["earlier_today_interval_note"]
+
+    # 1. Zero-row dossier at 00:00Z must surface earlier_today_interval_note in dossier_markdown & clean_hunt_markdown
+    zero_midnight = render_forensic_dossier(
+        rows=[],
+        executed_query=compiled_midnight["compiled_query"],
+        statistical_model="STANDARD_Z_SCORE",
+        metric_name="auth_attempts_total",
+        entity_type="USER",
+        intraday_hourly=True,
+        start_time="2026-10-28T00:00:00Z",
+        end_time="2026-10-28T06:00:00Z",
+    )
+    self.assertIn(expected_note, zero_midnight["dossier_markdown"])
+    self.assertIn(expected_note, zero_midnight["clean_hunt_markdown"])
+    self.assertIn(expected_note, zero_midnight["partial_day_warning"])
+    self.assertTrue(zero_midnight["intraday_window_meta"]["empty_earlier_today_interval"])
+
+    # 2. Populated breach dossier at 00:00Z (earlier_today_sum = 0, raw observed = 180) must also surface note
+    populated_midnight = render_forensic_dossier(
+        rows=[
+            {
+                "user": "charles.hardy",
+                "observed": 180,
+                "earlier_today_sum": 0,
+                "earlier_today_peak_hour": 0,
+                "earlier_today_active_hours": 0,
+                "full_today_so_far": 180,
+                "hist_avg": 100.0,
+                "hist_stddev": 20.0,
+                "active_days": 30,
+                "personal_z": 4.0,
+            }
+        ],
+        executed_query=compiled_midnight["compiled_query"],
+        statistical_model="STANDARD_Z_SCORE",
+        metric_name="auth_attempts_total",
+        entity_type="USER",
+        intraday_hourly=True,
+        start_time="2026-10-28T00:00:00Z",
+        end_time="2026-10-28T06:00:00Z",
+    )
+    self.assertTrue(populated_midnight["intraday_window_meta"]["empty_earlier_today_interval"])
+    self.assertIn(expected_note, populated_midnight["dossier_markdown"])
+
+    # 3. Non-midnight window (14:00Z -> 19:00Z) surfaces 14 hourly bucket(s) stitching note
+    non_midnight = render_forensic_dossier(
+        rows=[],
+        executed_query=compiled_midnight["compiled_query"],
+        statistical_model="STANDARD_Z_SCORE",
+        metric_name="auth_attempts_total",
+        entity_type="USER",
+        intraday_hourly=True,
+        start_time="2026-10-28T14:00:00Z",
+        end_time="2026-10-28T19:00:00Z",
+    )
+    self.assertFalse(non_midnight["intraday_window_meta"]["empty_earlier_today_interval"])
+    self.assertIn("14 hourly bucket(s)", non_midnight["dossier_markdown"])
+
 
 class TestWS113MultiStageGuideDocumentationParity(unittest.TestCase):
   """Verifies references/multi-stage-metrics-guide.md §2 & §3 retire stale claims and document PF-10/PF-10b/PF-11."""

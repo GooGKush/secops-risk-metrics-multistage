@@ -3,7 +3,7 @@
 from pathlib import Path
 import unittest
 from scripts import malachite_catalog as mc
-from scripts.preflight_validator import EntityType, MatchMode, PipelineArchitecture, StatisticalModel
+from scripts.preflight_validator import EntityType, MalachiteASTValidator, MatchMode, PipelineArchitecture, StatisticalModel
 from scripts.statistical_validator import StatisticalAntipatternAuditor
 from scripts.template_router import MultiStageTemplateRouter
 
@@ -222,12 +222,97 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
     self.assertIn("$z2_vs_team =", query)
     self.assertIn("$z3_vs_team =", query)
     self.assertIn("$d_vs_team_sq =", query)
+    self.assertIn("$samuelson_max_z =", query)
+    self.assertIn("$samuelson_max_d_sq =", query)
+    self.assertIn("$cohort_too_small =", query)
+    self.assertIn("$z1_vs_enterprise =", query)
+    self.assertIn("$z2_vs_enterprise =", query)
+    self.assertIn("$z3_vs_enterprise =", query)
     self.assertIn("$d_vs_fleet_sq =", query)
-    self.assertIn("$z1_team_vs_enterprise =", query)
-    self.assertIn("$d_team_vs_fleet_sq =", query)
+    self.assertNotIn("$z1_team_vs_enterprise", query)
+    self.assertNotIn("$z2_team_vs_enterprise", query)
+    self.assertNotIn("$z3_team_vs_enterprise", query)
+    self.assertNotIn("$d_team_vs_fleet_sq", query)
+    team_stage_body = query.split("stage team_cohort_stats {", 1)[1].split("}", 1)[0]
+    self.assertNotIn("$enterprise_stats", team_stage_body)
+    self.assertEqual(MalachiteASTValidator.validate_query(query), [])
+    self.assertEqual(MalachiteASTValidator.count_query_joins(query), 4)
     self.assertIn("order:\n  $d_vs_team_sq desc", query)
     self.assertNotIn("TEAM COHORT\n", query.split("// ======", 2)[-1])
     self.assertNotIn("{{", query)
+
+  def test_ws4_live_fixes_join_count_ceiling_and_125_covering_suite(self):
+    """Enforces <=4 total joins offline in MalachiteASTValidator and across all 125 covering suite queries."""
+    from tests.live.live_compile_harness import build_covering_compile_suite
+
+    # 1. Synthetic 5-join query (1 metrics.* + 1 join in team_cohort_stats + 2 in loo_scores + 1 in root = 5 > 4)
+    five_join_query = """// Goal: Verify offline 4-join ceiling catches 5-join DAG
+stage all_entities {
+    metadata.event_type = "USER_LOGIN"
+    target.user.userid = $user
+    $user != ""
+  match:
+    $user by 1d
+  outcome:
+    $m1_obs = count(metadata.id)
+    $m1_avg = max(metrics.auth_attempts_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, target.user.userid: target.user.userid))
+}
+stage enterprise_stats {
+    $ws = $all_entities.window_start
+  match:
+    $ws by 1d
+  outcome:
+    $f_avg = avg($all_entities.m1_obs)
+}
+stage team_cohort_stats {
+    $u = $all_entities.user
+    $ws = $all_entities.window_start
+    $ws = $enterprise_stats.ws
+    ($u = "alice" or $u = "bob")
+  match:
+    $ws by 1d
+  outcome:
+    $t_avg = avg($all_entities.m1_obs)
+    $diff = $t_avg - max($enterprise_stats.f_avg)
+}
+stage loo_scores {
+    $user = $all_entities.user
+    $ws = $all_entities.window_start
+    $ws = $team_cohort_stats.ws
+    $ws = $enterprise_stats.ws
+  match:
+    $user, $ws by 1d
+  outcome:
+    $z = max($all_entities.m1_obs) - max($team_cohort_stats.t_avg) - max($enterprise_stats.f_avg)
+}
+$user = $all_entities.user
+$ws = $all_entities.window_start
+$user = $loo_scores.user
+$ws = $loo_scores.ws
+match:
+  $user, $ws by 1d
+outcome:
+  $score = max($loo_scores.z)
+order:
+  $score desc
+"""
+    self.assertEqual(MalachiteASTValidator.count_query_joins(five_join_query), 5)
+    errs = MalachiteASTValidator.validate_query(five_join_query)
+    self.assertTrue(
+        any("JOIN_LIMIT_EXCEEDED" in e for e in errs),
+        f"Expected JOIN_LIMIT_EXCEEDED on 5-join query, got {errs}",
+    )
+    pipe_errs = MultiStageTemplateRouter.validate_rendered_pipeline(five_join_query)
+    self.assertTrue(any("JOIN_LIMIT_EXCEEDED" in e for e in pipe_errs))
+
+    # 2. All 125 covering suite queries (including part_of_the_whole_triad_multilevel.yl2#named_cohort) must have <= 4 joins
+    suite = build_covering_compile_suite()
+    self.assertEqual(len(suite), 125)
+    for mq in suite:
+      joins = MalachiteASTValidator.count_query_joins(mq.query)
+      self.assertLessEqual(joins, 4, msg=f"{mq.query_id} has {joins} joins (> 4)")
+      ast_errs = MalachiteASTValidator.validate_query(mq.query)
+      self.assertEqual(ast_errs, [], msg=f"{mq.query_id}: {ast_errs}")
 
   def test_part_of_the_whole_triad_fleet_only_without_cohort(self):
     """No peer group: the team stage would recompute the fleet, so it is dropped."""
