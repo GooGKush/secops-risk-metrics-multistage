@@ -189,17 +189,18 @@ Before running a multi-stage statistical hunt, explain the approach to the secur
 
 ---
 
-## 8. Beta-Binomial Bayesian Conjugacy (`BAYESIAN_BETA_BINOMIAL`)
-* **Security Problem Solved**: Prevents false alarms on low-sample failure probabilities by regularizing observed failure rates against historical prior stability. *(Note: Pre-computed `metrics.*_fail` tables store daily failure counts (`event_count_sum`) rather than pre-normalized $[0, 1]$ probabilities; when baselining failure-to-total ratios across `*_fail` and `*_total` metric families, use `http_error_ratio_surge_2stage.yl2` / `build_failure_ratio_surge_query()` or clamp $\bar{p} \in (0, 1)$ before Method-of-Moments prior estimation.)*
+## 8. Empirical Bayes Paired Beta-Binomial Failure Rate (`BAYESIAN_BETA_BINOMIAL`)
+* **Security Problem Solved**: Prevents `1/1 = 100%` small-sample false alarms on discrete failure proportions (`auth_attempts_*`, `dns_queries_*`, `http_queries_*`, `file_executions_*`, `resource_*`; unpaired metrics are rejected) by pairing Stage-1 failure counts `$obs_fail` and attempt totals `$obs_total` with 30-day `metrics.*` sums and a fleet-fitted `Beta(alpha0, beta0)` prior (`fit_beta_prior_from_fleet`, default $\alpha_0 = 1.0, \beta_0 = 19.0$).
 * **Mathematical Formulation**:
-  $$S = \max\left(1.0, \frac{\bar{p}(1-\bar{p})}{\sigma_p^2} - 1\right), \quad \alpha_0 = \bar{p} \cdot S, \quad \beta_0 = (1-\bar{p}) \cdot S$$
-  $$\hat{p}_{\text{posterior}} = \frac{\alpha_0 + k_{\text{fails}}}{\alpha_0 + \beta_0 + n_{\text{trials}}}$$
+  $$\alpha_{\text{pre}} = \alpha_0 + F_{30}, \quad \beta_{\text{pre}} = \beta_0 + \max(0, N_{30} - F_{30}), \quad M = \alpha_{\text{pre}} + \beta_{\text{pre}}, \quad \hat{p}_{\text{post}} = \frac{\alpha_{\text{pre}} + f}{M + n}$$
+  $$\mu_{\text{pred}} = n \cdot \frac{\alpha_{\text{pre}}}{M}, \quad \sigma_{\text{pred}}^2 = n \cdot \frac{\alpha_{\text{pre}}}{M}\cdot\frac{\beta_{\text{pre}}}{M}\cdot\frac{M + n}{M + 1}, \quad Z_{\text{BB}} = \frac{f - \mu_{\text{pred}}}{\sqrt{\max(\sigma_{\text{pred}}^2, 0.25)}}$$
 * **Post-Hunt Plain-English Cyber Impact Statement Template**:
 ```markdown
 > [!IMPORTANT]
-> **Bayesian Threat Impact Verdict: Beta-Binomial Failure Rate (`[target_metric]`)**
-> * **Raw vs. Regularized Rate**: Raw failure rate was **[raw_fail_prob]%** across [observed_total] attempts. Bayesian regularization adjusted this to **[posterior_fail_prob]%**.
-> * **Investigative Meaning**: Sustained elevated failure probability on high volume, confirming credential spraying.
+> **Bayesian Threat Impact Verdict: Paired Beta-Binomial Failure Rate (`[target_metric]`)**
+> * **Observed vs. Regularized Rate**: Entity recorded **[obs_fail]** failures across **[obs_total]** attempts; Empirical Bayes shrinkage adjusted the posterior failure probability to **[posterior_fail_rate]**.
+> * **Posterior-Predictive Residual**: Scored **[beta_binomial_z]σ** against the Beta-Binomial predictive distribution (prior **[prior_fail_rate]**).
+> * **Investigative Meaning**: Statistically significant failure-rate surge above both fleet and personal 30-day trial history.
 ```
 
 ---

@@ -69,7 +69,7 @@ DEFAULT_SIGNIFICANCE_GATES: Dict["StatisticalModel", str] = {
     StatisticalModel.COEFFICIENT_OF_VARIATION: ">= 2.0× baseline, CV <= 0.5",
     StatisticalModel.HOURLY_TEMPORAL_ZSCORE: "RETIRED (D1 -> HOUR_OF_DAY_PROFILE)",
     StatisticalModel.BAYESIAN_GAMMA: "Bayesian Z >= 3.0σ",
-    StatisticalModel.BAYESIAN_BETA_BINOMIAL: ">= 2.0× prior failure rate",
+    StatisticalModel.BAYESIAN_BETA_BINOMIAL: "Beta-Binomial Z >= 3.0σ",
     StatisticalModel.LONGITUDINAL_CUSUM: "Drift above 0.5σ slack",
     StatisticalModel.TWO_PART_HURDLE: "Dormant awakening OR Z >= 3.0σ",
     StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z: "Z >= 3.0σ (merged into STANDARD_Z_SCORE)",
@@ -1599,6 +1599,12 @@ class MalachiteASTValidator:
         errors.append(
             "MODEL_FORMULA_MISMATCH: Empirical Bayes BAYESIAN_GAMMA must compute fleet-prior $posterior_rate, "
             "posterior-predictive $safe_pred_sd, and $bayesian_z."
+        )
+    elif model == StatisticalModel.BAYESIAN_BETA_BINOMIAL:
+      if "$obs_fail" not in query_text or "$obs_total" not in query_text or "$beta_binomial_z" not in query_text:
+        errors.append(
+            "MODEL_FORMULA_MISMATCH: Paired Empirical Bayes BAYESIAN_BETA_BINOMIAL must extract $obs_fail and "
+            "$obs_total and score via posterior-predictive $beta_binomial_z."
         )
     elif model in (StatisticalModel.STANDARD_Z_SCORE, StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z):
       if "+ 1.0" not in query_text and "if(" not in query_text and "stddev" not in query_text.lower():

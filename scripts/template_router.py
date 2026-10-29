@@ -33,6 +33,23 @@ from .ueba_constants import (
 DEFAULT_TUKEY_EXCESS_THRESHOLD = 1.0
 DEFAULT_GAMMA_PRIOR_ALPHA0 = 0.5
 DEFAULT_GAMMA_PRIOR_BETA0 = 0.1
+DEFAULT_BETA_PRIOR_ALPHA0 = 1.0
+DEFAULT_BETA_PRIOR_BETA0 = 19.0
+
+
+def resolve_beta_binomial_pair(metric_name: str) -> Tuple[str, str]:
+  """Resolves a paired `(*_fail, *_total)` count family for BAYESIAN_BETA_BINOMIAL or raises ValueError."""
+  if metric_name in METRIC_CATALOG and metric_name.endswith(("_fail", "_total", "_success")):
+    prefix = metric_name.rsplit("_", 1)[0]
+    fail_m = f"{prefix}_fail"
+    total_m = f"{prefix}_total"
+    if fail_m in METRIC_CATALOG and total_m in METRIC_CATALOG:
+      return (fail_m, total_m)
+  raise ValueError(
+      f"Statistical model 'BAYESIAN_BETA_BINOMIAL' applies only to paired *_fail / *_total count "
+      f"families (auth_attempts_*, dns_queries_*, http_queries_*, file_executions_*, resource_*); "
+      f"'{metric_name}' is unpaired."
+  )
 
 
 def _iter_payload_rows(payload: Any) -> List[Dict[str, Any]]:
@@ -107,6 +124,70 @@ def fit_gamma_prior_from_fleet(
     return (float(default_alpha0), float(default_beta0))
   beta0 = max(round(mean_r / var_r, 6), 0.01)
   alpha0 = max(round(mean_r * beta0, 6), 0.01)
+  return (alpha0, beta0)
+
+
+def fit_beta_prior_from_fleet(
+    payload: Any,
+    default_alpha0: float = DEFAULT_BETA_PRIOR_ALPHA0,
+    default_beta0: float = DEFAULT_BETA_PRIOR_BETA0,
+) -> Tuple[float, float]:
+  """Fits Empirical Bayes Beta(alpha0, beta0) hyperparameters to fleet entity failure proportions."""
+  rows = _iter_payload_rows(payload)
+  props: List[float] = []
+  if not rows and isinstance(payload, (list, tuple)):
+    for item in payload:
+      try:
+        val = float(item)
+        if math.isfinite(val) and 0.0 <= val <= 1.0:
+          props.append(val)
+      except (TypeError, ValueError):
+        pass
+  for row in rows:
+    fail_v: Optional[float] = None
+    total_v: Optional[float] = None
+    for fk in ("hist_fail_sum", "fail_sum", "historical_fail_sum", "failures", "obs_fail"):
+      if row.get(fk) is not None:
+        try:
+          fail_v = float(row[fk])
+          break
+        except (TypeError, ValueError):
+          pass
+    for tk in ("hist_total_sum", "total_sum", "historical_total_sum", "attempts", "obs_total"):
+      if row.get(tk) is not None:
+        try:
+          total_v = float(row[tk])
+          break
+        except (TypeError, ValueError):
+          pass
+    prop: Optional[float] = None
+    if fail_v is not None and total_v is not None and total_v > 0.0:
+      prop = min(1.0, max(0.0, fail_v / total_v))
+    else:
+      for rk in ("fail_rate", "prior_fail_rate", "p", "proportion"):
+        if row.get(rk) is not None:
+          try:
+            cand = float(row[rk])
+            if math.isfinite(cand) and 0.0 <= cand <= 1.0:
+              prop = cand
+              break
+          except (TypeError, ValueError):
+            pass
+    if prop is not None and math.isfinite(prop):
+      props.append(prop)
+  if len(props) < 2:
+    return (float(default_alpha0), float(default_beta0))
+  mean_p = statistics.mean(props)
+  if mean_p <= 0.0 or mean_p >= 1.0:
+    return (float(default_alpha0), float(default_beta0))
+  var_p = statistics.variance(props)
+  bernoulli_var = mean_p * (1.0 - mean_p)
+  if not math.isfinite(var_p) or var_p <= 1e-9 or var_p >= bernoulli_var:
+    conc = 20.0
+  else:
+    conc = max(1.0, min(200.0, (bernoulli_var / var_p) - 1.0))
+  alpha0 = max(round(mean_p * conc, 6), 0.1)
+  beta0 = max(round((1.0 - mean_p) * conc, 6), 0.1)
   return (alpha0, beta0)
 
 # D8 / WS1-04: Per-metric fleet byte dispersion floors (median mature-entity stddev in bytes).
@@ -619,6 +700,8 @@ class MultiStageTemplateRouter:
       "variance": "Baseline Dispersion Screen (30-Day Fano Factor)",
       StatisticalModel.BAYESIAN_GAMMA: "Empirical Bayes Poisson-Gamma (Fleet Prior & NB Predictive Residual Z)",
       "bayesian_gamma": "Empirical Bayes Poisson-Gamma (Fleet Prior & NB Predictive Residual Z)",
+      StatisticalModel.BAYESIAN_BETA_BINOMIAL: "Empirical Bayes Paired Beta-Binomial Failure Rate (Predictive Z)",
+      "bayesian_beta_binomial": "Empirical Bayes Paired Beta-Binomial Failure Rate (Predictive Z)",
       StatisticalModel.COEFFICIENT_OF_VARIATION: "Regular-Volume Surge (Low-CV Predictable Baseline)",
       "coefficient_of_variation": "Regular-Volume Surge (Low-CV Predictable Baseline)",
       StatisticalModel.LONGITUDINAL_CUSUM: "Multi-Day Cumulative Drift (Windowed Slack Sum)",
@@ -1122,6 +1205,10 @@ class MultiStageTemplateRouter:
           "Use MAD, QUANTILE_IQR_SKEW, or STANDARD_Z_SCORE instead."
       )
 
+    paired_beta_metrics: Optional[Tuple[str, str]] = None
+    if statistical_model == StatisticalModel.BAYESIAN_BETA_BINOMIAL:
+      paired_beta_metrics = resolve_beta_binomial_pair(target_metric)
+
     # Enforce Local-Baseline Isolation: default STANDARD_Z_SCORE multi-database account queries
     # route to CLOUD_REPOSITORY_SCOPE_DUAL_BRANCH; explicit non-Z models render directly.
     if (
@@ -1142,11 +1229,20 @@ class MultiStageTemplateRouter:
           include_significance_gate=include_significance_gate,
       )
 
-    stage1_path = self.template_dir / "stage1_extractors" / f"{target_metric}.yl2"
+    extractor_metric = paired_beta_metrics[1] if paired_beta_metrics is not None else target_metric
+    if extractor_metric != target_metric:
+      audit = PreFlightValidator.audit(
+          target_metric=extractor_metric,
+          entity_type=entity_type,
+          min_baseline_days=min_baseline_days,
+          match_mode=match_mode,
+          identifier_field=identifier_field,
+      )
+    stage1_path = self.template_dir / "stage1_extractors" / f"{extractor_metric}.yl2"
     if not stage1_path.exists():
       raise FileNotFoundError(f"Missing Stage 1 template: {stage1_path}")
     stage1_content = self._rebind_entity_field(
-        self._strip_identifier_swap_note(stage1_path.read_text().strip()), target_metric, audit["target_field"])
+        self._strip_identifier_swap_note(stage1_path.read_text().strip()), extractor_metric, audit["target_field"])
 
     model_key = statistical_model
     stage2_file = self.STAGE2_TEMPLATES.get(statistical_model)
@@ -1160,6 +1256,44 @@ class MultiStageTemplateRouter:
     # Multi-key extractors: determine the metric's full baseline tuple and drop non-dimension Stage 1 match keys.
     group_keys, dropped_keys = self._mad_group_keys(stage1_content)
     stage1_content = self._drop_stage1_match_keys(stage1_content, dropped_keys)
+
+    if paired_beta_metrics is not None:
+      fail_m, total_m = paired_beta_metrics
+      _, obs_map = mc.triad_event_selection((total_m, fail_m))
+      fail_agg = obs_map[fail_m]
+      stage1_content = re.sub(
+          r"^[ \t]*\$observed_val\s*=\s*[^\n]+\n",
+          (
+              "    $obs_total = count(metadata.id)\n"
+              f"    $obs_fail = {fail_agg}\n"
+              "    $observed_val = $obs_fail\n"
+          ),
+          stage1_content,
+          count=1,
+          flags=re.M,
+      )
+      sum_call_re = re.compile(
+          r"^[ \t]*\$historical_sum\s*=\s*max\(metrics\."
+          + re.escape(total_m)
+          + r"\(\s*period:\s*1d,\s*window:\s*30d,\s*metric:\s*event_count_sum,\s*agg:\s*sum,\s*([^)]+?)\s*\)\)[ \t]*\n",
+          re.M | re.S,
+      )
+      sum_match = sum_call_re.search(stage1_content)
+      if not sum_match:
+        raise ValueError(f"Could not extract historical_sum dimensions from {total_m}.yl2")
+      dims_block = sum_match.group(1).strip()
+      paired_sums = (
+          f"    $hist_fail_sum = max(metrics.{fail_m}(\n"
+          "        period: 1d, window: 30d, metric: event_count_sum, agg: sum,\n"
+          f"        {dims_block}\n"
+          "    ))\n"
+          f"    $hist_total_sum = max(metrics.{total_m}(\n"
+          "        period: 1d, window: 30d, metric: event_count_sum, agg: sum,\n"
+          f"        {dims_block}\n"
+          "    ))\n"
+      )
+      stage1_content = stage1_content[:sum_match.start()] + paired_sums + stage1_content[sum_match.end():]
+      stage1_content = self._prune_unused_metrics_lookups(stage1_content, stage2_raw)
 
     # Harmonize Stage 2 entity variable with Stage 1 match variable ($user, $host, $entity, $sa)
     match_var_match = re.search(r'match:\s+([$][a-zA-Z0-9_]+)', stage1_content)
@@ -1225,15 +1359,22 @@ class MultiStageTemplateRouter:
 
     stage2_rendered = stage2_raw.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
     if "{{prior_alpha0}}" in stage2_rendered or "{{prior_beta0}}" in stage2_rendered:
+      is_beta_binom = statistical_model == StatisticalModel.BAYESIAN_BETA_BINOMIAL
+      def_a0 = DEFAULT_BETA_PRIOR_ALPHA0 if is_beta_binom else DEFAULT_GAMMA_PRIOR_ALPHA0
+      def_b0 = DEFAULT_BETA_PRIOR_BETA0 if is_beta_binom else DEFAULT_GAMMA_PRIOR_BETA0
       if prior_alpha0 is not None or prior_beta0 is not None:
-        eff_a0 = float(prior_alpha0 if prior_alpha0 is not None else DEFAULT_GAMMA_PRIOR_ALPHA0)
-        eff_b0 = float(prior_beta0 if prior_beta0 is not None else DEFAULT_GAMMA_PRIOR_BETA0)
+        eff_a0 = float(prior_alpha0 if prior_alpha0 is not None else def_a0)
+        eff_b0 = float(prior_beta0 if prior_beta0 is not None else def_b0)
         if eff_a0 <= 0.0 or eff_b0 <= 0.0:
           raise ValueError(f"Empirical Bayes prior hyperparameters must be positive, got ({eff_a0}, {eff_b0}).")
       elif fleet_prior_payload is not None:
-        eff_a0, eff_b0 = fit_gamma_prior_from_fleet(fleet_prior_payload)
+        eff_a0, eff_b0 = (
+            fit_beta_prior_from_fleet(fleet_prior_payload)
+            if is_beta_binom
+            else fit_gamma_prior_from_fleet(fleet_prior_payload)
+        )
       else:
-        eff_a0, eff_b0 = (DEFAULT_GAMMA_PRIOR_ALPHA0, DEFAULT_GAMMA_PRIOR_BETA0)
+        eff_a0, eff_b0 = (def_a0, def_b0)
       stage2_rendered = stage2_rendered.replace("{{prior_alpha0}}", str(eff_a0))
       stage2_rendered = stage2_rendered.replace("{{prior_beta0}}", str(eff_b0))
     stage2_rendered = _apply_byte_dispersion_floor(

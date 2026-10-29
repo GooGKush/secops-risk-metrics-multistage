@@ -1181,6 +1181,11 @@ def compile_hunt_pipeline(
         "so each UTC day is scored against its own trailing 30-day baseline."
     )
   metric_list = normalize_metrics_list(metrics, ent_enum, arch_key)
+  if metrics is None and ent_enum == EntityType.ASSET and metric_list == ["network_bytes_outbound"]:
+    if stat_model_enum == StatisticalModel.POISSON:
+      metric_list = ["dns_queries_total"]
+    elif stat_model_enum == StatisticalModel.BAYESIAN_BETA_BINOMIAL:
+      metric_list = ["dns_queries_fail"]
   pf7_multi_metric_err = (
       f"Cannot compile {len(metric_list)} metrics ({metric_list}) in a single in-query fusion DAG: "
       "Chronicle YARA-L multi-stage queries support at most 2 UDM event stages (PF-7), and "
@@ -3487,6 +3492,48 @@ def calculate_bayesian_gamma_posterior(
       "pred_var": round(pred_var, 6),
       "safe_pred_sd": round(safe_pred_sd, 6),
       "bayesian_z": round(bayesian_z, 4),
+  }
+
+
+def calculate_beta_binomial_posterior(
+    obs_fail: float,
+    obs_total: float,
+    hist_fail_sum: float = 0.0,
+    hist_total_sum: float = 0.0,
+    prior_alpha0: float = 1.0,
+    prior_beta0: float = 19.0,
+) -> Dict[str, float]:
+  """Computes paired Empirical Bayes Beta-Binomial posterior rate and posterior-predictive Z (WS3-BETA-BINOMIAL)."""
+  f_obs = float(obs_fail)
+  n_obs = float(obs_total)
+  f_hist = float(hist_fail_sum)
+  n_hist = float(hist_total_sum)
+  a0 = float(prior_alpha0)
+  b0 = float(prior_beta0)
+  if a0 <= 0.0 or b0 <= 0.0:
+    raise ValueError(f"Beta-Binomial prior hyperparameters must be positive, got ({a0}, {b0}).")
+
+  raw_hist_succ = n_hist - f_hist
+  hist_succ_sum = raw_hist_succ if raw_hist_succ > 0.0 else 0.0
+  alpha_pre = a0 + f_hist
+  beta_pre = b0 + hist_succ_sum
+  ab = alpha_pre + beta_pre
+  prior_fail_rate = alpha_pre / ab
+  posterior_fail_rate = (alpha_pre + f_obs) / (ab + n_obs)
+  pred_mean = n_obs * prior_fail_rate
+  pred_var = n_obs * prior_fail_rate * (beta_pre / ab) * ((ab + n_obs) / (ab + 1.0))
+  safe_pred_sd = math.sqrt(pred_var if pred_var > 0.25 else 0.25)
+  beta_binomial_z = (f_obs - pred_mean) / safe_pred_sd
+  return {
+      "alpha_pre": round(alpha_pre, 6),
+      "beta_pre": round(beta_pre, 6),
+      "prior_fail_rate": round(prior_fail_rate, 6),
+      "posterior_fail_rate": round(posterior_fail_rate, 6),
+      "posterior_rate": round(posterior_fail_rate, 6),
+      "pred_mean": round(pred_mean, 6),
+      "pred_var": round(pred_var, 6),
+      "safe_pred_sd": round(safe_pred_sd, 6),
+      "beta_binomial_z": round(beta_binomial_z, 4),
   }
 
 

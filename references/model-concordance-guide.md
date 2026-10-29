@@ -31,7 +31,7 @@ In multi-stage hunting workflows:
 | 5 | `COEFFICIENT_OF_VARIATION` | Regular-Volume Surge (Low-CV Predictable Baseline) | `$safe_hist_avg`, `$cv`, `$surge_ratio` | Fold-change surge gated on low relative dispersion ($\sigma / \mu \le 0.5$) | `order: $surge_ratio desc` | Standard Gaussian $Z$ without CV stability filter |
 | 6 | `HOURLY_TEMPORAL_ZSCORE` *(RETIRED D1)* | Retired — Hand off to `HOUR_OF_DAY_PROFILE` | — | Handed off to `secops-statistical-hunter` `HOUR_OF_DAY_PROFILE` (`PF-10` / `WS2-02`) | — | Comparing 1h buckets against 24h daily `metrics.*` baselines |
 | 7 | `BAYESIAN_GAMMA` | Empirical Bayes Poisson-Gamma (Fleet Prior & NB Predictive Z) | `$mu_cal`, `$var_cal`, `$excess_var`, `$posterior_rate`, `$post_rate_var`, `$cred_w`, `$pred_var`, `$safe_pred_sd`, `$bayesian_z` | Fleet-fitted `Gamma(alpha0, beta0)` slots, posterior rate $(\alpha_0 + S)/(\beta_0 + 30)$, NB posterior-predictive residual Z without double-counting $\mu$ (`B-E10`) | `order: $bayesian_z desc` | Self-estimated per-entity $\beta_0 = \mu/\sigma^2$ or posterior/mean fold-change ratio |
-| 8 | `BAYESIAN_BETA_BINOMIAL` | Beta-Binomial Bayesian Ratio Regularization | `$denom_scale`, `$scaled_prior`, `$scaled_obs`, `$prior_rate`, `$obs_rate`, `$prior_alpha`, `$prior_beta`, `$post_alpha`, `$post_denom`, `$posterior_rate`, `$safe_prior`, `$posterior_lift` | Proportion normalization into `[0, 1]`, M=10 Beta prior, N=10 conjugate update | `order: $posterior_lift desc` | Unnormalized raw counts (>1.0) causing negative `1.0 - p` |
+| 8 | `BAYESIAN_BETA_BINOMIAL` | Empirical Bayes Paired Beta-Binomial Failure Rate (Predictive Z) | `$obs_fail`, `$obs_total`, `$hist_fail_sum`, `$hist_total_sum`, `$prior_fail_rate`, `$posterior_fail_rate`, `$posterior_rate`, `$pred_mean`, `$pred_var`, `$safe_pred_sd`, `$beta_binomial_z` | Paired Stage-1 `*_fail`/`*_total` counts + 30d sums, fleet `Beta(alpha0, beta0)` prior, Beta-Binomial posterior-predictive residual Z | `order: $beta_binomial_z desc` | Pseudo-trial count normalization or running on unpaired metrics |
 | 9 | `LONGITUDINAL_CUSUM` | Longitudinal CUSUM Drift Accumulation | `$raw_drift`, `$safe_stddev`, `$slack_allowance`, `$slack_excess`, `$daily_excess`, `$cusum_drift`, `$cusum_drift_score`, `$drift_days` | Per-day slack excess ($Z_t - 0.5\sigma$), multi-day `sum($stage2_daily_drift.daily_excess)` across window | `order: $cusum_drift_score desc` | Single-bucket Z-score omitting multi-day drift accumulation |
 | 10 | `TWO_PART_HURDLE` | Two-Part Hurdle Model (Zero-Inflated) | `$is_dormant_awakening`, `$raw_diff`, `$safe_stddev`, `$intensity_z`, `$obs_plus_one`, `$log_obs`, `$dormant_score`, `$hurdle_threat_score` | Bernoulli hurdle trigger (`10.0 + math.log($obs_plus_one)`), conditional continuous intensity | `order: $hurdle_threat_score desc` | Single-equation continuous model without dormant penalty |
 | 11 | `ASYMMETRIC_DIRECTIONAL_Z` *(MERGED D1)* | Merged into `STANDARD_Z_SCORE` | `$personal_diff`, `$dispersion_floor`, `$safe_stddev`, `$personal_z` | Upper-tail positive `$personal_z >= 3.0` is identical to `STANDARD_Z_SCORE` (`standard_z_score.yl2`) | `order: $personal_z desc` | Maintaining duplicate `asymmetric_directional_z.yl2` |
@@ -61,7 +61,7 @@ Every query carries the model's significance gate as a root `condition:` placed 
 | `ADAPTIVE_CONTEXT_THRESHOLD` | `$active_days`, `$sensitivity_excess` | `$active_days >= 7 and $sensitivity_excess >= 0.0` | σ above the context threshold (1.75σ / 3.00σ) | `Z >= context threshold` | none (built into the score) |
 | `LONGITUDINAL_CUSUM` | `$active_days`, `$cusum_drift_score`, `$drift_days` | `$active_days >= 7 and $cusum_drift_score >= 3.0 and $drift_days >= 2` | cumulative σ excess over 0.5σ slack | `Drift above 0.5σ slack` | `{{anomaly_threshold}}` |
 | `BAYESIAN_GAMMA` | `$bayesian_z` | `$bayesian_z >= 3.0` | σ (NB posterior-predictive) | `Bayesian Z >= 3.0σ` | `{{anomaly_threshold}}` |
-| `BAYESIAN_BETA_BINOMIAL` | `$posterior_lift` | `$posterior_lift >= 2.0` | fold change (posterior / prior) | `>= 2.0× prior failure rate` | `{{fold_change_threshold}}` |
+| `BAYESIAN_BETA_BINOMIAL` | `$beta_binomial_z` | `$beta_binomial_z >= 3.0` | σ (Beta-Binomial posterior-predictive) | `Beta-Binomial Z >= 3.0σ` | `{{anomaly_threshold}}` |
 | `COEFFICIENT_OF_VARIATION` | `$active_days`, `$surge_ratio`, `$cv` | `$active_days >= 7 and $surge_ratio >= 2.0 and $cv <= 0.5` | fold change on a predictable entity | `>= 2.0× baseline, CV <= 0.5` | `{{fold_change_threshold}}` |
 | `RELATIVE_DEVIATION` | `$fold_change` | `$fold_change >= 2.0` (ranked by `$ratio`) | fold change | `>= 2.0× baseline` | `{{fold_change_threshold}}` |
 | `MAD` | `$modified_z` | `... and $modified_z >= 3.5` (AND-ed with the scoring-window and sample-size gates) | modified Z | `Modified Z >= 3.5` | `{{robust_threshold}}` |
@@ -275,34 +275,36 @@ order:
 ```
 
 ### 8. `BAYESIAN_BETA_BINOMIAL` (`beta_binomial_bayesian.yl2`)
-* **Hypothesis**: Ratio and failure probability regularization under small-sample discrete Bernoulli trials. Normalizes raw count/volume inputs into `[0, 1]` proportions when paired with count/volume extractors, while preserving exact `[0, 1]` ratios when paired with proportion extractors. *(Note: `metrics.*_fail` tables store daily failure counts via `event_count_sum`; for failure-to-total ratio surges across `*_fail` and `*_total` count metrics, use `http_error_ratio_surge_2stage.yl2` / `build_failure_ratio_surge_query()`.)*
+* **Hypothesis**: Paired Empirical Bayes Beta-Binomial failure-rate regularization (`WS3-BETA-BINOMIAL`, `D1b`). Stage 1 pairs a `*_fail` metric with its sibling `*_total` metric (supported across all 8 paired families: `auth_attempts_*`, `dns_queries_*`, `http_queries_*`, `file_executions_*`, `resource_{creation,deletion,read,written}_*`; unpaired metrics raise `ValueError`). A fleet pass (`fit_beta_prior_from_fleet`, default `alpha0 = 1.0, beta0 = 19.0`) supplies the prior slots `{{prior_alpha0}}` and `{{prior_beta0}}`, preventing `1/1` single-trial false alarms while firing on sustained failure surges.
 * **Mandatory AST Contract**:
 ```yara
 outcome:
-  $observed = max($stage1_extract.observed_val)
-  $hist_avg = max($stage1_extract.historical_avg)
+  $obs_fail = sum($stage1_extract.obs_fail)
+  $obs_total = sum($stage1_extract.obs_total)
+  $observed = $obs_fail
+  $hist_fail_sum = max($stage1_extract.hist_fail_sum)
+  $hist_total_sum = max($stage1_extract.hist_total_sum)
   $active_days = max($stage1_extract.historical_active_days)
 
-  $denom_scale = $observed + $hist_avg + 1.0
-  $scaled_prior = $hist_avg / $denom_scale
-  $scaled_obs = $observed / $denom_scale
-  $prior_rate = if($hist_avg <= 1.0 and $observed <= 1.0, $hist_avg, $scaled_prior)
-  $obs_rate = if($hist_avg <= 1.0 and $observed <= 1.0, $observed, $scaled_obs)
+  $raw_hist_succ = $hist_total_sum - $hist_fail_sum
+  $hist_succ_sum = if($raw_hist_succ > 0.0, $raw_hist_succ, 0.0)
+  $alpha_pre = 1.0 + $hist_fail_sum
+  $beta_pre = 19.0 + $hist_succ_sum
+  $ab = $alpha_pre + $beta_pre
+  $prior_fail_rate = $alpha_pre / $ab
 
-  $prior_alpha = $prior_rate * 10.0
-  $prior_beta = (1.0 - $prior_rate) * 10.0
-
-  $post_alpha = $prior_alpha + ($obs_rate * 10.0)
-  $post_denom = $prior_alpha + $prior_beta + 10.0
-  $posterior_rate = $post_alpha / $post_denom
-  $safe_prior = if($prior_rate > 0.001, $prior_rate, 0.001)
-  $posterior_lift = $posterior_rate / $safe_prior
+  $posterior_fail_rate = ($alpha_pre + $obs_fail) / ($ab + $obs_total)
+  $posterior_rate = $posterior_fail_rate
+  $pred_mean = $obs_total * $prior_fail_rate
+  $pred_var = $obs_total * $prior_fail_rate * ($beta_pre / $ab) * (($ab + $obs_total) / ($ab + 1.0))
+  $safe_pred_sd = math.sqrt(if($pred_var > 0.25, $pred_var, 0.25))
+  $beta_binomial_z = ($obs_fail - $pred_mean) / $safe_pred_sd
 
 condition:
-  $posterior_lift >= 2.0
+  $beta_binomial_z >= 3.0
 
 order:
-  $posterior_lift desc
+  $beta_binomial_z desc
 ```
 
 ### 9. `LONGITUDINAL_CUSUM` (`longitudinal_cusum.yl2` & `longitudinal_drift_cusum_2stage.yl2`)
