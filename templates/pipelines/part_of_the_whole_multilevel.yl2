@@ -19,8 +19,10 @@
 //   Show the filled query in the Turn 1 Pre-Flight.
 //   ADDITIONAL SLOTS: entity_name = entity_var without leading $ (e.g. user or host);
 //   target_entity_filter = subject/cohort filter in root stage (or {{entity_var}} != "" for fleet-wide).
-//   SAMUELSON SMALL-COHORT BOUND: Because the subject is included in the cohort mean/stddev,
-//   max Z <= math.sqrt(N - 1). A 3.0-sigma threshold requires N >= 11 peers; lower anomaly_threshold for smaller teams.
+//   SAMUELSON SMALL-COHORT BOUND (PF-2 / WS1-09): Chronicle's stddev() computes sample SD (N - 1 df)
+//   with the subject included in the cohort, bounding max Z <= (N - 1) / math.sqrt(N).
+//   A 3.0-sigma threshold requires N >= 11 active peers (a 7-sample cohort caps at 2.27 sigma);
+//   when $samuelson_max_z < {{anomaly_threshold}}, $cohort_too_small = 1 ("cohort too small").
 //   Path user -> group -> enterprise: $z_vs_team (one vs group), $z_team_vs_enterprise
 //   (group mean vs fleet, in fleet std units; elevated = team campaign/rollout).
 //
@@ -119,10 +121,14 @@ outcome:
 
   // 3. Group vs Enterprise ("Team as Part of the Enterprise"): team mean in fleet std units
   $z_team_vs_enterprise = ($t_avg - $e_avg) / if($e_std > 0, $e_std, 1.0)
+  $samuelson_max_z = ($team_size - 1.0) / math.sqrt(if($team_size > 1, $team_size, 1.0))
+  $cohort_too_small = if($samuelson_max_z < {{anomaly_threshold}}, 1, 0)
   // <<< TEAM COHORT
 
   // 2. Enterprise Cross-Sectional Z-Score ("Part of the Enterprise")
   $z_vs_enterprise = ($observed - $e_avg) / if($e_std > 0, $e_std, 1.0)
+  $fleet_samuelson_max_z = ($fleet_size - 1.0) / math.sqrt(if($fleet_size > 1, $fleet_size, 1.0))
+  $fleet_cohort_too_small = if($fleet_samuelson_max_z < {{anomaly_threshold}}, 1, 0)
 
 // Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
 condition:

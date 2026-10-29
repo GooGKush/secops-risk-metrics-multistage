@@ -20,8 +20,10 @@
 //   AND order: ($d_vs_team_sq desc). Show the filled query in the Turn 1 Pre-Flight.
 //   ADDITIONAL SLOTS: entity_name = entity_var without leading $ (e.g. user or host);
 //   target_entity_filter = subject/cohort filter in root stage (or {{entity_var}} != "" for fleet-wide).
-//   SAMUELSON SMALL-COHORT BOUND: Because the subject is included in the cohort mean/stddev,
-//   max Z_i <= math.sqrt(N - 1) and D^2 <= 3*(N - 1). Lower fusion_threshold_sq when team_size < 6.
+//   SAMUELSON SMALL-COHORT BOUND (PF-2 / WS1-09): Chronicle's stddev() computes sample SD (N - 1 df)
+//   with the subject included in the cohort, bounding max Z_i <= (N - 1) / math.sqrt(N) and
+//   D^2 <= 3 * (N - 1)^2 / N. A fusion_threshold_sq of 12.25 requires team_size >= 6;
+//   when $samuelson_max_d_sq < {{fusion_threshold_sq}}, $cohort_too_small = 1 ("cohort too small").
 //   TRIAD COLLINEARITY NOTE: Since total = fail + success, the 3 triad Z-scores span 2 linearly
 //   independent degrees of freedom; D^2 = Z1^2 + Z2^2 + Z3^2 weights the sum-axis by 2x.
 //   Path user -> group -> enterprise: $z*_vs_team (one vs group), $z*_team_vs_enterprise and
@@ -94,6 +96,9 @@ stage enterprise_stats {
     $m3_fleet_div = if($m3_fleet_std > 0, $m3_fleet_std, 1.0)
 
     $fleet_size = count_distinct($all_entities.{{entity_name}})
+    $fleet_samuelson_max_z = ($fleet_size - 1.0) / math.sqrt(if($fleet_size > 1, $fleet_size, 1.0))
+    $fleet_samuelson_max_d_sq = 3.0 * $fleet_samuelson_max_z * $fleet_samuelson_max_z
+    $fleet_cohort_too_small = if($fleet_samuelson_max_d_sq < {{fusion_threshold_sq}}, 1, 0)
 }
 
 // >>> TEAM COHORT
@@ -163,6 +168,9 @@ outcome:
   // 4. Group vs Enterprise, computed in team_cohort_stats (elevated = team campaign/rollout)
   $d_team_vs_fleet_sq = max($team_cohort_stats.d_team_vs_fleet_sq)
   $team_size = max($team_cohort_stats.team_size)
+  $samuelson_max_z = ($team_size - 1.0) / math.sqrt(if($team_size > 1, $team_size, 1.0))
+  $samuelson_max_d_sq = 3.0 * $samuelson_max_z * $samuelson_max_z
+  $cohort_too_small = if($samuelson_max_d_sq < {{fusion_threshold_sq}}, 1, 0)
   // <<< TEAM COHORT
 
   // 2. Enterprise Cross-Sectional Z-Scores ("Part of the Fleet")

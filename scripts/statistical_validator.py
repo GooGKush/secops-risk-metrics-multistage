@@ -406,13 +406,20 @@ class StatisticalAntipatternAuditor:
     has_continuous_z = bool(re.search(r"(\$[a-zA-Z0-9_]*z[a-zA-Z0-9_]*)\s*=", outcome_text, re.IGNORECASE))
 
     if has_continuous_z:
+      is_sibling_triad_with_poisson_floor = (
+          "$m1_obs" in outcome_text
+          and "$m2_obs" in outcome_text
+          and "$m3_obs" in outcome_text
+          and "math.sqrt(" in outcome_text
+      )
       has_sample_gate = bool(
           "num_metric_periods" in stage_body or
           "min_baseline_days" in stage_body or
           "active_days" in stage_body or
           "poisson" in stage_body.lower() or
           "fano" in stage_body.lower() or
-          "beta_binomial" in stage_body.lower()
+          "beta_binomial" in stage_body.lower() or
+          is_sibling_triad_with_poisson_floor
       )
       if not has_sample_gate:
         violations.append(

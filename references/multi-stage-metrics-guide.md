@@ -602,7 +602,7 @@ When comparing an individual to a team cohort, single-tier comparisons create bl
    * `$has_subject = 1` → that department is the team.
    * `$has_subject = 0` or no row → run it once more keyed on AD group membership: replace the `$dept` lines with `$grp = graph.relations.entity.group.group_display_name`, `$grp != ""`, `$grp != "Domain Users"` and `match: $grp`. Ordering by `$team_size asc` picks the smallest group the subject belongs to; name that group in the Pre-Flight so the analyst can change it.
    * Still `$has_subject = 0` → ask the analyst for the roster and yield.
-   * Team size below 7 → keep the team stage and flag `⚠️ Sparse Baseline Caution (N < 7)`.
+   * Team size below 7 → keep the team stage and flag `⚠️ Sparse Baseline Caution (N < 7)`. Because Chronicle `stddev()` computes sample SD ($N - 1$ df) with the subject included (`PF-2` / `WS1-09`), the Samuelson bound caps $\max Z \le (N - 1) / \sqrt{N}$ ($3.0\sigma$ requires $N \ge 11$; triad $D^2 \ge 12.25$ requires $N \ge 6$ via $3(N - 1)^2 / N$); when $(N - 1)/\sqrt{N}$ is below the gate, report `"cohort too small"` and either lower `anomaly_threshold` or evaluate against the enterprise fleet.
 
 This produces 4 diagnostic states: **Individual Rogue** (high $Z_{\text{team}}$ & high $Z_{\text{enterprise}}$), **Role Benign** (low $Z_{\text{team}}$ & high $Z_{\text{enterprise}}$), **Stealth Compromise** (high $Z_{\text{team}}$ & low $Z_{\text{enterprise}}$), and **Team Campaign/Rollout** (low $Z_{\text{team}}$ & high $Z_{\text{team\_vs\_enterprise}}$).
 

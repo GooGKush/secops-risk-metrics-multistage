@@ -232,6 +232,7 @@ class CommonMarkTriageFormatter:
       anomaly_threshold: float = 3.0,
       evaluation_mode: str = "Mode A",
       ecg_join_filter_disclosure: Optional[str] = None,
+      cohort_cap_warning: Optional[str] = None,
   ) -> str:
     """Renders the lightweight 2-pillar Clean Hunt Summary for 0-row outcomes with agentic next steps."""
     next_steps = cls.build_agentic_next_steps(
@@ -259,6 +260,8 @@ class CommonMarkTriageFormatter:
     ]
     if eff_ecg_disclosure:
       lines.append(f"* **ECG Inner-Join Filter Disclosure**: {eff_ecg_disclosure}")
+    if cohort_cap_warning:
+      lines.append(f"* **Samuelson Small-Cohort Cap (PF-2 / WS1-09)**: {cohort_cap_warning}")
     lines.extend([
         "",
         "> [!IMPORTANT]",
@@ -277,6 +280,7 @@ class CommonMarkTriageFormatter:
       sparse_callout: Optional[str] = None,
       ecg_join_filter_disclosure: Optional[str] = None,
       ecg_novelty_notice: Optional[str] = None,
+      cohort_cap_warning: Optional[str] = None,
   ) -> str:
     # 1. Post-Flight Audit Gate Check
     if audit_result is not None and not getattr(audit_result, "is_valid", True):
@@ -342,6 +346,12 @@ class CommonMarkTriageFormatter:
       report.extend([
           "> [!WARNING]",
           f"> **⚠️ ECG Novelty Notice (PF-8 / WS1-08)**: {ecg_novelty_notice}",
+          "",
+      ])
+    if cohort_cap_warning:
+      report.extend([
+          "> [!WARNING]",
+          f"> **⚠️ Samuelson Small-Cohort Cap (PF-2 / WS1-09)**: {cohort_cap_warning}",
           "",
       ])
 

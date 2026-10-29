@@ -4,10 +4,11 @@ __author__ = "Greg Kushmerek"
 __version__ = "2.1.1"
 
 import datetime
+import math
 from pathlib import Path
 import re
 import statistics
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 from . import malachite_catalog as mc
 from .preflight_validator import (
     KillChainArchetype,
@@ -370,6 +371,122 @@ _TEAM_BLOCK_RE = re.compile(
 def _apply_team_cohort_blocks(rendered: str, keep: bool) -> str:
   """Keeps (marker lines removed) or deletes the optional '// >>> TEAM COHORT' blocks."""
   return _TEAM_BLOCK_RE.sub((lambda m: m.group(1) + (m.group(2) or "")) if keep else "", rendered)
+
+
+def samuelson_max_z(cohort_size: Union[int, float]) -> float:
+  """Maximum sample-SD Z-score achievable when the subject is included in an N-member cohort (PF-2 / WS1-09).
+
+  Chronicle's `stddev()` and `metrics.*(..., agg: stddev)` compute sample standard deviation
+  with N - 1 degrees of freedom, bounding max |Z| <= (N - 1) / sqrt(N).
+  """
+  n = float(cohort_size)
+  if n <= 1.0:
+    return 0.0
+  return (n - 1.0) / math.sqrt(n)
+
+
+def samuelson_min_cohort_size(threshold_z: float) -> int:
+  """Minimum cohort size N >= 2 needed for sample-SD Samuelson cap (N - 1)/sqrt(N) >= threshold_z."""
+  t = float(threshold_z)
+  if t <= 0.0:
+    return 2
+  n_est = max(2, int(math.ceil(((2.0 + t * t) + t * math.sqrt(t * t + 4.0)) / 2.0)))
+  while samuelson_max_z(n_est) + 1e-12 < t:
+    n_est += 1
+  while n_est > 2 and samuelson_max_z(n_est - 1) >= t - 1e-12:
+    n_est -= 1
+  return n_est
+
+
+def samuelson_triad_max_d_sq(cohort_size: Union[int, float]) -> float:
+  """Maximum 3-metric squared composite distance D^2 <= 3 * (N - 1)^2 / N for an N-member cohort."""
+  z_cap = samuelson_max_z(cohort_size)
+  return 3.0 * z_cap * z_cap
+
+
+def samuelson_triad_min_cohort_size(fusion_threshold_sq: float) -> int:
+  """Minimum cohort size N >= 2 needed for triad sample-SD D^2 cap 3*(N-1)^2/N >= fusion_threshold_sq."""
+  t_sq = float(fusion_threshold_sq)
+  if t_sq <= 0.0:
+    return 2
+  return samuelson_min_cohort_size(math.sqrt(t_sq / 3.0))
+
+
+def evaluate_samuelson_cohort_cap(
+    cohort_size: int,
+    *,
+    threshold_z: float = DEFAULT_ANOMALY_THRESHOLD,
+    is_triad: bool = False,
+    fusion_threshold_sq: float = DEFAULT_FUSION_THRESHOLD_SQ,
+) -> Dict[str, Any]:
+  """Evaluates whether an N-member peer cohort can reach the configured significance gate (WS1-09)."""
+  n = max(int(cohort_size), 0)
+  max_z = samuelson_max_z(n)
+  max_d_sq = samuelson_triad_max_d_sq(n) if is_triad else None
+  if is_triad:
+    req_n = samuelson_triad_min_cohort_size(fusion_threshold_sq)
+    too_small = bool(max_d_sq is not None and max_d_sq < float(fusion_threshold_sq))
+    warning = (
+        f"Cohort too small (PF-2 / WS1-09): peer cohort size N = {n} caps 3-metric sample-SD "
+        f"distance at D^2 <= 3*(N - 1)^2/N = {max_d_sq:.2f} (per-metric max Z = (N - 1)/sqrt(N) = "
+        f"{max_z:.2f}σ), which is below the D^2 >= {float(fusion_threshold_sq):.2f} gate — this peer "
+        f"query mathematically cannot alert until N >= {req_n} active peers (or lower fusion_threshold_sq / "
+        "drop to fleet-only comparison)."
+        if too_small
+        else None
+    )
+  else:
+    req_n = samuelson_min_cohort_size(threshold_z)
+    too_small = bool(max_z < float(threshold_z))
+    warning = (
+        f"Cohort too small (PF-2 / WS1-09): peer cohort size N = {n} caps sample-SD Z-score at "
+        f"(N - 1)/sqrt(N) = {max_z:.2f}σ, which is below the {float(threshold_z):.2f}σ significance "
+        f"gate — this peer query mathematically cannot alert until N >= {req_n} active peers "
+        "(or lower anomaly_threshold / drop to fleet-only comparison)."
+        if too_small
+        else None
+    )
+  return {
+      "cohort_size": n,
+      "samuelson_max_z": round(max_z, 4),
+      "samuelson_max_d_sq": round(max_d_sq, 4) if max_d_sq is not None else None,
+      "required_min_cohort_size": req_n,
+      "cohort_too_small": too_small,
+      "warning": warning,
+  }
+
+
+def extract_query_cohort_cap_info(
+    query_text: Optional[str],
+    default_anomaly_threshold: float = DEFAULT_ANOMALY_THRESHOLD,
+    default_fusion_threshold_sq: float = DEFAULT_FUSION_THRESHOLD_SQ,
+) -> Optional[Dict[str, Any]]:
+  """Extracts team_cohort_stats roster size and root gate from a rendered YARA-L peer query (WS1-09)."""
+  if not query_text or "stage team_cohort_stats" not in query_text:
+    return None
+  stage_m = re.search(r"stage\s+team_cohort_stats\s*\{(.*?)\}", query_text, flags=re.S)
+  if not stage_m:
+    return None
+  members = set(re.findall(r'\$u\s*=\s*"((?:\\.|[^"\\])*)"', stage_m.group(1)))
+  if not members:
+    return None
+  root_cond = MultiStageTemplateRouter.root_condition(query_text) or ""
+  triad_m = re.search(r"\$d_vs_team_sq\s*>=\s*([0-9]+(?:\.[0-9]+)?)", root_cond)
+  if triad_m:
+    return evaluate_samuelson_cohort_cap(
+        len(members),
+        is_triad=True,
+        fusion_threshold_sq=float(triad_m.group(1)),
+    )
+  if "$d_vs_team_sq" in query_text:
+    return evaluate_samuelson_cohort_cap(
+        len(members),
+        is_triad=True,
+        fusion_threshold_sq=default_fusion_threshold_sq,
+    )
+  team_m = re.search(r"\$z_vs_team\s*>=\s*([0-9]+(?:\.[0-9]+)?)", root_cond)
+  eff_z = float(team_m.group(1)) if team_m else float(default_anomaly_threshold)
+  return evaluate_samuelson_cohort_cap(len(members), threshold_z=eff_z, is_triad=False)
 
 
 def _today_date() -> str:
@@ -1361,6 +1478,8 @@ class MultiStageTemplateRouter:
         rendered = rendered.replace("{{cohort_filter}}", cohort_filter)
         rendered = rendered.replace("order:\n  $z_vs_enterprise desc", "order:\n  $z_vs_team desc")
         rendered = rendered.replace("$z_vs_enterprise >= {{anomaly_threshold}}", "$z_vs_team >= {{anomaly_threshold}}")
+      if min_threshold is not None:
+        rendered = rendered.replace("< {{anomaly_threshold}},", f"< {min_threshold},")
 
       if target_entity:
         target_filter = f'{entity_var} = "{self._escape_yaral_literal(target_entity)}"'
@@ -1432,6 +1551,8 @@ class MultiStageTemplateRouter:
         rendered = rendered.replace("{{cohort_filter}}", cohort_filter)
         rendered = rendered.replace("order:\n  $d_vs_fleet_sq desc", "order:\n  $d_vs_team_sq desc")
         rendered = rendered.replace("$d_vs_fleet_sq >= {{fusion_threshold_sq}}", "$d_vs_team_sq >= {{fusion_threshold_sq}}")
+      if min_threshold is not None:
+        rendered = rendered.replace("< {{fusion_threshold_sq}},", f"< {min_threshold},")
 
       rendered = _fill_event_filter(rendered, "{{event_filter}}", triad_filter)
       rendered = rendered.replace("{{entity_field}}", triad_audit["target_field"])

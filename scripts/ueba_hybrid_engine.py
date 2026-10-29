@@ -69,8 +69,14 @@ from scripts.template_router import (
     MultiStageTemplateRouter,
     build_byte_dispersion_floor_probe,
     build_identifier_coverage_probe,
+    evaluate_samuelson_cohort_cap,
+    extract_query_cohort_cap_info,
     parse_byte_dispersion_floor_probe,
     resolve_byte_dispersion_floor,
+    samuelson_max_z,
+    samuelson_min_cohort_size,
+    samuelson_triad_max_d_sq,
+    samuelson_triad_min_cohort_size,
     select_identifier_from_coverage,
 )
 from scripts.timeline_assembler import TimelineAssembler, cri_from_score, parse_stats_payload
@@ -1611,6 +1617,23 @@ def compile_hunt_pipeline(
       if cohort_entities
       else f"Enterprise {ent_enum.value.title()} Population"
   )
+  cohort_cap_info: Optional[Dict[str, Any]] = None
+  if cohort_entities and canonical_arch in (
+      PipelineArchitecture.PART_OF_THE_WHOLE_MULTILEVEL.value,
+      PipelineArchitecture.PART_OF_THE_WHOLE_TRIAD_MULTILEVEL.value,
+  ):
+    unique_peers = list(dict.fromkeys(c for c in cohort_entities if c))
+    is_triad_arch = (
+        canonical_arch == PipelineArchitecture.PART_OF_THE_WHOLE_TRIAD_MULTILEVEL.value
+    )
+    eff_gate_z = float(min_threshold) if min_threshold is not None else float(eff_anomaly)
+    eff_gate_sq = float(min_threshold) if min_threshold is not None else float(eff_fusion_sq)
+    cohort_cap_info = evaluate_samuelson_cohort_cap(
+        len(unique_peers),
+        threshold_z=eff_gate_z,
+        is_triad=is_triad_arch,
+        fusion_threshold_sq=eff_gate_sq,
+    )
   root_gate = MultiStageTemplateRouter.root_condition(compiled_query)
   if canonical_arch == PipelineArchitecture.RADAR_360_DECOUPLED_SECTOR.value:
     sig_label = f"NONE per sector (post-query Euclidean D >= {eff_anomaly})"
@@ -1642,6 +1665,12 @@ def compile_hunt_pipeline(
     preflight_card = (
         f"{preflight_card}\n\n"
         f"* **🔗 ECG Inner-Join Filter & `[D-32, D-2)` Baseline Disclosure (PF-8 / WS1-08)**: {ecg_join_filter_disclosure}"
+    )
+  if cohort_cap_info and cohort_cap_info.get("cohort_too_small") and cohort_cap_info.get("warning"):
+    preflight_card = (
+        f"{preflight_card}\n\n"
+        "> [!WARNING]\n"
+        f"> **⚠️ Samuelson Small-Cohort Cap (PF-2 / WS1-09)**: {cohort_cap_info['warning']}"
     )
 
   clearance_question = (
@@ -1697,6 +1726,12 @@ def compile_hunt_pipeline(
       "ecg_join_filter_disclosure": ecg_join_filter_disclosure,
       "day0_companion_query": day0_companion_query,
       "day0_companion_window": day0_companion_window,
+      "cohort_size": cohort_cap_info["cohort_size"] if cohort_cap_info else None,
+      "samuelson_max_z": cohort_cap_info["samuelson_max_z"] if cohort_cap_info else None,
+      "samuelson_max_d_sq": cohort_cap_info["samuelson_max_d_sq"] if cohort_cap_info else None,
+      "required_min_cohort_size": cohort_cap_info["required_min_cohort_size"] if cohort_cap_info else None,
+      "cohort_too_small": bool(cohort_cap_info and cohort_cap_info.get("cohort_too_small")),
+      "cohort_cap_warning": cohort_cap_info["warning"] if cohort_cap_info else None,
       "sensitivity": sens_tier,
       "anomaly_threshold": eff_anomaly,
       "min_baseline_days": audit_info.get("min_baseline_days", 7),
@@ -2584,6 +2619,49 @@ def render_forensic_dossier(
       if ecg_novelty_boost_disabled
       else None
   )
+  cohort_cap_info = extract_query_cohort_cap_info(
+      executed_query,
+      default_anomaly_threshold=anomaly_threshold,
+  )
+  if cohort_cap_info is None or not cohort_cap_info.get("cohort_too_small"):
+    is_triad_query = bool(executed_query and "$d_vs_team_sq" in executed_query)
+    for r in outliers + immature_entities:
+      raw_ts = _coerce_finite_float(r.get("team_size"))
+      raw_flag = _coerce_finite_float(r.get("cohort_too_small"))
+      if raw_ts is not None and raw_ts > 0:
+        cand_cap = evaluate_samuelson_cohort_cap(
+            int(round(raw_ts)),
+            threshold_z=anomaly_threshold,
+            is_triad=is_triad_query or ("d_vs_team_sq" in r),
+        )
+        if cand_cap["cohort_too_small"] or (raw_flag is not None and raw_flag >= 1.0):
+          cand_cap["cohort_too_small"] = True
+          if not cand_cap["warning"]:
+            cand_cap["warning"] = (
+                f"Cohort too small (PF-2 / WS1-09): peer cohort size N = {int(round(raw_ts))} "
+                f"caps sample-SD Z-score at (N - 1)/sqrt(N) = {cand_cap['samuelson_max_z']:.2f}σ "
+                f"below the {anomaly_threshold:.2f}σ significance gate (requires N >= {cand_cap['required_min_cohort_size']})."
+            )
+          cohort_cap_info = cand_cap
+          break
+      elif raw_flag is not None and raw_flag >= 1.0:
+        cohort_cap_info = {
+            "cohort_size": None,
+            "samuelson_max_z": _coerce_finite_float(r.get("samuelson_max_z")),
+            "samuelson_max_d_sq": _coerce_finite_float(r.get("samuelson_max_d_sq")),
+            "required_min_cohort_size": samuelson_min_cohort_size(anomaly_threshold),
+            "cohort_too_small": True,
+            "warning": (
+                "Cohort too small (PF-2 / WS1-09): in-query sample-SD Samuelson bound "
+                f"(N - 1)/sqrt(N) fell below the {anomaly_threshold:.2f}σ significance gate "
+                f"(requires N >= {samuelson_min_cohort_size(anomaly_threshold)} active peers)."
+            ),
+        }
+        break
+  cohort_too_small = bool(cohort_cap_info and cohort_cap_info.get("cohort_too_small"))
+  cohort_cap_warning: Optional[str] = (
+      cohort_cap_info.get("warning") if cohort_too_small and cohort_cap_info else None
+  )
   clean_hunt_md = CommonMarkTriageFormatter.format_clean_hunt_report(
       target_metric=clean_metric,
       statistical_model=model_label,
@@ -2591,6 +2669,7 @@ def render_forensic_dossier(
       anomaly_threshold=anomaly_threshold,
       evaluation_mode=eval_mode_str,
       ecg_join_filter_disclosure=ecg_join_filter_disclosure,
+      cohort_cap_warning=cohort_cap_warning,
   )
 
   # Resolve UDM pivot filter for Pillar 5
@@ -2631,6 +2710,8 @@ def render_forensic_dossier(
     ecg_pillar3_lines.append(f"> * **ECG Inner-Join Filter Disclosure**: {ecg_join_filter_disclosure}")
   if ecg_novelty_notice:
     ecg_pillar3_lines.append(f"> * **ECG Novelty Notice**: {ecg_novelty_notice}")
+  if cohort_cap_warning:
+    ecg_pillar3_lines.append(f"> * **Samuelson Small-Cohort Cap**: {cohort_cap_warning}")
 
   if not outliers and not immature_entities and radar_payload is None:
     # Build 6-section zero-row dossier that preserves both Clean Hunt markers and all 6 section headers
@@ -2643,6 +2724,8 @@ def render_forensic_dossier(
     ]
     if ecg_join_filter_disclosure:
       dossier_lines.append(f"* **ECG Inner-Join Filter Disclosure**: {ecg_join_filter_disclosure}")
+    if cohort_cap_warning:
+      dossier_lines.append(f"* **Samuelson Small-Cohort Cap (PF-2 / WS1-09)**: {cohort_cap_warning}")
     if embed_tag:
       dossier_lines.extend(["", embed_tag])
     dossier_lines.extend([
@@ -2702,6 +2785,8 @@ def render_forensic_dossier(
         "ecg_join_filter_disclosure": ecg_join_filter_disclosure,
         "ecg_novelty_boost_disabled": ecg_novelty_boost_disabled,
         "ecg_novelty_notice": ecg_novelty_notice,
+        "cohort_too_small": cohort_too_small,
+        "cohort_cap_warning": cohort_cap_warning,
         "outcome_classification": outcome_class,
         "outlier_count": 0,
         "outliers": [],
@@ -2902,6 +2987,7 @@ def render_forensic_dossier(
       sparse_callout=sparse_callout,
       ecg_join_filter_disclosure=ecg_join_filter_disclosure,
       ecg_novelty_notice=ecg_novelty_notice,
+      cohort_cap_warning=cohort_cap_warning,
   )
 
   return {
@@ -2913,6 +2999,8 @@ def render_forensic_dossier(
       "ecg_join_filter_disclosure": ecg_join_filter_disclosure,
       "ecg_novelty_boost_disabled": ecg_novelty_boost_disabled,
       "ecg_novelty_notice": ecg_novelty_notice,
+      "cohort_too_small": cohort_too_small,
+      "cohort_cap_warning": cohort_cap_warning,
       "outcome_classification": outcome_class,
       "outlier_count": len(outliers),
       "outliers": outliers,
