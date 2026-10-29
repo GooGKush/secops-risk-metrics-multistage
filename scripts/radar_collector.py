@@ -16,6 +16,14 @@ import os
 import sys
 from typing import Any, Dict, List, Optional, Tuple
 
+try:
+  from .ueba_constants import RADAR_FUSION_DISTANCE_THRESHOLD
+except ImportError:
+  try:
+    from scripts.ueba_constants import RADAR_FUSION_DISTANCE_THRESHOLD
+  except ImportError:
+    from ueba_constants import RADAR_FUSION_DISTANCE_THRESHOLD  # type: ignore[no-redef]
+
 
 HELPER_VERSION = "2.3.0"
 
@@ -806,7 +814,7 @@ outcome:
     composite_d, cri = self.calculate_composite_risk(sorted_spokes)
 
     top_outlier = sorted_spokes[0] if sorted_spokes else None
-    is_anomalous = composite_d >= 3.0
+    is_anomalous = composite_d >= RADAR_FUSION_DISTANCE_THRESHOLD
     effective_provenance = (
         dict(provenance)
         if provenance is not None

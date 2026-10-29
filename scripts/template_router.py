@@ -18,6 +18,13 @@ from .preflight_validator import (
     PreFlightValidator,
     StatisticalModel,
 )
+from .ueba_constants import (
+    DEFAULT_ANOMALY_THRESHOLD,
+    DEFAULT_FOLD_CHANGE_THRESHOLD,
+    DEFAULT_FUSION_THRESHOLD_SQ,
+    DEFAULT_MIN_BASELINE_DAYS,
+    DEFAULT_ROBUST_THRESHOLD,
+)
 
 
 def _fill_event_filter(rendered: str, slot: str, lines: Sequence[str], indent: str = "    ") -> str:
@@ -231,10 +238,10 @@ class MultiStageTemplateRouter:
       cls,
       rendered: str,
       *,
-      anomaly_threshold: float = 3.0,
-      fold_change_threshold: float = 2.0,
-      fusion_threshold_sq: float = 12.25,
-      robust_threshold: float = 3.5,
+      anomaly_threshold: float = DEFAULT_ANOMALY_THRESHOLD,
+      fold_change_threshold: float = DEFAULT_FOLD_CHANGE_THRESHOLD,
+      fusion_threshold_sq: float = DEFAULT_FUSION_THRESHOLD_SQ,
+      robust_threshold: float = DEFAULT_ROBUST_THRESHOLD,
       min_threshold: Optional[float] = None,
       max_threshold: Optional[float] = None,
       condition_expression: Optional[str] = None,
@@ -332,12 +339,12 @@ class MultiStageTemplateRouter:
       sector_a: "mc.SectorSpec",
       sector_b: "mc.SectorSpec",
       four_stage: bool = False,
-      min_baseline_days: int = 7,
+      min_baseline_days: int = DEFAULT_MIN_BASELINE_DAYS,
       hypothesis_goal: Optional[str] = None,
       min_threshold: Optional[float] = None,
       max_threshold: Optional[float] = None,
       condition_expression: Optional[str] = None,
-      fusion_threshold_sq: float = 12.25,
+      fusion_threshold_sq: float = DEFAULT_FUSION_THRESHOLD_SQ,
   ) -> str:
     """Renders a dual-sector (3-stage) or multi-sector (4-stage, fleet-normalized) fusion for ANY two
     entity-keyed metrics. Pairing rules come from malachite_catalog.check_fusion_pair; advisories are
@@ -496,7 +503,7 @@ class MultiStageTemplateRouter:
       target_metric: str,
       entity_type: EntityType,
       statistical_model: StatisticalModel,
-      anomaly_threshold: float = 3.0,
+      anomaly_threshold: float = DEFAULT_ANOMALY_THRESHOLD,
       min_baseline_days: Optional[int] = None,
       match_mode: MatchMode = MatchMode.TIMELINE_BREAKDOWN,
       hypothesis_goal: Optional[str] = None,
@@ -507,8 +514,8 @@ class MultiStageTemplateRouter:
       identifier_field: Optional[str] = None,
       scoring_days: Optional[int] = None,
       scoring_end_date: Optional[str] = None,
-      fold_change_threshold: float = 2.0,
-      robust_threshold: float = 3.5,
+      fold_change_threshold: float = DEFAULT_FOLD_CHANGE_THRESHOLD,
+      robust_threshold: float = DEFAULT_ROBUST_THRESHOLD,
       include_significance_gate: bool = True,
   ) -> str:
     """Renders stage1 extractor + stage2 math model.
@@ -683,7 +690,7 @@ class MultiStageTemplateRouter:
       pipeline_type: PipelineArchitecture,
       target_metric: Optional[str] = None,
       entity_type: EntityType = EntityType.ASSET,
-      anomaly_threshold: float = 3.0,
+      anomaly_threshold: float = DEFAULT_ANOMALY_THRESHOLD,
       min_baseline_days: Optional[int] = None,
       hypothesis_goal: Optional[str] = None,
       service_account: Optional[str] = None,
@@ -694,8 +701,8 @@ class MultiStageTemplateRouter:
       target_entity: Optional[str] = None,
       target_metrics: Optional[List[str]] = None,
       identifier_field: Optional[str] = None,
-      fold_change_threshold: float = 2.0,
-      fusion_threshold_sq: float = 12.25,
+      fold_change_threshold: float = DEFAULT_FOLD_CHANGE_THRESHOLD,
+      fusion_threshold_sq: float = DEFAULT_FUSION_THRESHOLD_SQ,
       include_significance_gate: bool = True,
   ) -> str:
     """Renders 3-Stage and 4-Stage advanced DAG pipelines, then resolves the root significance gate.
@@ -741,7 +748,7 @@ class MultiStageTemplateRouter:
       pipeline_type: PipelineArchitecture,
       target_metric: Optional[str] = None,
       entity_type: EntityType = EntityType.ASSET,
-      anomaly_threshold: float = 3.0,
+      anomaly_threshold: float = DEFAULT_ANOMALY_THRESHOLD,
       min_baseline_days: Optional[int] = None,
       hypothesis_goal: Optional[str] = None,
       service_account: Optional[str] = None,
@@ -752,7 +759,7 @@ class MultiStageTemplateRouter:
       target_entity: Optional[str] = None,
       target_metrics: Optional[List[str]] = None,
       identifier_field: Optional[str] = None,
-      fusion_threshold_sq: float = 12.25,
+      fusion_threshold_sq: float = DEFAULT_FUSION_THRESHOLD_SQ,
   ) -> str:
     """Renders 3-Stage and 4-Stage advanced DAG pipelines (gate placeholders left for build_pipeline_query)."""
     if pipeline_type in (PipelineArchitecture.MULTI_SECTOR_FUSION_4STAGE, PipelineArchitecture.DUAL_SECTOR_FUSION_3STAGE):
@@ -763,7 +770,7 @@ class MultiStageTemplateRouter:
       return self.build_sector_fusion_query(
           sectors[0], sectors[1],
           four_stage=pipeline_type == PipelineArchitecture.MULTI_SECTOR_FUSION_4STAGE,
-          min_baseline_days=min_baseline_days if min_baseline_days is not None else 7,
+          min_baseline_days=min_baseline_days if min_baseline_days is not None else DEFAULT_MIN_BASELINE_DAYS,
           hypothesis_goal=hypothesis_goal,
           min_threshold=min_threshold,
           max_threshold=max_threshold,

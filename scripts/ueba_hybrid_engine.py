@@ -66,47 +66,23 @@ from scripts.statistical_validator import StatisticalAntipatternAuditor
 from scripts.template_router import ChainedHuntRouter, MultiStageTemplateRouter
 from scripts.timeline_assembler import TimelineAssembler, cri_from_score, parse_stats_payload
 from scripts.triage_formatter import CommonMarkTriageFormatter
+from scripts.ueba_constants import (
+    DEFAULT_MIN_BASELINE_DAYS,
+    LOOPBACK_COMPOSITE_SUM_Z_SQ_THRESHOLD,
+    LOOPBACK_MIN_DISTINCT_HITS,
+    MAX_CUSUM_MODE_B_DAYS_MACRO,
+    MAX_MODE_B_DAYS_MACRO,
+    MAX_MODE_C_DAYS_MACRO,
+    SENSITIVITY_ALIASES,
+    SENSITIVITY_THRESHOLD_MAP,
+    WRITEBACK_CRI_THRESHOLD,
+    resolve_sensitivity_thresholds,
+)
 
 
 # ---------------------------------------------------------------------------
 # Sensitivity, Model, and Architecture Resolution Maps
 # ---------------------------------------------------------------------------
-
-SENSITIVITY_THRESHOLD_MAP: Dict[str, Dict[str, float]] = {
-    "HIGH_RECALL": {
-        "anomaly_threshold": 2.0,
-        "fold_change_threshold": 1.5,
-        "fusion_threshold_sq": 6.25,
-        "robust_threshold": 2.5,
-    },
-    "BALANCED": {
-        "anomaly_threshold": 3.0,
-        "fold_change_threshold": 2.0,
-        "fusion_threshold_sq": 12.25,
-        "robust_threshold": 3.5,
-    },
-    "HIGH_PRECISION": {
-        "anomaly_threshold": 4.0,
-        "fold_change_threshold": 3.0,
-        "fusion_threshold_sq": 20.25,
-        "robust_threshold": 4.5,
-    },
-}
-
-SENSITIVITY_ALIASES: Dict[str, str] = {
-    "HIGH_RECALL": "HIGH_RECALL",
-    "LOW": "HIGH_RECALL",
-    "BROAD": "HIGH_RECALL",
-    "SENSITIVE": "HIGH_RECALL",
-    "BALANCED": "BALANCED",
-    "MEDIUM": "BALANCED",
-    "DEFAULT": "BALANCED",
-    "STANDARD": "BALANCED",
-    "HIGH_PRECISION": "HIGH_PRECISION",
-    "HIGH": "HIGH_PRECISION",
-    "STRICT": "HIGH_PRECISION",
-    "CONSERVATIVE": "HIGH_PRECISION",
-}
 
 MODEL_ALIAS_MAP: Dict[str, StatisticalModel] = {
     # 1. Standard Z-Score
@@ -231,9 +207,7 @@ MODEL_IMPLIED_ARCHITECTURE: Dict[str, str] = {
 
 def resolve_sensitivity(sensitivity: str) -> Tuple[str, Dict[str, float]]:
   """Resolves a sensitivity tier string to its canonical tier name and thresholds."""
-  key = (sensitivity or "BALANCED").strip().upper().replace("-", "_")
-  tier = SENSITIVITY_ALIASES.get(key, "BALANCED")
-  return tier, dict(SENSITIVITY_THRESHOLD_MAP[tier])
+  return resolve_sensitivity_thresholds(sensitivity, strict=False)
 
 
 def resolve_entity_type(entity_type: Union[str, EntityType]) -> EntityType:
@@ -453,9 +427,9 @@ def _inject_stage1_filters(
   return query[:stage_match.start()] + stage_open + injected_events + match_header + query[stage_match.end():]
 
 
-MAX_MODE_B_DAYS = 3
-MAX_CUSUM_MODE_B_DAYS = 14
-MAX_MODE_C_DAYS = 30
+MAX_MODE_B_DAYS = MAX_MODE_B_DAYS_MACRO
+MAX_CUSUM_MODE_B_DAYS = MAX_CUSUM_MODE_B_DAYS_MACRO
+MAX_MODE_C_DAYS = MAX_MODE_C_DAYS_MACRO
 
 
 def _rewrite_ecg_event_date(compiled_query: str, date_str: str) -> str:

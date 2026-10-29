@@ -14,6 +14,14 @@ try:
 except ImportError:  # imported as a top-level module
   import malachite_catalog as _mc  # type: ignore[no-redef]
 
+try:
+  from .ueba_constants import DEFAULT_MIN_BASELINE_DAYS
+except ImportError:
+  try:
+    from scripts.ueba_constants import DEFAULT_MIN_BASELINE_DAYS
+  except ImportError:
+    from ueba_constants import DEFAULT_MIN_BASELINE_DAYS  # type: ignore[no-redef]
+
 
 class EntityType(str, Enum):
   USER = "USER"
