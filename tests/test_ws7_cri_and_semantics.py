@@ -319,5 +319,102 @@ class TestWS702ScoreSemanticsRegistry(unittest.TestCase):
     self.assertEqual(cv_summary["entities"]["h-beacon"]["peak_cri"], 71)
 
 
+class TestWS702Phase4ScoreSemantics(unittest.TestCase):
+  """Phase 4C (WS7-02): Synchronized macro + micro Phase 4 score semantics and boolean novelty_flag."""
+
+  def test_phase4_score_semantics_registry_thresholds_and_sigma_flags(self) -> None:
+    self.assertEqual(uc.DEFAULT_TUKEY_EXCESS_THRESHOLD, 1.0)
+    self.assertEqual(uc.RADAR_FUSION_DISTANCE_THRESHOLD, 3.0)
+    self.assertEqual(uc.RADAR_COMPOSITE_D_THRESHOLD, 3.5)
+    self.assertEqual(
+        radar_collector.RADAR_COMPOSITE_D_THRESHOLD,
+        uc.RADAR_COMPOSITE_D_THRESHOLD,
+    )
+
+    phase4_cases = (
+        ("tukey_excess_z", 1.0, False, "1.00"),
+        ("adaptive_z", 3.0, False, "3.00"),
+        ("rel_dev_z_equiv", 3.0, False, "3.00"),
+        ("beta_binomial_z", 3.0, True, "+3.00σ"),
+        ("posterior_fail_rate", 0.50, False, "0.50"),
+        ("above_max_z", 3.0, True, "+3.00σ"),
+        ("windowed_slack_sum", 3.0, False, "3.00"),
+        ("flow_surge_score", 3.0, True, "+3.00σ"),
+        ("hod_z_score", 3.0, True, "+3.00σ"),
+        ("burst_z", 3.0, True, "+3.00σ"),
+        ("deficit_z", 1.5, True, "+1.50σ"),
+    )
+    for key, thresh_val, expected_sigma, expected_fmt in phase4_cases:
+      with self.subTest(key=key):
+        sem = uc.get_score_semantics(key)
+        self.assertIn(key, uc.SCORE_SEMANTICS_REGISTRY)
+        self.assertEqual(sem.kind, "linear")
+        self.assertAlmostEqual(sem.threshold, thresh_val, places=4)
+        self.assertEqual(sem.neutral, 0.0)
+        self.assertEqual(sem.is_true_sigma, expected_sigma)
+        self.assertEqual(uc.is_true_sigma_key(key), expected_sigma)
+        self.assertAlmostEqual(uc.score_to_z_equivalent(key, thresh_val), 3.0, places=4)
+        self.assertEqual(uc.cri_from_model_score(key, thresh_val), 50)
+        self.assertEqual(uc.format_score_with_unit(key, thresh_val), expected_fmt)
+
+  def test_novelty_flag_boolean_semantics_never_sigma_or_cri(self) -> None:
+    sem = uc.get_score_semantics("novelty_flag")
+    self.assertEqual(sem, uc.ScoreSemantics("boolean_flag", 1.0, 0.0, False))
+    self.assertFalse(uc.is_true_sigma_key("novelty_flag"))
+    for flag_val in (0, 1, 0.0, 1.0):
+      self.assertIsNone(uc.score_to_z_equivalent("novelty_flag", flag_val))
+      self.assertIsNone(uc.cri_from_model_score("novelty_flag", flag_val))
+      self.assertEqual(uc.format_cri(uc.cri_from_model_score("novelty_flag", flag_val)), "N/A")
+      rendered = uc.format_score_with_unit("novelty_flag", flag_val)
+      self.assertNotIn("σ", rendered)
+    self.assertEqual(uc.format_score_with_unit("novelty_flag", 1), "NOVEL (flag=1)")
+    self.assertEqual(uc.format_score_with_unit("novelty_flag", 0), "SEEN (flag=0)")
+
+  def test_macro_consumers_wire_phase4_score_keys_and_boolean_novelty_timeline(self) -> None:
+    consumer_rows = (
+        ({"entity": "u-tukey", "tukey_excess_z": 1.0, "observed": 120, "hist_avg": 30, "hist_stddev": 10}, "tukey_excess_z", False, "1.00", 50),
+        ({"entity": "u-adapt", "adaptive_z": 3.0, "observed": 40, "hist_avg": 10, "hist_stddev": 5}, "adaptive_z", False, "3.00", 50),
+        ({"entity": "h-flow", "flow_surge_score": 3.0, "flow_z": 3.0, "observed": 90, "hist_avg": 30, "hist_stddev": 20}, "flow_surge_score", True, "+3.00σ", 50),
+        ({"entity": "u-hod", "hod_z_score": 3.0, "observed": 25, "hist_avg": 4, "hist_stddev": 7}, "hod_z_score", True, "+3.00σ", 50),
+        ({"entity": "h-burst", "burst_z": 3.0, "velocity_score": 3.0, "observed": 35, "hist_avg": 5, "hist_stddev": 10}, "burst_z", True, "+3.00σ", 50),
+        ({"entity": "h-def", "deficit_z": 1.5, "concentration_ratio": 0.65, "observed": 1, "hist_avg": 10, "hist_stddev": 6}, "deficit_z", True, "+1.50σ", 50),
+        ({"entity": "u-beta", "posterior_fail_rate": 0.50, "observed": 20, "hist_avg": 2, "hist_stddev": 1}, "posterior_fail_rate", False, "0.50", 50),
+        ({"entity": "u-reldev", "rel_dev_z_equiv": 3.0, "observed": 200, "hist_avg": 100, "hist_stddev": 20}, "rel_dev_z_equiv", False, "3.00", 50),
+    )
+    for row, expected_key, expected_sigma, expected_disp, expected_cri in consumer_rows:
+      with self.subTest(key=expected_key):
+        norm = engine._normalize_single_row(row)
+        self.assertEqual(norm["score_key"], expected_key)
+        self.assertEqual(norm["is_true_sigma"], expected_sigma)
+        self.assertEqual(norm["score_display"], expected_disp)
+        self.assertEqual(norm["cri"], expected_cri)
+
+        asm = ta.TimelineAssembler()
+        asm.add_shard("2026-10-01", [row])
+        built = asm.build()
+        self.assertEqual(built["meta"]["score_field"], expected_key)
+        self.assertEqual(built["top"][0]["cri"], expected_cri)
+
+    # Boolean novelty_flag in TimelineAssembler: skips seen=0, retains novel=1 with CRI=None ('N/A')
+    asm_nov = ta.TimelineAssembler()
+    asm_nov.add_shard(
+        "2026-10-01",
+        [
+            {"entity": "u-seen", "novelty_flag": 0, "observed": 5},
+            {"entity": "u-novel", "novelty_flag": 1, "observed": 4},
+        ],
+    )
+    nov_summary = asm_nov.build()
+    self.assertEqual(nov_summary["meta"]["score_field"], "novelty_flag")
+    self.assertEqual(list(nov_summary["entities"].keys()), ["u-novel"])
+    self.assertIsNone(nov_summary["entities"]["u-novel"]["peak_cri"])
+    nov_md = ta.TimelineAssembler.render_markdown(nov_summary)
+    nov_tables = nov_md.split("| Day |", 1)[1]
+    self.assertIn("`u-novel`", nov_tables)
+    self.assertNotIn("`u-seen`", nov_tables)
+    self.assertIn("N/A", nov_tables)
+    self.assertNotIn("σ", nov_tables)
+
+
 if __name__ == "__main__":
   unittest.main()
