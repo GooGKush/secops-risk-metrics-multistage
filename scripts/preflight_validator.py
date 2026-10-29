@@ -1583,8 +1583,11 @@ class MalachiteASTValidator:
             "window.percentile(...) and robust scale-excess $tukey_excess_z."
         )
     elif model == StatisticalModel.RELATIVE_DEVIATION:
-      if "$ratio" not in query_text:
-        errors.append("MODEL_FORMULA_MISMATCH: Relative deviation model must compute $ratio = $dev / $safe_hist_avg.")
+      if "$ratio" not in query_text or "$rel_dev_z_equiv" not in query_text:
+        errors.append(
+            "MODEL_FORMULA_MISMATCH: Relative deviation model must compute $ratio = $dev / $safe_hist_avg "
+            "with continuous floor max(avg, 1.0) and Z-equivalent $rel_dev_z_equiv."
+        )
     elif model == StatisticalModel.POISSON:
       if "sqrt" not in query_text.lower() and "poisson" not in query_text.lower():
         errors.append("MODEL_FORMULA_MISMATCH: Discrete Poisson model must calculate standard Poisson residual using sqrt(lambda).")

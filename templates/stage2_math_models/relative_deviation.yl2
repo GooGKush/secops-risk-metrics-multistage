@@ -15,10 +15,13 @@ outcome:
   $hist_stddev = max($stage1_extract.historical_stddev)
   $active_days = max($stage1_extract.historical_active_days)
 
-  $dev = $observed - $hist_avg
-  $safe_hist_avg = if($hist_avg > 0, $hist_avg, 1.0)
+  // Continuous floor max(avg, 1.0) + Z-equivalent mapping (WS3-RELDEV / WS7-02)
+  $safe_hist_avg = if($hist_avg > 1.0, $hist_avg, 1.0)
+  $dev = $observed - $safe_hist_avg
   $ratio = $dev / $safe_hist_avg
   $fold_change = $observed / $safe_hist_avg
+  $raw_z_equiv = 3.0 * $ratio
+  $rel_dev_z_equiv = if($raw_z_equiv > 0.0, $raw_z_equiv, 0.0)
 
 // Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
 condition:

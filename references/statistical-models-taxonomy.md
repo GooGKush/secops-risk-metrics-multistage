@@ -313,7 +313,7 @@ Before running a multi-stage statistical hunt, explain the approach to the secur
 ## 17. Relative Deviation / Fold Change (`RELATIVE_DEVIATION`)
 * **Security Problem Solved**: Computes a scale-free relative deviation $(x - \mu)/\mu$ and fold change $x/\mu$ ("3.2× the 30-day average") for straightforward executive and SOC communication when standard deviation is noisy or unintuitive. *(Formerly mislabelled MAD prior to v1.8.3; mean-anchored with 0% breakdown point.)*
 * **Mathematical Formulation**:
-  $$\text{Relative Deviation} = \frac{x - \mu}{\mu_{\text{safe}}}, \quad \text{Fold Change} = \frac{x}{\mu_{\text{safe}}}, \quad \mu_{\text{safe}} = \text{if}(\mu > 0, \mu, 1.0)$$
+  $$\mu_{\text{safe}} = \max(\mu, 1.0), \quad \text{Relative Deviation} = \frac{x - \mu_{\text{safe}}}{\mu_{\text{safe}}}, \quad \text{Fold Change} = \frac{x}{\mu_{\text{safe}}}, \quad Z_{\text{equiv}} = \max(0, 3.0 \times \text{Relative Deviation})$$
 
 
 ---
