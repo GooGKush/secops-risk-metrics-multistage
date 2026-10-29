@@ -313,7 +313,7 @@ During the Pre-Flight Clearance gate, analysts choose a temporal evaluation hori
 #### 🧩 Sample Compilable Queries from the Consultative Model
 
 ##### Example A: Two-Phase Cross-Entity Cohort Bridge via SecOps Data Table (`templates/pipelines/hybrid_data_table_bridge_2stage.yl2`)
-When an investigation crosses entity types (e.g., Phase 1 identifies compromised `USER` accounts and extracts the `ASSET` hostnames they authenticated to into Data Table `%ueba_hunt_bridge`), Phase 2 joins `principal.asset.hostname = %ueba_hunt_bridge.hostname` directly inside Stage 1:
+When an investigation crosses entity types (e.g., Phase 1 identifies compromised `USER` accounts and extracts the `ASSET` hostnames they authenticated to into Data Table `%ueba_hunt_bridge`), Phase 2 joins `principal.asset.hostname in %ueba_hunt_bridge.entity` directly inside Stage 1:
 
 ```yara
 // Goal: Score 30-day behavioral metric departures for a bridged cohort stored
@@ -322,7 +322,7 @@ stage stage1_extract {
     metadata.event_type = "NETWORK_CONNECTION"
     network.sent_bytes > 0
     network.sent_bytes < 1000000000000000
-    principal.asset.hostname = %ueba_hunt_bridge.hostname
+    principal.asset.hostname in %ueba_hunt_bridge.entity
     principal.asset.hostname = $entity
     $entity != ""
 
