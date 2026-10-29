@@ -229,7 +229,7 @@ class TestModelConcordance(unittest.TestCase):
     self.assertNotIn("timestamp.current_seconds()", query)
 
   def test_mad_renders_only_the_metrics_lookups_its_root_reads(self):
-    """MAD scores from raw daily values; metrics.* only feeds the Z cross-check (avg, stddev, active days)."""
+    """WS1-03: MAD/Quantile compute $personal_z from pre-scoring raw active days, keeping only 1 metrics.* lookup (num_metric_periods)."""
     router = MultiStageTemplateRouter()
     extractors = sorted((self.repo_root / "templates" / "stage1_extractors").glob("*.yl2"))
     self.assertTrue(extractors)
@@ -247,14 +247,14 @@ class TestModelConcordance(unittest.TestCase):
         self.assertIsNotNone(query, f"{path.stem}: no valid entity type")
         self.assertIn("stage mad_center", query, f"{path.stem}/{mode.value}")
         rendered += 1
-        self.assertEqual(query.count("metrics."), 3, f"{path.stem}/{mode.value}")
-        for kept in ("$historical_avg =", "$historical_stddev =", "$historical_active_days ="):
-          self.assertIn(kept, query, f"{path.stem}/{mode.value}")
-        for dropped in ("$historical_max =", "$historical_sum ="):
+        self.assertEqual(query.count("metrics."), 1, f"{path.stem}/{mode.value}")
+        self.assertIn("$historical_active_days =", query, f"{path.stem}/{mode.value}")
+        for dropped in ("$historical_avg =", "$historical_stddev =", "$historical_max =", "$historical_sum ="):
           self.assertNotIn(dropped, query, f"{path.stem}/{mode.value}")
     self.assertEqual(rendered, 2 * len(extractors))
-    pipeline = (self.repo_root / "templates" / "pipelines" / "mad_robust_z_4stage.yl2").read_text()
-    self.assertEqual(pipeline.count("metrics.{{target_metric_name}}("), 3)
+    for pipe_name in ("mad_robust_z_4stage.yl2", "quantile_iqr_skew_3stage.yl2"):
+      pipeline = (self.repo_root / "templates" / "pipelines" / pipe_name).read_text()
+      self.assertEqual(pipeline.count("metrics.{{target_metric_name}}("), 1, pipe_name)
 
   def test_mad_groups_every_stage_by_the_same_baseline_tuple(self):
     """stage1, mad_center, mad_spread and root must share one key list (root adds only $ws)."""
