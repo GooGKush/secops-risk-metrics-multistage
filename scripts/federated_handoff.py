@@ -29,6 +29,8 @@ class HandoffReason(str, Enum):
   POISSON_RARE_SURGE = "POISSON_RARE_SURGE"
   ZSCORE_PROCESS_SURGE = "ZSCORE_PROCESS_SURGE"
   DATA_EXFILTRATION_SPIKE = "DATA_EXFILTRATION_SPIKE"
+  EXFILTRATION_IQR_OUTLIER = "EXFILTRATION_IQR_OUTLIER"
+  IQR_TUKEY_SKEW_FENCES = "IQR_TUKEY_SKEW_FENCES"
   DUAL_BASELINE_DELTA_Z = "DUAL_BASELINE_DELTA_Z"
   RAW_TELEMETRY_ENRICHMENT = "RAW_TELEMETRY_ENRICHMENT"
   DIVERSITY_DEFICIT = "DIVERSITY_DEFICIT"
@@ -39,6 +41,10 @@ class HandoffReason(str, Enum):
   FLEET_PREVALENCE_NORMALIZATION = "FLEET_PREVALENCE_NORMALIZATION"
   PRIVILEGED_LATERAL_EXPANSION = "PRIVILEGED_LATERAL_EXPANSION"
   HOUR_OF_DAY_PROFILE = "HOUR_OF_DAY_PROFILE"
+  SHANNON_ENTROPY_CHARACTER = "SHANNON_ENTROPY_CHARACTER"
+  MARKOV_2GRAM_TRANSITION_RARITY = "MARKOV_2GRAM_TRANSITION_RARITY"
+  ZIPFIAN_PROCESS_RARITY = "ZIPFIAN_PROCESS_RARITY"
+  EWMA_BURST_VELOCITY = "EWMA_BURST_VELOCITY"
   OFF_HOURS_BURST = "off_hours_activity"
 
 
@@ -49,6 +55,8 @@ SUPPORTED_INTENTS = [
     "POISSON_RARE_SURGE",
     "ZSCORE_PROCESS_SURGE",
     "DATA_EXFILTRATION_SPIKE",
+    "EXFILTRATION_IQR_OUTLIER",
+    "IQR_TUKEY_SKEW_FENCES",
     "DUAL_BASELINE_DELTA_Z",
     "RAW_TELEMETRY_ENRICHMENT",
     "DIVERSITY_DEFICIT",
@@ -59,6 +67,10 @@ SUPPORTED_INTENTS = [
     "FLEET_PREVALENCE_NORMALIZATION",
     "PRIVILEGED_LATERAL_EXPANSION",
     "HOUR_OF_DAY_PROFILE",
+    "SHANNON_ENTROPY_CHARACTER",
+    "MARKOV_2GRAM_TRANSITION_RARITY",
+    "ZIPFIAN_PROCESS_RARITY",
+    "EWMA_BURST_VELOCITY",
 ]
 
 
@@ -80,11 +92,50 @@ def build_handoff_payload(
   if not request_id:
     request_id = f"req-{uuid.uuid4().hex[:8]}"
 
-  model_params = parameters or {}
+  model_params = dict(parameters) if parameters else {}
   reason_str = (reason.value if hasattr(reason, "value") else str(reason or "")).upper()
-  intent_upper = f"{intent.upper()} {reason_str}".strip()
+  normalized_intent = intent.upper().replace("-", "_").strip()
+  intent_upper = f"{normalized_intent} {reason_str}".strip()
+
+  is_iqr_intent = any(
+      kw in intent_upper
+      for kw in ["IQR", "TUKEY", "SKEW_FENCE", "EXFILTRATION_IQR"]
+  )
+  resolved_model_name = "IQR_TUKEY_SKEW_FENCES" if is_iqr_intent else normalized_intent
+
   if not justification:
-    if any(kw in intent_upper for kw in ["DIVERSITY", "ENTROPY"]):
+    if is_iqr_intent:
+      justification = (
+          "Macro 30-day Gaussian baseline is distorted by heavy-tailed egress skew; "
+          "delegating to non-parametric Bowley-adjusted Tukey IQR fences "
+          "(IQR_TUKEY_SKEW_FENCES) over raw UDM telemetry."
+      )
+    elif any(kw in intent_upper for kw in ["DATA_EXFILTRATION_SPIKE", "EXFILTRATION_SPIKE"]):
+      justification = (
+          "Macro 30-day baseline flagged acute outbound volume spike; delegating to "
+          "robust MAD Z-score spike analysis (DATA_EXFILTRATION_SPIKE) over raw UDM telemetry."
+      )
+    elif any(kw in intent_upper for kw in ["SHANNON", "CHARACTER_ENTROPY"]):
+      justification = (
+          "Macro 30-day counters cannot measure lexical character randomness (DGA / encoded CLI); "
+          "delegating to Shannon character entropy analysis (SHANNON_ENTROPY_CHARACTER) over raw UDM strings."
+      )
+    elif any(kw in intent_upper for kw in ["MARKOV", "TRANSITION_RARITY"]):
+      justification = (
+          "Macro 30-day execution counts cannot model parent-to-child process lineage; "
+          "delegating to 1st-order Markov 2-gram transition rarity (MARKOV_2GRAM_TRANSITION_RARITY) over raw PROCESS_LAUNCH telemetry."
+      )
+    elif any(kw in intent_upper for kw in ["ZIPF", "LONG_TAIL"]):
+      justification = (
+          "Macro 30-day process aggregates obscure fleet-rare long-tail binaries; "
+          "delegating to Zipfian rank-frequency rarity analysis (ZIPFIAN_PROCESS_RARITY) over raw UDM process telemetry."
+      )
+    elif any(kw in intent_upper for kw in ["EWMA", "BURST_VELOCITY"]):
+      justification = (
+          "Daily 24h metric buckets obscure sub-hour exponential acceleration; "
+          "delegating to EWMA intraday burst velocity analysis (EWMA_BURST_VELOCITY) over raw UDM telemetry."
+      )
+    elif any(kw in intent_upper for kw in ["DIVERSITY", "ENTROPY"]):
       justification = (
           "Macro 30-day baseline flagged volumetric anomaly; delegating to micro-entropy / "
           "lexical diversity probe to detect scripted target concentration (Diversity Deficit)."
@@ -130,11 +181,40 @@ def build_handoff_payload(
           "or scheduled cron exfiltration; delegating to micro-timing variance analysis."
       )
 
-  if any(kw in intent_upper for kw in ["C2", "EXFIL", "TIMING", "JITTER"]):
+  if is_iqr_intent:
+    if "fence_z" not in model_params:
+      model_params["fence_z"] = 3.5
+    if "min_iqr" not in model_params:
+      model_params["min_iqr"] = 10.0
+  elif any(kw in intent_upper for kw in ["DATA_EXFILTRATION_SPIKE", "EXFILTRATION_SPIKE"]):
+    if "m_z" not in model_params:
+      model_params["m_z"] = 3.5
+  elif any(
+      kw in intent_upper
+      for kw in ["C2", "TIMING", "JITTER", "SCHEDULED_EXFIL", "EXFIL_TIMING", "EXFILTRATION_TIMING"]
+  ):
     if "max_cv" not in model_params:
       model_params["max_cv"] = 0.20
     if "min_observations" not in model_params:
       model_params["min_observations"] = 10
+  elif any(kw in intent_upper for kw in ["SHANNON", "CHARACTER_ENTROPY"]):
+    if "min_entropy" not in model_params:
+      model_params["min_entropy"] = 3.8
+    if "min_length" not in model_params:
+      model_params["min_length"] = 16
+  elif any(kw in intent_upper for kw in ["MARKOV", "TRANSITION_RARITY"]):
+    if "max_transition_prob" not in model_params:
+      model_params["max_transition_prob"] = 0.02
+    if "min_parent_launches" not in model_params:
+      model_params["min_parent_launches"] = 20
+  elif any(kw in intent_upper for kw in ["ZIPF", "LONG_TAIL"]):
+    if "max_host_prevalence" not in model_params:
+      model_params["max_host_prevalence"] = 2
+  elif any(kw in intent_upper for kw in ["EWMA", "BURST_VELOCITY"]):
+    if "alpha" not in model_params:
+      model_params["alpha"] = 0.30
+    if "min_burst_z" not in model_params:
+      model_params["min_burst_z"] = 3.0
   elif any(kw in intent_upper for kw in ["DIVERSITY", "ENTROPY"]):
     if "max_diversity_ratio" not in model_params:
       model_params["max_diversity_ratio"] = 0.10
@@ -174,7 +254,7 @@ def build_handoff_payload(
       "request_id": request_id,
       "source_skill": "secops-risk-metrics-multistage",
       "target_skill": "secops-statistical-hunter",
-      "intent": intent.upper().replace("-", "_").strip(),
+      "intent": normalized_intent,
       "target_entity": {
           "type": entity_type.upper(),
           "value": entity_value.strip(),
@@ -183,7 +263,7 @@ def build_handoff_payload(
           "lookback": lookback.strip(),
       },
       "statistical_model": {
-          "name": intent.upper().replace("-", "_").strip(),
+          "name": resolved_model_name,
           "sensitivity": sensitivity.upper(),
           "parameters": model_params,
       },
@@ -250,22 +330,86 @@ def _inprocess_fallback_ack(payload: Dict[str, Any]) -> Dict[str, Any]:
         "action": "PROTOCOL_MISMATCH",
         "error": f"Unsupported protocol: {payload.get('protocol')}",
     }
-  intent = payload.get("intent", "SCHEDULED_EXFILTRATION_TIMING").upper()
+  intent = payload.get("intent", "SCHEDULED_EXFILTRATION_TIMING").upper().replace("-", "_").strip()
   ent = payload.get("target_entity", {})
   ent_val = ent.get("value", "target_entity")
   ent_type = ent.get("type", "HOSTNAME").upper()
   params = payload.get("statistical_model", {}).get("parameters", {})
+  has_specific_entity = bool(ent_val) and ent_val.strip().lower() not in (
+      "fleet",
+      "fleet-wide",
+      "all",
+      "*",
+  )
 
-  if intent in ("SCHEDULED_EXFILTRATION_TIMING", "C2_BEACONING_JITTER"):
+  if intent in (
+      "EXFILTRATION_IQR_OUTLIER",
+      "IQR_TUKEY_SKEW_FENCES",
+      "TUKEY_IQR_OUTLIER",
+      "SKEW_FENCE_OUTLIER",
+  ):
+    model_routed = "IQR_TUKEY_SKEW_FENCES"
+    fence_z = float(params.get("fence_z", 3.5))
+    min_iqr = float(params.get("min_iqr", 10.0))
+    ent_field = (
+        "principal.user.userid"
+        if ent_type == "USER"
+        else ("principal.ip" if ent_type == "IP" else "principal.asset.hostname")
+    )
+    ent_filter_line = f'  {ent_field} = "{ent_val}"\n' if has_specific_entity else ""
+    compiled_query = (
+        f"// Goal: Non-Parametric Tukey IQR Skew Fence Analysis (IQR_TUKEY_SKEW_FENCES) for {ent_val}\n"
+        "stage hourly_egress {\n"
+        '  metadata.event_type = "NETWORK_CONNECTION"\n'
+        "  network.sent_bytes > 0\n"
+        f"{ent_filter_line}"
+        f"  {ent_field} = $entity\n"
+        '  $entity != ""\n'
+        "  match:\n"
+        "    $entity by 1h\n"
+        "  outcome:\n"
+        "    $bytes_sent = sum(network.sent_bytes)\n"
+        "}\n\n"
+        "stage quantile_fences {\n"
+        "  $entity = $hourly_egress.entity\n"
+        "  match:\n"
+        "    $entity\n"
+        "  outcome:\n"
+        "    $q1 = percentile($hourly_egress.bytes_sent, 25)\n"
+        "    $med = percentile($hourly_egress.bytes_sent, 50)\n"
+        "    $q3 = percentile($hourly_egress.bytes_sent, 75)\n"
+        "    $peak_bytes = max($hourly_egress.bytes_sent)\n"
+        "}\n\n"
+        "$entity = $quantile_fences.entity\n"
+        "match:\n"
+        "  $entity\n"
+        "outcome:\n"
+        "  $obs = max($quantile_fences.peak_bytes)\n"
+        "  $q1 = max($quantile_fences.q1)\n"
+        "  $med = max($quantile_fences.med)\n"
+        "  $q3 = max($quantile_fences.q3)\n"
+        "  $iqr = $q3 - $q1\n"
+        f"  $floor_iqr = {min_iqr}\n"
+        "  $safe_iqr = if($iqr > $floor_iqr, $iqr, $floor_iqr)\n"
+        "  $excess = $obs - $q3\n"
+        "  $fence_z = $excess / $safe_iqr\n"
+        "condition:\n"
+        f"  $fence_z >= {fence_z}\n"
+        "order:\n"
+        "  $fence_z desc\n"
+    )
+  elif intent in ("SCHEDULED_EXFILTRATION_TIMING", "C2_BEACONING_JITTER"):
     model_routed = "C2_BEACONING_JITTER"
     max_cv = params.get("max_cv", 0.20)
     min_obs = params.get("min_observations", 10)
+    ent_field = "principal.user.userid" if ent_type == "USER" else "principal.asset.hostname"
+    ent_filter_line = f'  {ent_field} = "{ent_val}"\n' if has_specific_entity else ""
     compiled_query = (
         f"// Goal: Micro-Timing Variance & Jitter Analysis for {ent_val}\n"
         "stage host_intervals {\n"
         '  metadata.event_type = "NETWORK_HTTP"\n'
-        f'  principal.asset.hostname = "{ent_val}"\n'
-        "  principal.asset.hostname = $host\n"
+        f"{ent_filter_line}"
+        f"  {ent_field} = $host\n"
         "  target.hostname = $dest\n"
         "  match:\n"
         "    $host, $dest by 5m\n"
@@ -289,10 +433,12 @@ def _inprocess_fallback_ack(payload: Dict[str, Any]) -> Dict[str, Any]:
   elif intent == "PRIVILEGED_LATERAL_EXPANSION":
     model_routed = "PRIVILEGED_LATERAL_EXPANSION"
     min_z = params.get("min_z_score", 2.0)
+    user_filter_line = f'  principal.user.userid = "{ent_val}"\n' if has_specific_entity else ""
     compiled_query = (
         f"// Goal: Privileged Lateral Expansion Bipartite Breadth Analysis for {ent_val}\n"
         "stage daily_user_breadth {\n"
         '  metadata.event_type = "USER_LOGIN"\n'
+        f"{user_filter_line}"
         "  principal.user.userid = $user\n"
         "  $user != \"\"\n"
         "  match:\n"
@@ -310,6 +456,7 @@ def _inprocess_fallback_ack(payload: Dict[str, Any]) -> Dict[str, Any]:
         "}\n\n"
         "stage current_breadth {\n"
         '  metadata.event_type = "USER_LOGIN"\n'
+        f"{user_filter_line}"
         "  principal.user.userid = $user\n"
         "  $user != \"\"\n"
         "  match:\n"
@@ -469,7 +616,13 @@ def dispatch_to_endpoint(
     ack_data = json.loads(res.stdout)
     if (
         ack_data.get("status") == "HANDOFF_ACK_REJECTED"
-        and str(payload.get("intent", "")).upper() == "HOUR_OF_DAY_PROFILE"
+        and str(payload.get("intent", "")).upper().replace("-", "_").strip()
+        in (
+            "HOUR_OF_DAY_PROFILE",
+            "EXFILTRATION_IQR_OUTLIER",
+            "TUKEY_IQR_OUTLIER",
+            "SKEW_FENCE_OUTLIER",
+        )
         and not explicit_dir
     ):
       return _inprocess_fallback_ack(payload)
