@@ -22,6 +22,7 @@ DEFAULT_ANOMALY_THRESHOLD: float = 3.0
 DEFAULT_FOLD_CHANGE_THRESHOLD: float = 2.0
 DEFAULT_FUSION_THRESHOLD_SQ: float = 12.25
 DEFAULT_ROBUST_THRESHOLD: float = 3.5
+DEFAULT_TUKEY_EXCESS_THRESHOLD: float = 1.0
 
 SENSITIVITY_THRESHOLD_MAP: Dict[str, Dict[str, float]] = {
     "HIGH_RECALL": {
@@ -78,6 +79,7 @@ CANONICAL_FROM_MICRO_SENSITIVITY: Dict[str, str] = {
 
 DEFAULT_MIN_BASELINE_DAYS: int = 7
 RADAR_FUSION_DISTANCE_THRESHOLD: float = 3.0
+RADAR_COMPOSITE_D_THRESHOLD: float = 3.5
 WRITEBACK_CRI_THRESHOLD: int = 50
 LOOPBACK_COMPOSITE_SUM_Z_SQ_THRESHOLD: float = 25.0
 LOOPBACK_MIN_DISTINCT_HITS: int = 2
@@ -281,10 +283,18 @@ def _build_score_semantics_registry() -> Dict[str, ScoreSemantics]:
       "shielded_z",
       "eb_z_score",
       "bayesian_z",
+      "beta_binomial_z",
+      "above_max_z",
+      "flow_surge_score",
+      "hod_z_score",
+      "burst_z",
       "delta_z",
       "targeted_delta_z",
       "z_vs_team",
       "z_vs_enterprise",
+      "z1_vs_enterprise",
+      "z2_vs_enterprise",
+      "z3_vs_enterprise",
       "z_team_vs_enterprise",
       "z_sector",
       "macro_z",
@@ -333,6 +343,9 @@ def _build_score_semantics_registry() -> Dict[str, ScoreSemantics]:
   for k in ("fleet_z", "z_log"):
     reg[k] = ScoreSemantics("linear", 2.5, 0.0, True)
 
+  # 3b. Positive diversity-deficit Z-score (threshold = 1.5 -> Z_equiv = 3.0, true σ)
+  reg["deficit_z"] = ScoreSemantics("linear", 1.5, 0.0, True)
+
   # 4. Inverted true Z-score (diversity deficit: threshold = -1.5 -> Z_equiv = 3.0)
   reg["diversity_z"] = ScoreSemantics("inverted_sigma", -1.5, 0.0, True)
 
@@ -356,9 +369,18 @@ def _build_score_semantics_registry() -> Dict[str, ScoreSemantics]:
 
   # relative_deviation.yl2 defines $ratio = ($observed - $hist_avg)/$safe_hist_avg = $fold_change - 1.0
   reg["ratio"] = ScoreSemantics("linear", 1.0, 0.0, False)
+  # quantile_iqr_skew_3stage.yl2: robust-scale units above Bowley-adjusted Tukey fence (1.0 -> Z_equiv = 3.0, NOT true σ)
+  reg["tukey_excess_z"] = ScoreSemantics("linear", DEFAULT_TUKEY_EXCESS_THRESHOLD, 0.0, False)
 
   # 7. Bounded probabilities / ratios & specialized non-sigma model scores
-  for k in ("posterior_fail_prob", "regularized_failure_prob", "posterior_rate", "error_ratio", "fail_ratio"):
+  for k in (
+      "posterior_fail_prob",
+      "posterior_fail_rate",
+      "regularized_failure_prob",
+      "posterior_rate",
+      "error_ratio",
+      "fail_ratio",
+  ):
     reg[k] = ScoreSemantics("linear", 0.50, 0.0, False)
   reg["concentration_ratio"] = ScoreSemantics("linear", 0.65, 0.0, False)
   reg["producer_ratio"] = ScoreSemantics("linear", 0.70, 0.0, False)
@@ -388,6 +410,9 @@ def _build_score_semantics_registry() -> Dict[str, ScoreSemantics]:
 
   # 10. Dimensionless / composite threat scores anchored at 3.0 (NOT true single-metric sigma)
   for k in (
+      "adaptive_z",
+      "rel_dev_z_equiv",
+      "windowed_slack_sum",
       "threat_distance",
       "composite_threat_distance",
       "threat_norm",
@@ -414,6 +439,9 @@ def _build_score_semantics_registry() -> Dict[str, ScoreSemantics]:
   # 11. Pre-computed [0..100] CRI columns
   for k in ("cri", "cri_score"):
     reg[k] = ScoreSemantics("precomputed_cri", float(WRITEBACK_CRI_THRESHOLD), 0.0, False)
+
+  # 12. Boolean novelty flags (never mapped to σ or [0..100] CRI)
+  reg["novelty_flag"] = ScoreSemantics("boolean_flag", 1.0, 0.0, False)
 
   return reg
 
@@ -459,6 +487,8 @@ def score_to_z_equivalent(
   if val is None:
     return None
   sem = get_score_semantics(score_key)
+  if sem.kind == "boolean_flag":
+    return None
   thresh = (
       _coerce_finite_float(threshold_override)
       if threshold_override is not None
@@ -527,6 +557,8 @@ def cri_from_model_score(
   if val is None:
     return None
   sem = get_score_semantics(score_key)
+  if sem.kind == "boolean_flag":
+    return None
   if sem.kind == "precomputed_cri":
     return coerce_cri_int(val)
   z_equiv = score_to_z_equivalent(
@@ -547,6 +579,9 @@ def format_score_with_unit(
   val = _coerce_finite_float(value)
   if val is None:
     return "N/A"
-  if is_true_sigma_key(score_key):
+  sem = get_score_semantics(score_key)
+  if sem.kind == "boolean_flag":
+    return "NOVEL (flag=1)" if val >= sem.threshold else "SEEN (flag=0)"
+  if sem.is_true_sigma:
     return f"{val:+.{decimals}f}σ"
   return f"{val:.{decimals}f}"

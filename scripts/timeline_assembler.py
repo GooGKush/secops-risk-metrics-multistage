@@ -33,6 +33,7 @@ try:
       coerce_cri_int,
       cri_from_model_score,
       format_cri,
+      get_score_semantics,
       is_inverted_score_key,
       score_to_z_equivalent,
   )
@@ -45,6 +46,7 @@ except ImportError:
         coerce_cri_int,
         cri_from_model_score,
         format_cri,
+        get_score_semantics,
         is_inverted_score_key,
         score_to_z_equivalent,
     )
@@ -56,6 +58,7 @@ except ImportError:
         coerce_cri_int,
         cri_from_model_score,
         format_cri,
+        get_score_semantics,
         is_inverted_score_key,
         score_to_z_equivalent,
     )
@@ -78,6 +81,7 @@ SCORE_CANDIDATES = (
     ("fused_threat_score", False),
     ("markov_threat_score", False),
     ("threat_score", False),
+    ("flow_surge_score", False),
     ("beacon_score", False),
     ("recon_score", False),
     ("target_risk_score", False),
@@ -92,6 +96,9 @@ SCORE_CANDIDATES = (
     ("bayesian_z", False),
     ("beta_binomial_z", False),
     ("adaptive_z", False),
+    ("hod_z_score", False),
+    ("burst_z", False),
+    ("deficit_z", False),
     ("delta_z", False),
     ("targeted_delta_z", False),
     ("shielded_z", False),
@@ -108,8 +115,8 @@ SCORE_CANDIDATES = (
     ("z_sector", False),
     ("macro_z_score", False),
     ("normalized_odds_score", False),
-    ("windowed_slack_sum", False),
     ("cusum_drift_score", False),
+    ("windowed_slack_sum", False),
     ("hurdle_threat_score", False),
     ("hurdle_anomaly_score", False),
     ("circadian_threat_score", False),
@@ -125,12 +132,14 @@ SCORE_CANDIDATES = (
     ("bayes_shift_ratio", False),
     ("posterior_lift", False),
     ("posterior_fail_prob", False),
+    ("posterior_fail_rate", False),
     ("regularized_failure_prob", False),
     ("posterior_rate", False),
     ("empirical_shift", False),
     ("concentration_ratio", False),
     ("producer_ratio", False),
     ("fold_change", False),
+    ("rel_dev_z_equiv", False),
     ("surge_ratio", False),
     ("hourly_surge_ratio", False),
     ("ratio_1v7", False),
@@ -138,6 +147,7 @@ SCORE_CANDIDATES = (
     ("fano_factor", False),
     ("cv", False),
     ("diversity_z", False),
+    ("novelty_flag", False),
     ("cri_score", False),
     ("personal_z", False),
     ("z_score", False),
@@ -390,17 +400,27 @@ class TimelineAssembler:
     # Peak per (entity, day): templates with extra match keys can emit several rows.
     cells: Dict[Tuple[str, str], Dict[str, Any]] = {}
     sparse: List[Dict[str, Any]] = []
+    sem = get_score_semantics(score_field)
     inverted_key = is_inverted_score_key(score_field)
+    boolean_key = sem.kind == "boolean_flag"
     for day, rows in self.shards.items():
       for row in rows:
         entity = str(row.get(entity_field))
         score = self._extract_row_score(row, score_field, squared)
         if score is None:
           continue
-        z_equiv = score_to_z_equivalent(score_field, score, already_sqrt=squared)
-        if z_equiv is None:
-          continue
-        rank_tuple = (z_equiv, -score if inverted_key else score)
+        if boolean_key:
+          if score < sem.threshold:
+            continue
+          z_equiv = None
+          rank_tuple: Tuple[float, float] = (score, score)
+          cri_val = None
+        else:
+          z_equiv = score_to_z_equivalent(score_field, score, already_sqrt=squared)
+          if z_equiv is None:
+            continue
+          rank_tuple = (z_equiv, -score if inverted_key else score)
+          cri_val = cri_from_model_score(score_field, score, already_sqrt=squared)
         key = (entity, day)
         if key not in cells or rank_tuple > cells[key]["_rank"]:
           cells[key] = {
@@ -409,7 +429,7 @@ class TimelineAssembler:
               "score": score,
               "z_equiv": z_equiv,
               "_rank": rank_tuple,
-              "cri": cri_from_model_score(score_field, score, already_sqrt=squared),
+              "cri": cri_val,
               "sectors": {f: row.get(f) for f in sector_fields},
           }
         for prefix, days_col, obs_col in sparse_pairs:
@@ -504,7 +524,11 @@ class TimelineAssembler:
       cusum_s = 0.0
       peak_cusum_s = 0.0
       cum_z = 0.0
-      flagged_by_day = {c["day"]: float(c["z_equiv"]) for c in flagged}
+      flagged_by_day = {
+          c["day"]: float(c["z_equiv"])
+          for c in flagged
+          if c["z_equiv"] is not None
+      }
       for d in sorted(self.shards):
         z_t = flagged_by_day.get(d, 0.0)
         cum_z += z_t

@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional, Tuple
 try:
   from .ueba_constants import (
       DEFAULT_MIN_BASELINE_DAYS,
+      RADAR_COMPOSITE_D_THRESHOLD,
       RADAR_FUSION_DISTANCE_THRESHOLD,
       _coerce_finite_float,
       calculate_cri,
@@ -28,6 +29,7 @@ except ImportError:
   try:
     from scripts.ueba_constants import (
         DEFAULT_MIN_BASELINE_DAYS,
+        RADAR_COMPOSITE_D_THRESHOLD,
         RADAR_FUSION_DISTANCE_THRESHOLD,
         _coerce_finite_float,
         calculate_cri,
@@ -36,6 +38,7 @@ except ImportError:
   except ImportError:
     from ueba_constants import (  # type: ignore[no-redef]
         DEFAULT_MIN_BASELINE_DAYS,
+        RADAR_COMPOSITE_D_THRESHOLD,
         RADAR_FUSION_DISTANCE_THRESHOLD,
         _coerce_finite_float,
         calculate_cri,
@@ -52,7 +55,6 @@ class _RadarQueryTemplate(str):
 
 
 HELPER_VERSION = "2.3.0"
-RADAR_COMPOSITE_D_THRESHOLD: float = 3.5
 
 
 def _canonical_json_sha256(obj: Any) -> str:

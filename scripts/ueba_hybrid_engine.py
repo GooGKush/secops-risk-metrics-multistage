@@ -2364,9 +2364,14 @@ def _normalize_single_row(raw_row: Dict[str, Any]) -> Dict[str, Any]:
       "bayesian_z",
       "beta_binomial_z",
       "adaptive_z",
+      "hod_z_score",
+      "burst_z",
+      "flow_surge_score",
+      "deficit_z",
       "novelty_flag",
       "tukey_fence_ratio",
       "fold_change",
+      "rel_dev_z_equiv",
       "surge_ratio",
       "hourly_surge_ratio",
       "fano_factor",
@@ -2376,6 +2381,7 @@ def _normalize_single_row(raw_row: Dict[str, Any]) -> Dict[str, Any]:
       "bayes_shift_ratio",
       "posterior_lift",
       "posterior_fail_prob",
+      "posterior_fail_rate",
       "regularized_failure_prob",
       "posterior_rate",
       "empirical_shift",
@@ -2390,8 +2396,8 @@ def _normalize_single_row(raw_row: Dict[str, Any]) -> Dict[str, Any]:
       "velocity_kmh",
       "markov_threat_score",
       "fused_threat_score",
-      "windowed_slack_sum",
       "cusum_drift_score",
+      "windowed_slack_sum",
       "hurdle_threat_score",
       "hurdle_anomaly_score",
       "circadian_threat_score",
@@ -2519,9 +2525,9 @@ def _normalize_single_row(raw_row: Dict[str, Any]) -> Dict[str, Any]:
 
   if raw_score is not None and matched_key == "novelty_flag":
     display_score: Optional[float] = raw_score
-    z_equiv = None
-    true_sigma = False
-    score_display = "NOVEL (flag=1)" if raw_score >= 1.0 else "SEEN (flag=0)"
+    z_equiv = score_to_z_equivalent(matched_key, raw_score)
+    true_sigma = is_true_sigma_key(matched_key)
+    score_display = format_score_with_unit(matched_key, raw_score)
   elif raw_score is not None and matched_key is not None:
     display_score = (
         math.sqrt(max(0.0, raw_score)) if matched_is_sq else raw_score
