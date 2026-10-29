@@ -124,11 +124,12 @@ Before running a multi-stage statistical hunt, explain the approach to the secur
 
 ---
 
-## 4. Discrete Poisson Rarity Score (`POISSON_RARITY`)
-* **Security Problem Solved**: Quantifies the mathematical improbability of observing rare administrative actions or LOLBin executions on assets that almost never run them.
+## 4. Discrete Poisson / Negative-Binomial Rarity Score (`POISSON_RARITY`)
+* **Security Problem Solved**: Quantifies the improbability of observing rare discrete count events (`metric: event_count_sum`; blocked on `value_sum` byte metrics) while guarding against overdispersed baselines.
 * **Mathematical Formulation**:
-  $$Z_P = \frac{k - \lambda}{\sqrt{\lambda_{\text{safe}}}}, \quad \lambda_{\text{safe}} = \text{if}(\lambda > 0, \lambda, 1.0)$$
-* **Threat Meaning**: Gaussian models fail on discrete low-count events ($0, 0, 1, 0$). Poisson standardized residuals accurately measure the probability of seeing $k$ events when the historical arrival rate $\lambda \le 2.0$.
+  $$\lambda = \frac{S_{30}}{30}, \quad \lambda_{\text{safe}} = \max(\lambda, 1.0), \quad F_{\text{cal}} = \frac{\sigma_{\text{cal}}^2}{\lambda_{\text{safe}}}, \quad Z_P = \frac{k - \lambda}{\sqrt{\text{eff\_var}}}$$
+  where $\text{eff\_var} = \max(\sigma_{\text{cal}}^2, \lambda_{\text{safe}})$ when $n \ge 2$ and $F_{\text{cal}} > 2.0$ (negative-binomial overdispersion scaling), and $\lambda_{\text{safe}}$ otherwise.
+* **Threat Meaning**: Uses true Poisson $\sqrt{\lambda}$ scaling on equidispersed rare counts ($F_{\text{cal}} \le 2.0$) and automatically widens to the rebuilt 30-day calendar variance when historical counts are clumpy ($F_{\text{cal}} > 2.0$).
 * **Post-Hunt Plain-English Cyber Impact Statement Template**:
 ```markdown
 > [!IMPORTANT]

@@ -1589,8 +1589,11 @@ class MalachiteASTValidator:
             "with continuous floor max(avg, 1.0) and Z-equivalent $rel_dev_z_equiv."
         )
     elif model == StatisticalModel.POISSON:
-      if "sqrt" not in query_text.lower() and "poisson" not in query_text.lower():
-        errors.append("MODEL_FORMULA_MISMATCH: Discrete Poisson model must calculate standard Poisson residual using sqrt(lambda).")
+      if "$fano_cal" not in query_text or "$safe_poisson_sd" not in query_text:
+        errors.append(
+            "MODEL_FORMULA_MISMATCH: Discrete Poisson model must check calendar Fano dispersion ($fano_cal) "
+            "and scale via $safe_poisson_sd."
+        )
     elif model in (StatisticalModel.STANDARD_Z_SCORE, StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z):
       if "+ 1.0" not in query_text and "if(" not in query_text and "stddev" not in query_text.lower():
         errors.append("MODEL_FORMULA_MISMATCH: Standard Z-Score must apply dispersion floor (+ 1.0) or nested logic if($std > 0, $std, 1.0) to denominator.")

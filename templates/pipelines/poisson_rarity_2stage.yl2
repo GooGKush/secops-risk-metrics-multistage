@@ -74,17 +74,16 @@ outcome:
   $mu_cal = $sum_x / 30.0
   $raw_var_cal = ($sum_x2 / 30.0) - ($mu_cal * $mu_cal)
   $var_cal = if($raw_var_cal > 0.0, $raw_var_cal, 0.0)
-  $sd_cal = math.sqrt($var_cal)
 
-  // Discrete Poisson Rarity Z-Score
-  $poisson_sigma = math.sqrt($lambda)
-  $safe_poisson_sigma = if($poisson_sigma > 0, $poisson_sigma, 1.0)
-  $poisson_z = ($k - $lambda) / $safe_poisson_sigma
-
-  // Model Concordance variable aliases
-  $observed = $k
-  $hist_avg = $lambda
-  $z_score = $poisson_z
+  // Dispersion-checked Poisson / Negative-Binomial residual (WS3-POISSON)
+  $safe_lambda = if($lambda > 1.0, $lambda, 1.0)
+  $fano_cal = $var_cal / $safe_lambda
+  $nb_var = if($var_cal > $safe_lambda, $var_cal, $safe_lambda)
+  $eff_var = if($active_days >= 2 and $fano_cal > 2.0, $nb_var, $safe_lambda)
+  $safe_poisson_sd = math.sqrt($eff_var)
+  $sqrt_lambda = math.sqrt($safe_lambda)
+  $diff = $k - $lambda
+  $poisson_z = $diff / $safe_poisson_sd
 
 // Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
 condition:

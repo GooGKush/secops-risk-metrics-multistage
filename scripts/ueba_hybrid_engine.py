@@ -3435,6 +3435,33 @@ def calculate_macd_momentum(
   return round(personal_z + above_max_z, 4)
 
 
+def calculate_poisson_rarity_z(
+    observed: float,
+    hist_sum: float,
+    active_days: int = 0,
+    hist_avg: float = 0.0,
+    hist_stddev: float = 0.0,
+) -> float:
+  """Computes dispersion-checked Poisson / Negative-Binomial residual Z (WS3-POISSON)."""
+  k = float(observed)
+  lam = float(hist_sum) / 30.0
+  n = float(active_days)
+  avg = float(hist_avg)
+  sd = float(hist_stddev)
+  sum_x = n * avg
+  df_minus_one = (n if n > 1.0 else 1.0) - 1.0
+  sum_x2 = (df_minus_one * sd * sd) + (n * avg * avg)
+  mu_cal = sum_x / 30.0
+  raw_var_cal = (sum_x2 / 30.0) - (mu_cal * mu_cal)
+  var_cal = raw_var_cal if raw_var_cal > 0.0 else 0.0
+  safe_lambda = lam if lam > 1.0 else 1.0
+  fano_cal = var_cal / safe_lambda
+  nb_var = var_cal if var_cal > safe_lambda else safe_lambda
+  eff_var = nb_var if (n >= 2.0 and fano_cal > 2.0) else safe_lambda
+  safe_poisson_sd = math.sqrt(eff_var)
+  return round((k - lam) / safe_poisson_sd, 4)
+
+
 def calculate_hourly_zscore(
     observed_hour: float,
     avg_hourly: float,

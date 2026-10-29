@@ -1030,6 +1030,15 @@ class MultiStageTemplateRouter:
       self.last_advisories.append(
           "ASYMMETRIC_DIRECTIONAL_Z merged into STANDARD_Z_SCORE (D1): upper-tail positive Z >= threshold is identical to Standard Z."
       )
+    if (
+        statistical_model == StatisticalModel.POISSON
+        and mc.baseline_semantics(target_metric).metric_arg == "value_sum"
+    ):
+      raise ValueError(
+          f"Statistical model 'POISSON' applies only to discrete event_count_sum metrics; "
+          f"'{target_metric}' is a byte-volume value_sum metric where variance scales quadratically. "
+          "Use MAD, QUANTILE_IQR_SKEW, or STANDARD_Z_SCORE instead."
+      )
 
     # Enforce Local-Baseline Isolation: default STANDARD_Z_SCORE multi-database account queries
     # route to CLOUD_REPOSITORY_SCOPE_DUAL_BRANCH; explicit non-Z models render directly.

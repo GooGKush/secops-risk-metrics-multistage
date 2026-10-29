@@ -27,7 +27,7 @@ In multi-stage hunting workflows:
 | 1 | `STANDARD_Z_SCORE` | Parametric Historical Z-Score | `$personal_diff`, `$dispersion_floor`, `$safe_stddev`, `$personal_z` | Linear deviation, D8 count/byte dispersion floor (`sqrt(max(avg, 1.0))` or fleet byte floor), `$active_days >= 7` gate | `order: $personal_z desc` | Missing dispersion floor (`1.0` fallback) or missing `$active_days >= 7` gate |
 | 2 | `MAD` | True Median Absolute Deviation / Modified $Z$ (with 30d $Z$ cross-check) | `$median_val`, `$mad`, `$mean_abs_dev`, `$robust_scale`, `$safe_robust_scale`, `$modified_z`, `$personal_z`, `$z_gap`, `$raw_active_days`, `$in_scoring_window` | `window.median` over stage1 daily rows (`mad_center` → `mad_spread`), $\text{MAD}/0.6745$, Iglewicz-Hoaglin $1.253314\cdot\text{meanAD}$ fallback | `order: $modified_z desc` | `0.6745 * (x - mean) / stddev` (a rescaled classical $Z$, not MAD) |
 | 3 | `VARIANCE` | Baseline Dispersion Screen (30-Day Fano Factor) | `$variance`, `$safe_lambda`, `$fano_factor` | 30d baseline dispersion screen ($\sigma^2 / \mu$, independent of `$observed`); spray hunts route to `secops-statistical-hunter` `POISSON_BURST_CLUSTERING` | `order: $fano_factor desc` | Claiming day-level spray detection or omitting variance calculation |
-| 4 | `POISSON` | Discrete Poisson Rarity Z-Score | `$diff`, `$safe_lambda`, `$sqrt_lambda`, `$poisson_z` | `math.sqrt($safe_lambda)` | `order: $poisson_z desc` | Linear stddev denominator instead of square-root mean |
+| 4 | `POISSON` | Discrete Poisson / NB Rarity Z-Score | `$diff`, `$safe_lambda`, `$fano_cal`, `$safe_poisson_sd`, `$sqrt_lambda`, `$poisson_z` | $\lambda = S/30$, calendar Fano dispersion check ($F_{\text{cal}} \le 2.0$ uses $\sqrt{\lambda}$; $F_{\text{cal}} > 2.0$ uses NB $\sqrt{\sigma_{\text{cal}}^2}$); blocked on `value_sum` byte metrics | `order: $poisson_z desc` | Applying Poisson to `value_sum` bytes or ignoring overdispersion ($F_{\text{cal}} > 2.0$) |
 | 5 | `COEFFICIENT_OF_VARIATION` | Regular-Volume Surge (Low-CV Predictable Baseline) | `$safe_hist_avg`, `$cv`, `$surge_ratio` | Fold-change surge gated on low relative dispersion ($\sigma / \mu \le 0.5$) | `order: $surge_ratio desc` | Standard Gaussian $Z$ without CV stability filter |
 | 6 | `HOURLY_TEMPORAL_ZSCORE` *(RETIRED D1)* | Retired — Hand off to `HOUR_OF_DAY_PROFILE` | — | Handed off to `secops-statistical-hunter` `HOUR_OF_DAY_PROFILE` (`PF-10` / `WS2-02`) | — | Comparing 1h buckets against 24h daily `metrics.*` baselines |
 | 7 | `BAYESIAN_GAMMA` | Empirical Bayes Poisson-Gamma Conjugate | `$variance_raw`, `$safe_variance`, `$beta_prior`, `$alpha_prior`, `$alpha_post`, `$beta_post`, `$posterior_mean`, `$bayes_shift_ratio` | Method of Moments hyperparameters, posterior conjugate updating | `order: $bayes_shift_ratio desc` | Bare $Z$-score omitting Gamma hyperparameters ($\alpha, \beta$) |
@@ -197,12 +197,15 @@ outcome:
   $mu_cal = $sum_x / 30.0
   $raw_var_cal = ($sum_x2 / 30.0) - ($mu_cal * $mu_cal)
   $var_cal = if($raw_var_cal > 0.0, $raw_var_cal, 0.0)
-  $sd_cal = math.sqrt($var_cal)
 
-  $diff = $k - $lambda
-  $safe_lambda = if($lambda > 0, $lambda, 1.0)
+  $safe_lambda = if($lambda > 1.0, $lambda, 1.0)
+  $fano_cal = $var_cal / $safe_lambda
+  $nb_var = if($var_cal > $safe_lambda, $var_cal, $safe_lambda)
+  $eff_var = if($active_days >= 2 and $fano_cal > 2.0, $nb_var, $safe_lambda)
+  $safe_poisson_sd = math.sqrt($eff_var)
   $sqrt_lambda = math.sqrt($safe_lambda)
-  $poisson_z = $diff / $sqrt_lambda
+  $diff = $k - $lambda
+  $poisson_z = $diff / $safe_poisson_sd
 
 condition:
   $poisson_z >= 3.0
