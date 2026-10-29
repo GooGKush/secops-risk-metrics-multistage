@@ -301,6 +301,9 @@ class SubmissionTestSuite:
     rendered = rendered.replace("{{tukey_excess_threshold}}", "1.0")
     rendered = rendered.replace("{{min_awakening_volume}}", "25")
     rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
+    rendered = rendered.replace("{{min_active_days}}", str(audit["min_baseline_days"]))
+    rendered = rendered.replace("{{prior_alpha0}}", "1.0")
+    rendered = rendered.replace("{{prior_beta0}}", "1.0")
     rendered = rendered.replace(
         "{{first_scored_date}}", datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d"))
     rendered = _apply_byte_dispersion_floor(rendered, metric_name)

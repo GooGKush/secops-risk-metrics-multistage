@@ -4,7 +4,13 @@
 // Purpose: Fuses 30-day host activity volumetric baseline (metrics.auth_attempts_total,
 //          metrics.auth_attempts_fail, or metrics.network_bytes_outbound) with
 //          Chronicle Entity Context Graph (DERIVED_CONTEXT) asset first-seen age
-//          to isolate infant assets (<= 7 days old) exhibiting immediate anomalous behavior.
+//          to isolate young/recently onboarded assets exhibiting anomalous behavior.
+// Maturity & First-Seen Novelty Routing (WS4-BAYES-ASSET / D8 / WS1-12):
+//   Parametric Z-scoring requires `$active_days >= {{min_active_days}}` (default 7 active days)
+//   plus a continuous Poisson count floor `sqrt(max(mean, 1.0))` (or fleet byte floor) so Z never
+//   collapses to the raw event count. True infant/Day-0 assets with `< 7` active baseline days
+//   MUST route to the `WS1-12` `metrics.*` `first_seen` novelty path (`FIRST_SEEN_NOVELTY` /
+//   `first_seen_novelty_2stage.yl2`), which reports boolean 30d novelty without fabricated Z-scores.
 // Join Budget: 1 metric lookup (Stage 1) + 1 stage join (Root) = 2 joins total (<= 4).
 // Invariant: Stage 1 evaluates universal volume; Stage 2 isolates graph lookup (ECG_LIMIT = 1).
 //
@@ -89,15 +95,17 @@ outcome:
   $raw_age_days = ($obs_ts - $first_seen) / 86400.0
   $asset_age_days = if($first_seen > 0, $raw_age_days, 9999.0)
 
-  // Infant Asset Multiplier: 2.5x threat score boost for machines first seen <= 7 days ago
-  // WS1-08 / PF-8: when first_seen_time = 0, <7d ECG novelty boost is disabled; prefer metrics.* first_seen (WS1-12)
+  // Young/Infant Asset Multiplier: 2.5x boost if <= 7d (when min_active_days overridden), 1.5x if <= 14d
+  // WS1-08 / PF-8: when first_seen_time = 0, ECG novelty boost is disabled; prefer metrics.* first_seen (WS1-12)
   $ecg_novelty_disabled = if($first_seen <= 0, 1.0, 0.0)
   $is_infant_asset = if($first_seen > 0 and $asset_age_days <= 7.0 and $asset_age_days >= 0.0, 1.0, 0.0)
-  $threat_multiplier = if($is_infant_asset = 1.0, 2.5, 1.0)
+  $is_young_asset = if($first_seen > 0 and $asset_age_days <= 14.0 and $asset_age_days >= 0.0, 1.0, 0.0)
+  $young_mult = if($is_young_asset = 1.0, 1.5, 1.0)
+  $threat_multiplier = if($is_infant_asset = 1.0, 2.5, $young_mult)
   $threat_score = $z_score * $threat_multiplier
 
 condition:
-  $active_days >= {{min_baseline_days}}
+  $active_days >= {{min_active_days}}
   and $z_score >= {{anomaly_threshold}}
   and $asset_age_days <= {{max_asset_age_days}}
 

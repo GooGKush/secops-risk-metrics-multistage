@@ -1633,6 +1633,8 @@ class MultiStageTemplateRouter:
       prior_beta0: Optional[float] = None,
       fleet_prior_payload: Optional[Any] = None,
       min_awakening_volume: int = DEFAULT_MIN_AWAKENING_VOLUME,
+      min_active_days: Optional[int] = None,
+      max_asset_age_days: float = 30.0,
   ) -> str:
     """Renders 3-Stage and 4-Stage advanced DAG pipelines, then resolves the root significance gate.
 
@@ -1646,12 +1648,13 @@ class MultiStageTemplateRouter:
         pipeline_type = PipelineArchitecture[raw_pipe]
     if pipeline_type in RETIRED_PIPELINE_ARCHITECTURES:
       raise ValueError(RETIRED_PIPELINE_ARCHITECTURES[pipeline_type])
+    eff_min_baseline = min_active_days if min_active_days is not None else min_baseline_days
     rendered = self._render_pipeline(
         pipeline_type,
         target_metric=target_metric,
         entity_type=entity_type,
         anomaly_threshold=anomaly_threshold,
-        min_baseline_days=min_baseline_days,
+        min_baseline_days=eff_min_baseline,
         hypothesis_goal=hypothesis_goal,
         service_account=service_account,
         min_threshold=min_threshold,
@@ -1664,6 +1667,11 @@ class MultiStageTemplateRouter:
         fusion_threshold_sq=fusion_threshold_sq,
         byte_dispersion_floor=byte_dispersion_floor,
         identifier_coverage_payload=identifier_coverage_payload,
+        prior_alpha0=prior_alpha0,
+        prior_beta0=prior_beta0,
+        fleet_prior_payload=fleet_prior_payload,
+        min_active_days=min_active_days,
+        max_asset_age_days=max_asset_age_days,
     )
     out = self._apply_significance_gate(
         rendered,
@@ -1700,6 +1708,11 @@ class MultiStageTemplateRouter:
       fusion_threshold_sq: float = DEFAULT_FUSION_THRESHOLD_SQ,
       byte_dispersion_floor: Optional[float] = None,
       identifier_coverage_payload: Optional[Any] = None,
+      prior_alpha0: Optional[float] = None,
+      prior_beta0: Optional[float] = None,
+      fleet_prior_payload: Optional[Any] = None,
+      min_active_days: Optional[int] = None,
+      max_asset_age_days: float = 30.0,
   ) -> str:
     """Renders 3-Stage and 4-Stage advanced DAG pipelines (gate placeholders left for build_pipeline_query)."""
     if identifier_field is None and identifier_coverage_payload is not None:
@@ -1853,9 +1866,23 @@ class MultiStageTemplateRouter:
       raw = pipeline_file.read_text().strip()
       metric_type_arg = f"metric: {audit['metric_arg']}"
 
+      if prior_alpha0 is not None or prior_beta0 is not None:
+        eff_a0 = float(prior_alpha0 if prior_alpha0 is not None else DEFAULT_GAMMA_PRIOR_ALPHA0)
+        eff_b0 = float(prior_beta0 if prior_beta0 is not None else DEFAULT_GAMMA_PRIOR_BETA0)
+        if eff_a0 <= 0.0 or eff_b0 <= 0.0:
+          raise ValueError(f"Empirical Bayes prior hyperparameters must be positive, got ({eff_a0}, {eff_b0}).")
+      elif fleet_prior_payload is not None:
+        eff_a0, eff_b0 = fit_gamma_prior_from_fleet(fleet_prior_payload)
+      else:
+        eff_a0, eff_b0 = (DEFAULT_GAMMA_PRIOR_ALPHA0, DEFAULT_GAMMA_PRIOR_BETA0)
+
       rendered = _fill_event_filter(raw, "{{event_filter}}", audit["event_filter"])
       rendered = rendered.replace("{{entity_field}}", audit["target_field"])
       rendered = rendered.replace("{{observed_agg}}", audit["observed_agg"])
+      rendered = rendered.replace(
+          "{{target_metric_func_sum}}",
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: sum, {audit['target_field']}: {audit['target_field']})"
+      )
       rendered = rendered.replace(
           "{{target_metric_func_avg}}",
           f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: avg, {audit['target_field']}: {audit['target_field']})"
@@ -1868,6 +1895,11 @@ class MultiStageTemplateRouter:
           "{{target_metric_func_active_days}}",
           f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: num_metric_periods, {audit['target_field']}: {audit['target_field']})"
       )
+      rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
+      rendered = rendered.replace("{{prior_alpha0}}", str(eff_a0))
+      rendered = rendered.replace("{{prior_beta0}}", str(eff_b0))
+      if hypothesis_goal:
+        rendered = f"// Goal: {hypothesis_goal}\n" + rendered
       return rendered + "\n"
 
     elif pipeline_type == PipelineArchitecture.CLOUD_REPOSITORY_SCOPE_DUAL_BRANCH:
@@ -2388,9 +2420,10 @@ class MultiStageTemplateRouter:
           "{{target_metric_func_active_days}}",
           f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: num_metric_periods, {audit['target_field']}: {audit['target_field']})"
       )
-      rendered = rendered.replace("{{anomaly_threshold}}", str(anomaly_threshold))
-      rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
-      rendered = rendered.replace("{{max_asset_age_days}}", "7.0")
+      eff_min_active = int(min_active_days if min_active_days is not None else audit["min_baseline_days"])
+      rendered = rendered.replace("{{min_active_days}}", str(eff_min_active))
+      rendered = rendered.replace("{{min_baseline_days}}", str(eff_min_active))
+      rendered = rendered.replace("{{max_asset_age_days}}", str(float(max_asset_age_days)))
       rendered = rendered.replace("{{today_date}}", _today_date())
       rendered = _apply_byte_dispersion_floor(rendered, target_metric, byte_dispersion_floor=byte_dispersion_floor)
       if hypothesis_goal:
@@ -3117,8 +3150,17 @@ class MultiStageTemplateRouter:
       hypothesis_goal: Optional[str] = None,
       identifier_field: Optional[str] = None,
       identifier_coverage_payload: Optional[Any] = None,
+      min_active_days: int = DEFAULT_MIN_BASELINE_DAYS,
+      max_asset_age_days: float = 30.0,
+      byte_dispersion_floor: Optional[float] = None,
   ) -> str:
-    """Builds a verified 2-Stage Derived Context Infant Asset Age pipeline."""
+    """Builds a verified 2-Stage Derived Context Young Asset Age pipeline (`$active_days >= min_active_days`).
+
+    Note (WS4-BAYES-ASSET / WS1-12): Parametric Z-scoring requires `>= 7` active baseline days plus a
+    continuous count/byte dispersion floor so Z never collapses to the raw event count. Infant/Day-0
+    assets with `< 7` active baseline days must route to the `WS1-12` `metrics.*` `first_seen` novelty
+    path (`FIRST_SEEN_NOVELTY` / `first_seen_novelty_2stage.yl2`).
+    """
     return self.build_pipeline_query(
         PipelineArchitecture.HYBRID_METRIC_DERIVED_ASSET_AGE_2STAGE,
         target_metric=target_metric,
@@ -3127,6 +3169,9 @@ class MultiStageTemplateRouter:
         hypothesis_goal=hypothesis_goal,
         identifier_field=identifier_field,
         identifier_coverage_payload=identifier_coverage_payload,
+        min_active_days=min_active_days,
+        max_asset_age_days=max_asset_age_days,
+        byte_dispersion_floor=byte_dispersion_floor,
     )
 
   def build_macd_momentum_velocity_query(
