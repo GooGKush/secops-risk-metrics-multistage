@@ -195,6 +195,9 @@ MODEL_ALIAS_MAP: Dict[str, StatisticalModel] = {
     "OFF_HOURS": StatisticalModel.CIRCADIAN_VON_MISES,
     # 18. Quantile / IQR / Bowley Skewness Tukey Fence
     "QUANTILE_IQR_SKEW": StatisticalModel.QUANTILE_IQR_SKEW,
+    "QUANTILE": StatisticalModel.QUANTILE_IQR_SKEW,
+    "QUANTILE_IQR": StatisticalModel.QUANTILE_IQR_SKEW,
+    "IQR_FENCE": StatisticalModel.QUANTILE_IQR_SKEW,
     "BOWLEY_SKEW": StatisticalModel.QUANTILE_IQR_SKEW,
     "TUKEY_FENCE": StatisticalModel.QUANTILE_IQR_SKEW,
     "TUKEY_SKEW_FENCE": StatisticalModel.QUANTILE_IQR_SKEW,
@@ -478,8 +481,8 @@ def _compute_execution_windows(
 
   if mode_clean == "A":
     eff_days = 1
-    if statistical_model == StatisticalModel.MAD:
-      # MAD requires 30d raw search window for window.median(...) while $in_scoring_window gates to today
+    if statistical_model in (StatisticalModel.MAD, StatisticalModel.QUANTILE_IQR_SKEW):
+      # MAD and Quantile require 30d raw search window for empirical quantiles/median while $in_scoring_window gates to the scored day
       start_dt = today_midnight - datetime.timedelta(days=29)
     elif has_ecg:
       # ECG snapshot freshness requires UTC date -2d at 00:00:00Z while event stage filters to today
@@ -501,7 +504,7 @@ def _compute_execution_windows(
 
   elif mode_clean == "B":
     eff_days = max(window_days if window_days > 1 else 7, 2)
-    if statistical_model == StatisticalModel.MAD:
+    if statistical_model in (StatisticalModel.MAD, StatisticalModel.QUANTILE_IQR_SKEW):
       start_dt = today_midnight - datetime.timedelta(days=max(29, eff_days - 1))
     else:
       start_dt = today_midnight - datetime.timedelta(days=eff_days - 1)
@@ -809,6 +812,10 @@ def compile_hunt_pipeline(
       if model_str_upper in MODEL_IMPLIED_ARCHITECTURE
       else resolve_statistical_model(statistical_model)
   )
+  if arch_key in ("quantile_iqr_skew", "quantile_iqr_skew_3stage"):
+    stat_model_enum = StatisticalModel.QUANTILE_IQR_SKEW
+  elif arch_key in ("mad_robust", "mad_robust_3stage"):
+    stat_model_enum = StatisticalModel.MAD
   metric_list = normalize_metrics_list(metrics, ent_enum, arch_key)
   if len(metric_list) >= 2 and arch_key in ("single_metric", "local_2stage", "2stage"):
     arch_key = "multi_sector_fusion_4stage" if len(metric_list) >= 3 else "dual_sector_fusion_3stage"
@@ -1250,6 +1257,20 @@ def compile_hunt_pipeline(
     else:
       if ent_enum not in METRIC_CATALOG[primary_metric].supported_entity_types:
         ent_enum = METRIC_CATALOG[primary_metric].supported_entity_types[0]
+      eff_scoring_days = scoring_days
+      eff_scoring_end_date = scoring_end_date
+      if stat_model_enum in (StatisticalModel.MAD, StatisticalModel.QUANTILE_IQR_SKEW):
+        mode_norm_for_scoring = (mode or "A").strip().upper().replace("MODE", "").strip() or "A"
+        if eff_scoring_days is None:
+          if mode_norm_for_scoring in ("A", "C"):
+            eff_scoring_days = 1
+          elif mode_norm_for_scoring == "B":
+            eff_scoring_days = max(window_days if window_days > 1 else 7, 2)
+          else:
+            eff_scoring_days = max(window_days, 1)
+        if eff_scoring_end_date is None and reference_time is not None:
+          ref_utc = reference_time if reference_time.tzinfo is not None else reference_time.replace(tzinfo=datetime.timezone.utc)
+          eff_scoring_end_date = ref_utc.strftime("%Y-%m-%d")
       compiled_query = router.build_query(
           target_metric=primary_metric,
           entity_type=ent_enum,
@@ -1262,8 +1283,8 @@ def compile_hunt_pipeline(
           max_threshold=max_threshold,
           condition_expression=condition_expression,
           identifier_field=identifier_field,
-          scoring_days=scoring_days,
-          scoring_end_date=scoring_end_date,
+          scoring_days=eff_scoring_days,
+          scoring_end_date=eff_scoring_end_date,
           fold_change_threshold=eff_fold,
           robust_threshold=eff_robust,
       )
@@ -1564,6 +1585,7 @@ def _normalize_single_row(raw_row: Dict[str, Any]) -> Dict[str, Any]:
       "historical_flow_avg",
       "hist_fail_avg",
       "median_30d",
+      "q50_val",
       "d_mu",
       "m1_avg",
   ), 0.0)
@@ -1579,6 +1601,7 @@ def _normalize_single_row(raw_row: Dict[str, Any]) -> Dict[str, Any]:
       "hist_fail_stddev",
       "robust_scale",
       "safe_robust_scale",
+      "safe_iqr",
       "d_sigma",
   ), 1.0)
 
@@ -1592,11 +1615,15 @@ def _normalize_single_row(raw_row: Dict[str, Any]) -> Dict[str, Any]:
       "hist_flow_active_days",
       "hist_fail_active_days",
       "baseline_days",
+      "raw_active_days",
   ), 30.0)
 
   score = _first_float((
       "z_score",
       "modified_z",
+      "quantile_z",
+      "fence_z",
+      "tukey_fence_ratio",
       "delta_z",
       "shielded_z",
       "circadian_threat_score",
