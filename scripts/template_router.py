@@ -1667,6 +1667,69 @@ class MultiStageTemplateRouter:
     return stage2_raw
 
   @classmethod
+  def _apply_composite_companions_to_entity_pipeline(
+      cls,
+      rendered: str,
+      target_metric: str,
+      entity_type: EntityType,
+  ) -> str:
+    """Injects Malachite-required composite companion bindings, dimensions, and match keys into $entity pipelines."""
+    if target_metric.startswith("file_executions_"):
+      extra_bindings = (
+          "    principal.process.file.sha256 = $sha256\n"
+          '    $sha256 != ""'
+      )
+      extra_dims = (
+          ",\n        metadata.event_type: metadata.event_type,\n"
+          "        principal.process.file.sha256: principal.process.file.sha256"
+      )
+      extra_keys = ["$sha256"]
+    elif target_metric == "alert_event_name_count":
+      extra_bindings = (
+          "    security_result.rule_name = $rule_name\n"
+          '    $rule_name != ""'
+      )
+      extra_dims = ",\n        security_result.rule_name: security_result.rule_name"
+      extra_keys = ["$rule_name"]
+    elif target_metric.startswith("resource_"):
+      if entity_type == EntityType.RESOURCE:
+        extra_bindings = (
+            "    principal.user.userid = $sa\n"
+            "    metadata.vendor_name = $vendor\n"
+            "    metadata.product_name = $product\n"
+            '    $sa != ""\n'
+            '    $vendor != ""\n'
+            '    $product != ""'
+        )
+        extra_dims = (
+            ",\n        principal.user.userid: principal.user.userid,\n"
+            "        metadata.vendor_name: metadata.vendor_name,\n"
+            "        metadata.product_name: metadata.product_name"
+        )
+        extra_keys = ["$sa", "$vendor", "$product"]
+      else:
+        extra_bindings = (
+            "    metadata.vendor_name = $vendor\n"
+            "    metadata.product_name = $product\n"
+            "    target.resource.name = $resource\n"
+            '    $vendor != ""\n'
+            '    $product != ""\n'
+            '    $resource != ""'
+        )
+        extra_dims = (
+            ",\n        metadata.vendor_name: metadata.vendor_name,\n"
+            "        metadata.product_name: metadata.product_name,\n"
+            "        target.resource.name: target.resource.name"
+        )
+        extra_keys = ["$vendor", "$product", "$resource"]
+    else:
+      return rendered.replace(" {{extra_dimensions}}", "").replace("{{extra_dimensions}}", "")
+
+    out = rendered.replace('    $entity != ""', f'    $entity != ""\n{extra_bindings}', 1)
+    out = out.replace(" {{extra_dimensions}}", extra_dims).replace("{{extra_dimensions}}", extra_dims)
+    return cls._expand_mad_keys(out, "$entity", extra_keys)
+
+  @classmethod
   def _inject_stage1_adaptive_schedule(
       cls,
       stage1_content: str,
@@ -1882,7 +1945,9 @@ class MultiStageTemplateRouter:
           min_threshold=min_threshold,
           max_threshold=max_threshold,
           condition_expression=condition_expression,
+          identifier_field=identifier_field,
           include_significance_gate=include_significance_gate,
+          identifier_coverage_payload=identifier_coverage_payload,
       )
 
     extractor_metric = paired_beta_metrics[1] if paired_beta_metrics is not None else target_metric
@@ -2299,11 +2364,16 @@ class MultiStageTemplateRouter:
       return pipeline_file.read_text().strip() + "\n"
 
     elif pipeline_type == PipelineArchitecture.HYBRID_METRIC_HTTP_UA_PREVALENCE_2STAGE:
+      if entity_type == EntityType.RESOURCE:
+        raise ValueError(
+            "HYBRID_METRIC_HTTP_UA_PREVALENCE_2STAGE supports EntityType.ASSET and EntityType.USER "
+            "(metrics.http_queries_total does not support HTTP_USER_AGENT + TARGET_HOSTNAME without host/user)."
+        )
       pipeline_file = self.template_dir / "pipelines" / "hybrid_metric_http_ua_prevalence_2stage.yl2"
       if not pipeline_file.exists():
         raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
       raw = pipeline_file.read_text().strip()
-      if identifier_field:
+      if identifier_field or entity_type != EntityType.ASSET:
         ent_field = PreFlightValidator.resolve_identifier_field("http_queries_total", entity_type, identifier_field)
         if ent_field != "principal.asset.hostname":
           raw = raw.replace("principal.asset.hostname = $entity", f"{ent_field} = $entity")
@@ -2336,7 +2406,7 @@ class MultiStageTemplateRouter:
 
     elif pipeline_type == PipelineArchitecture.HTTP_ERROR_RATIO_SURGE_2STAGE:
       eff_fail_metric = target_metric or "http_queries_fail"
-      if (target_metric or identifier_field) and not (
+      if not (
           eff_fail_metric == "http_queries_fail"
           and entity_type == EntityType.ASSET
           and (not identifier_field or identifier_field == "principal.asset.hostname")
@@ -2361,7 +2431,7 @@ class MultiStageTemplateRouter:
       if not pipeline_file.exists():
         raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
       raw = pipeline_file.read_text().strip()
-      if identifier_field:
+      if identifier_field or entity_type == EntityType.USER:
         ent_field = PreFlightValidator.resolve_identifier_field("http_queries_total", entity_type, identifier_field)
         if ent_field != "principal.asset.hostname":
           raw = raw.replace("principal.asset.hostname = $host", f"{ent_field} = $host")
@@ -2474,6 +2544,26 @@ class MultiStageTemplateRouter:
         raw = raw.replace("    $sa = principal.user.userid", '    security_result.action = "ALLOW"\n    $sa = principal.user.userid')
         for fam in ("resource_read", "resource_written", "resource_deletion", "resource_creation"):
           raw = raw.replace(f"metrics.{fam}_total(", f"metrics.{fam}_success(")
+      eff_id_field = identifier_field
+      if eff_id_field is None and identifier_coverage_payload is not None:
+        eff_id_field = select_identifier_from_coverage(
+            identifier_coverage_payload,
+            target_metric=target_metric or "resource_read_total",
+            entity_type=EntityType.USER,
+        )
+      if eff_id_field:
+        sa_audit = PreFlightValidator.audit(
+            target_metric=target_metric or "resource_read_total",
+            entity_type=EntityType.USER,
+            min_baseline_days=min_baseline_days,
+            identifier_field=eff_id_field,
+        )
+        user_field = sa_audit["target_field"]
+        if user_field != "principal.user.userid":
+          raw = raw.replace("$sa = principal.user.userid", f"$sa = {user_field}")
+          raw = raw.replace("principal.user.userid: principal.user.userid", f"{user_field}: {user_field}")
+          if not service_account and user_field not in ("principal.user.userid", "principal.user.email_addresses"):
+            raw = re.sub(r"^[ \t]*\$sa\s*=\s*/@.*?nocase[ \t]*\n", "", raw, flags=re.M)
       if service_account:
         sa_regex_pattern = r"(?:\(\s*)?\$sa\s*=\s*/@.*?nocase(?:\s*\))?"
         sa_binding = f'    $sa = "{self._escape_yaral_literal(service_account)}"'
@@ -3045,7 +3135,7 @@ class MultiStageTemplateRouter:
       rendered = rendered.replace("{{target_metric_name}}", target_metric)
       rendered = rendered.replace("{{metric_type_val}}", metric_type_val)
       rendered = rendered.replace("{{dimension_key}}", audit["target_field"])
-      rendered = rendered.replace("{{extra_dimensions}}", "")
+      rendered = self._apply_composite_companions_to_entity_pipeline(rendered, target_metric, entity_type)
       rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
       rendered = _apply_byte_dispersion_floor(rendered, target_metric, byte_dispersion_floor=byte_dispersion_floor)
       if hypothesis_goal:
@@ -3348,7 +3438,11 @@ class MultiStageTemplateRouter:
         identifier_field=identifier_field,
     )
     ent_field = audit["target_field"]
-    ent_var = "$user" if entity_type == EntityType.USER else "$host"
+    ent_var = (
+        "$user"
+        if entity_type == EntityType.USER
+        else ("$resource" if entity_type == EntityType.RESOURCE else "$host")
+    )
     ent_name = ent_var.lstrip("$")
     fail_filter_lines = mc.baseline_semantics(fail_metric).observed_filter
     total_filter_lines = mc.baseline_semantics(total_metric).observed_filter
@@ -3370,29 +3464,56 @@ class MultiStageTemplateRouter:
           f"        principal.process.file.sha256: principal.process.file.sha256"
       )
     elif fail_metric.startswith("resource_"):
-      extra_bindings = (
-          "    metadata.vendor_name = $vendor\n"
-          "    metadata.product_name = $product\n"
-          "    target.resource.name = $resource\n"
-          "    $resource != \"\"\n"
-      )
-      match_keys = f"{ent_var}, $vendor, $product, $resource"
-      root_joins = (
-          f"{ent_var} = $stage1_http_failure_surge.{ent_name}\n"
-          f"$vendor = $stage1_http_failure_surge.vendor\n"
-          f"$product = $stage1_http_failure_surge.product\n"
-          f"$resource = $stage1_http_failure_surge.resource\n"
-          f"{ent_var} = $stage2_total_traffic.{ent_name}\n"
-          f"$vendor = $stage2_total_traffic.vendor\n"
-          f"$product = $stage2_total_traffic.product\n"
-          f"$resource = $stage2_total_traffic.resource"
-      )
-      metric_args = (
-          f"{ent_field}: {ent_field},\n"
-          f"        metadata.vendor_name: metadata.vendor_name,\n"
-          f"        metadata.product_name: metadata.product_name,\n"
-          f"        target.resource.name: target.resource.name"
-      )
+      if entity_type == EntityType.RESOURCE:
+        extra_bindings = (
+            "    principal.user.userid = $sa\n"
+            "    metadata.vendor_name = $vendor\n"
+            "    metadata.product_name = $product\n"
+            "    $sa != \"\"\n"
+            "    $vendor != \"\"\n"
+            "    $product != \"\"\n"
+        )
+        match_keys = f"{ent_var}, $sa, $vendor, $product"
+        root_joins = (
+            f"{ent_var} = $stage1_http_failure_surge.{ent_name}\n"
+            "$sa = $stage1_http_failure_surge.sa\n"
+            "$vendor = $stage1_http_failure_surge.vendor\n"
+            "$product = $stage1_http_failure_surge.product\n"
+            f"{ent_var} = $stage2_total_traffic.{ent_name}\n"
+            "$sa = $stage2_total_traffic.sa\n"
+            "$vendor = $stage2_total_traffic.vendor\n"
+            "$product = $stage2_total_traffic.product"
+        )
+        metric_args = (
+            "principal.user.userid: principal.user.userid,\n"
+            "        metadata.vendor_name: metadata.vendor_name,\n"
+            "        metadata.product_name: metadata.product_name,\n"
+            f"        {ent_field}: {ent_field}"
+        )
+      else:
+        extra_bindings = (
+            "    metadata.vendor_name = $vendor\n"
+            "    metadata.product_name = $product\n"
+            "    target.resource.name = $resource\n"
+            "    $resource != \"\"\n"
+        )
+        match_keys = f"{ent_var}, $vendor, $product, $resource"
+        root_joins = (
+            f"{ent_var} = $stage1_http_failure_surge.{ent_name}\n"
+            f"$vendor = $stage1_http_failure_surge.vendor\n"
+            f"$product = $stage1_http_failure_surge.product\n"
+            f"$resource = $stage1_http_failure_surge.resource\n"
+            f"{ent_var} = $stage2_total_traffic.{ent_name}\n"
+            f"$vendor = $stage2_total_traffic.vendor\n"
+            f"$product = $stage2_total_traffic.product\n"
+            f"$resource = $stage2_total_traffic.resource"
+        )
+        metric_args = (
+            f"{ent_field}: {ent_field},\n"
+            f"        metadata.vendor_name: metadata.vendor_name,\n"
+            f"        metadata.product_name: metadata.product_name,\n"
+            f"        target.resource.name: target.resource.name"
+        )
     else:
       extra_bindings = ""
       match_keys = ent_var
@@ -3593,7 +3714,7 @@ class MultiStageTemplateRouter:
     rendered = rendered.replace("{{target_metric_name}}", target_metric)
     rendered = rendered.replace("{{metric_type_val}}", audit["metric_arg"])
     rendered = rendered.replace("{{dimension_key}}", audit["target_field"])
-    rendered = rendered.replace("{{extra_dimensions}}", "")
+    rendered = self._apply_composite_companions_to_entity_pipeline(rendered, target_metric, entity_type)
     rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
     rendered = _apply_byte_dispersion_floor(rendered, target_metric, byte_dispersion_floor=byte_dispersion_floor)
     if hypothesis_goal:
@@ -3645,7 +3766,7 @@ class MultiStageTemplateRouter:
     rendered = rendered.replace("{{target_metric_name}}", target_metric)
     rendered = rendered.replace("{{metric_type_val}}", audit["metric_arg"])
     rendered = rendered.replace("{{dimension_key}}", audit["target_field"])
-    rendered = rendered.replace("{{extra_dimensions}}", "")
+    rendered = self._apply_composite_companions_to_entity_pipeline(rendered, target_metric, entity_type)
     rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
     rendered = rendered.replace("{{cusum_h}}", str(float(cusum_h_threshold)))
     rendered = _apply_byte_dispersion_floor(rendered, target_metric, byte_dispersion_floor=byte_dispersion_floor)
