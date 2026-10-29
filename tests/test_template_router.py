@@ -670,6 +670,14 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
                 statistical_model=model,
             )
           continue
+        if metric_name == "alert_event_name_count" and model == StatisticalModel.BAYESIAN_BETA_BINOMIAL:
+          with self.assertRaisesRegex(ValueError, r"BAYESIAN_BETA_BINOMIAL.*paired|unpaired|_fail"):
+            self.router.build_query(
+                target_metric=metric_name,
+                entity_type=ent_type,
+                statistical_model=model,
+            )
+          continue
         if (
             metric_name == "resource_read_total"
             and ent_type == EntityType.USER
@@ -1059,6 +1067,115 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
         hist_stddev=100.0,
     )
     self.assertLess(abs(nominal_busy["bayesian_z"]), 1.0)
+
+  def test_ws3_beta_binomial_paired_metrics_and_golden_alerts(self):
+    """WS3-BETA-BINOMIAL: Pairs *_fail/*_total in Stage 1, fits fleet Beta(a0,b0), and verifies 1/1 vs 15/20 golden alerts."""
+    from scripts.preflight_validator import METRIC_CATALOG, MalachiteASTValidator
+    from scripts.statistical_validator import StatisticalAntipatternAuditor
+    from scripts.template_router import fit_beta_prior_from_fleet, resolve_beta_binomial_pair
+    import scripts.ueba_hybrid_engine as engine_mod
+
+    paired_prefixes = (
+        "auth_attempts_",
+        "dns_queries_",
+        "http_queries_",
+        "file_executions_",
+        "resource_creation_",
+        "resource_deletion_",
+        "resource_read_",
+        "resource_written_",
+    )
+    paired_count = 0
+    unpaired_count = 0
+    for mname, mdef in METRIC_CATALOG.items():
+      ent = mdef.supported_entity_types[0]
+      if mname.startswith(paired_prefixes):
+        paired_count += 1
+        fail_m, total_m = resolve_beta_binomial_pair(mname)
+        self.assertTrue(fail_m.endswith("_fail"))
+        self.assertTrue(total_m.endswith("_total"))
+        q = self.router.build_query(
+            target_metric=mname,
+            entity_type=ent,
+            statistical_model=StatisticalModel.BAYESIAN_BETA_BINOMIAL,
+        )
+        self.assertIn("$obs_total = count(metadata.id)", q)
+        self.assertIn("$obs_fail = sum(if(", q)
+        self.assertIn(f"metrics.{fail_m}(", q)
+        self.assertIn(f"metrics.{total_m}(", q)
+        self.assertIn("$beta_binomial_z = ($obs_fail - $pred_mean) / $safe_pred_sd", q)
+        self.assertEqual(MalachiteASTValidator.validate_query(q), [], mname)
+        self.assertEqual(MalachiteASTValidator.validate_model_concordance(q, StatisticalModel.BAYESIAN_BETA_BINOMIAL), [], mname)
+        violations = StatisticalAntipatternAuditor.audit_query(q)
+        if mname.startswith("resource_"):
+          violations = [v for v in violations if v.antipattern.name != "UNPROFILED_SERVICE_ACCOUNT"]
+        self.assertEqual(violations, [], mname)
+      else:
+        unpaired_count += 1
+        with self.assertRaisesRegex(ValueError, r"BAYESIAN_BETA_BINOMIAL.*paired|unpaired|_fail"):
+          self.router.build_query(
+              target_metric=mname,
+              entity_type=ent,
+              statistical_model=StatisticalModel.BAYESIAN_BETA_BINOMIAL,
+          )
+    self.assertEqual(paired_count, 24)
+    self.assertEqual(unpaired_count, 14)
+
+    # Empirical Bayes fleet Beta(alpha0, beta0) moment-matching fit
+    fleet_rows = [
+        {"hist_fail_sum": f, "hist_total_sum": 1000.0}
+        for f in (30.0, 45.0, 50.0, 55.0, 70.0, 40.0, 60.0, 50.0, 35.0, 65.0)
+    ]
+    a0, b0 = fit_beta_prior_from_fleet(fleet_rows)
+    self.assertGreater(a0, 0.5)
+    self.assertGreater(b0, 10.0)
+    self.assertAlmostEqual(a0 / (a0 + b0), 0.05, places=2)
+
+    q_fleet = self.router.build_query(
+        target_metric="auth_attempts_fail",
+        entity_type=EntityType.USER,
+        statistical_model=StatisticalModel.BAYESIAN_BETA_BINOMIAL,
+        fleet_prior_payload=fleet_rows,
+    )
+    self.assertIn(f"$alpha_pre = {a0} + $hist_fail_sum", q_fleet)
+    self.assertIn(f"$beta_pre = {b0} + $hist_succ_sum", q_fleet)
+
+    # Golden Test 1: 1 failure out of 1 attempt -> shrinks toward 5% prior, Z = 1.90 < 3.0 (DOES NOT ALERT)
+    one_of_one = engine_mod.calculate_beta_binomial_posterior(
+        obs_fail=1.0,
+        obs_total=1.0,
+        hist_fail_sum=0.0,
+        hist_total_sum=0.0,
+        prior_alpha0=1.0,
+        prior_beta0=19.0,
+    )
+    self.assertAlmostEqual(one_of_one["posterior_fail_rate"], 2.0 / 21.0, places=4)
+    self.assertAlmostEqual(one_of_one["beta_binomial_z"], 1.90, places=2)
+    self.assertLess(one_of_one["beta_binomial_z"], 3.0)
+
+    # Golden Test 2: 15 failures out of 20 attempts -> Z = 10.41 >= 3.0 (ALERTS)
+    real_surge = engine_mod.calculate_beta_binomial_posterior(
+        obs_fail=15.0,
+        obs_total=20.0,
+        hist_fail_sum=0.0,
+        hist_total_sum=0.0,
+        prior_alpha0=1.0,
+        prior_beta0=19.0,
+    )
+    self.assertAlmostEqual(real_surge["posterior_fail_rate"], 0.40, places=4)
+    self.assertGreaterEqual(real_surge["beta_binomial_z"], 3.0)
+    self.assertGreater(real_surge["beta_binomial_z"], 10.0)
+
+    # Golden Test 3: Mature entity with 2% baseline (6 / 300) surging to 12 / 20 today -> ALERTS
+    mature_surge = engine_mod.calculate_beta_binomial_posterior(
+        obs_fail=12.0,
+        obs_total=20.0,
+        hist_fail_sum=6.0,
+        hist_total_sum=300.0,
+        prior_alpha0=1.0,
+        prior_beta0=19.0,
+    )
+    self.assertGreaterEqual(mature_surge["beta_binomial_z"], 3.0)
 
 
 if __name__ == "__main__":

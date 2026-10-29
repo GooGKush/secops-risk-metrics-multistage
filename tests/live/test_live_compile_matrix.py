@@ -89,6 +89,13 @@ class TestOfflineFullMatrixRenderer(unittest.TestCase):
               entity_type=m.supported_entity_types[0],
               statistical_model=StatisticalModel.POISSON,
           )
+      if not is_compatible_metric_model(mname, StatisticalModel.BAYESIAN_BETA_BINOMIAL):
+        with self.assertRaisesRegex(ValueError, r"BAYESIAN_BETA_BINOMIAL.*paired|unpaired|_fail"):
+          router.build_query(
+              target_metric=mname,
+              entity_type=m.supported_entity_types[0],
+              statistical_model=StatisticalModel.BAYESIAN_BETA_BINOMIAL,
+          )
     disk_pipelines = sorted(p.name for p in (TEMPLATES_DIR / "pipelines").glob("*.yl2"))
 
     self.assertEqual(len(METRIC_CATALOG), 38)

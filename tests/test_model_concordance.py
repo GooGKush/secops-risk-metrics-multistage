@@ -97,10 +97,25 @@ MODEL_AST_CONTRACTS = {
     },
     StatisticalModel.BAYESIAN_BETA_BINOMIAL: {
         "template": "beta_binomial_bayesian.yl2",
-        "mandatory_vars": ["$denom_scale", "$scaled_prior", "$scaled_obs", "$prior_rate", "$obs_rate", "$prior_alpha", "$prior_beta", "$post_alpha", "$post_denom", "$posterior_rate", "$safe_prior", "$posterior_lift"],
-        "order_var": "$posterior_lift",
-        "required_ops": ["$denom_scale = $observed + $hist_avg + 1.0", "$prior_alpha = $prior_rate * 10.0", "$post_alpha = $prior_alpha + ($obs_rate * 10.0)", "$posterior_rate = $post_alpha / $post_denom", "$posterior_lift = $posterior_rate / $safe_prior"],
-        "prohibited_substitutions": ["$personal_z"],
+        "mandatory_vars": [
+            "$obs_fail",
+            "$obs_total",
+            "$hist_fail_sum",
+            "$hist_total_sum",
+            "$prior_fail_rate",
+            "$posterior_fail_rate",
+            "$posterior_rate",
+            "$pred_mean",
+            "$pred_var",
+            "$safe_pred_sd",
+            "$beta_binomial_z",
+        ],
+        "order_var": "$beta_binomial_z",
+        "required_ops": [
+            "$posterior_fail_rate = ($alpha_pre + $obs_fail) / ($ab + $obs_total)",
+            "$beta_binomial_z = ($obs_fail - $pred_mean) / $safe_pred_sd",
+        ],
+        "prohibited_substitutions": ["$personal_z", "$posterior_lift"],
     },
     StatisticalModel.LONGITUDINAL_CUSUM: {
         "template": "longitudinal_cusum.yl2",
@@ -434,6 +449,14 @@ class TestModelConcordance(unittest.TestCase):
           continue
         if model == StatisticalModel.POISSON and metric == "network_bytes_outbound":
           with self.assertRaisesRegex(ValueError, r"POISSON.*event_count_sum|value_sum|byte"):
+            self.router.build_query(
+                target_metric=metric,
+                entity_type=entity_type,
+                statistical_model=model,
+            )
+          continue
+        if model == StatisticalModel.BAYESIAN_BETA_BINOMIAL and metric == "network_bytes_outbound":
+          with self.assertRaisesRegex(ValueError, r"BAYESIAN_BETA_BINOMIAL.*paired|unpaired|_fail"):
             self.router.build_query(
                 target_metric=metric,
                 entity_type=entity_type,

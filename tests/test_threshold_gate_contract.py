@@ -52,7 +52,7 @@ EXPECTED_DEFAULT_GATES = {
     StatisticalModel.LONGITUDINAL_CUSUM: "$active_days >= 7 and $cusum_drift_score >= 3.0 and $drift_days >= 2",
     StatisticalModel.TWO_PART_HURDLE: "$active_days <= 2 or $intensity_z >= 3.0",
     StatisticalModel.BAYESIAN_GAMMA: "$bayesian_z >= 3.0",
-    StatisticalModel.BAYESIAN_BETA_BINOMIAL: "$posterior_lift >= 2.0",
+    StatisticalModel.BAYESIAN_BETA_BINOMIAL: "$beta_binomial_z >= 3.0",
     StatisticalModel.COEFFICIENT_OF_VARIATION: "$active_days >= 7 and $surge_ratio >= 2.0 and $cv <= 0.5",
     StatisticalModel.RELATIVE_DEVIATION: "$fold_change >= 2.0",
     StatisticalModel.MAD: "$in_scoring_window = 1 and $raw_active_days >= 7 and $modified_z >= 3.5",
@@ -104,7 +104,7 @@ class RouterGateTest(unittest.TestCase):
     self.router = MultiStageTemplateRouter()
 
   def _q(self, model, **kw):
-    if model == StatisticalModel.POISSON:
+    if model in (StatisticalModel.POISSON, StatisticalModel.BAYESIAN_BETA_BINOMIAL):
       return self.router.build_query(
           target_metric="auth_attempts_total",
           entity_type=EntityType.USER,
@@ -120,6 +120,12 @@ class RouterGateTest(unittest.TestCase):
           target_metric="network_bytes_outbound",
           entity_type=EntityType.ASSET,
           statistical_model=StatisticalModel.POISSON,
+      )
+    with self.assertRaisesRegex(ValueError, r"BAYESIAN_BETA_BINOMIAL.*paired|unpaired|_fail"):
+      self.router.build_query(
+          target_metric="network_bytes_outbound",
+          entity_type=EntityType.ASSET,
+          statistical_model=StatisticalModel.BAYESIAN_BETA_BINOMIAL,
       )
     for model in StatisticalModel:
       with self.subTest(model=model.value):
@@ -158,6 +164,8 @@ class RouterGateTest(unittest.TestCase):
     )
     q = self._q(StatisticalModel.BAYESIAN_GAMMA, anomaly_threshold=3.5)
     self.assertEqual(MultiStageTemplateRouter.root_condition(q), "$bayesian_z >= 3.5")
+    q = self._q(StatisticalModel.BAYESIAN_BETA_BINOMIAL, anomaly_threshold=3.5)
+    self.assertEqual(MultiStageTemplateRouter.root_condition(q), "$beta_binomial_z >= 3.5")
 
   def test_pipelines_resolve_every_gate_placeholder(self):
     for arch in PipelineArchitecture:

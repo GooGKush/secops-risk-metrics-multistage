@@ -802,6 +802,12 @@ def is_compatible_metric_model(metric_name: str, model: StatisticalModel) -> boo
     return False
   if model == StatisticalModel.POISSON and mc.baseline_semantics(metric_name).metric_arg == "value_sum":
     return False
+  if model == StatisticalModel.BAYESIAN_BETA_BINOMIAL:
+    if not metric_name.endswith(("_fail", "_total", "_success")):
+      return False
+    prefix = metric_name.rsplit("_", 1)[0]
+    if f"{prefix}_fail" not in METRIC_CATALOG or f"{prefix}_total" not in METRIC_CATALOG:
+      return False
   return True
 
 

@@ -117,11 +117,27 @@ class ExhaustiveMatrixSyntaxTest(unittest.TestCase):
 
       from scripts import malachite_catalog as mc
       is_value_sum = mc.baseline_semantics(metric_name).metric_arg == "value_sum"
+      is_paired_beta = (
+          metric_name.endswith(("_fail", "_total", "_success"))
+          and f"{metric_name.rsplit('_', 1)[0]}_fail" in METRIC_CATALOG
+          and f"{metric_name.rsplit('_', 1)[0]}_total" in METRIC_CATALOG
+      )
       for model in math_models:
         for mode in match_modes:
           context = f"Metric={metric_name}, Model={model.value}, Mode={mode.value}"
           if model == StatisticalModel.POISSON and is_value_sum:
             with self.assertRaisesRegex(ValueError, r"POISSON.*event_count_sum|value_sum|byte"):
+              self.router.build_query(
+                  target_metric=metric_name,
+                  entity_type=entity_type,
+                  statistical_model=model,
+                  anomaly_threshold=3.0,
+                  match_mode=mode,
+              )
+            tested_permutations += 1
+            continue
+          if model == StatisticalModel.BAYESIAN_BETA_BINOMIAL and not is_paired_beta:
+            with self.assertRaisesRegex(ValueError, r"BAYESIAN_BETA_BINOMIAL.*paired|unpaired|_fail"):
               self.router.build_query(
                   target_metric=metric_name,
                   entity_type=entity_type,

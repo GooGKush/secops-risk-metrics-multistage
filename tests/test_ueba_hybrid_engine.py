@@ -85,6 +85,20 @@ class TestUEBAHybridEngineCompile(unittest.TestCase):
             mode="B",
             window_days=3,
         )
+      elif model in (StatisticalModel.POISSON, StatisticalModel.BAYESIAN_BETA_BINOMIAL):
+        with self.assertRaises(ValueError):
+          compile_hunt_pipeline(
+              statistical_model=model.value,
+              metrics="network_bytes_outbound",
+              entity_type="ASSET",
+              mode="A",
+          )
+        res = compile_hunt_pipeline(
+            statistical_model=model.value,
+            metrics="auth_attempts_total",
+            entity_type="USER",
+            mode="A",
+        )
       else:
         res = compile_hunt_pipeline(
             statistical_model=model.value,
