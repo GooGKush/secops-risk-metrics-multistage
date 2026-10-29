@@ -30,7 +30,10 @@ try:
       _coerce_finite_float,
       calculate_cri,
       coerce_cri_int,
+      cri_from_model_score,
       format_cri,
+      is_inverted_score_key,
+      score_to_z_equivalent,
   )
 except ImportError:
   try:
@@ -38,14 +41,20 @@ except ImportError:
         _coerce_finite_float,
         calculate_cri,
         coerce_cri_int,
+        cri_from_model_score,
         format_cri,
+        is_inverted_score_key,
+        score_to_z_equivalent,
     )
   except ImportError:
     from ueba_constants import (  # type: ignore[no-redef]
         _coerce_finite_float,
         calculate_cri,
         coerce_cri_int,
+        cri_from_model_score,
         format_cri,
+        is_inverted_score_key,
+        score_to_z_equivalent,
     )
 
 ENTITY_CANDIDATES = ("entity", "host", "hostname", "user", "userid", "principal", "asset", "token")
@@ -55,37 +64,75 @@ SCORE_CANDIDATES = (
     ("composite_threat_norm_sq", True),
     ("threat_vector_norm_sq", True),
     ("threat_distance_sq", True),
+    ("poisson_z_sq", True),
     ("d_vs_fleet_sq", True),
     ("d_vs_team_sq", True),
+    ("d_sq", True),
+    ("norm_sq", True),
     ("threat_distance", False),
     ("composite_threat_distance", False),
+    ("composite_risk", False),
+    ("fused_threat_score", False),
+    ("markov_threat_score", False),
     ("threat_score", False),
     ("beacon_score", False),
+    ("recon_score", False),
+    ("target_risk_score", False),
     ("quantile_z", False),
     ("fence_z", False),
     ("tukey_fence_ratio", False),
-    ("personal_z", False),
-    ("shielded_z", False),
     ("modified_z", False),
+    ("m_z_score", False),
+    ("delta_z", False),
+    ("targeted_delta_z", False),
+    ("shielded_z", False),
     ("upper_tail_z", False),
     ("poisson_z", False),
     ("hourly_z", False),
     ("flow_z", False),
     ("clamped_z", False),
     ("fast_z", False),
+    ("z_log", False),
+    ("fleet_z", False),
+    ("z_vs_enterprise", False),
+    ("z_vs_team", False),
+    ("z_sector", False),
+    ("macro_z_score", False),
     ("normalized_odds_score", False),
     ("cusum_drift_score", False),
     ("hurdle_threat_score", False),
+    ("hurdle_anomaly_score", False),
     ("circadian_threat_score", False),
     ("macd_momentum_score", False),
     ("sensitivity_excess", False),
-    ("cri_score", False),
-    ("z_score", False),
-    ("z", False),
-    ("surge_ratio", False),
+    ("shannon_entropy_score", False),
+    ("entropy_score", False),
+    ("zipf_rarity_score", False),
+    ("rarity_score", False),
+    ("ewma_velocity_score", False),
+    ("velocity_score", False),
+    ("velocity_kmh", False),
     ("bayes_shift_ratio", False),
+    ("posterior_lift", False),
     ("posterior_fail_prob", False),
+    ("regularized_failure_prob", False),
+    ("posterior_rate", False),
+    ("empirical_shift", False),
+    ("concentration_ratio", False),
+    ("producer_ratio", False),
+    ("fold_change", False),
+    ("surge_ratio", False),
+    ("hourly_surge_ratio", False),
+    ("ratio_1v7", False),
+    ("ratio_1v30", False),
     ("fano_factor", False),
+    ("cv", False),
+    ("diversity_z", False),
+    ("cri_score", False),
+    ("personal_z", False),
+    ("z_score", False),
+    ("anomaly_score", False),
+    ("z", False),
     ("ratio", False),
 )
 SECTOR_Z_EXCLUDED_SUFFIXES = ("_sq", "_raw", "_pos")
@@ -333,19 +380,26 @@ class TimelineAssembler:
     # Peak per (entity, day): templates with extra match keys can emit several rows.
     cells: Dict[Tuple[str, str], Dict[str, Any]] = {}
     sparse: List[Dict[str, Any]] = []
+    inverted_key = is_inverted_score_key(score_field)
     for day, rows in self.shards.items():
       for row in rows:
         entity = str(row.get(entity_field))
         score = self._extract_row_score(row, score_field, squared)
         if score is None:
           continue
+        z_equiv = score_to_z_equivalent(score_field, score, already_sqrt=squared)
+        if z_equiv is None:
+          continue
+        rank_tuple = (z_equiv, -score if inverted_key else score)
         key = (entity, day)
-        if key not in cells or score > cells[key]["score"]:
+        if key not in cells or rank_tuple > cells[key]["_rank"]:
           cells[key] = {
               "entity": entity,
               "day": day,
               "score": score,
-              "cri": cri_from_score(score),
+              "z_equiv": z_equiv,
+              "_rank": rank_tuple,
+              "cri": cri_from_model_score(score_field, score, already_sqrt=squared),
               "sectors": {f: row.get(f) for f in sector_fields},
           }
         for prefix, days_col, obs_col in sparse_pairs:
@@ -379,11 +433,14 @@ class TimelineAssembler:
       for (entity, day), ent_sectors in sector_cells.items():
         norm_sq = sum(max(0.0, z) ** 2 for z in ent_sectors.values())
         d_score = math.sqrt(norm_sq) if norm_sq > 0 else max(ent_sectors.values(), default=0.0)
+        z_equiv_d = score_to_z_equivalent("threat_distance", d_score) or 0.0
         cells[(entity, day)] = {
             "entity": entity,
             "day": day,
             "score": d_score,
-            "cri": cri_from_score(d_score),
+            "z_equiv": z_equiv_d,
+            "_rank": (z_equiv_d, d_score),
+            "cri": cri_from_model_score("threat_distance", d_score),
             "sectors": {f: ent_sectors.get(f) for f in sector_fields},
         }
       squared = True  # Label composite distance column as D in markdown output.
@@ -403,7 +460,7 @@ class TimelineAssembler:
         day_rows.append({"day": day, "status": "failed", "reason": self.failed[day], "outliers": 0})
         continue
       day_cells = [c for (e, d), c in cells.items() if d == day]
-      top = max(day_cells, key=lambda c: c["score"]) if day_cells else None
+      top = max(day_cells, key=lambda c: c["_rank"]) if day_cells else None
       day_rows.append({
           "day": day,
           "status": "ok" if day_cells else "empty",
@@ -422,10 +479,10 @@ class TimelineAssembler:
         consecutive = ordinals[i] == ordinals[i - 1] + 1
         current = current + 1 if consecutive else 1
         longest = max(longest, current)
-        rising = rising + 1 if consecutive and flagged[i]["score"] > flagged[i - 1]["score"] else 1
+        rising = rising + 1 if consecutive and flagged[i]["_rank"] > flagged[i - 1]["_rank"] else 1
         if rising >= 3:
           escalating = True
-      peak = max(flagged, key=lambda c: c["score"])
+      peak = max(flagged, key=lambda c: c["_rank"])
       onsets = {}
       for field in sector_fields:
         for c in flagged:
@@ -437,7 +494,7 @@ class TimelineAssembler:
       cusum_s = 0.0
       peak_cusum_s = 0.0
       cum_z = 0.0
-      flagged_by_day = {c["day"]: float(c["score"]) for c in flagged}
+      flagged_by_day = {c["day"]: float(c["z_equiv"]) for c in flagged}
       for d in sorted(self.shards):
         z_t = flagged_by_day.get(d, 0.0)
         cum_z += z_t
@@ -459,7 +516,7 @@ class TimelineAssembler:
           "sector_onsets": onsets,
       }
 
-    top_rows = sorted(cells.values(), key=lambda c: c["score"], reverse=True)[: self.top_n]
+    top_rows = sorted(cells.values(), key=lambda c: c["_rank"], reverse=True)[: self.top_n]
     return {
         "meta": {
             "entity_field": entity_field,
@@ -516,7 +573,15 @@ class TimelineAssembler:
 
     entities = summary["entities"]
     if entities:
-      ranked = sorted(entities.items(), key=lambda kv: kv[1]["peak_score"], reverse=True)[:top_n]
+      is_inv = is_inverted_score_key(meta.get("score_field"))
+      ranked = sorted(
+          entities.items(),
+          key=lambda kv: (
+              kv[1].get("peak_cri") if kv[1].get("peak_cri") is not None else -1,
+              -kv[1]["peak_score"] if is_inv else kv[1]["peak_score"],
+          ),
+          reverse=True,
+      )[:top_n]
       sector_fields = meta["sector_fields"]
       lines += ["", "#### Entity Persistence & Onset", "",
                 "| Entity | Days Flagged | First | Last | Longest Run | Peak " + score_label
@@ -551,7 +616,15 @@ class TimelineAssembler:
 
   @staticmethod
   def ranked_records(summary: Dict[str, Any], top_n: int = 15) -> List[Dict[str, Any]]:
-    ranked = sorted(summary["entities"].items(), key=lambda kv: kv[1]["peak_score"], reverse=True)[:top_n]
+    is_inv = is_inverted_score_key(summary["meta"].get("score_field"))
+    ranked = sorted(
+        summary["entities"].items(),
+        key=lambda kv: (
+            kv[1].get("peak_cri") if kv[1].get("peak_cri") is not None else -1,
+            -kv[1]["peak_score"] if is_inv else kv[1]["peak_score"],
+        ),
+        reverse=True,
+    )[:top_n]
     return [
         {"entity": f"{entity} ({e['peak_day']})", "threat_distance_d": e["peak_score"], "cri": e["peak_cri"]}
         for entity, e in ranked

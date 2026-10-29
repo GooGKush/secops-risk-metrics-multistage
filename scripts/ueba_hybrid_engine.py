@@ -79,9 +79,14 @@ from scripts.ueba_constants import (
     _coerce_finite_float,
     calculate_cri,
     coerce_cri_int,
+    cri_from_model_score,
     format_cri,
+    format_score_with_unit,
     get_cri_band_metadata,
+    is_inverted_score_key,
+    is_true_sigma_key,
     resolve_sensitivity_thresholds,
+    score_to_z_equivalent,
 )
 
 
@@ -1729,84 +1734,178 @@ def _normalize_single_row(raw_row: Dict[str, Any]) -> Dict[str, Any]:
   ), 30.0)
 
   score_keys = (
-      "z_score",
       "modified_z",
+      "m_z_score",
       "quantile_z",
       "fence_z",
       "tukey_fence_ratio",
-      "delta_z",
-      "shielded_z",
-      "circadian_threat_score",
-      "hourly_z",
+      "fold_change",
+      "surge_ratio",
+      "hourly_surge_ratio",
+      "fano_factor",
+      "cv",
+      "diversity_z",
+      "sensitivity_excess",
+      "bayes_shift_ratio",
+      "posterior_lift",
+      "posterior_fail_prob",
+      "regularized_failure_prob",
+      "posterior_rate",
+      "empirical_shift",
+      "ratio_1v7",
+      "ratio_1v30",
+      "shannon_entropy_score",
+      "entropy_score",
+      "zipf_rarity_score",
+      "rarity_score",
+      "ewma_velocity_score",
+      "velocity_score",
+      "velocity_kmh",
+      "markov_threat_score",
+      "fused_threat_score",
       "cusum_drift_score",
       "hurdle_threat_score",
-      "upper_tail_z",
-      "sensitivity_excess",
+      "hurdle_anomaly_score",
+      "circadian_threat_score",
       "macd_momentum_score",
-      "bayes_shift_ratio",
-      "posterior_fail_prob",
-      "posterior_lift",
-      "surge_ratio",
-      "fold_change",
-      "fano_factor",
-      "eb_z_score",
+      "normalized_odds_score",
+      "composite_risk",
+      "composite_threat_distance",
+      "threat_distance",
+      "threat_norm",
+      "threat_score",
+      "concentration_ratio",
+      "producer_ratio",
+      "beacon_score",
+      "recon_score",
+      "target_risk_score",
+      "shielded_z",
+      "targeted_delta_z",
+      "delta_z",
+      "upper_tail_z",
+      "hourly_z",
       "poisson_z",
+      "eb_z_score",
+      "bayesian_z",
+      "fleet_z",
+      "z_log",
+      "macro_z_score",
+      "macro_z",
+      "z_vs_enterprise",
+      "z_vs_team",
+      "z_sector",
+      "alert_z",
+      "process_z",
+      "fail_z",
+      "flow_z",
       "cusum_s",
       "hurdle_z",
       "asymmetric_z",
       "macd_z",
       "circadian_z",
-      "composite_risk",
-      "threat_distance",
-      "threat_norm",
-      "threat_score",
-      "normalized_odds_score",
-      "target_risk_score",
-      "recon_score",
-      "beacon_score",
-      "alert_z",
-      "process_z",
-      "fail_z",
-      "flow_z",
-      "macro_z_score",
-      "macro_z",
-      "z_vs_team",
-      "z_vs_enterprise",
       "raw_z",
       "clamped_z",
-      "personal_z",
-      "anomaly_score",
       "ratio",
+      "personal_z",
+      "z_score",
+      "anomaly_score",
+      "score",
       "z",
   )
   sq_score_keys = (
-      "threat_distance_sq",
       "composite_threat_norm_sq",
+      "threat_vector_norm_sq",
+      "threat_distance_sq",
+      "poisson_z_sq",
       "d_vs_fleet_sq",
       "d_vs_team_sq",
       "d_sq",
       "norm_sq",
   )
   has_any_score_key = any(k in row for k in score_keys + sq_score_keys)
-  score = _first_float(score_keys)
 
-  if score is None:
-    sq_val = _first_float(sq_score_keys)
-    if sq_val is not None:
-      score = math.sqrt(max(0.0, sq_val))
-    elif not has_any_score_key and raw_obs is not None and raw_avg is not None:
-      denom = raw_std if (raw_std is not None and raw_std > 0) else 1.0
-      score = (raw_obs - raw_avg) / denom
+  matched_key: Optional[str] = None
+  matched_is_sq = False
+  raw_score: Optional[float] = None
 
-  has_explicit_cri = any(k in row for k in ("cri", "cri_score"))
-  explicit_cri = coerce_cri_int(row.get("cri") if "cri" in row else row.get("cri_score")) if has_explicit_cri else None
+  # Preserve original model score key when re-normalizing Mode C shard rows.
+  prior_key = row.get("score_key")
+  if isinstance(prior_key, str) and prior_key in row:
+    prior_val = row[prior_key]
+    if isinstance(prior_val, list) and prior_val:
+      prior_val = prior_val[0]
+    parsed_prior = _coerce_finite_float(prior_val)
+    if parsed_prior is not None:
+      matched_key = prior_key
+      matched_is_sq = prior_key in sq_score_keys
+      raw_score = parsed_prior
+
+  if raw_score is None:
+    for k in score_keys:
+      if k in row and row[k] is not None and row[k] != "-":
+        val = row[k]
+        if isinstance(val, list) and val:
+          val = val[0]
+        parsed = _coerce_finite_float(val)
+        if parsed is not None:
+          matched_key = k
+          matched_is_sq = False
+          raw_score = parsed
+          break
+
+  if raw_score is None:
+    for k in sq_score_keys:
+      if k in row and row[k] is not None and row[k] != "-":
+        val = row[k]
+        if isinstance(val, list) and val:
+          val = val[0]
+        parsed = _coerce_finite_float(val)
+        if parsed is not None:
+          matched_key = k
+          matched_is_sq = True
+          raw_score = parsed
+          break
+
+  if raw_score is None and not has_any_score_key and raw_obs is not None and raw_avg is not None:
+    denom = raw_std if (raw_std is not None and raw_std > 0) else 1.0
+    matched_key = "z_score"
+    matched_is_sq = False
+    raw_score = (raw_obs - raw_avg) / denom
+
+  if raw_score is not None and matched_key is not None:
+    display_score: Optional[float] = (
+        math.sqrt(max(0.0, raw_score)) if matched_is_sq else raw_score
+    )
+    z_equiv = score_to_z_equivalent(matched_key, raw_score, already_sqrt=False)
+    true_sigma = is_true_sigma_key(matched_key) and not matched_is_sq
+    score_display = format_score_with_unit(
+        None if matched_is_sq else matched_key, display_score
+    )
+  else:
+    display_score = None
+    z_equiv = None
+    true_sigma = False
+    score_display = "N/A"
+
+  has_explicit_cri = any(k in row for k in ("cri", "cri_score")) and prior_key is None
+  explicit_cri = (
+      coerce_cri_int(row.get("cri") if "cri" in row else row.get("cri_score"))
+      if has_explicit_cri
+      else None
+  )
   if explicit_cri is not None:
     cri_int: Optional[int] = explicit_cri
   elif has_explicit_cri and not has_any_score_key:
     cri_int = None
+  elif raw_score is not None and matched_key is not None:
+    cri_int = cri_from_model_score(matched_key, raw_score, already_sqrt=False)
   else:
-    cri_int = calculate_cri(score)
+    cri_int = None
   short_badge, full_band, bar = _cri_band_metadata(cri_int)
+
+  z_score_val: Optional[float] = (
+      round(display_score, 2) if display_score is not None else None
+  )
 
   normalized = dict(row)
   normalized.update({
@@ -1818,8 +1917,12 @@ def _normalize_single_row(raw_row: Dict[str, Any]) -> Dict[str, Any]:
       "hist_stddev": round(hist_stddev, 2) if hist_stddev is not None else 1.0,
       "historical_stddev": round(hist_stddev, 2) if hist_stddev is not None else 1.0,
       "active_days": int(round(active_days)) if active_days is not None else 30,
-      "z_score": round(score, 2) if score is not None else None,
-      "anomaly_score": round(score, 2) if score is not None else None,
+      "score_key": matched_key,
+      "z_equivalent": round(z_equiv, 4) if z_equiv is not None else None,
+      "is_true_sigma": true_sigma,
+      "score_display": score_display,
+      "z_score": z_score_val,
+      "anomaly_score": round(display_score, 2) if display_score is not None else None,
       "cri": cri_int,
       "cri_score": cri_int,
       "cri_display": format_cri(cri_int),
@@ -1828,6 +1931,20 @@ def _normalize_single_row(raw_row: Dict[str, Any]) -> Dict[str, Any]:
       "visual_bar": bar,
   })
   return normalized
+
+
+def _normalized_row_sort_key(item: Dict[str, Any]) -> Tuple[float, float]:
+  """Sorts normalized outlier rows monotonically by Z-equivalent severity."""
+  z_eq = item.get("z_equivalent")
+  primary = float(z_eq) if z_eq is not None else -math.inf
+  raw_s = item.get("anomaly_score")
+  if raw_s is None:
+    tie = -math.inf
+  elif is_inverted_score_key(item.get("score_key")):
+    tie = -float(raw_s)
+  else:
+    tie = float(raw_s)
+  return (primary, tie)
 
 
 def _extract_and_normalize_rows(
@@ -1852,7 +1969,7 @@ def _extract_and_normalize_rows(
         r_copy = dict(r)
         r_copy.setdefault("day", day_str)
         combined.append(_normalize_single_row(r_copy))
-    combined.sort(key=lambda x: x["z_score"] if x.get("z_score") is not None else -math.inf, reverse=True)
+    combined.sort(key=_normalized_row_sort_key, reverse=True)
     return combined, {"stats": {"results": combined}}
 
   if isinstance(rows_input, str):
@@ -1870,13 +1987,13 @@ def _extract_and_normalize_rows(
       return [], rows_input
     if "top_outliers" in rows_input and isinstance(rows_input["top_outliers"], list):
       normalized = [_normalize_single_row(r) for r in rows_input["top_outliers"]]
-      normalized.sort(key=lambda x: x["z_score"] if x.get("z_score") is not None else -math.inf, reverse=True)
+      normalized.sort(key=_normalized_row_sort_key, reverse=True)
       return normalized, {"stats": {"results": normalized}}
     if "results" in rows_input and "stats" not in rows_input and isinstance(rows_input["results"], list):
       return _extract_and_normalize_rows(rows_input["results"])
     parsed = parse_stats_payload(rows_input)
     normalized = [_normalize_single_row(r) for r in parsed]
-    normalized.sort(key=lambda x: x["z_score"] if x.get("z_score") is not None else -math.inf, reverse=True)
+    normalized.sort(key=_normalized_row_sort_key, reverse=True)
     return normalized, rows_input
 
   if isinstance(rows_input, (list, tuple)):
@@ -1886,7 +2003,7 @@ def _extract_and_normalize_rows(
       normalized = [_normalize_single_row(r) for r in parsed]
     else:
       normalized = [_normalize_single_row(r) for r in rows_input if isinstance(r, dict)]
-    normalized.sort(key=lambda x: x["z_score"] if x.get("z_score") is not None else -math.inf, reverse=True)
+    normalized.sort(key=_normalized_row_sort_key, reverse=True)
     return normalized, {"stats": {"results": normalized}}
 
   return [], {"stats": {"results": []}}
@@ -2013,12 +2130,23 @@ def render_forensic_dossier(
       }
 
   qualifying_outliers = [
-      r for r in outliers if r.get("z_score") is not None and r["z_score"] >= anomaly_threshold
+      r
+      for r in outliers
+      if (
+          (r.get("z_equivalent") is not None and r["z_equivalent"] >= anomaly_threshold)
+          if anomaly_threshold == 3.0
+          else (r.get("z_score") is not None and r["z_score"] >= anomaly_threshold)
+      )
   ]
+  primary_metric_col = (
+      outliers[0].get("score_key")
+      if (outliers and isinstance(outliers[0].get("score_key"), str))
+      else "z_score"
+  )
   reduced_data: Dict[str, Any] = {
       "outlier_count": len(outliers),
       "top_outliers": outliers,
-      "primary_score_metric": "z_score",
+      "primary_score_metric": primary_metric_col,
       "fleet_wave": len(qualifying_outliers) >= 10,
   }
 
@@ -2073,7 +2201,16 @@ def render_forensic_dossier(
   timeline_markdown = ""
   has_timeline_rows = any(r.get("day") or r.get("ws") or r.get("window_start") for r in outliers)
   if mode_clean in ("B", "C") or has_timeline_rows:
-    assembler = TimelineAssembler(entity_field="entity", score_field="z_score")
+    inferred_tl_score_field = (
+        outliers[0].get("score_key")
+        if (
+            outliers
+            and isinstance(outliers[0].get("score_key"), str)
+            and outliers[0]["score_key"] in outliers[0]
+        )
+        else "z_score"
+    )
+    assembler = TimelineAssembler(entity_field="entity", score_field=inferred_tl_score_field)
     if mode_clean == "C" and isinstance(rows, (list, tuple)) and rows and isinstance(rows[0], (list, tuple)):
       for day_str, shard_payload in rows:
         shard_rows, _ = _extract_and_normalize_rows(shard_payload)
@@ -2105,8 +2242,16 @@ def render_forensic_dossier(
   ranked_entities_for_chart = [
       {
           "entity": r["entity"],
-          "threat_distance_d": r["z_score"] if r.get("z_score") is not None else 0.0,
-          "z_score": r["z_score"] if r.get("z_score") is not None else 0.0,
+          "threat_distance_d": (
+              (r["z_equivalent"] if r.get("z_equivalent") is not None else 0.0)
+              if is_inverted_score_key(r.get("score_key"))
+              else (r["z_score"] if r.get("z_score") is not None else 0.0)
+          ),
+          "z_score": (
+              (r["z_equivalent"] if r.get("z_equivalent") is not None else 0.0)
+              if is_inverted_score_key(r.get("score_key"))
+              else (r["z_score"] if r.get("z_score") is not None else 0.0)
+          ),
           "cri": r["cri"] if r.get("cri") is not None else 0,
           "observed": r["observed"],
           "baseline_mean": r["hist_avg"],
@@ -2283,12 +2428,14 @@ def render_forensic_dossier(
         "Consider Empirical Bayes shrinkage (`EMPIRICAL_BAYES_3STAGE`) or `TWO_PART_HURDLE`."
     )
 
+  any_true_sigma = any(r.get("is_true_sigma") for r in outliers)
+  score_col_header = "Z-Score" if (any_true_sigma or not outliers) else "Model Score"
   table_lines = [
-      "| Entity | Observed | 30d Mean (μ) | 30d StdDev (σ) | Z-Score | CRI Score (0–100) | Visual Magnitude |",
+      f"| Entity | Observed | 30d Mean (μ) | 30d StdDev (σ) | {score_col_header} | CRI Score (0–100) | Visual Magnitude |",
       "| :----- | :------- | :----------- | :------------- | :------ | :---------------- | :--------------- |",
   ]
   for r in outliers:
-    score_cell = "N/A" if r.get("z_score") is None else f"{r['z_score']:+.2f}σ"
+    score_cell = r.get("score_display") or "N/A"
     cri_cell = format_cri(r.get("cri"))
     table_lines.append(
         f"| `{r['entity']}` | `{r['observed']}` | `{r['hist_avg']}` | `{r['hist_stddev']}` | "
@@ -2343,14 +2490,12 @@ def render_forensic_dossier(
         "",
         "##### 🕸️ 360° Multi-Sector Behavioral Risk Radar Summary",
         "",
-        f"* **Composite Multi-Sector Threat Distance ($D$)**: `{radar_payload['composite_risk_distance']}σ` "
+        f"* **Composite Multi-Sector Threat Distance ($D$)**: `{radar_payload['composite_risk_distance']}` "
         f"(CRI: **`{radar_payload['composite_cri']}`** — `{radar_payload['severity_band']}`)",
     ])
 
   if outliers:
-    top_score_cell = (
-        "N/A" if outliers[0].get("z_score") is None else f"{outliers[0]['z_score']:+.2f}σ"
-    )
+    top_score_cell = outliers[0].get("score_display") or "N/A"
     top_cri_cell = format_cri(outliers[0].get("cri"))
     core_finding_line = (
         f"> * **The Core Finding**: Top entity `{top_entity}` registered `{top_score_cell}` "
@@ -2360,7 +2505,7 @@ def render_forensic_dossier(
   elif radar_payload:
     core_finding_line = (
         f"> * **The Core Finding**: Entity `{top_entity}` evaluated across 360° multi-sector telemetry with "
-        f"Composite Threat Distance `D = {radar_payload['composite_risk_distance']}σ` "
+        f"Composite Threat Distance `D = {radar_payload['composite_risk_distance']}` "
         f"(`CRI = {radar_payload['composite_cri']}`, `{radar_payload['severity_band']}`)."
     )
   else:

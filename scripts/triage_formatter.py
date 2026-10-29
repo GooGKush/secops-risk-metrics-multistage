@@ -10,8 +10,13 @@ try:
       _coerce_finite_float,
       calculate_cri,
       coerce_cri_int,
+      cri_from_model_score,
       format_cri,
+      format_score_with_unit,
       get_cri_band_metadata,
+      is_inverted_score_key,
+      is_true_sigma_key,
+      score_to_z_equivalent,
   )
 except ImportError:
   try:
@@ -19,16 +24,26 @@ except ImportError:
         _coerce_finite_float,
         calculate_cri,
         coerce_cri_int,
+        cri_from_model_score,
         format_cri,
+        format_score_with_unit,
         get_cri_band_metadata,
+        is_inverted_score_key,
+        is_true_sigma_key,
+        score_to_z_equivalent,
     )
   except ImportError:
     from ueba_constants import (  # type: ignore[no-redef]
         _coerce_finite_float,
         calculate_cri,
         coerce_cri_int,
+        cri_from_model_score,
         format_cri,
+        format_score_with_unit,
         get_cri_band_metadata,
+        is_inverted_score_key,
+        is_true_sigma_key,
+        score_to_z_equivalent,
     )
 
 
@@ -62,14 +77,23 @@ class CommonMarkTriageFormatter:
           score_key,
           r.get("z_score", r.get("threat_distance", r.get("threat_norm", r.get("anomaly_score", 0.0)))),
       )
-      try:
-        scores.append(float(raw_score))
-      except (TypeError, ValueError):
-        pass
-    if scores and max(scores) < anomaly_threshold:
-      return "CLEAN_OR_SUBTHRESHOLD"
-
-    qualifying_count = sum(1 for s in scores if s >= anomaly_threshold) if scores else len(outliers)
+      parsed = _coerce_finite_float(raw_score)
+      if parsed is not None:
+        scores.append(parsed)
+    if is_inverted_score_key(score_key):
+      if anomaly_threshold >= 1.0 and score_key == "cv":
+        z_eqs = [z for s in scores if (z := score_to_z_equivalent(score_key, s)) is not None]
+        if z_eqs and max(z_eqs) < anomaly_threshold:
+          return "CLEAN_OR_SUBTHRESHOLD"
+        qualifying_count = sum(1 for z in z_eqs if z >= anomaly_threshold) if z_eqs else len(outliers)
+      else:
+        if scores and min(scores) > anomaly_threshold:
+          return "CLEAN_OR_SUBTHRESHOLD"
+        qualifying_count = sum(1 for s in scores if s <= anomaly_threshold) if scores else len(outliers)
+    else:
+      if scores and max(scores) < anomaly_threshold:
+        return "CLEAN_OR_SUBTHRESHOLD"
+      qualifying_count = sum(1 for s in scores if s >= anomaly_threshold) if scores else len(outliers)
     if reduced_data.get("fleet_wave") is True or qualifying_count >= 10:
       return "FLEET_WAVE"
 
@@ -292,22 +316,23 @@ class CommonMarkTriageFormatter:
       ])
       for record in outliers:
         entity = record.get("entity", "unknown")
-        z_auth = record.get("z_auth", 0.0)
-        z_proc = record.get("z_proc", 0.0)
-        z_net = record.get("z_net", 0.0)
+        z_auth = float(record.get("z_auth", 0.0))
+        z_proc = float(record.get("z_proc", 0.0))
+        z_net = float(record.get("z_net", 0.0))
         raw_d = record.get("threat_distance", record.get("threat_norm", record.get("anomaly_score")))
         d_num = _coerce_finite_float(raw_d)
         explicit_cri = coerce_cri_int(record.get("cri", record.get("cri_score")))
-        cri_int = explicit_cri if explicit_cri is not None else calculate_cri(d_num)
+        cri_int = explicit_cri if explicit_cri is not None else cri_from_model_score("threat_distance", d_num)
         default_badge, _, default_bar = get_cri_band_metadata(cri_int)
         cri_cell = format_cri(cri_int)
         cri_badge = record.get("cri_badge", default_badge)
         bar = record.get("visual_bar", default_bar)
-        d_cell = "N/A" if d_num is None else f"{d_num:+.2f}σ"
-        report.append(f"| `{entity}` | `+{z_auth:.1f}σ` | `+{z_proc:.1f}σ` | `+{z_net:.1f}σ` | `{d_cell}` | **`{cri_cell}`** ({cri_badge}) | `{bar}` |")
+        d_cell = format_score_with_unit("threat_distance", d_num)
+        report.append(f"| `{entity}` | `{z_auth:+.1f}σ` | `{z_proc:+.1f}σ` | `{z_net:+.1f}σ` | `{d_cell}` | **`{cri_cell}`** ({cri_badge}) | `{bar}` |")
     else:
+      score_col_label = "Credibility / Z-Score" if is_true_sigma_key(score_key) else "Model Score"
       report.extend([
-          "| Entity Identifier | 24h Observed | Baseline Mean (30d) | Baseline StdDev | Credibility / Z-Score | CRI Score (0–100) | Visual Magnitude |",
+          f"| Entity Identifier | 24h Observed | Baseline Mean (30d) | Baseline StdDev | {score_col_label} | CRI Score (0–100) | Visual Magnitude |",
           "| :---------------- | :----------- | :------------------ | :-------------- | :-------------------- | :---------------- | :--------------- |",
       ])
       for record in outliers:
@@ -315,15 +340,23 @@ class CommonMarkTriageFormatter:
         observed = record.get("observed", record.get("observed_val", record.get("observed_24h", "-")))
         hist_avg = record.get("hist_avg", record.get("historical_avg", record.get("avg_30d", "-")))
         hist_std = record.get("hist_stddev", record.get("historical_stddev", record.get("stddev_30d", "-")))
-        score_val = record.get(score_key, record.get("z_score", record.get("anomaly_score", "-")))
+        if score_key in record:
+          eff_key = score_key
+          score_val = record[score_key]
+        elif "z_score" in record:
+          eff_key = "z_score"
+          score_val = record["z_score"]
+        else:
+          eff_key = record.get("score_key") or "anomaly_score"
+          score_val = record.get("anomaly_score", "-")
         score_num = _coerce_finite_float(score_val)
         explicit_cri = coerce_cri_int(record.get("cri", record.get("cri_score")))
-        cri_int = explicit_cri if explicit_cri is not None else calculate_cri(score_num)
+        cri_int = explicit_cri if explicit_cri is not None else cri_from_model_score(eff_key, score_num)
         default_badge, _, default_bar = get_cri_band_metadata(cri_int)
         cri_cell = format_cri(cri_int)
         cri_badge = record.get("cri_badge", default_badge)
         bar = record.get("visual_bar", default_bar)
-        score_cell = "N/A" if score_num is None else f"+{score_val}σ"
+        score_cell = record.get("score_display") if (record.get("score_display") and score_num is not None and score_key not in record) else format_score_with_unit(eff_key, score_num)
         report.append(f"| `{entity}` | `{observed}` | `{hist_avg}` | `{hist_std}` | `{score_cell}` | **`{cri_cell}`** ({cri_badge}) | `{bar}` |")
 
     report.extend([
