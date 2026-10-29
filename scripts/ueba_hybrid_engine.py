@@ -351,7 +351,11 @@ def normalize_metrics_list(
       return ["network_flows_outbound"]
     if arch == "alert_surge":
       return ["alert_event_name_count"]
-    return ["auth_attempts_total"] if entity_type == EntityType.USER else ["network_bytes_outbound"]
+    if entity_type == EntityType.USER:
+      return ["auth_attempts_total"]
+    if entity_type == EntityType.RESOURCE:
+      return ["resource_read_total"]
+    return ["network_bytes_outbound"]
 
   if isinstance(metrics, str):
     items = [m.strip() for m in metrics.split(",") if m.strip()]
@@ -363,18 +367,25 @@ def normalize_metrics_list(
     if item.startswith("metrics."):
       item = item[len("metrics."):]
     cleaned.append(item)
-  return cleaned or (["auth_attempts_total"] if entity_type == EntityType.USER else ["network_bytes_outbound"])
+  if cleaned:
+    return cleaned
+  if entity_type == EntityType.USER:
+    return ["auth_attempts_total"]
+  if entity_type == EntityType.RESOURCE:
+    return ["resource_read_total"]
+  return ["network_bytes_outbound"]
 
 
 def _inject_stage1_filters(
     query: str,
     entity_value: Optional[str] = None,
     custom_filter: Optional[Union[str, Sequence[str]]] = None,
+    entity_type: Optional[EntityType] = None,
 ) -> str:
   """Safely injects an entity_value constraint and/or custom UDM filters into Stage 1 extractor(s).
 
   Preserves all MalachiteASTValidator invariants:
-  - Binds to the stage's existing entity placeholder variable ($user, $host, $entity, $sa)
+  - Binds to the stage's existing entity placeholder variable ($user, $host, $entity, $sa, $resource)
     so no duplicate UDM event source alias is introduced.
   - Strips any leading `$e.` alias from custom_filter lines so unprefixed UDM stages remain 1 source.
   """
@@ -412,15 +423,20 @@ def _inject_stage1_filters(
   extra_predicates: List[str] = []
 
   if has_specific_entity:
-    # Identify the primary entity placeholder bound in stage_events ($user, $host, $entity, $sa)
-    var_match = re.search(r"(\$[a-zA-Z0-9_]+)\s*!=\s*\"\"", stage_events)
-    if not var_match:
-      var_match = re.search(
-          r"(?:principal|target)\.(?:user|asset)\.[a-zA-Z0-9_.]+\s*=\s*(\$[a-zA-Z0-9_]+)",
-          stage_events,
-      )
-    if var_match:
-      ent_var = var_match.group(1)
+    ent_var: Optional[str] = None
+    if entity_type == EntityType.RESOURCE and re.search(r"\$resource\b", stage_events):
+      ent_var = "$resource"
+    else:
+      # Identify the primary entity placeholder bound in stage_events ($user, $host, $entity, $sa)
+      var_match = re.search(r"(\$[a-zA-Z0-9_]+)\s*!=\s*\"\"", stage_events)
+      if not var_match:
+        var_match = re.search(
+            r"(?:principal|target)\.(?:user|asset|resource)\.[a-zA-Z0-9_.]+\s*=\s*(\$[a-zA-Z0-9_]+)",
+            stage_events,
+        )
+      if var_match:
+        ent_var = var_match.group(1)
+    if ent_var:
       extra_predicates.append(f'    {ent_var} = "{clean_entity}"')
 
   for fl in filter_lines:
@@ -935,7 +951,7 @@ def compile_hunt_pipeline(
         condition_expression=condition_expression,
         identifier_field=identifier_field,
     )
-    compiled_query = _inject_stage1_filters(compiled_query, entity_value=entity_value, custom_filter=custom_filter)
+    compiled_query = _inject_stage1_filters(compiled_query, entity_value=entity_value, custom_filter=custom_filter, entity_type=ent_enum)
     audit_info = PreFlightValidator.audit(target_metric=primary_metric, entity_type=ent_enum, min_baseline_days=min_baseline_days, identifier_field=identifier_field)
     canonical_arch = PipelineArchitecture.DUAL_BASELINE_3STAGE.value
 
@@ -954,7 +970,7 @@ def compile_hunt_pipeline(
         condition_expression=condition_expression,
         identifier_field=identifier_field,
     )
-    compiled_query = _inject_stage1_filters(compiled_query, entity_value=entity_value, custom_filter=custom_filter)
+    compiled_query = _inject_stage1_filters(compiled_query, entity_value=entity_value, custom_filter=custom_filter, entity_type=ent_enum)
     audit_info = PreFlightValidator.audit(target_metric=primary_metric, entity_type=ent_enum, min_baseline_days=min_baseline_days, identifier_field=identifier_field)
     canonical_arch = PipelineArchitecture.EMPIRICAL_BAYES_3STAGE.value
 
@@ -1052,7 +1068,7 @@ def compile_hunt_pipeline(
         anomaly_threshold=eff_anomaly,
         hypothesis_goal=hypothesis_goal,
     )
-    compiled_query = _inject_stage1_filters(compiled_query, entity_value=entity_value, custom_filter=custom_filter)
+    compiled_query = _inject_stage1_filters(compiled_query, entity_value=entity_value, custom_filter=custom_filter, entity_type=ent_enum)
     audit_info = PreFlightValidator.audit(target_metric=primary_metric, entity_type=ent_enum, min_baseline_days=min_baseline_days)
     entity_graph_dim = "DERIVED_CONTEXT Domain Prevalence (rolling_max <= 3, day_count = 10)"
     canonical_arch = PipelineArchitecture.RARE_DESTINATION_ECG_3STAGE.value
@@ -1188,7 +1204,7 @@ def compile_hunt_pipeline(
         condition_expression=condition_expression,
         identifier_field=identifier_field,
     )
-    compiled_query = _inject_stage1_filters(compiled_query, entity_value=entity_value, custom_filter=custom_filter)
+    compiled_query = _inject_stage1_filters(compiled_query, entity_value=entity_value, custom_filter=custom_filter, entity_type=ent_enum)
     audit_info = PreFlightValidator.audit(target_metric=primary_metric, entity_type=ent_enum, min_baseline_days=min_baseline_days)
     if "DERIVED" in pipe_enum.value:
       entity_graph_dim = "DERIVED_CONTEXT Prevalence / Asset Age (rolling_max <= 3, day_count = 10)"
@@ -1252,7 +1268,7 @@ def compile_hunt_pipeline(
           if (primary_metric.startswith("resource_") and ent_enum == EntityType.USER and stat_model_enum == StatisticalModel.STANDARD_Z_SCORE)
           else PipelineArchitecture.LOCAL_2STAGE.value
       )
-    compiled_query = _inject_stage1_filters(compiled_query, entity_value=entity_value, custom_filter=custom_filter)
+    compiled_query = _inject_stage1_filters(compiled_query, entity_value=entity_value, custom_filter=custom_filter, entity_type=ent_enum)
 
   # 2. Validate AST and Statistical Antipatterns
   ast_errors = MalachiteASTValidator.validate_query(compiled_query)

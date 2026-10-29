@@ -412,18 +412,18 @@ class MultiStageTemplateRouter:
 
   @staticmethod
   def _mad_group_keys(stage1_content: str):
-    """Splits stage1's match variables into MAD grouping keys and keys to drop.
+    """Splits stage1's match variables into baseline grouping keys and keys to drop.
 
-    A match variable is a MAD key when the UDM field it binds is a dimension argument of the stage1
-    metrics.* calls (the baseline's identity). Other match variables (e.g. `$ip` on resource_*) would
-    split one baseline tuple into several thin series, so they are dropped. Returns (keys, dropped);
+    A match variable is a baseline key when the UDM field it binds is a dimension argument of the
+    stage1 metrics.* calls (the baseline's identity). Other match variables (e.g. `$ip` on resource_*)
+    would split one baseline tuple into several thin series, so they are dropped. Returns (keys, dropped);
     the first key is always the primary match variable.
     """
     m = re.search(r'\bmatch:\s*\n\s*(.*?)\s+by\s+\d+[dh]', stage1_content)
     if not m:
       return [], []
     match_vars = [v.strip() for v in m.group(1).split(",") if v.strip()]
-    dims = set(re.findall(r'^\s*([a-z][a-zA-Z0-9_.]*)\s*:\s*\1\s*,?\s*$', stage1_content, re.M))
+    dims = set(re.findall(r'\b([a-z][a-zA-Z0-9_.]*)\s*:\s*\1\b', stage1_content))
     keys, dropped = [], []
     for i, var in enumerate(match_vars):
       v = re.escape(var)
@@ -541,7 +541,11 @@ class MultiStageTemplateRouter:
       raise FileNotFoundError(f"Missing Stage 2 template: {stage2_path}")
     stage2_raw = stage2_path.read_text().strip()
 
-    # Harmonize Stage 2 entity variable with Stage 1 match variable ($user, $host, $entity)
+    # Multi-key extractors: determine the metric's full baseline tuple and drop non-dimension Stage 1 match keys.
+    group_keys, dropped_keys = self._mad_group_keys(stage1_content)
+    stage1_content = self._drop_stage1_match_keys(stage1_content, dropped_keys)
+
+    # Harmonize Stage 2 entity variable with Stage 1 match variable ($user, $host, $entity, $sa)
     match_var_match = re.search(r'match:\s+([$][a-zA-Z0-9_]+)', stage1_content)
     primary_var = match_var_match.group(1) if match_var_match else "$entity"
     entity_name = primary_var.lstrip("$")
@@ -560,7 +564,7 @@ class MultiStageTemplateRouter:
             stage1_content,
             count=1,
         )
-      stage1_content = re.sub(r'(\bmatch:\s*\n\s*[$][a-zA-Z0-9_]+\s+by)\s+1d', r'\1 1h', stage1_content)
+      stage1_content = re.sub(r'(\bmatch:\s*\n\s*[^\n]+?\s+by)\s+1d', r'\1 1h', stage1_content)
 
     if statistical_model in (StatisticalModel.MAD, StatisticalModel.QUANTILE_IQR_SKEW):
       # MAD needs the daily rows of the raw search window as its empirical series, so the root keeps
@@ -588,16 +592,15 @@ class MultiStageTemplateRouter:
           stage2_raw = "\n".join(head_lines[:1]) + "\n" + sep + tail
           break
       stage2_raw = stage2_raw.replace("{{first_scored_date}}", first_scored_date)
-      # Multi-key extractors: group every MAD stage by the metric's full baseline tuple.
-      mad_keys, dropped_keys = self._mad_group_keys(stage1_content)
-      stage1_content = self._drop_stage1_match_keys(stage1_content, dropped_keys)
-      stage2_raw = self._expand_mad_keys(stage2_raw, primary_var, mad_keys[1:])
+      stage2_raw = self._expand_mad_keys(stage2_raw, primary_var, group_keys[1:])
       # MAD itself never reads metrics.*; keep only the lookups the root consumes (Z cross-check).
       stage1_content = self._prune_unused_metrics_lookups(stage1_content, stage2_raw)
-    elif match_mode == MatchMode.FLEET_ROLLUP:
-      stage2_raw = stage2_raw.replace(f"match:\n  {primary_var}, $ws by 1d", f"match:\n  {primary_var}")
-      stage2_raw = stage2_raw.replace(f"match:\n  {primary_var}, $ws by 1h", f"match:\n  {primary_var}")
-      stage2_raw = stage2_raw.replace("$ws = $stage1_extract.window_start\n", "")
+    else:
+      if match_mode == MatchMode.FLEET_ROLLUP:
+        stage2_raw = stage2_raw.replace(f"match:\n  {primary_var}, $ws by 1d", f"match:\n  {primary_var}")
+        stage2_raw = stage2_raw.replace(f"match:\n  {primary_var}, $ws by 1h", f"match:\n  {primary_var}")
+        stage2_raw = stage2_raw.replace("$ws = $stage1_extract.window_start\n", "")
+      stage2_raw = self._expand_mad_keys(stage2_raw, primary_var, group_keys[1:])
 
     stage2_rendered = stage2_raw.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
 
