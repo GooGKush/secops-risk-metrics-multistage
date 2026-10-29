@@ -231,6 +231,7 @@ class CommonMarkTriageFormatter:
       executed_query: str,
       anomaly_threshold: float = 3.0,
       evaluation_mode: str = "Mode A",
+      ecg_join_filter_disclosure: Optional[str] = None,
   ) -> str:
     """Renders the lightweight 2-pillar Clean Hunt Summary for 0-row outcomes with agentic next steps."""
     next_steps = cls.build_agentic_next_steps(
@@ -239,15 +240,31 @@ class CommonMarkTriageFormatter:
         statistical_model=statistical_model,
         anomaly_threshold=anomaly_threshold,
     )
-    return "\n".join([
+    has_ecg = bool(
+        executed_query
+        and any(tok in executed_query for tok in ("graph.entity", "graph.metadata", "graph.relations"))
+    )
+    eff_ecg_disclosure = ecg_join_filter_disclosure or (
+        "Entity Context Graph stages execute as an inner join (active filter): entities, hashes, domains, or IPs "
+        "with no matching graph record drop out silently (absent from the graph != benign or common; run the Day-0 "
+        "companion query without graph.* for newly observed Day-0 artifacts)."
+        if has_ecg
+        else None
+    )
+    lines = [
         f"#### 1. Statistical Outlier Report: `{target_metric}` ({statistical_model}) (Nominal Baseline)",
         "",
         f"* **Result**: **0 observed events** (**0 ranked outlier entities**) exceeded the `{anomaly_threshold}σ` significance gate under **{evaluation_mode}** ($Z = 0.00\\sigma, D = 0.00\\sigma, \\text{{CRI}} = 0$, 🟢 **Nominal Fleet Baseline**).",
         "* **Baseline Horizon**: 30-Day Pre-Computed Behavioral Tables (`window: 30d`).",
+    ]
+    if eff_ecg_disclosure:
+      lines.append(f"* **ECG Inner-Join Filter Disclosure**: {eff_ecg_disclosure}")
+    lines.extend([
         "",
         "> [!IMPORTANT]",
         next_steps,
     ])
+    return "\n".join(lines)
 
   @staticmethod
   def format_report(
@@ -258,6 +275,8 @@ class CommonMarkTriageFormatter:
       executed_query: Optional[str] = None,
       audit_result: Optional[Any] = None,
       sparse_callout: Optional[str] = None,
+      ecg_join_filter_disclosure: Optional[str] = None,
+      ecg_novelty_notice: Optional[str] = None,
   ) -> str:
     # 1. Post-Flight Audit Gate Check
     if audit_result is not None and not getattr(audit_result, "is_valid", True):
@@ -301,6 +320,30 @@ class CommonMarkTriageFormatter:
 
     if sparse_callout:
       report.extend([sparse_callout, ""])
+
+    has_ecg = bool(
+        executed_query
+        and any(tok in executed_query for tok in ("graph.entity", "graph.metadata", "graph.relations"))
+    )
+    eff_ecg_disclosure = ecg_join_filter_disclosure or (
+        "Entity Context Graph stages execute as an inner join (active filter): entities, hashes, domains, or IPs "
+        "with no matching graph record drop out silently (absent from the graph != benign or common; run the Day-0 "
+        "companion query without graph.* for newly observed Day-0 artifacts)."
+        if has_ecg
+        else None
+    )
+    if eff_ecg_disclosure:
+      report.extend([
+          "> [!NOTE]",
+          f"> **🔗 ECG Inner-Join Filter Disclosure (PF-8 / WS1-08)**: {eff_ecg_disclosure}",
+          "",
+      ])
+    if ecg_novelty_notice:
+      report.extend([
+          "> [!WARNING]",
+          f"> **⚠️ ECG Novelty Notice (PF-8 / WS1-08)**: {ecg_novelty_notice}",
+          "",
+      ])
 
     report.extend([
         f"* **Outliers Detected**: **{total_outliers} entities** exceeded the configured threshold (`> {anomaly_threshold}`).",

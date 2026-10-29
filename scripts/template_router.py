@@ -2746,6 +2746,176 @@ class MultiStageTemplateRouter:
       raise ValueError("Rendered bridged host-to-IP fusion query failed validation: " + " | ".join(errs))
     return rendered
 
+  def build_day0_ecg_companion_query(
+      self,
+      target_metric: str = "file_executions_total",
+      entity_type: EntityType = EntityType.ASSET,
+      anomaly_threshold: float = 3.0,
+      identifier_field: Optional[str] = None,
+      max_fleet_prevalence: int = 3,
+      byte_dispersion_floor: Optional[float] = None,
+  ) -> str:
+    """Builds an AST-valid Day-0 companion query without any graph.* inner join (PF-8 / WS1-08).
+
+    DERIVED_CONTEXT daily records lag 24-48h and WHOIS has coverage gaps, so any
+    newly observed Day-0 binary, domain, destination IP, or infant asset is dropped
+    by an Entity Graph inner join. Run this companion query over the unshifted scored
+    UTC day [D 00:00Z, end) to catch Day-0 unindexed artifacts via metrics.* history
+    and live fleet footprint.
+    """
+    ent_field = PreFlightValidator.resolve_identifier_field(target_metric, entity_type, identifier_field)
+    ent_var = "$user" if entity_type == EntityType.USER else ("$resource" if entity_type == EntityType.RESOURCE else "$host")
+    ent_name = ent_var.lstrip("$")
+    fleet_field = ent_field if entity_type == EntityType.ASSET else "principal.asset.hostname"
+    sem = mc.baseline_semantics(target_metric)
+    filter_lines = "\n    ".join(sem.observed_filter)
+
+    if target_metric.startswith("file_executions_"):
+      rendered = (
+          f"// Goal: WS1-08 Day-0 Companion Query (no DERIVED_CONTEXT graph inner join) for {target_metric}\n"
+          "stage stage1_day0_baseline {\n"
+          f"    {filter_lines}\n"
+          "    $event_type = metadata.event_type\n"
+          f"    {ent_field} = {ent_var}\n"
+          "    principal.process.file.sha256 = $sha256\n"
+          f'    {ent_var} != ""\n'
+          '    $sha256 != ""\n\n'
+          "  match:\n"
+          f"    {ent_var}, $sha256 by 1d\n\n"
+          "  outcome:\n"
+          f"    $obs = {sem.observed_agg}\n"
+          f"    $avg = max(metrics.{target_metric}(period: 1d, window: 30d, metric: {sem.metric_arg}, agg: avg, metadata.event_type: metadata.event_type, {ent_field}: {ent_field}, principal.process.file.sha256: principal.process.file.sha256))\n"
+          f"    $std = max(metrics.{target_metric}(period: 1d, window: 30d, metric: {sem.metric_arg}, agg: stddev, metadata.event_type: metadata.event_type, {ent_field}: {ent_field}, principal.process.file.sha256: principal.process.file.sha256))\n"
+          f"    $days = max(metrics.{target_metric}(period: 1d, window: 30d, metric: {sem.metric_arg}, agg: num_metric_periods, metadata.event_type: metadata.event_type, {ent_field}: {ent_field}, principal.process.file.sha256: principal.process.file.sha256))\n"
+          "}\n\n"
+          "stage stage2_day0_fleet_scope {\n"
+          '    metadata.event_type = "PROCESS_LAUNCH"\n'
+          "    principal.process.file.sha256 = $sha256\n"
+          f"    {fleet_field} = $fleet_host\n"
+          '    $sha256 != ""\n'
+          '    $fleet_host != ""\n\n'
+          "  match:\n"
+          "    $sha256\n\n"
+          "  outcome:\n"
+          "    $today_fleet_hosts = count_distinct($fleet_host)\n"
+          "}\n\n"
+          f"{ent_var} = $stage1_day0_baseline.{ent_name}\n"
+          "$sha256 = $stage1_day0_baseline.sha256\n"
+          "$sha256 = $stage2_day0_fleet_scope.sha256\n\n"
+          "match:\n"
+          f"  {ent_var}, $sha256 by 1d\n\n"
+          "outcome:\n"
+          "  $observed = max($stage1_day0_baseline.obs)\n"
+          "  $hist_avg = max($stage1_day0_baseline.avg)\n"
+          "  $hist_stddev = max($stage1_day0_baseline.std)\n"
+          "  $active_baseline_days = max($stage1_day0_baseline.days)\n"
+          "  $dispersion_floor = math.sqrt(if($hist_avg > 1.0, $hist_avg, 1.0))\n"
+          "  $z_score = ($observed - $hist_avg) / if($hist_stddev > $dispersion_floor, $hist_stddev, $dispersion_floor)\n"
+          "  $today_fleet_hosts = max($stage2_day0_fleet_scope.today_fleet_hosts)\n"
+          "  $is_day0_unseen_pair = if($active_baseline_days = 0, 1.0, 0.0)\n\n"
+          "condition:\n"
+          f"  $today_fleet_hosts <= {int(max_fleet_prevalence)}\n"
+          f"  and ($active_baseline_days = 0 or $z_score >= {anomaly_threshold})\n\n"
+          "order:\n"
+          "  $observed desc\n"
+      )
+    elif target_metric.startswith(("http_queries_", "dns_queries_")):
+      domain_field = "network.dns_domain" if target_metric.startswith("dns_") else "target.hostname"
+      rendered = (
+          f"// Goal: WS1-08 Day-0 Companion Query (no ECG/WHOIS graph inner join) for {target_metric}\n"
+          "stage stage1_day0_baseline {\n"
+          f"    {filter_lines}\n"
+          f"    {ent_field} = {ent_var}\n"
+          f"    {domain_field} = $domain\n"
+          f'    {ent_var} != ""\n'
+          '    $domain != ""\n\n'
+          "  match:\n"
+          f"    {ent_var}, $domain by 1d\n\n"
+          "  outcome:\n"
+          f"    $obs = {sem.observed_agg}\n"
+          f"    $avg = max(metrics.{target_metric}(period: 1d, window: 30d, metric: {sem.metric_arg}, agg: avg, {ent_field}: {ent_field}, {domain_field}: {domain_field}))\n"
+          f"    $std = max(metrics.{target_metric}(period: 1d, window: 30d, metric: {sem.metric_arg}, agg: stddev, {ent_field}: {ent_field}, {domain_field}: {domain_field}))\n"
+          f"    $days = max(metrics.{target_metric}(period: 1d, window: 30d, metric: {sem.metric_arg}, agg: num_metric_periods, {ent_field}: {ent_field}, {domain_field}: {domain_field}))\n"
+          "}\n\n"
+          "stage stage2_day0_fleet_scope {\n"
+          f"    {filter_lines}\n"
+          f"    {domain_field} = $domain\n"
+          f"    {fleet_field} = $fleet_host\n"
+          '    $domain != ""\n'
+          '    $fleet_host != ""\n\n'
+          "  match:\n"
+          "    $domain\n\n"
+          "  outcome:\n"
+          "    $today_fleet_hosts = count_distinct($fleet_host)\n"
+          "}\n\n"
+          f"{ent_var} = $stage1_day0_baseline.{ent_name}\n"
+          "$domain = $stage1_day0_baseline.domain\n"
+          "$domain = $stage2_day0_fleet_scope.domain\n\n"
+          "match:\n"
+          f"  {ent_var}, $domain by 1d\n\n"
+          "outcome:\n"
+          "  $observed = max($stage1_day0_baseline.obs)\n"
+          "  $hist_avg = max($stage1_day0_baseline.avg)\n"
+          "  $hist_stddev = max($stage1_day0_baseline.std)\n"
+          "  $active_baseline_days = max($stage1_day0_baseline.days)\n"
+          "  $dispersion_floor = math.sqrt(if($hist_avg > 1.0, $hist_avg, 1.0))\n"
+          "  $z_score = ($observed - $hist_avg) / if($hist_stddev > $dispersion_floor, $hist_stddev, $dispersion_floor)\n"
+          "  $today_fleet_hosts = max($stage2_day0_fleet_scope.today_fleet_hosts)\n"
+          "  $is_day0_unseen_pair = if($active_baseline_days = 0, 1.0, 0.0)\n\n"
+          "condition:\n"
+          f"  $today_fleet_hosts <= {int(max_fleet_prevalence)}\n"
+          f"  and ($active_baseline_days = 0 or $z_score >= {anomaly_threshold})\n\n"
+          "order:\n"
+          "  $observed desc\n"
+      )
+    else:
+      if mc.is_composite_only(target_metric):
+        plan = mc.rollup_plan(target_metric, ent_field)
+        comp_lines = "\n    ".join(plan.companion_bindings())
+        extra_events = f"\n    {comp_lines}" if comp_lines else ""
+        match_keys = ", ".join([ent_var] + [mc.companion_var(d) for d in plan.companions])
+        m_filters = plan.metric_filters()
+      else:
+        extra_events = ""
+        match_keys = ent_var
+        m_filters = f"{ent_field}: {ent_field}"
+      rendered = (
+          f"// Goal: WS1-08 Day-0 Companion Query (no DERIVED_CONTEXT graph inner join) for {target_metric}\n"
+          "stage stage1_day0_baseline {\n"
+          f"    {filter_lines}\n"
+          f"    {ent_field} = {ent_var}\n"
+          f'    {ent_var} != ""{extra_events}\n\n'
+          "  match:\n"
+          f"    {match_keys} by 1d\n\n"
+          "  outcome:\n"
+          f"    $obs = {sem.observed_agg}\n"
+          f"    $avg = max(metrics.{target_metric}(period: 1d, window: 30d, metric: {sem.metric_arg}, agg: avg, {m_filters}))\n"
+          f"    $std = max(metrics.{target_metric}(period: 1d, window: 30d, metric: {sem.metric_arg}, agg: stddev, {m_filters}))\n"
+          f"    $days = max(metrics.{target_metric}(period: 1d, window: 30d, metric: {sem.metric_arg}, agg: num_metric_periods, {m_filters}))\n"
+          "}\n\n"
+          f"{ent_var} = $stage1_day0_baseline.{ent_name}\n\n"
+          "match:\n"
+          f"  {ent_var} by 1d\n\n"
+          "outcome:\n"
+          "  $observed = max($stage1_day0_baseline.obs)\n"
+          "  $hist_avg = max($stage1_day0_baseline.avg)\n"
+          "  $hist_stddev = max($stage1_day0_baseline.std)\n"
+          "  $active_baseline_days = max($stage1_day0_baseline.days)\n"
+          "  $dispersion_floor = math.sqrt(if($hist_avg > 1.0, $hist_avg, 1.0))\n"
+          "  $z_score = ($observed - $hist_avg) / if($hist_stddev > $dispersion_floor, $hist_stddev, $dispersion_floor)\n"
+          "  $is_day0_unseen_entity = if($active_baseline_days = 0, 1.0, 0.0)\n\n"
+          "condition:\n"
+          f"  $active_baseline_days = 0 or $z_score >= {anomaly_threshold}\n\n"
+          "order:\n"
+          "  $observed desc\n"
+      )
+      rendered = _apply_byte_dispersion_floor(rendered, target_metric, byte_dispersion_floor=byte_dispersion_floor)
+
+    errs = MalachiteASTValidator.validate_query(rendered)
+    if errs:
+      raise ValueError("Rendered Day-0 ECG companion query failed validation: " + " | ".join(errs))
+    return rendered
+
   # Canonical MITRE ATT&CK Multi-Stage Kill-Chain Archetypes
   KILLCHAIN_CATALOG: Dict[KillChainArchetype, Dict[str, Any]] = {
       KillChainArchetype.RECON_ENUMERATION_TO_INITIAL_ACCESS: {

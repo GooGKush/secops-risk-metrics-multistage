@@ -175,10 +175,11 @@ stage stage1_process_baseline {
 }
 ```
 
-* **Mode B** (2–7 day timeline) and each **Mode C** shard older than today already span built days; keep its window and do not add the today filter.
+* **Mode B** (2–3 day timeline) anchors `startTime` at `min(anchor_day, D-2)` with `timestamp.get_date(...) >= "<anchor_day>"`, and each **Mode C** shard anchors its per-day `startTime` at `day - 2d 00:00Z` while pinning event stages to that shard's UTC date so even the newest shard overlaps built `DERIVED_CONTEXT` intervals.
 * Graph records without daily intervals (on GUS-SDL: the long-lived `FILE` entity records, which carry `prevalence.day_count = 0`, and the `ASSET` records used for first-seen age) do overlap today. The rule is still applied uniformly: it costs nothing for them and the agent does not have to classify the stage first.
 * **Zero rows are not a Nominal Baseline unless the window covered built graph days.** If a graph-joined Mode A query started at today 00:00Z and returned zero rows, report a freshness gap and rerun with the D-2 window; do not report a clean hunt.
-* Inner join caveat: an entity with no graph record drops out entirely. Absent from the graph is not the same as rare; say so in the report.
+* **Mandatory Inner-Join Filter Disclosure & Day-0 Companion Query (`PF-8` / `WS1-08`)**: Every Entity Graph stage acts as an inner join that drops entities, hashes, domains, or IPs with no matching graph record (`DERIVED_CONTEXT` lags 24–48h; `GLOBAL_CONTEXT` WHOIS has coverage gaps). Always disclose the inner-join filter in the Pre-Flight Card and Triage Dossier, and pair `DERIVED_CONTEXT` rarity queries with a second **Day-0 companion query** (`day0_companion_query`, running over `[D 00:00Z, end)` with no `graph.*` stage) so newly observed Day-0 artifacts are not missed.
+* **`first_seen_time = 0` Novelty Guardrail (`PF-8` / `WS1-08` / `WS1-12`)**: In tenants where `DERIVED_CONTEXT` `first_seen_time.seconds = 0` (verified on `gus-sdl`), `<7d` ECG novelty multipliers (`2.5x`) are automatically disabled (`$ecg_novelty_disabled = 1.0`) and disclosed in the report. Use `metrics.*` `first_seen` (`metric: first_seen, agg: min`, `PF-11` / `WS1-12`) as the primary novelty signal instead.
 
 ---
 

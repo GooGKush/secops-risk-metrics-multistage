@@ -460,6 +460,46 @@ def _rewrite_ecg_event_date(compiled_query: str, date_str: str) -> str:
   )
 
 
+def _rewrite_ecg_event_date_gte(compiled_query: str, date_str: str) -> str:
+  """Rewrites timestamp.get_date(...) equality predicates in ECG event stages to >= date_str for multi-day Mode B."""
+  return re.sub(
+      r'(timestamp\.get_date\([^)]+\))\s*=\s*"\d{4}-\d{2}-\d{2}"',
+      rf'\1 >= "{date_str}"',
+      compiled_query,
+  )
+
+
+def _parse_iso_utc(ts_str: str) -> datetime.datetime:
+  """Parses an ISO-8601 UTC timestamp or YYYY-MM-DD date string into an aware UTC datetime."""
+  clean = ts_str.strip()
+  if len(clean) == 10 and re.match(r"^\d{4}-\d{2}-\d{2}$", clean):
+    return datetime.datetime.strptime(clean, "%Y-%m-%d").replace(tzinfo=datetime.timezone.utc)
+  if clean.endswith("Z"):
+    clean = clean[:-1] + "+00:00"
+  dt = datetime.datetime.fromisoformat(clean)
+  if dt.tzinfo is None:
+    dt = dt.replace(tzinfo=datetime.timezone.utc)
+  return dt.astimezone(datetime.timezone.utc)
+
+
+def _build_ecg_join_filter_disclosure(has_ecg: bool, ecg_72h_anchor_applied: bool = False) -> Optional[str]:
+  """Builds the canonical PF-8 / WS1-08 Entity Context Graph inner-join filter disclosure."""
+  if not has_ecg:
+    return None
+  anchor_note = (
+      " Because startTime is anchored at D-2 00:00:00Z to overlap built DERIVED_CONTEXT intervals, "
+      "the 30-day metrics.* baseline window shifts to [D-32, D-2)."
+      if ecg_72h_anchor_applied
+      else ""
+  )
+  return (
+      "Entity Context Graph stages execute as an inner join (active filter): entities, hashes, domains, or IPs "
+      "with no matching graph record drop out silently (absent from the graph != benign or common; DERIVED_CONTEXT "
+      "daily records lag 24-48h and WHOIS coverage has gaps). Run the Day-0 companion query (without graph.*) to "
+      f"inspect newly observed Day-0 artifacts.{anchor_note}"
+  )
+
+
 def _compute_execution_windows(
     compiled_query: str,
     mode: str = "A",
@@ -467,16 +507,19 @@ def _compute_execution_windows(
     statistical_model: Optional[StatisticalModel] = None,
     reference_time: Optional[datetime.datetime] = None,
     today_so_far: bool = False,
+    start_time: Optional[str] = None,
+    end_time: Optional[str] = None,
+    target_date: Optional[str] = None,
 ) -> Dict[str, Any]:
   """Computes UTC ISO-8601 execution windows, baseline horizon dates, and Mode C shards."""
   now = reference_time or datetime.datetime.now(datetime.timezone.utc)
   if now.tzinfo is None:
     now = now.replace(tzinfo=datetime.timezone.utc)
   today_midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
-  end_iso = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+  end_iso = _parse_iso_utc(end_time).strftime("%Y-%m-%dT%H:%M:%SZ") if end_time else now.strftime("%Y-%m-%dT%H:%M:%SZ")
 
   probe_start_iso = (now - datetime.timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
-  probe_end_iso = end_iso
+  probe_end_iso = now.strftime("%Y-%m-%dT%H:%M:%SZ")
 
   mode_clean = (mode or "A").strip().upper()
   if mode_clean.startswith("MODE"):
@@ -494,6 +537,7 @@ def _compute_execution_windows(
   partial_day_warning: Optional[str] = None
   capped_from_days: Optional[int] = None
   mode_notice: Optional[str] = None
+  scored_day_window: Optional[Dict[str, str]] = None
 
   if mode_clean == "A":
     if statistical_model == StatisticalModel.LONGITUDINAL_CUSUM or "$cusum_drift_score" in compiled_query:
@@ -502,14 +546,59 @@ def _compute_execution_windows(
           "sequential drift requires a multi-day Mode B or Mode C window."
       )
     eff_days = 1
-    if eff_today_so_far:
+    explicit_start_dt = _parse_iso_utc(start_time) if start_time else None
+    explicit_end_dt = _parse_iso_utc(end_time) if end_time else None
+
+    if target_date:
+      scored_day = _parse_iso_utc(target_date).replace(hour=0, minute=0, second=0, microsecond=0)
+      scored_day_str = scored_day.strftime("%Y-%m-%d")
+      end_iso_out = (
+          explicit_end_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+          if explicit_end_dt is not None
+          else (scored_day + datetime.timedelta(days=1)).strftime("%Y-%m-%dT00:00:00Z")
+      )
+      if explicit_end_dt is not None and explicit_end_dt < (scored_day + datetime.timedelta(days=1)):
+        is_partial_day = True
+      eval_label = f"Mode A: Target UTC Day ({scored_day_str})"
+    elif explicit_start_dt is not None and explicit_end_dt is not None:
+      start_day = explicit_start_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+      end_day = explicit_end_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+      is_midnight_end = (
+          explicit_end_dt.hour == 0
+          and explicit_end_dt.minute == 0
+          and explicit_end_dt.second == 0
+      )
+      if has_ecg and not is_midnight_end and (end_day - start_day).days in (0, 1, 2):
+        scored_day = end_day
+        is_partial_day = True
+      elif has_ecg and is_midnight_end and (end_day - start_day).days == 3:
+        scored_day = end_day - datetime.timedelta(days=1)
+      elif start_day == end_day and not is_midnight_end:
+        scored_day = start_day
+        is_partial_day = True
+      else:
+        scored_day = end_day - datetime.timedelta(days=1) if is_midnight_end and end_day > start_day else start_day
+      scored_day_str = scored_day.strftime("%Y-%m-%d")
+      end_iso_out = explicit_end_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+      eval_label = (
+          "Mode A: Today So Far (Partial UTC Day — Low-Biased vs Full-Day Baseline)"
+          if is_partial_day and scored_day == today_midnight
+          else f"Mode A: Last Complete UTC Day ({scored_day_str})"
+      )
+      if is_partial_day:
+        partial_day_warning = (
+            f"Partial UTC day ([{scored_day_str}T00:00:00Z -> {end_iso_out}]) compared against a "
+            "full-day (period: 1d, window: 30d) baseline without elapsed-fraction scaling; "
+            "sub-full-day Z-scores are systematically low-biased and may miss active breakouts."
+        )
+    elif eff_today_so_far:
       scored_day = today_midnight
       scored_day_str = scored_day.strftime("%Y-%m-%d")
       end_iso_out = end_iso
       eval_label = "Mode A: Today So Far (Partial UTC Day — Low-Biased vs Full-Day Baseline)"
       is_partial_day = True
       partial_day_warning = (
-          f"Partial UTC day ([{scored_day_str}T00:00:00Z -> {end_iso}]) compared against a "
+          f"Partial UTC day ([{scored_day_str}T00:00:00Z -> {end_iso_out}]) compared against a "
           "full-day (period: 1d, window: 30d) baseline without elapsed-fraction scaling; "
           "sub-full-day Z-scores are systematically low-biased and may miss active breakouts."
       )
@@ -531,13 +620,20 @@ def _compute_execution_windows(
       start_dt = scored_day
     start_iso = start_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
     end_iso = end_iso_out
-    baseline_start = (scored_day - datetime.timedelta(days=30)).strftime("%Y-%m-%d")
-    baseline_end = (scored_day - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+    baseline_anchor = start_dt if has_ecg else scored_day
+    baseline_start = (baseline_anchor - datetime.timedelta(days=30)).strftime("%Y-%m-%d")
+    baseline_end = (baseline_anchor - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+    baseline_end_open = baseline_anchor.strftime("%Y-%m-%d")
+    scored_day_window = {
+        "day": scored_day_str,
+        "start_time": f"{scored_day_str}T00:00:00Z",
+        "end_time": end_iso,
+    }
     shards = [{
         "day": scored_day_str,
         "start_time": start_iso,
         "end_time": end_iso,
-        "baseline_window": f"[{baseline_start}, {scored_day_str})",
+        "baseline_window": f"[{baseline_start}, {baseline_end_open})",
         "query": compiled_query,
     }]
 
@@ -559,28 +655,42 @@ def _compute_execution_windows(
         )
     else:
       eff_days = max(requested_days, 2)
+    anchor_day = today_midnight - datetime.timedelta(days=eff_days - 1)
     if statistical_model in (StatisticalModel.MAD, StatisticalModel.QUANTILE_IQR_SKEW):
       start_dt = today_midnight - datetime.timedelta(days=max(29, eff_days - 1))
+    elif has_ecg:
+      d_minus_2 = today_midnight - datetime.timedelta(days=2)
+      start_dt = min(anchor_day, d_minus_2)
+      ecg_72h_anchor_applied = True
+      compiled_query = _rewrite_ecg_event_date_gte(compiled_query, anchor_day.strftime("%Y-%m-%d"))
     else:
-      start_dt = today_midnight - datetime.timedelta(days=eff_days - 1)
+      start_dt = anchor_day
     start_iso = start_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-    anchor_day = today_midnight - datetime.timedelta(days=eff_days - 1)
-    baseline_start = (anchor_day - datetime.timedelta(days=30)).strftime("%Y-%m-%d")
-    baseline_end = (anchor_day - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+    baseline_anchor_b = start_dt if has_ecg else anchor_day
+    baseline_start = (baseline_anchor_b - datetime.timedelta(days=30)).strftime("%Y-%m-%d")
+    baseline_end = (baseline_anchor_b - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
     eval_label = f"Mode B: {eff_days}d Fixed-Baseline ({baseline_start}..{baseline_end})"
+    scored_day_window = {
+        "day": f"{anchor_day.strftime('%Y-%m-%d')}..{today_midnight.strftime('%Y-%m-%d')}",
+        "start_time": anchor_day.strftime("%Y-%m-%dT00:00:00Z"),
+        "end_time": end_iso,
+    }
     shards = [{
         "day": f"{anchor_day.strftime('%Y-%m-%d')}..{today_midnight.strftime('%Y-%m-%d')}",
         "start_time": start_iso,
         "end_time": end_iso,
-        "baseline_window": f"[{baseline_start}, {anchor_day.strftime('%Y-%m-%d')})",
+        "baseline_window": f"[{baseline_start}, {baseline_anchor_b.strftime('%Y-%m-%d')})",
         "query": compiled_query,
     }]
 
   elif mode_clean == "C":
     eff_days = min(max(window_days if window_days > 1 else 7, 2), MAX_MODE_C_DAYS)
     first_day = today_midnight - datetime.timedelta(days=eff_days - 1)
-    start_iso = first_day.strftime("%Y-%m-%dT%H:%M:%SZ")
-    baseline_start = (first_day - datetime.timedelta(days=30)).strftime("%Y-%m-%d")
+    first_anchor = (first_day - datetime.timedelta(days=2)) if has_ecg else first_day
+    if has_ecg:
+      ecg_72h_anchor_applied = True
+    start_iso = first_anchor.strftime("%Y-%m-%dT%H:%M:%SZ")
+    baseline_start = (first_anchor - datetime.timedelta(days=30)).strftime("%Y-%m-%d")
     baseline_end = (today_midnight - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
     eval_label = f"Mode C: {eff_days}d Rolling Per-Day Shards"
     shards = []
@@ -590,10 +700,15 @@ def _compute_execution_windows(
       day_str = day_dt.strftime("%Y-%m-%d")
       if statistical_model in (StatisticalModel.MAD, StatisticalModel.QUANTILE_IQR_SKEW):
         shard_start = (day_dt - datetime.timedelta(days=29)).strftime("%Y-%m-%dT00:00:00Z")
+        b_anchor_dt = day_dt
+      elif has_ecg:
+        b_anchor_dt = day_dt - datetime.timedelta(days=2)
+        shard_start = b_anchor_dt.strftime("%Y-%m-%dT00:00:00Z")
       else:
+        b_anchor_dt = day_dt
         shard_start = f"{day_str}T00:00:00Z"
       shard_end = end_iso if offset == 0 else f"{day_str}T23:59:59Z"
-      b_start = (day_dt - datetime.timedelta(days=30)).strftime("%Y-%m-%d")
+      b_start = (b_anchor_dt - datetime.timedelta(days=30)).strftime("%Y-%m-%d")
       shard_query = _rewrite_ecg_event_date(compiled_query, day_str).replace(f'"{today_str}"', f'"{day_str}"')
       if statistical_model in (StatisticalModel.MAD, StatisticalModel.QUANTILE_IQR_SKEW):
         shard_query = re.sub(
@@ -605,9 +720,14 @@ def _compute_execution_windows(
           "day": day_str,
           "start_time": shard_start,
           "end_time": shard_end,
-          "baseline_window": f"[{b_start}, {day_str})",
+          "baseline_window": f"[{b_start}, {b_anchor_dt.strftime('%Y-%m-%d')})",
           "query": shard_query,
       })
+    scored_day_window = {
+        "day": today_str,
+        "start_time": f"{today_str}T00:00:00Z",
+        "end_time": end_iso,
+    }
 
   else:  # Mode D: Fleet Rollup Horizon
     eff_days = max(window_days, 1)
@@ -640,6 +760,7 @@ def _compute_execution_windows(
       "baseline_start_date": baseline_start,
       "baseline_end_date": baseline_end,
       "ecg_72h_anchor_applied": ecg_72h_anchor_applied,
+      "scored_day_window": scored_day_window,
       "shards": shards,
   }
 
@@ -791,6 +912,9 @@ def compile_hunt_pipeline(
     has_run_command: bool = True,
     byte_dispersion_floor: Optional[float] = None,
     identifier_coverage_payload: Optional[Any] = None,
+    start_time: Optional[str] = None,
+    end_time: Optional[str] = None,
+    target_date: Optional[str] = None,
     **kwargs: Any,
 ) -> Dict[str, Any]:
   """Compiles a multi-stage YARA-L 2.0 hunt pipeline, pre-flight specification card, and time windows.
@@ -1434,9 +1558,41 @@ def compile_hunt_pipeline(
       statistical_model=stat_model_enum if plane_upper != "MICRO_RAW" else None,
       reference_time=reference_time,
       today_so_far=today_so_far,
+      start_time=start_time,
+      end_time=end_time,
+      target_date=target_date,
   )
   compiled_query = window_spec["effective_query"]
   effective_mode_notice = redirect_notice or window_spec.get("mode_notice")
+  has_ecg_join = bool(re.search(r"\bgraph\.(?:entity|metadata|relations)\b", compiled_query))
+  ecg_source_type: Optional[str] = (
+      "DERIVED_CONTEXT"
+      if "DERIVED_CONTEXT" in compiled_query
+      else ("GLOBAL_CONTEXT" if "GLOBAL_CONTEXT" in compiled_query else None)
+  )
+  ecg_join_filter_disclosure = _build_ecg_join_filter_disclosure(
+      has_ecg_join, bool(window_spec.get("ecg_72h_anchor_applied"))
+  )
+  day0_companion_query: Optional[str] = None
+  day0_companion_window: Optional[Dict[str, str]] = None
+  if has_ecg_join and plane_upper != "MICRO_RAW" and primary_metric in METRIC_CATALOG:
+    comp_ent = (
+        ent_enum
+        if ent_enum in METRIC_CATALOG[primary_metric].supported_entity_types
+        else METRIC_CATALOG[primary_metric].supported_entity_types[0]
+    )
+    day0_companion_query = router.build_day0_ecg_companion_query(
+        target_metric=primary_metric,
+        entity_type=comp_ent,
+        anomaly_threshold=eff_anomaly,
+        identifier_field=identifier_field,
+        byte_dispersion_floor=byte_dispersion_floor,
+    )
+    day0_companion_window = window_spec.get("scored_day_window") or {
+        "day": window_spec["shards"][0]["day"],
+        "start_time": window_spec["start_time"],
+        "end_time": window_spec["end_time"],
+    }
 
   # 3. Validate AST and Statistical Antipatterns
   ast_errors = MalachiteASTValidator.validate_query(compiled_query)
@@ -1482,6 +1638,11 @@ def compile_hunt_pipeline(
         "> [!NOTE]\n"
         f"> **⏱️ Timeline Horizon Routing (D9)**: {effective_mode_notice}"
     )
+  if ecg_join_filter_disclosure:
+    preflight_card = (
+        f"{preflight_card}\n\n"
+        f"* **🔗 ECG Inner-Join Filter & `[D-32, D-2)` Baseline Disclosure (PF-8 / WS1-08)**: {ecg_join_filter_disclosure}"
+    )
 
   clearance_question = (
       "Would you like me to proceed with **Mode A (Last Complete UTC Day vs 30-Day Baseline)** "
@@ -1500,10 +1661,17 @@ def compile_hunt_pipeline(
         f"- **Bridge Contract**: `{bridge_keys}`\n"
         f"- **Phase 2**: Pivot into the secondary entity plane using the extracted bridge keys or Chronicle Data Table column syntax (`in %ueba_hunt_bridge.entity`)."
     )
-  md_parts.extend([
-      "#### 💻 Candidate Multi-Stage YARA-L 2.0 Query Preview\n\n```yara\n" + compiled_query.strip() + "\n```",
-      clearance_question,
-  ])
+  md_parts.append(
+      "#### 💻 Candidate Multi-Stage YARA-L 2.0 Query Preview\n\n```yara\n" + compiled_query.strip() + "\n```"
+  )
+  if day0_companion_query and day0_companion_window:
+    md_parts.append(
+        f"#### 🆕 Day-0 Unindexed Artifact Companion Query (`{day0_companion_window['start_time']}` → `{day0_companion_window['end_time']}`, no `graph.*` inner join)\n\n"
+        "```yara\n"
+        + day0_companion_query.strip()
+        + "\n```"
+    )
+  md_parts.append(clearance_question)
   preflight_card_markdown = "\n\n".join(md_parts)
 
   return {
@@ -1524,6 +1692,11 @@ def compile_hunt_pipeline(
       "evaluation_mode_label": window_spec["evaluation_mode_label"],
       "is_partial_day": window_spec["is_partial_day"],
       "partial_day_warning": window_spec["partial_day_warning"],
+      "has_ecg_join": has_ecg_join,
+      "ecg_source_type": ecg_source_type,
+      "ecg_join_filter_disclosure": ecg_join_filter_disclosure,
+      "day0_companion_query": day0_companion_query,
+      "day0_companion_window": day0_companion_window,
       "sensitivity": sens_tier,
       "anomaly_threshold": eff_anomaly,
       "min_baseline_days": audit_info.get("min_baseline_days", 7),
@@ -1901,6 +2074,23 @@ def _normalize_single_row(raw_row: Dict[str, Any]) -> Dict[str, Any]:
     matched_is_sq = False
     raw_score = (raw_obs - raw_avg) / denom
 
+  # WS1-08 / PF-8: when ECG first_seen_time = 0, disable <7d ECG novelty boost (2.5x)
+  has_ecg_first_seen_key = any(k in row for k in ("first_seen", "first_seen_ts", "first_seen_time", "ecg_novelty_disabled"))
+  ecg_first_seen_val = _first_float(("first_seen", "first_seen_ts", "first_seen_time"))
+  ecg_disabled_flag = _first_float(("ecg_novelty_disabled",))
+  ecg_novelty_boost_disabled = bool(
+      row.get("ecg_novelty_boost_disabled")
+      or (ecg_disabled_flag is not None and ecg_disabled_flag >= 1.0)
+      or (has_ecg_first_seen_key and ecg_first_seen_val is not None and ecg_first_seen_val <= 0.0)
+  )
+  if ecg_novelty_boost_disabled and matched_key == "threat_score" and raw_score is not None:
+    base_z = _first_float(("z_score", "personal_z"))
+    if base_z is not None:
+      has_prevalence = any(k in row for k in ("fleet_prevalence", "enterprise_rolling_max"))
+      unboosted_cap = (1.5 * base_z) if has_prevalence else base_z
+      if raw_score > unboosted_cap:
+        raw_score = unboosted_cap
+
   if raw_score is not None and matched_key is not None:
     display_score: Optional[float] = (
         math.sqrt(max(0.0, raw_score)) if matched_is_sq else raw_score
@@ -1947,6 +2137,7 @@ def _normalize_single_row(raw_row: Dict[str, Any]) -> Dict[str, Any]:
       "historical_stddev": round(hist_stddev, 2) if hist_stddev is not None else 1.0,
       "active_days": int(round(active_days)) if active_days is not None else 30,
       "has_explicit_active_days": has_explicit_active_days,
+      "ecg_novelty_boost_disabled": ecg_novelty_boost_disabled,
       "score_key": matched_key,
       "z_equivalent": round(z_equiv, 4) if z_equiv is not None else None,
       "is_true_sigma": true_sigma,
@@ -2380,12 +2571,26 @@ def render_forensic_dossier(
       if (mode_clean == "A" and eff_today_so_far)
       else f"Mode {mode_clean}"
   )
+  has_ecg_join = bool(re.search(r"\bgraph\.(?:entity|metadata|relations)\b", executed_query or ""))
+  ecg_join_filter_disclosure = _build_ecg_join_filter_disclosure(
+      has_ecg_join, ecg_72h_anchor_applied=(mode_clean in ("A", "B", "C") and has_ecg_join)
+  )
+  ecg_novelty_boost_disabled = any(
+      r.get("ecg_novelty_boost_disabled") for r in (outliers + immature_entities)
+  )
+  ecg_novelty_notice: Optional[str] = (
+      "<7d ECG novelty boost disabled because ECG first_seen_time = 0; "
+      "use metrics.* first_seen novelty (PF-11 / WS1-12) instead."
+      if ecg_novelty_boost_disabled
+      else None
+  )
   clean_hunt_md = CommonMarkTriageFormatter.format_clean_hunt_report(
       target_metric=clean_metric,
       statistical_model=model_label,
       executed_query=executed_query,
       anomaly_threshold=anomaly_threshold,
       evaluation_mode=eval_mode_str,
+      ecg_join_filter_disclosure=ecg_join_filter_disclosure,
   )
 
   # Resolve UDM pivot filter for Pillar 5
@@ -2421,6 +2626,11 @@ def render_forensic_dossier(
       if partial_day_warning
       else []
   )
+  ecg_pillar3_lines: List[str] = []
+  if ecg_join_filter_disclosure:
+    ecg_pillar3_lines.append(f"> * **ECG Inner-Join Filter Disclosure**: {ecg_join_filter_disclosure}")
+  if ecg_novelty_notice:
+    ecg_pillar3_lines.append(f"> * **ECG Novelty Notice**: {ecg_novelty_notice}")
 
   if not outliers and not immature_entities and radar_payload is None:
     # Build 6-section zero-row dossier that preserves both Clean Hunt markers and all 6 section headers
@@ -2431,6 +2641,8 @@ def render_forensic_dossier(
         "* **Baseline Horizon**: 30-Day Pre-Computed Behavioral Tables (`window: 30d`).",
         "* **Outcome Classification**: `CLEAN_OR_SUBTHRESHOLD`",
     ]
+    if ecg_join_filter_disclosure:
+      dossier_lines.append(f"* **ECG Inner-Join Filter Disclosure**: {ecg_join_filter_disclosure}")
     if embed_tag:
       dossier_lines.extend(["", embed_tag])
     dossier_lines.extend([
@@ -2453,6 +2665,7 @@ def render_forensic_dossier(
         f"> **Nominal Baseline Verification: `{clean_metric}` ({model_label}){mitre_recon_note}**",
         f"> * **The Core Finding**: No entities breached the `{anomaly_threshold}σ` gate during the active evaluation window.",
         *partial_day_pillar3_lines,
+        *ecg_pillar3_lines,
         next_steps_md,
         "",
         "---",
@@ -2485,6 +2698,10 @@ def render_forensic_dossier(
         "is_zero_row": True,
         "is_partial_day": bool(partial_day_warning),
         "partial_day_warning": partial_day_warning,
+        "has_ecg_join": has_ecg_join,
+        "ecg_join_filter_disclosure": ecg_join_filter_disclosure,
+        "ecg_novelty_boost_disabled": ecg_novelty_boost_disabled,
+        "ecg_novelty_notice": ecg_novelty_notice,
         "outcome_classification": outcome_class,
         "outlier_count": 0,
         "outliers": [],
@@ -2625,6 +2842,7 @@ def render_forensic_dossier(
       f"> **Threat Translation & Attack Scenarios: `{clean_metric}` ({model_label}){mitre_recon_note}**",
       core_finding_line,
       *partial_day_pillar3_lines,
+      *ecg_pillar3_lines,
       "> * **Security Significance**: Statistically significant departure from historical entity behavior indicating potential credential compromise, automated staging, or anomalous data movement.",
       "> * **Potential Attack Scenarios**: Credential stuffing, lateral expansion, living-off-the-land execution, or staged exfiltration.",
       "> * **Legitimate False Positives**: Scheduled enterprise backups, administrative batch jobs, or fleet patch rollouts.",
@@ -2682,6 +2900,8 @@ def render_forensic_dossier(
       executed_query=executed_query,
       audit_result=audit_result,
       sparse_callout=sparse_callout,
+      ecg_join_filter_disclosure=ecg_join_filter_disclosure,
+      ecg_novelty_notice=ecg_novelty_notice,
   )
 
   return {
@@ -2689,6 +2909,10 @@ def render_forensic_dossier(
       "is_zero_row": False,
       "is_partial_day": bool(partial_day_warning),
       "partial_day_warning": partial_day_warning,
+      "has_ecg_join": has_ecg_join,
+      "ecg_join_filter_disclosure": ecg_join_filter_disclosure,
+      "ecg_novelty_boost_disabled": ecg_novelty_boost_disabled,
+      "ecg_novelty_notice": ecg_novelty_notice,
       "outcome_classification": outcome_class,
       "outlier_count": len(outliers),
       "outliers": outliers,
