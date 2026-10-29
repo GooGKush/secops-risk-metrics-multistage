@@ -355,11 +355,11 @@ class TestUEBAHybridEngineCompile(unittest.TestCase):
         ("rare_destination", "network_bytes_outbound", "ASSET"),
         ("fusion_rare_destination", "auth_attempts_total,http_queries_total", "ASSET"),
         ("failure_ratio", "http_queries_fail", "ASSET"),
+        ("outbound_flow_surge", "network_flows_outbound", "ASSET"),
         ("c2_beacon_flow", "network_flows_outbound", "ASSET"),
         ("alert_surge", "alert_event_name_count", "ASSET"),
         ("hybrid_enrichment", "network_bytes_outbound", "ASSET"),
         ("hybrid_entropy_concentration", "network_bytes_outbound", "ASSET"),
-        ("hybrid_orthogonal_space", "network_bytes_outbound", "ASSET"),
         ("hybrid_fleet_prevalence", "file_executions_total", "ASSET"),
         ("hybrid_derived_file_prevalence", "file_executions_total", "ASSET"),
         ("hybrid_derived_domain_prevalence", "http_queries_total", "ASSET"),
@@ -379,6 +379,22 @@ class TestUEBAHybridEngineCompile(unittest.TestCase):
           f"Architecture {arch} failed AST validation: {res['ast_errors']}",
       )
       self.assertEqual(res["statistical_violations"], [], f"Stat violations in {arch}")
+    for retired_arch in ("hybrid_orthogonal_space", "hybrid_metric_orthogonal_space_2stage"):
+      with self.assertRaisesRegex(ValueError, r"retired \(D1\)"):
+        compile_hunt_pipeline(
+            architecture=retired_arch,
+            metrics="network_bytes_outbound",
+            entity_type="ASSET",
+            entity_value="srv-prod-01",
+        )
+    for retired_implied_model in ("ORTHOGONAL_THREAT_SPACE", "BAYESIAN_JOINT_ODDS"):
+      with self.assertRaisesRegex(ValueError, r"retired \(D1\)"):
+        compile_hunt_pipeline(
+            statistical_model=retired_implied_model,
+            metrics="network_bytes_outbound",
+            entity_type="ASSET",
+            entity_value="srv-prod-01",
+        )
 
   def test_compile_360_radar_generates_all_6_sectors(self):
     """360_radar architecture must populate sector_queries with all 6 decoupled sectors."""

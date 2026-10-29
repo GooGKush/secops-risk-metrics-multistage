@@ -555,15 +555,6 @@ def render_all_pipelines(
           lambda: router.build_pipeline_query(PipelineArchitecture.HYBRID_METRIC_HTTP_UA_PREVALENCE_2STAGE),
       ),
       (
-          "hybrid_metric_orthogonal_space_2stage.yl2",
-          PipelineArchitecture.HYBRID_METRIC_ORTHOGONAL_SPACE_2STAGE.value,
-          lambda: router.build_pipeline_query(
-              PipelineArchitecture.HYBRID_METRIC_ORTHOGONAL_SPACE_2STAGE,
-              target_metric="network_bytes_outbound",
-              entity_type=EntityType.ASSET,
-          ),
-      ),
-      (
           "hybrid_metric_raw_enrichment_2stage.yl2",
           PipelineArchitecture.HYBRID_METRIC_RAW_ENRICHMENT_2STAGE.value,
           lambda: router.build_pipeline_query(

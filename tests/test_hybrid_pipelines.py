@@ -103,33 +103,20 @@ class TestHybridPipelines(unittest.TestCase):
     self.assertEqual(stat_violations, [])
 
   def test_archetype2_orthogonal_threat_space_rendering_and_ast(self):
-    """Archetype 2: Orthogonal Threat Space (Joint Odds, Hurdle, Euclidean Distance)."""
-    query = self.router.build_hybrid_orthogonal_space_query(
-        target_metric="network_bytes_outbound",
-        entity_type=EntityType.ASSET,
-        anomaly_threshold=3.0,
-        hypothesis_goal="Multi-dimensional threat distance and dormant awakening",
-    )
-
-    self.assertIn("// Goal: Multi-dimensional threat distance and dormant awakening", query)
-    self.assertIn("stage stage1_macro_intensity {", query)
-    self.assertIn("stage stage2_micro_breadth {", query)
-    self.assertIn("$threat_distance_sq = $intensity_sq + $breadth_sq", query)
-    self.assertIn("$joint_odds_score = (0.6 * $z_intensity) + (0.4 * $z_breadth)", query)
-    self.assertIn("$threat_distance_sq >= 16.0", query)
-    self.assertIn("$hist_days <= 2", query)
-    self.assertIn("order:\n  $threat_distance_sq desc", query)
-
-    # Common Compiler Invariants
-    self.assertNotIn("events:", query)
-    self.assertNotIn("rule ", query)
-    self.assertFalse(re.search(r"(?<!math\.)\bsqrt\s*\(", query))
-    self.assertNotIn("^", query)
-
-    ast_errors = MalachiteASTValidator.validate_query(query)
-    self.assertEqual(ast_errors, [])
-    stat_violations = StatisticalAntipatternAuditor.audit_query(query)
-    self.assertEqual(stat_violations, [])
+    """WS4-D1 (D1): Archetype 2 Orthogonal Threat Space is retired and raises a clear ValueError."""
+    with self.assertRaisesRegex(ValueError, r"retired \(D1\)"):
+      self.router.build_hybrid_orthogonal_space_query(
+          target_metric="network_bytes_outbound",
+          entity_type=EntityType.ASSET,
+          anomaly_threshold=3.0,
+          hypothesis_goal="Multi-dimensional threat distance and dormant awakening",
+      )
+    with self.assertRaisesRegex(ValueError, r"retired \(D1\)"):
+      self.router.build_pipeline_query(
+          PipelineArchitecture.HYBRID_METRIC_ORTHOGONAL_SPACE_2STAGE,
+          target_metric="network_bytes_outbound",
+          entity_type=EntityType.ASSET,
+      )
 
   def test_archetype3_fleet_prevalence_rendering_and_ast(self):
     """Archetype 3: Fleet Prevalence Normalization (Patch Tuesday Shield)."""
@@ -164,9 +151,10 @@ class TestHybridPipelines(unittest.TestCase):
     queries = [
         self.router.build_hybrid_enrichment_query(),
         self.router.build_hybrid_entropy_concentration_query(),
-        self.router.build_hybrid_orthogonal_space_query(),
         self.router.build_hybrid_fleet_prevalence_query(),
     ]
+    with self.assertRaisesRegex(ValueError, r"retired \(D1\)"):
+      self.router.build_hybrid_orthogonal_space_query()
 
     for q in queries:
       # Join 1: metrics.* function call

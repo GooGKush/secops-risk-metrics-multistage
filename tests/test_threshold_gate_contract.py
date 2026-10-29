@@ -40,6 +40,7 @@ RETIRED_GATE_MODELS = {
 
 RETIRED_GATE_PIPELINES = {
     PipelineArchitecture.CIRCADIAN_VON_MISES_2STAGE: "HOUR_OF_DAY_PROFILE",
+    PipelineArchitecture.HYBRID_METRIC_ORTHOGONAL_SPACE_2STAGE: "DUAL_SECTOR_FUSION_3STAGE",
 }
 
 # Default root gate each active model renders with router defaults (sigma 3.0, fold change 2.0, MAD 3.5).

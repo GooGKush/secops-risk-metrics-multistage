@@ -457,13 +457,21 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
           self.assertEqual(MalachiteASTValidator.validate_query(q), [])
 
   def test_c2_beacon_flow_and_alert_surge_queries(self):
-    """build_c2_beacon_flow_query and build_alert_surge_query must render valid multi-stage queries."""
+    """WS4-D1 (D1): build_outbound_flow_surge_query (and build_c2_beacon_flow_query alias) and build_alert_surge_query render valid queries."""
+    import re
     from scripts.preflight_validator import MalachiteASTValidator
     for flow_metric in ("network_flows_outbound", "network_flows_inbound", "network_flows_total"):
       for et in (EntityType.ASSET, EntityType.USER):
-        q = self.router.build_c2_beacon_flow_query(target_metric=flow_metric, entity_type=et)
+        q = self.router.build_outbound_flow_surge_query(target_metric=flow_metric, entity_type=et)
+        q_alias = self.router.build_c2_beacon_flow_query(target_metric=flow_metric, entity_type=et)
+        self.assertEqual(q, q_alias)
+        self.assertIn("OUTBOUND FLOW SURGE", q)
+        self.assertNotIn("timing regularity", q.lower())
         self.assertIn(f"metrics.{flow_metric}(", q)
-        self.assertIn("$beacon_score =", q)
+        self.assertIn("$flow_surge_score = $flow_z", q)
+        self.assertIn("$dispersion_floor = math.sqrt(if($hist_flow_avg > 1.0, $hist_flow_avg, 1.0))", q)
+        self.assertIn("$active_days >= 7", q)
+        self.assertEqual(len(re.findall(r"^stage\s+\w+\s*\{", q, re.M)), 1)
         self.assertEqual(mc.observed_filter_gaps(q), [])
         self.assertEqual(MalachiteASTValidator.validate_query(q), [])
         self.assertEqual(StatisticalAntipatternAuditor.audit_query(q), [])
@@ -1456,6 +1464,66 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
     self.assertLess(quiet_res["adaptive_z"], 0.0)
     self.assertFalse(quiet_res["alerts"])
     self.assertEqual(cri_from_model_score("adaptive_z", quiet_res["adaptive_z"]), 0)
+
+  def test_ws4_d1_outbound_flow_surge_cusum_macd_and_orthogonal_retirement(self):
+    """WS4-D1: Outbound flow surge rename + single scan, CUSUM 2stage h=4.0/NO-GATE & byte floor, MACD linear Z, and D1 orthogonal retirement."""
+    import re
+    from scripts.preflight_validator import MalachiteASTValidator
+    import scripts.ueba_hybrid_engine as engine_mod
+
+    repo_root = Path(__file__).resolve().parent.parent
+
+    # 1. c2_beacon_flow_frequency_2stage.yl2 renamed to Outbound Flow Surge, single UDM scan, active_days >= 7, continuous Poisson floor
+    flow_tpl = (repo_root / "templates" / "pipelines" / "c2_beacon_flow_frequency_2stage.yl2").read_text(encoding="utf-8")
+    self.assertIn("OUTBOUND FLOW SURGE", flow_tpl.upper())
+    self.assertNotIn("stage2_target_dispersion", flow_tpl)
+    self.assertEqual(len(re.findall(r"^stage\s+\w+\s*\{", flow_tpl, re.M)), 1)
+    self.assertIn("$dispersion_floor = math.sqrt(if($hist_flow_avg > 1.0, $hist_flow_avg, 1.0))", flow_tpl)
+    self.assertIn("$active_days >= 7", flow_tpl)
+    self.assertIn("$flow_surge_score = $flow_z", flow_tpl)
+    self.assertEqual(MalachiteASTValidator.validate_query(flow_tpl), [])
+
+    res_flow = engine_mod.compile_hunt_pipeline(
+        architecture="outbound_flow_surge",
+        metrics="network_flows_outbound",
+        entity_type="ASSET",
+        entity_value="srv-01",
+    )
+    self.assertTrue(res_flow["ast_valid"], res_flow["ast_errors"])
+    self.assertEqual(res_flow["architecture"], "OUTBOUND_FLOW_SURGE_2STAGE")
+
+    # 2. longitudinal_cusum_2stage.yl2 via build_longitudinal_cusum_pipeline_query:
+    #    default cusum_h_threshold = 4.0, byte vs count dispersion floor, and NO-GATE prefilter mode.
+    cusum_bytes = self.router.build_longitudinal_cusum_pipeline_query(
+        target_metric="network_bytes_outbound",
+        entity_type=EntityType.ASSET,
+    )
+    self.assertIn("Windowed Slack Sum", cusum_bytes)
+    self.assertIn("$dispersion_floor = 44979.0", cusum_bytes)
+    self.assertIn("$active_days >= 7 and $cusum_drift_score >= 4.0 and $drift_days >= 2", cusum_bytes)
+    self.assertEqual(MalachiteASTValidator.validate_query(cusum_bytes), [])
+
+    cusum_counts_nogate = self.router.build_longitudinal_cusum_pipeline_query(
+        target_metric="dns_queries_total",
+        entity_type=EntityType.ASSET,
+        include_significance_gate=False,
+    )
+    self.assertIn("$dispersion_floor = math.sqrt(if($historical_avg > 1.0, $historical_avg, 1.0))", cusum_counts_nogate)
+    self.assertIn("// Significance Gate: NONE", cusum_counts_nogate)
+    self.assertIsNone(MultiStageTemplateRouter.root_condition(cusum_counts_nogate))
+    self.assertEqual(MalachiteASTValidator.validate_query(cusum_counts_nogate), [])
+
+    # 3. macd_momentum_velocity_2stage.yl2: above-historical-max Z naming, linear math, active_days >= 7, byte/count floor
+    macd_bytes = self.router.build_pipeline_query(
+        PipelineArchitecture.MACD_MOMENTUM_VELOCITY_2STAGE,
+        target_metric="network_bytes_outbound",
+        entity_type=EntityType.ASSET,
+    )
+    self.assertIn("ABOVE-HISTORICAL-MAX Z", macd_bytes.upper())
+    self.assertIn("$dispersion_floor = 44979.0", macd_bytes)
+    self.assertIn("$macd_z = $personal_z + $above_max_z", macd_bytes)
+    self.assertIn("$active_days >= 7 and $macd_z >= 3.0", macd_bytes)
+    self.assertEqual(MalachiteASTValidator.validate_query(macd_bytes), [])
 
 
 if __name__ == "__main__":

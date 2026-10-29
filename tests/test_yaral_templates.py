@@ -285,6 +285,10 @@ class TestYaraLTemplates(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, r"retired.*HOUR_OF_DAY_PROFILE"):
           router.build_pipeline_query(pt, entity_type=EntityType.USER)
         continue
+      if pt == PipelineArchitecture.HYBRID_METRIC_ORTHOGONAL_SPACE_2STAGE:
+        with self.assertRaisesRegex(ValueError, r"retired \(D1\)"):
+          router.build_pipeline_query(pt, entity_type=EntityType.ASSET)
+        continue
       for et in (EntityType.ASSET, EntityType.USER):
         q = router.build_pipeline_query(pt, entity_type=et)
         for call_name, m_args in re.findall(r"metrics\.([a-zA-Z0-9_]+)\s*\(([^)]+)\)", q, re.DOTALL):

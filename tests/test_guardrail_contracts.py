@@ -487,7 +487,7 @@ class TestGuardrailContracts(unittest.TestCase):
       g_content = f.read()
 
   def test_precomposed_pipeline_templates_exist(self):
-    """All 25 analytical pipeline templates in templates/pipelines/ must exist and be non-empty."""
+    """All active analytical pipeline templates in templates/pipelines/ must exist; retired D1 ones must not."""
     skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     pipelines_dir = os.path.join(skill_dir, 'templates', 'pipelines')
     
@@ -505,7 +505,6 @@ class TestGuardrailContracts(unittest.TestCase):
         'hybrid_metric_entropy_concentration_2stage.yl2',
         'hybrid_metric_fleet_prevalence_2stage.yl2',
         'hybrid_metric_http_ua_prevalence_2stage.yl2',
-        'hybrid_metric_orthogonal_space_2stage.yl2',
         'hybrid_metric_raw_enrichment_2stage.yl2',
         'hybrid_metric_whois_domain_lifecycle_2stage.yl2',
         'longitudinal_cusum_2stage.yl2',
@@ -529,6 +528,11 @@ class TestGuardrailContracts(unittest.TestCase):
           100,
           f"Pipeline template '{pipeline_file}' is unexpectedly empty (<100 bytes)."
       )
+    retired_path = os.path.join(pipelines_dir, 'hybrid_metric_orthogonal_space_2stage.yl2')
+    self.assertFalse(
+        os.path.exists(retired_path),
+        "Retired (D1) template 'hybrid_metric_orthogonal_space_2stage.yl2' must be removed from templates/pipelines/.",
+    )
 
   def test_all_templates_balanced_delimiters(self):
     """Every .yl2 template in the repository must have strictly balanced parentheses, brackets, and braces."""

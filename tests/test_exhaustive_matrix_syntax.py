@@ -181,7 +181,7 @@ class ExhaustiveMatrixSyntaxTest(unittest.TestCase):
       )
       self._assert_query_grammar_invariants(query, context)
 
-    # WS2-02 (D1): CIRCADIAN_VON_MISES / CIRCADIAN_VON_MISES_2STAGE enum alias retained but retired at render time.
+    # WS2-02 & WS4-D1 (D1): Retired pipeline enum aliases retained for backward compat but rejected at render time.
     self.assertTrue(hasattr(PipelineArchitecture, "CIRCADIAN_VON_MISES"))
     for retired_pipe in (PipelineArchitecture.CIRCADIAN_VON_MISES_2STAGE, getattr(PipelineArchitecture, "CIRCADIAN_VON_MISES")):
       with self.assertRaisesRegex(ValueError, r"retired.*HOUR_OF_DAY_PROFILE"):
@@ -190,6 +190,12 @@ class ExhaustiveMatrixSyntaxTest(unittest.TestCase):
             target_metric="http_queries_total",
             entity_type=EntityType.ASSET,
         )
+    with self.assertRaisesRegex(ValueError, r"retired \(D1\)"):
+      self.router.build_pipeline_query(
+          pipeline_type=PipelineArchitecture.HYBRID_METRIC_ORTHOGONAL_SPACE_2STAGE,
+          target_metric="network_bytes_outbound",
+          entity_type=EntityType.ASSET,
+      )
 
 
 if __name__ == '__main__':
