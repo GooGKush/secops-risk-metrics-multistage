@@ -532,7 +532,7 @@ When a sector micro-query returns **$\ge 1$ matching rows**:
 ## 📐 6. Phase 4: Mathematical Join Engine & Local JS Implementation
 
 ### 6.1 The Mathematical Formulation
-For $k = 6$ orthogonal sectors:
+For $k = 6$ behavioral sectors *(inter-sector correlation caveat, `WS7-03`: Euclidean fusion includes no covariance matrix, so false-positive rates depend on how correlated the sectors are — positively correlated planes such as Network Egress + DNS + Web HTTP exceed independent $\chi^2_6$ tail rates; when scaling across $N$ fleet entities or $K$ sub-keys, $\sqrt{2 \ln N}$ is an approximation of the Gaussian expected maximum, not a Bonferroni correction)*:
 
 1. **Euclidean Threat Distance ($D$)**:
    $$D = \sqrt{\sum_{i=1}^{6} \max(0, Z_i)^2}$$

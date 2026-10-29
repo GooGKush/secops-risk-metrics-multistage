@@ -38,8 +38,9 @@ $$
 $$
 
 ### Calibration Parameters:
-* **Inflection Point ($Z_{\text{mid}} = 3.0\sigma$)**: The statistical threshold for a "True Statistical Anomaly" (the 99.87th percentile tail under Gaussian assumptions).
+* **Inflection Point ($Z_{\text{mid}} = 3.0\sigma$)**: The statistical threshold for a "True Statistical Anomaly" (the 99.87th percentile tail under univariate Gaussian assumptions).
 * **Steepness Parameter ($\alpha = 0.6$)**: Calibrates the transition slope so that moderate drift ($Z = 2.0\sigma$) sits in the low 30s, while multi-sigma breakouts ($Z \ge 5.0\sigma$) enter high-severity tiers ($>75$).
+* **Multi-Sector Correlation & Fleet Expected-Maximum Caveat (`WS7-03`)**: When CRI is evaluated on a fused Euclidean norm $D = \sqrt{\sum \max(0, Z_i)^2}$, false-positive rates depend on **inter-sector correlation** — positively correlated sectors (such as Network Egress, DNS, and Web HTTP) exceed independent $\chi^2_k$ tail probabilities because $D$ carries no covariance matrix. When interpreting fleet-wide or $K$-key maxima, $\sqrt{2 \ln N}$ is an **approximation of the Gaussian expected maximum** ($\mathbb{E}[\max_{1 \le i \le N} Z_i] \approx \sqrt{2 \ln N}$), **not a Bonferroni correction** (a cutoff at $\sqrt{2 \ln N}$ sits near the expected fleet maximum rather than controlling family-wise error at $\alpha / N$).
 
 ---
 

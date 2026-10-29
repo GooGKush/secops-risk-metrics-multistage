@@ -78,8 +78,12 @@ elsewhere still fails if the combined set is not listed. Example: `auth_attempts
    most one sector per query may be a roll-up. Its Z is the largest per-key Z for the entity (per binary,
    product or rule), not a Z of the entity's total volume: no entity-only baseline exists. Add an
    `// ADVISORY:` line saying so. Its entity must be the only entity dimension of one listed roll-up set.
-5. Two metrics of the same family (e.g. `auth_attempts_fail` + `auth_attempts_total`) are allowed but
-   correlated; add an `// ADVISORY:` line to the query header saying so.
+5. **Inter-sector correlation (`WS7-03`).** Fusion carries no covariance matrix, so false-positive rates
+   depend on how correlated the sectors are: same-family pairs (e.g. `auth_attempts_fail` +
+   `auth_attempts_total`) and coupled network planes (`network_bytes_*` + `dns_queries_*` + `http_queries_*`)
+   exceed independent $\\chi^2_k$ tail rates; add an `// ADVISORY:` line to the query header saying so.
+   In roll-up fusion, `sqrt(2 * ln(K_eff))` approximates the Gaussian expected maximum across active
+   sub-keys — it is not a Bonferroni correction.
 6. `email_addresses`, `ip` and `mac` are repeated fields: one event can fan out to several entities.
 7. **Identifier coverage (probe first).** A field valid in the config can still be empty in a sector's
    data. Make the pre-flight probe do this check: probe the sector most likely to lack the field with

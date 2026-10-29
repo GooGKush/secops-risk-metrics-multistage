@@ -11,6 +11,8 @@
 //              characterized). If this query fails, fall back to rollup_sector_fusion_4stage.yl2.
 // Math: per detail key k, Z_k = (obs_k - mu_k) / sigma_k, rectified, 0 until k has {{min_baseline_days}} active days;
 //       Z_a = max(0, max_k(Z_k) - sqrt(2 * ln(max(K_active, 1)))) ;
+//       Note (WS7-03): sqrt(2 * ln(K_eff)) is an approximation of the Gaussian expected maximum across K_eff
+//       active sub-keys — NOT a Bonferroni correction; fusion false-positive rates also depend on inter-sector correlation.
 //       D^2 = dZ_a^2 + dZ_b^2, where dZ_x = max(0, Z_x - mature fleet median of Z_x);
 //       personal_norm_sq = Z_a^2 + Z_b^2 tracked separately to avoid collinear double-counting.
 //       Z_a answers "is any one binary / product / rule unusual for this entity after multiplicity adjustment",

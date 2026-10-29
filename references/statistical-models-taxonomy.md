@@ -248,8 +248,8 @@ Before running a multi-stage statistical hunt, explain the approach to the secur
 3. **Multi-Sector Euclidean Fusion & 360° Behavioral Radar** *(inter-sector correlation caveat: positively correlated sectors such as Network + DNS + Web increase false-positive tail rates above independent $\chi^2_k$ predictions)*:
    - `dual_sector_fusion_3stage.yl2`: 3-stage union-based rectified Euclidean fusion ($D = \sqrt{\sum \max(0, Z_i)^2}$) of any 2 same-entity sectors.
    - `multi_sector_fusion_4stage.yl2`: 4-stage union-based 2-sector rectified Euclidean fusion + cross-sectional fleet $\Delta Z$.
-   - `rollup_sector_fusion_4stage.yl2`: 4-stage composite-metric per-entity roll-up fused with a second sector.
-   - `rollup_sector_fusion_5stage.yl2`: 5-stage composite roll-up fusion + fleet normalization.
+   - `rollup_sector_fusion_4stage.yl2`: 4-stage composite-metric per-entity roll-up fused with a second sector (subtracts $\sqrt{2 \ln K_{\text{eff}}}$, an approximation of the Gaussian expected maximum across $K_{\text{eff}}$ sub-keys — not a Bonferroni correction; fleet-wide $\sqrt{2 \ln N}$ likewise approximates the expected maximum).
+   - `rollup_sector_fusion_5stage.yl2`: 5-stage composite roll-up fusion + mature winsorized/median fleet normalization.
    - `radar_360_decoupled_sector.yl2`: 2-stage `NO-GATE` decoupled 360° Radar sector micro-query.
    - `radar_360_sector_web_http.yl2`: 2-stage `NO-GATE` 360° Radar Web & Proxy HTTP spoke.
    - `radar_360_sector_alert.yl2`: 2-stage `NO-GATE` 360° Radar Security & EDR Alert spoke (`alert_event_name_count`).
