@@ -37,7 +37,8 @@ stage stage1_personal_surge {
         network.http.user_agent: network.http.user_agent
     ))
 
-    $personal_z = ($observed_val - $hist_mean) / if($hist_stddev > 0, $hist_stddev, 1.0)
+    $dispersion_floor = math.sqrt(if($hist_mean > 1.0, $hist_mean, 1.0))
+    $personal_z = ($observed_val - $hist_mean) / if($hist_stddev > $dispersion_floor, $hist_stddev, $dispersion_floor)
     $surging_entity = array_distinct($entity)
 }
 
@@ -77,7 +78,8 @@ outcome:
   $normalized_odds_score = $personal_z * $prevalence_dampener
 
 condition:
-  $personal_z >= 2.0
+  $active_baseline_days >= 7
+  and $personal_z >= 2.0
   and $fleet_adopters <= 2
 
 order:

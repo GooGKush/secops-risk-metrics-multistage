@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 try:
   from .ueba_constants import (
+      DEFAULT_MIN_BASELINE_DAYS,
       RADAR_FUSION_DISTANCE_THRESHOLD,
       _coerce_finite_float,
       calculate_cri,
@@ -26,6 +27,7 @@ try:
 except ImportError:
   try:
     from scripts.ueba_constants import (
+        DEFAULT_MIN_BASELINE_DAYS,
         RADAR_FUSION_DISTANCE_THRESHOLD,
         _coerce_finite_float,
         calculate_cri,
@@ -33,11 +35,20 @@ except ImportError:
     )
   except ImportError:
     from ueba_constants import (  # type: ignore[no-redef]
+        DEFAULT_MIN_BASELINE_DAYS,
         RADAR_FUSION_DISTANCE_THRESHOLD,
         _coerce_finite_float,
         calculate_cri,
         format_cri,
     )
+
+
+class _RadarQueryTemplate(str):
+  """String template supporting both `% {'entity_id': ...}` and `.format(entity=...)` safely with YARA-L braces."""
+
+  def format(self, *args: Any, **kwargs: Any) -> str:
+    ent = kwargs.get("entity_id", kwargs.get("entity", args[0] if args else "entity"))
+    return str(self) % {"entity_id": ent}
 
 
 HELPER_VERSION = "2.3.0"
@@ -268,12 +279,25 @@ def _extract_spoke_metrics_from_rows(
           if std_val is not None:
             break
 
+    days_candidates = (
+        "active_days",
+        "hist_active_days",
+        "historical_active_days",
+        "active_baseline_days",
+    ) + tuple(f"{p}_days" for p in pref_tokens) + tuple(f"{p}_active_days" for p in pref_tokens)
+    days_val = _first_present(row, days_candidates)
+
     if z_val is None:
       if obs_val is not None and avg_val is not None:
-        denom = std_val if (std_val is not None and std_val > 0.0) else 1.0
+        is_byte_sector = any(tok in sector_key.lower() for tok in ("net", "egress", "byte", "traffic"))
+        disp_floor = 44979.0 if is_byte_sector else math.sqrt(max(avg_val, 1.0))
+        denom = max(std_val if (std_val is not None and std_val > 0.0) else 0.0, disp_floor)
         z_val = (obs_val - avg_val) / denom
       else:
         continue
+
+    if days_val is not None and days_val < float(DEFAULT_MIN_BASELINE_DAYS):
+      z_val = 0.0
 
     candidate = (
         obs_val if obs_val is not None else 0.0,
@@ -319,7 +343,7 @@ class EntityRadarCollector:
   HELPER_VERSION = HELPER_VERSION
 
   USER_SECTOR_QUERIES = {
-      "IAM & Authentication": """
+      "IAM & Authentication": _RadarQueryTemplate("""
 // Sector: IAM & Authentication
 stage s1 {
     metadata.event_type = "USER_LOGIN"
@@ -332,6 +356,7 @@ stage s1 {
     $fail_obs = count(metadata.id)
     $fail_avg = max(metrics.auth_attempts_fail(period: 1d, window: 30d, metric: event_count_sum, agg: avg, target.user.userid: target.user.userid))
     $fail_std = max(metrics.auth_attempts_fail(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, target.user.userid: target.user.userid))
+    $fail_days = max(metrics.auth_attempts_fail(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, target.user.userid: target.user.userid))
 }
 stage s2 {
     metadata.event_type = "USER_LOGIN"
@@ -344,17 +369,28 @@ stage s2 {
     $succ_obs = count(metadata.id)
     $succ_avg = max(metrics.auth_attempts_success(period: 1d, window: 30d, metric: event_count_sum, agg: avg, target.user.userid: target.user.userid))
     $succ_std = max(metrics.auth_attempts_success(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, target.user.userid: target.user.userid))
+    $succ_days = max(metrics.auth_attempts_success(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, target.user.userid: target.user.userid))
 }
 $user = $s1.user
 $user = $s2.user
 match: $user by 1d
 outcome:
+  $fail_avg = max($s1.fail_avg)
   $fail_std = max($s1.fail_std)
+  $fail_days = max($s1.fail_days)
+  $fail_floor = math.sqrt(if($fail_avg > 1.0, $fail_avg, 1.0))
+  $safe_fail_std = if($fail_std > $fail_floor, $fail_std, $fail_floor)
+  $raw_z_fail = (max($s1.fail_obs) - $fail_avg) / $safe_fail_std
+  $z_fail = if($fail_days >= 7, $raw_z_fail, 0.0)
+  $succ_avg = max($s2.succ_avg)
   $succ_std = max($s2.succ_std)
-  $z_fail = (max($s1.fail_obs) - max($s1.fail_avg)) / if($fail_std > 0, $fail_std, 1.0)
-  $z_succ = (max($s2.succ_obs) - max($s2.succ_avg)) / if($succ_std > 0, $succ_std, 1.0)
-""",
-      "Cloud Infrastructure": """
+  $succ_days = max($s2.succ_days)
+  $succ_floor = math.sqrt(if($succ_avg > 1.0, $succ_avg, 1.0))
+  $safe_succ_std = if($succ_std > $succ_floor, $succ_std, $succ_floor)
+  $raw_z_succ = (max($s2.succ_obs) - $succ_avg) / $safe_succ_std
+  $z_succ = if($succ_days >= 7, $raw_z_succ, 0.0)
+"""),
+      "Cloud Infrastructure": _RadarQueryTemplate("""
 // Sector: Cloud Infrastructure CRUD
 stage s1 {
     (
@@ -377,32 +413,67 @@ stage s1 {
     $read_obs = sum(if(metadata.event_type = "RESOURCE_READ" or metadata.event_type = "USER_RESOURCE_ACCESS", 1, 0))
     $read_avg = max(metrics.resource_read_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
     $read_std = max(metrics.resource_read_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
+    $read_days = max(metrics.resource_read_total(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
     $write_obs = sum(if(metadata.event_type = "RESOURCE_WRITTEN" or metadata.event_type = "USER_RESOURCE_UPDATE_CONTENT", 1, 0))
     $write_avg = max(metrics.resource_written_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
     $write_std = max(metrics.resource_written_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
+    $write_days = max(metrics.resource_written_total(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
     $create_obs = sum(if(metadata.event_type = "RESOURCE_CREATION" or metadata.event_type = "USER_RESOURCE_CREATION", 1, 0))
     $create_avg = max(metrics.resource_creation_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
     $create_std = max(metrics.resource_creation_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
+    $create_days = max(metrics.resource_creation_total(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
     $delete_obs = sum(if(metadata.event_type = "RESOURCE_DELETION" or metadata.event_type = "USER_RESOURCE_DELETION", 1, 0))
     $delete_avg = max(metrics.resource_deletion_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
     $delete_std = max(metrics.resource_deletion_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
+    $delete_days = max(metrics.resource_deletion_total(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
+}
+stage s2 {
+    $user = $s1.user
+  match:
+    $user by 1d
+  outcome:
+    $r_obs = max($s1.read_obs)
+    $r_avg = max($s1.read_avg)
+    $r_std = max($s1.read_std)
+    $r_days = max($s1.read_days)
+    $r_flr = math.sqrt(if($r_avg > 1.0, $r_avg, 1.0))
+    $r_sd = if($r_std > $r_flr, $r_std, $r_flr)
+    $zr_u = ($r_obs - $r_avg) / $r_sd
+    $z_read = if($r_days >= 7, $zr_u, 0.0)
+    $w_obs = max($s1.write_obs)
+    $w_avg = max($s1.write_avg)
+    $w_std = max($s1.write_std)
+    $w_days = max($s1.write_days)
+    $w_flr = math.sqrt(if($w_avg > 1.0, $w_avg, 1.0))
+    $w_sd = if($w_std > $w_flr, $w_std, $w_flr)
+    $zw_u = ($w_obs - $w_avg) / $w_sd
+    $z_write = if($w_days >= 7, $zw_u, 0.0)
 }
 $user = $s1.user
+$user = $s2.user
 match: $user by 1d
 outcome:
-  $read_std = max($s1.read_std)
-  $write_std = max($s1.write_std)
-  $create_std = max($s1.create_std)
-  $delete_std = max($s1.delete_std)
-  $z_read = (max($s1.read_obs) - max($s1.read_avg)) / if($read_std > 0, $read_std, 1000000.0)
-  $z_write = (max($s1.write_obs) - max($s1.write_avg)) / if($write_std > 0, $write_std, 1000000.0)
-  $z_create = (max($s1.create_obs) - max($s1.create_avg)) / if($create_std > 0, $create_std, 1000000.0)
-  $z_delete = (max($s1.delete_obs) - max($s1.delete_avg)) / if($delete_std > 0, $delete_std, 1000000.0)
+  $c_avg = max($s1.create_avg)
+  $c_std = max($s1.create_std)
+  $c_days = max($s1.create_days)
+  $c_flr = math.sqrt(if($c_avg > 1.0, $c_avg, 1.0))
+  $c_sd = if($c_std > $c_flr, $c_std, $c_flr)
+  $zc_u = (max($s1.create_obs) - $c_avg) / $c_sd
+  $z_create = if($c_days >= 7, $zc_u, 0.0)
+  $d_avg = max($s1.delete_avg)
+  $d_std = max($s1.delete_std)
+  $d_days = max($s1.delete_days)
+  $d_flr = math.sqrt(if($d_avg > 1.0, $d_avg, 1.0))
+  $d_sd = if($d_std > $d_flr, $d_std, $d_flr)
+  $zd_u = (max($s1.delete_obs) - $d_avg) / $d_sd
+  $z_delete = if($d_days >= 7, $zd_u, 0.0)
+  $z_read = max($s2.z_read)
+  $z_write = max($s2.z_write)
   $z_rw = if($z_read >= $z_write, $z_read, $z_write)
   $z_cd = if($z_create >= $z_delete, $z_create, $z_delete)
   $z = if($z_rw >= $z_cd, $z_rw, $z_cd)
-""",
-      "Workspace Data Hoarding": """
+"""),
+      "Workspace Data Hoarding": _RadarQueryTemplate("""
 // Sector: Workspace & Drive Data
 stage s1 {
     metadata.vendor_name = "Google Workspace"
@@ -415,18 +486,30 @@ stage s1 {
     $ch_obs = count(metadata.id)
     $dl_avg = max(metrics.workspace_total_download_actions(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: principal.user.userid))
     $dl_std = max(metrics.workspace_total_download_actions(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: principal.user.userid))
+    $dl_days = max(metrics.workspace_total_download_actions(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.user.userid: principal.user.userid))
     $ch_avg = max(metrics.workspace_total_change_actions(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: principal.user.userid))
     $ch_std = max(metrics.workspace_total_change_actions(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: principal.user.userid))
+    $ch_days = max(metrics.workspace_total_change_actions(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.user.userid: principal.user.userid))
 }
 $user = $s1.user
 match: $user by 1d
 outcome:
+  $dl_avg = max($s1.dl_avg)
   $dl_std = max($s1.dl_std)
+  $dl_days = max($s1.dl_days)
+  $dl_flr = math.sqrt(if($dl_avg > 1.0, $dl_avg, 1.0))
+  $safe_dl_std = if($dl_std > $dl_flr, $dl_std, $dl_flr)
+  $raw_z_dl = (max($s1.dl_obs) - $dl_avg) / $safe_dl_std
+  $z_download = if($dl_days >= 7, $raw_z_dl, 0.0)
+  $ch_avg = max($s1.ch_avg)
   $ch_std = max($s1.ch_std)
-  $z_download = (max($s1.dl_obs) - max($s1.dl_avg)) / if($dl_std > 0, $dl_std, 1.0)
-  $z_change = (max($s1.ch_obs) - max($s1.ch_avg)) / if($ch_std > 0, $ch_std, 1.0)
-""",
-      "Network Egress & Web": """
+  $ch_days = max($s1.ch_days)
+  $ch_flr = math.sqrt(if($ch_avg > 1.0, $ch_avg, 1.0))
+  $safe_ch_std = if($ch_std > $ch_flr, $ch_std, $ch_flr)
+  $raw_z_ch = (max($s1.ch_obs) - $ch_avg) / $safe_ch_std
+  $z_change = if($ch_days >= 7, $raw_z_ch, 0.0)
+"""),
+      "Network Egress & Web": _RadarQueryTemplate("""
 // Sector: Network Egress Volume
 stage s1 {
     network.sent_bytes > 0
@@ -439,14 +522,19 @@ stage s1 {
     $bytes_obs = sum(network.sent_bytes)
     $bytes_avg = max(metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: avg, principal.user.userid: principal.user.userid))
     $bytes_std = max(metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: stddev, principal.user.userid: principal.user.userid))
+    $bytes_days = max(metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: num_metric_periods, principal.user.userid: principal.user.userid))
 }
 $user = $s1.user
 match: $user by 1d
 outcome:
   $bytes_std = max($s1.bytes_std)
-  $z_egress = (max($s1.bytes_obs) - max($s1.bytes_avg)) / if($bytes_std > 0, $bytes_std, 1.0)
-""",
-      "DNS Resolution": """
+  $bytes_days = max($s1.bytes_days)
+  $bytes_floor = 44979.0
+  $safe_bytes_std = if($bytes_std > $bytes_floor, $bytes_std, $bytes_floor)
+  $raw_z_egress = (max($s1.bytes_obs) - max($s1.bytes_avg)) / $safe_bytes_std
+  $z_egress = if($bytes_days >= 7, $raw_z_egress, 0.0)
+"""),
+      "DNS Resolution": _RadarQueryTemplate("""
 // Sector: DNS Failures
 stage s1 {
     (network.dns.questions.name != "" or network.dns.answers.name != "" or network.dns.id != 0)
@@ -459,14 +547,20 @@ stage s1 {
     $dns_obs = count(metadata.id)
     $dns_avg = max(metrics.dns_queries_fail(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: principal.user.userid))
     $dns_std = max(metrics.dns_queries_fail(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: principal.user.userid))
+    $dns_days = max(metrics.dns_queries_fail(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.user.userid: principal.user.userid))
 }
 $user = $s1.user
 match: $user by 1d
 outcome:
+  $dns_avg = max($s1.dns_avg)
   $dns_std = max($s1.dns_std)
-  $z_dns_fail = (max($s1.dns_obs) - max($s1.dns_avg)) / if($dns_std > 0, $dns_std, 1.0)
-""",
-      "Web & Proxy Activity": """
+  $dns_days = max($s1.dns_days)
+  $dns_floor = math.sqrt(if($dns_avg > 1.0, $dns_avg, 1.0))
+  $safe_dns_std = if($dns_std > $dns_floor, $dns_std, $dns_floor)
+  $raw_z_dns = (max($s1.dns_obs) - $dns_avg) / $safe_dns_std
+  $z_dns_fail = if($dns_days >= 7, $raw_z_dns, 0.0)
+"""),
+      "Web & Proxy Activity": _RadarQueryTemplate("""
 // Sector: Web & Proxy Activity
 stage s1 {
     (network.http.method != "" or network.http.user_agent != "" or network.http.response_code != 0 or network.http.referral_url != "")
@@ -478,17 +572,23 @@ stage s1 {
     $http_obs = count(metadata.id)
     $http_avg = max(metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: principal.user.userid))
     $http_std = max(metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: principal.user.userid))
+    $http_days = max(metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.user.userid: principal.user.userid))
 }
 $user = $s1.user
 match: $user by 1d
 outcome:
+  $http_avg = max($s1.http_avg)
   $http_std = max($s1.http_std)
-  $z_http = (max($s1.http_obs) - max($s1.http_avg)) / if($http_std > 0, $http_std, 1.0)
-""",
+  $http_days = max($s1.http_days)
+  $http_floor = math.sqrt(if($http_avg > 1.0, $http_avg, 1.0))
+  $safe_http_std = if($http_std > $http_floor, $http_std, $http_floor)
+  $raw_z_http = (max($s1.http_obs) - $http_avg) / $safe_http_std
+  $z_http = if($http_days >= 7, $raw_z_http, 0.0)
+"""),
   }
 
   ASSET_SECTOR_QUERIES = {
-      "Authentication & Access": """
+      "Authentication & Access": _RadarQueryTemplate("""
 // Sector: Asset Authentication
 stage s1 {
     metadata.event_type = "USER_LOGIN"
@@ -501,14 +601,20 @@ stage s1 {
     $fail_obs = count(metadata.id)
     $fail_avg = max(metrics.auth_attempts_fail(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.asset.hostname: principal.asset.hostname))
     $fail_std = max(metrics.auth_attempts_fail(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.asset.hostname: principal.asset.hostname))
+    $fail_days = max(metrics.auth_attempts_fail(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.asset.hostname: principal.asset.hostname))
 }
 $asset = $s1.asset
 match: $asset by 1d
 outcome:
+  $fail_avg = max($s1.fail_avg)
   $fail_std = max($s1.fail_std)
-  $z_fail = (max($s1.fail_obs) - max($s1.fail_avg)) / if($fail_std > 0, $fail_std, 1.0)
-""",
-      "Network Traffic Volume": """
+  $fail_days = max($s1.fail_days)
+  $fail_floor = math.sqrt(if($fail_avg > 1.0, $fail_avg, 1.0))
+  $safe_fail_std = if($fail_std > $fail_floor, $fail_std, $fail_floor)
+  $raw_z_fail = (max($s1.fail_obs) - $fail_avg) / $safe_fail_std
+  $z_fail = if($fail_days >= 7, $raw_z_fail, 0.0)
+"""),
+      "Network Traffic Volume": _RadarQueryTemplate("""
 // Sector: Network Inbound & Outbound
 stage s1 {
     ((network.sent_bytes > 0 and network.sent_bytes < 1000000000000000) or (network.received_bytes > 0 and network.received_bytes < 1000000000000000))
@@ -520,19 +626,29 @@ stage s1 {
     $out_obs = sum(network.sent_bytes)
     $out_avg = max(metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: avg, principal.asset.hostname: principal.asset.hostname))
     $out_std = max(metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: stddev, principal.asset.hostname: principal.asset.hostname))
+    $out_days = max(metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: num_metric_periods, principal.asset.hostname: principal.asset.hostname))
     $in_obs = sum(network.received_bytes)
     $in_avg = max(metrics.network_bytes_inbound(period: 1d, window: 30d, metric: value_sum, agg: avg, principal.asset.hostname: principal.asset.hostname))
     $in_std = max(metrics.network_bytes_inbound(period: 1d, window: 30d, metric: value_sum, agg: stddev, principal.asset.hostname: principal.asset.hostname))
+    $in_days = max(metrics.network_bytes_inbound(period: 1d, window: 30d, metric: value_sum, agg: num_metric_periods, principal.asset.hostname: principal.asset.hostname))
 }
 $asset = $s1.asset
 match: $asset by 1d
 outcome:
   $out_std = max($s1.out_std)
+  $out_days = max($s1.out_days)
+  $out_floor = 44979.0
+  $safe_out_std = if($out_std > $out_floor, $out_std, $out_floor)
+  $raw_z_out = (max($s1.out_obs) - max($s1.out_avg)) / $safe_out_std
+  $z_outbound = if($out_days >= 7, $raw_z_out, 0.0)
   $in_std = max($s1.in_std)
-  $z_outbound = (max($s1.out_obs) - max($s1.out_avg)) / if($out_std > 0, $out_std, 1.0)
-  $z_inbound = (max($s1.in_obs) - max($s1.in_avg)) / if($in_std > 0, $in_std, 1.0)
-""",
-      "DNS Resolution": """
+  $in_days = max($s1.in_days)
+  $in_floor = 28276845.0
+  $safe_in_std = if($in_std > $in_floor, $in_std, $in_floor)
+  $raw_z_in = (max($s1.in_obs) - max($s1.in_avg)) / $safe_in_std
+  $z_inbound = if($in_days >= 7, $raw_z_in, 0.0)
+"""),
+      "DNS Resolution": _RadarQueryTemplate("""
 // Sector: DNS Failures
 stage s1 {
     (network.dns.questions.name != "" or network.dns.answers.name != "" or network.dns.id != 0)
@@ -545,14 +661,20 @@ stage s1 {
     $dns_obs = count(metadata.id)
     $dns_avg = max(metrics.dns_queries_fail(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.asset.hostname: principal.asset.hostname))
     $dns_std = max(metrics.dns_queries_fail(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.asset.hostname: principal.asset.hostname))
+    $dns_days = max(metrics.dns_queries_fail(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.asset.hostname: principal.asset.hostname))
 }
 $asset = $s1.asset
 match: $asset by 1d
 outcome:
+  $dns_avg = max($s1.dns_avg)
   $dns_std = max($s1.dns_std)
-  $z_dns_fail = (max($s1.dns_obs) - max($s1.dns_avg)) / if($dns_std > 0, $dns_std, 1.0)
-""",
-      "Web & Proxy Activity": """
+  $dns_days = max($s1.dns_days)
+  $dns_floor = math.sqrt(if($dns_avg > 1.0, $dns_avg, 1.0))
+  $safe_dns_std = if($dns_std > $dns_floor, $dns_std, $dns_floor)
+  $raw_z_dns = (max($s1.dns_obs) - $dns_avg) / $safe_dns_std
+  $z_dns_fail = if($dns_days >= 7, $raw_z_dns, 0.0)
+"""),
+      "Web & Proxy Activity": _RadarQueryTemplate("""
 // Sector: Web & Proxy Activity
 stage s1 {
     (network.http.method != "" or network.http.user_agent != "" or network.http.response_code != 0 or network.http.referral_url != "")
@@ -564,14 +686,20 @@ stage s1 {
     $http_obs = count(metadata.id)
     $http_avg = max(metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.asset.hostname: principal.asset.hostname))
     $http_std = max(metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.asset.hostname: principal.asset.hostname))
+    $http_days = max(metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.asset.hostname: principal.asset.hostname))
 }
 $asset = $s1.asset
 match: $asset by 1d
 outcome:
+  $http_avg = max($s1.http_avg)
   $http_std = max($s1.http_std)
-  $z_http = (max($s1.http_obs) - max($s1.http_avg)) / if($http_std > 0, $http_std, 1.0)
-""",
-      "Security & EDR Alerts": """
+  $http_days = max($s1.http_days)
+  $http_floor = math.sqrt(if($http_avg > 1.0, $http_avg, 1.0))
+  $safe_http_std = if($http_std > $http_floor, $http_std, $http_floor)
+  $raw_z_http = (max($s1.http_obs) - $http_avg) / $safe_http_std
+  $z_http = if($http_days >= 7, $raw_z_http, 0.0)
+"""),
+      "Security & EDR Alerts": _RadarQueryTemplate("""
 // Sector: Security & EDR Alerts
 stage alerts_risk {
     (metadata.log_type = "CB_EDR" or metadata.log_type = "CS_EDR" or metadata.log_type = "MICROSOFT_GRAPH_ALERT" or metadata.log_type = "SENTINELONE_ALERTS")
@@ -585,7 +713,11 @@ stage alerts_risk {
     $obs = count(metadata.id)
     $avg = max(metrics.alert_event_name_count(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.asset.hostname: principal.asset.hostname, security_result.rule_name: security_result.rule_name))
     $std = max(metrics.alert_event_name_count(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.asset.hostname: principal.asset.hostname, security_result.rule_name: security_result.rule_name))
-    $z = ($obs - $avg) / if($std > 0, $std, 1.0)
+    $days = max(metrics.alert_event_name_count(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.asset.hostname: principal.asset.hostname, security_result.rule_name: security_result.rule_name))
+    $flr = math.sqrt(if($avg > 1.0, $avg, 1.0))
+    $safe_std = if($std > $flr, $std, $flr)
+    $raw_z = ($obs - $avg) / $safe_std
+    $z = if($days >= 7, $raw_z, 0.0)
 }
 $asset = $alerts_risk.asset
 match: $asset by 1d
@@ -594,7 +726,7 @@ outcome:
   $z_alerts = max($alerts_risk.z)
   $alerts_obs = max($alerts_risk.obs)
   $alerts_avg = max($alerts_risk.avg)
-""",
+"""),
   }
 
   def __init__(self, secops_client: Optional[Any] = None):

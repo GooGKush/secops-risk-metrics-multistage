@@ -45,8 +45,9 @@ stage stage1_extract {
         period: 1d, window: 30d, metric: {{metric_type_val}}, agg: sum,
         {{dimension_key}}: {{dimension_key}} {{extra_dimensions}}
     ))
-    // Per-day standardized CUSUM slack excess (k = 0.5 sigma)
-    $daily_z = ($observed_val - $historical_avg) / if($historical_stddev > 0, $historical_stddev, 1.0)
+    // Per-day standardized CUSUM slack excess (k = 0.5 sigma) with D8 dispersion floor
+    $dispersion_floor = math.sqrt(if($historical_avg > 1.0, $historical_avg, 1.0))
+    $daily_z = ($observed_val - $historical_avg) / if($historical_stddev > $dispersion_floor, $historical_stddev, $dispersion_floor)
     $deviation = $daily_z - 0.5
     $daily_excess = if($deviation > 0.0, $deviation, 0.0)
 }
@@ -74,7 +75,7 @@ outcome:
 
 // Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
 condition:
-  $cusum_drift_score > 0.0 and $drift_days >= 2
+  $active_days >= {{min_baseline_days}} and $cusum_drift_score > 0.0 and $drift_days >= 2
 
 order:
   $cusum_drift_score desc

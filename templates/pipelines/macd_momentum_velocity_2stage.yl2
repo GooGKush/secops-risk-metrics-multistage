@@ -61,7 +61,8 @@ outcome:
 
   // 1. Fast Spine: Instantaneous Standardized Deviation (Daily Velocity)
   $fast_diff = $observed - $hist_avg
-  $safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)
+  $dispersion_floor = math.sqrt(if($hist_avg > 1.0, $hist_avg, 1.0))
+  $safe_stddev = if($hist_stddev > $dispersion_floor, $hist_stddev, $dispersion_floor)
   $fast_z = $fast_diff / $safe_stddev
 
   // 2. Slow Spine: Historical Baseline Departure (Reference Anchor)
@@ -80,7 +81,7 @@ outcome:
 
 // Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
 condition:
-  $fast_z >= {{anomaly_threshold}}
+  $active_days >= {{min_baseline_days}} and $fast_z >= {{anomaly_threshold}}
 
 order:
   $macd_momentum_score desc

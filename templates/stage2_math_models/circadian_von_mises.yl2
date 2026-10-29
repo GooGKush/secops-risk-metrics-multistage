@@ -18,7 +18,8 @@ outcome:
   // 1. Normalize 24-hour baseline to 1-hour expectation (mean / 24.0, stddev / math.sqrt(24) ≈ 4.899)
   $avg_hourly = $hist_avg_daily / 24.0
   $scaled_hourly_sd = $hist_stddev_daily / 4.899
-  $safe_stddev_hourly = if($scaled_hourly_sd > 0, $scaled_hourly_sd, 1.0)
+  $dispersion_floor = math.sqrt(if($avg_hourly > 1.0, $avg_hourly, 1.0))
+  $safe_stddev_hourly = if($scaled_hourly_sd > $dispersion_floor, $scaled_hourly_sd, $dispersion_floor)
   $hourly_diff = $observed_hour - $avg_hourly
   $hourly_z = $hourly_diff / $safe_stddev_hourly
 
@@ -38,7 +39,7 @@ outcome:
 
 // Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
 condition:
-  $circadian_threat_score >= {{anomaly_threshold}}
+  $active_days >= {{min_baseline_days}} and $circadian_threat_score >= {{anomaly_threshold}}
 
 order:
   $circadian_threat_score desc

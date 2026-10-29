@@ -97,7 +97,8 @@ outcome:
   $observed_queries = max($stage1_query_baseline.observed_val)
   $mean_queries = max($stage1_query_baseline.hist_mean)
   $stddev_queries = max($stage1_query_baseline.hist_stddev)
-  $z_score = ($observed_queries - $mean_queries) / if($stddev_queries > 0, $stddev_queries, 1.0)
+  $dispersion_floor = math.sqrt(if($mean_queries > 1.0, $mean_queries, 1.0))
+  $z_score = ($observed_queries - $mean_queries) / if($stddev_queries > $dispersion_floor, $stddev_queries, $dispersion_floor)
   $active_baseline_days = max($stage1_query_baseline.hist_active_days)
 
   $fleet_prevalence = max($stage2_domain_derived_context.enterprise_rolling_max)

@@ -47,7 +47,8 @@ outcome:
   $baseline_mean = max($stage1_extract.historical_avg)
   $baseline_stddev = max($stage1_extract.historical_stddev)
   $active_days = max($stage1_extract.active_baseline_days)
-  $safe_stddev = if($baseline_stddev > 0, $baseline_stddev, 1.0)
+  $dispersion_floor = 44979.0
+  $safe_stddev = if($baseline_stddev > $dispersion_floor, $baseline_stddev, $dispersion_floor)
   $personal_z = ($observed_24h - $baseline_mean) / $safe_stddev
 
 condition:

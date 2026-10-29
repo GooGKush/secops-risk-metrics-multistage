@@ -24,7 +24,8 @@ outcome:
   $stddev_hourly = $scaled_hourly_sd
 
   // Conditional zero-dispersion floor
-  $expected_hourly_sd = if($stddev_hourly > 0, $stddev_hourly, 1.0)
+  $dispersion_floor = math.sqrt(if($avg_hourly > 1.0, $avg_hourly, 1.0))
+  $expected_hourly_sd = if($stddev_hourly > $dispersion_floor, $stddev_hourly, $dispersion_floor)
   $safe_stddev_hourly = $expected_hourly_sd
   $hourly_diff = $observed_hour - $avg_hourly
   $hourly_z = $hourly_diff / $safe_stddev_hourly
@@ -37,7 +38,7 @@ outcome:
 
 // Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
 condition:
-  $hourly_z >= {{anomaly_threshold}}
+  $active_days >= {{min_baseline_days}} and $hourly_z >= {{anomaly_threshold}}
 
 order:
   $hourly_z desc

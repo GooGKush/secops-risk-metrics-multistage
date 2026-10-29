@@ -59,7 +59,8 @@ stage sector_a {
     $obs = {{sector_observation_agg}}
     $avg = max({{sector_metric_func_avg}})
     $std = max({{sector_metric_func_stddev}})
-    $z = ($obs - $avg) / if($std > 0, $std, 1.0)
+    $dispersion_floor = math.sqrt(if($avg > 1.0, $avg, 1.0))
+    $z = ($obs - $avg) / if($std > $dispersion_floor, $std, $dispersion_floor)
 }
 
 // Stage 2: Host -> destination contacts (today only)

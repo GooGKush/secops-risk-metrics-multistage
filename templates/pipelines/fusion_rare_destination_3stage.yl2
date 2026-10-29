@@ -53,7 +53,8 @@ stage sector_a {
     $obs = {{sector_a_observation_agg}}
     $avg = max({{sector_a_metric_func_avg}})
     $std = max({{sector_a_metric_func_stddev}})
-    $z = ($obs - $avg) / if($std > 0, $std, 1.0)
+    $a_floor = math.sqrt(if($avg > 1.0, $avg, 1.0))
+    $z = ($obs - $avg) / if($std > $a_floor, $std, $a_floor)
 }
 
 // Stage 2: Sector B personal baseline per (host, destination) (today only)
@@ -72,7 +73,8 @@ stage sector_b_detail {
     $obs = {{sector_b_observation_agg}}
     $avg = max({{sector_b_metric_func_avg}})
     $std = max({{sector_b_metric_func_stddev}})
-    $z = ($obs - $avg) / if($std > 0, $std, 1.0)
+    $b_floor = math.sqrt(if($avg > 1.0, $avg, 1.0))
+    $z = ($obs - $avg) / if($std > $b_floor, $std, $b_floor)
 }
 
 // Stage 3: Entity Graph rarity filter (matched by destination key only)

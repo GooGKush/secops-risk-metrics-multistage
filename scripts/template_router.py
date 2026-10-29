@@ -6,6 +6,7 @@ __version__ = "2.1.1"
 import datetime
 from pathlib import Path
 import re
+import statistics
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 from . import malachite_catalog as mc
 from .preflight_validator import (
@@ -25,6 +26,181 @@ from .ueba_constants import (
     DEFAULT_MIN_BASELINE_DAYS,
     DEFAULT_ROBUST_THRESHOLD,
 )
+
+# D8 / WS1-04: Per-metric fleet byte dispersion floors (median mature-entity stddev in bytes).
+DEFAULT_FLEET_BYTE_DISPERSION_FLOORS: Dict[str, float] = {
+    "network_bytes_outbound": 44979.0,
+    "dns_bytes_outbound": 50450.0,
+    "network_bytes_total": 303176.0,
+    "network_bytes_inbound": 28276845.0,
+    "workspace_network_bytes_outbound": 10240.0,
+    "workspace_network_bytes_total": 10240.0,
+}
+
+
+def resolve_byte_dispersion_floor(
+    metric_name: Optional[str],
+    byte_dispersion_floor: Optional[float] = None,
+) -> Optional[float]:
+  """Resolves the per-metric byte dispersion floor (or caller override) for value_sum metrics."""
+  if byte_dispersion_floor is not None:
+    return float(byte_dispersion_floor)
+  if not metric_name:
+    return None
+  if metric_name in DEFAULT_FLEET_BYTE_DISPERSION_FLOORS:
+    return DEFAULT_FLEET_BYTE_DISPERSION_FLOORS[metric_name]
+  try:
+    if mc.baseline_semantics(metric_name).metric_arg == "value_sum":
+      return 10240.0
+  except Exception:  # pylint: disable=broad-exception-caught
+    pass
+  return None
+
+
+def _apply_byte_dispersion_floor(
+    rendered: str,
+    metric_name: Optional[str],
+    byte_dispersion_floor: Optional[float] = None,
+    floor_vars: Sequence[str] = ("$dispersion_floor", "$personal_floor"),
+) -> str:
+  """Replaces count sqrt(max(avg, 1.0)) dispersion floor assignments with the byte floor on byte metrics."""
+  floor = resolve_byte_dispersion_floor(metric_name, byte_dispersion_floor)
+  if floor is None:
+    return rendered
+  out = rendered
+  for var in floor_vars:
+    escaped = re.escape(var.lstrip("$"))
+    out = re.sub(
+        rf"(\${escaped}\s*=\s*)math\.sqrt\([^\n]+\)",
+        rf"\g<1>{floor}",
+        out,
+    )
+  return out
+
+
+def build_byte_dispersion_floor_probe(
+    metric_name: str,
+    entity_type: EntityType = EntityType.ASSET,
+    entity_field: Optional[str] = None,
+    min_baseline_days: int = DEFAULT_MIN_BASELINE_DAYS,
+) -> str:
+  """Builds a read-only 2-stage YARA-L probe to measure the tenant fleet byte stddev distribution."""
+  audit = PreFlightValidator.audit(
+      target_metric=metric_name,
+      entity_type=entity_type,
+      min_baseline_days=min_baseline_days,
+      identifier_field=entity_field,
+  )
+  target_field = audit["target_field"]
+  metric_arg = audit["metric_arg"]
+  filter_block = "\n    ".join(audit["event_filter"])
+  return (
+      f"// Goal: Fleet byte dispersion floor probe for {metric_name}\n"
+      "stage stage1_probe {\n"
+      f"    {filter_block}\n"
+      f"    {target_field} = $entity\n"
+      "    $entity != \"\"\n\n"
+      "  match:\n"
+      "    $entity by 1d\n\n"
+      "  outcome:\n"
+      f"    $hist_stddev = max(metrics.{metric_name}(\n"
+      f"        period: 1d, window: 30d, metric: {metric_arg}, agg: stddev,\n"
+      f"        {target_field}: {target_field}\n"
+      "    ))\n"
+      f"    $active_days = max(metrics.{metric_name}(\n"
+      f"        period: 1d, window: 30d, metric: {metric_arg}, agg: num_metric_periods,\n"
+      f"        {target_field}: {target_field}\n"
+      "    ))\n"
+      "}\n\n"
+      "$entity = $stage1_probe.entity\n\n"
+      "match:\n"
+      "  $entity\n\n"
+      "outcome:\n"
+      "  $hist_stddev = max($stage1_probe.hist_stddev)\n"
+      "  $active_days = max($stage1_probe.active_days)\n\n"
+      "condition:\n"
+      f"  $active_days >= {int(min_baseline_days)} and $hist_stddev > 0.0\n\n"
+      "order:\n"
+      "  $hist_stddev asc\n"
+  )
+
+
+def _extract_probe_rows(payload: Any) -> List[Dict[str, Any]]:
+  """Extracts normalized row dicts from either a list of dicts or a SecOps stats.results payload."""
+  if isinstance(payload, list):
+    return [r for r in payload if isinstance(r, dict)]
+  if not isinstance(payload, dict):
+    return []
+  cols = (payload.get("stats") or {}).get("results") or payload.get("results") or []
+  if not isinstance(cols, list) or not cols:
+    return []
+  if all(isinstance(c, dict) and "column" not in c for c in cols):
+    return cols
+  col_values: Dict[str, List[Any]] = {}
+  max_len = 0
+  for col in cols:
+    if not isinstance(col, dict) or "column" not in col:
+      continue
+    name = str(col["column"]).lstrip("$")
+    vals: List[Any] = []
+    for cell in col.get("values") or []:
+      inner = cell.get("value", cell) if isinstance(cell, dict) else cell
+      if isinstance(inner, dict):
+        for k in ("doubleVal", "int64Val", "uint64Val", "stringVal", "boolVal"):
+          if k in inner:
+            vals.append(inner[k])
+            break
+        else:
+          vals.append(None)
+      else:
+        vals.append(inner)
+    col_values[name] = vals
+    max_len = max(max_len, len(vals))
+  rows: List[Dict[str, Any]] = []
+  for idx in range(max_len):
+    rows.append({k: (v[idx] if idx < len(v) else None) for k, v in col_values.items()})
+  return rows
+
+
+def parse_byte_dispersion_floor_probe(
+    payload: Any,
+    metric_name: Optional[str] = None,
+    fallback: float = 10240.0,
+    min_baseline_days: int = DEFAULT_MIN_BASELINE_DAYS,
+) -> float:
+  """Computes the median positive stddev across mature entities (active_days >= min_baseline_days)."""
+  rows = _extract_probe_rows(payload)
+  mature_sds: List[float] = []
+  for row in rows:
+    days_raw = None
+    for dk in ("active_days", "hist_active_days", "historical_active_days", "active_baseline_days", "n"):
+      if dk in row and row[dk] is not None:
+        days_raw = row[dk]
+        break
+    if days_raw is not None:
+      try:
+        if float(days_raw) < float(min_baseline_days):
+          continue
+      except (TypeError, ValueError):
+        continue
+    sd_raw = None
+    for sk in ("hist_stddev", "stddev", "baseline_stddev", "historical_stddev", "sd"):
+      if sk in row and row[sk] is not None:
+        sd_raw = row[sk]
+        break
+    if sd_raw is None:
+      continue
+    try:
+      sd_val = float(sd_raw)
+    except (TypeError, ValueError):
+      continue
+    if sd_val > 0.0:
+      mature_sds.append(sd_val)
+  if mature_sds:
+    return float(statistics.median(mature_sds))
+  if metric_name and metric_name in DEFAULT_FLEET_BYTE_DISPERSION_FLOORS:
+    return DEFAULT_FLEET_BYTE_DISPERSION_FLOORS[metric_name]
+  return float(fallback)
 
 
 def _fill_event_filter(rendered: str, slot: str, lines: Sequence[str], indent: str = "    ") -> str:
@@ -301,24 +477,26 @@ class MultiStageTemplateRouter:
       order_match = re.search(r"^order:\s*\n\s*([$][a-zA-Z0-9_]+)", rendered, re.M)
       gate_var = order_match.group(1) if order_match else default_score
 
-    override = None
     if condition_expression:
-      override = condition_expression
-    elif min_threshold is not None and max_threshold is not None:
-      override = f"{gate_var} >= {min_threshold} and {gate_var} < {max_threshold}"
-    elif min_threshold is not None:
-      override = f"{gate_var} >= {min_threshold}"
-    elif max_threshold is not None:
-      override = f"{gate_var} <= {max_threshold}"
+      if cond or not only_if_template_gate:
+        rendered = cls._set_root_condition(rendered, condition_expression)
+    else:
+      override = None
+      if min_threshold is not None and max_threshold is not None:
+        override = f"{gate_var} >= {min_threshold} and {gate_var} < {max_threshold}"
+      elif min_threshold is not None:
+        override = f"{gate_var} >= {min_threshold}"
+      elif max_threshold is not None:
+        override = f"{gate_var} <= {max_threshold}"
 
-    if override:
-      if clause:
-        start, end, _, is_whole = clause
-        compound = re.search(r"\s(?:and|or)\s", override) is not None
-        replacement = override if (is_whole or not compound) else f"({override})"
-        rendered = rendered[:start] + replacement + rendered[end:]
-      elif not only_if_template_gate:
-        rendered = cls._merge_root_condition(rendered, override)
+      if override:
+        if clause:
+          start, end, _, is_whole = clause
+          compound = re.search(r"\s(?:and|or)\s", override) is not None
+          replacement = override if (is_whole or not compound) else f"({override})"
+          rendered = rendered[:start] + replacement + rendered[end:]
+        elif not only_if_template_gate:
+          rendered = cls._merge_root_condition(rendered, override)
 
     values = {
         "anomaly_threshold": anomaly_threshold,
@@ -383,6 +561,7 @@ class MultiStageTemplateRouter:
       rendered = rendered.replace(f"{{{{sector_{tag}_observed_agg}}}}", sem.observed_agg)
       rendered = rendered.replace(f"{{{{sector_{tag}_metric_arg}}}}", sem.metric_arg)
       rendered = rendered.replace(f"{{{{sector_{tag}_metric}}}}", spec.metric)
+      rendered = _apply_byte_dispersion_floor(rendered, spec.metric, floor_vars=(f"${tag}_floor",))
     rendered = rendered.replace("{{min_baseline_days}}", str(min_baseline_days))
     # The template's slot guide is for agents filling slots by hand; it is noise once rendered.
     rendered = re.sub(r"^// SLOT FILLING:.*?(?=^// ====)", "", rendered, flags=re.M | re.S)
@@ -530,6 +709,7 @@ class MultiStageTemplateRouter:
       fold_change_threshold: float = DEFAULT_FOLD_CHANGE_THRESHOLD,
       robust_threshold: float = DEFAULT_ROBUST_THRESHOLD,
       include_significance_gate: bool = True,
+      byte_dispersion_floor: Optional[float] = None,
   ) -> str:
     """Renders stage1 extractor + stage2 math model.
 
@@ -670,6 +850,11 @@ class MultiStageTemplateRouter:
       stage2_raw = self._expand_mad_keys(stage2_raw, primary_var, group_keys[1:])
 
     stage2_rendered = stage2_raw.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
+    stage2_rendered = _apply_byte_dispersion_floor(
+        stage2_rendered,
+        target_metric,
+        byte_dispersion_floor=byte_dispersion_floor,
+    )
 
     # Noise Level & Significance Threshold Conditioning: resolve the model's default root gate and
     # apply any analyst override (replaces the default gate clause; other clauses are kept).
@@ -732,6 +917,7 @@ class MultiStageTemplateRouter:
       fold_change_threshold: float = DEFAULT_FOLD_CHANGE_THRESHOLD,
       fusion_threshold_sq: float = DEFAULT_FUSION_THRESHOLD_SQ,
       include_significance_gate: bool = True,
+      byte_dispersion_floor: Optional[float] = None,
   ) -> str:
     """Renders 3-Stage and 4-Stage advanced DAG pipelines, then resolves the root significance gate.
 
@@ -755,6 +941,7 @@ class MultiStageTemplateRouter:
         target_metrics=target_metrics,
         identifier_field=identifier_field,
         fusion_threshold_sq=fusion_threshold_sq,
+        byte_dispersion_floor=byte_dispersion_floor,
     )
     out = self._apply_significance_gate(
         rendered,
@@ -788,6 +975,7 @@ class MultiStageTemplateRouter:
       target_metrics: Optional[List[str]] = None,
       identifier_field: Optional[str] = None,
       fusion_threshold_sq: float = DEFAULT_FUSION_THRESHOLD_SQ,
+      byte_dispersion_floor: Optional[float] = None,
   ) -> str:
     """Renders 3-Stage and 4-Stage advanced DAG pipelines (gate placeholders left for build_pipeline_query)."""
     if pipeline_type in (PipelineArchitecture.MULTI_SECTOR_FUSION_4STAGE, PipelineArchitecture.DUAL_SECTOR_FUSION_3STAGE):
@@ -899,6 +1087,7 @@ class MultiStageTemplateRouter:
           f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: num_metric_periods, {audit['target_field']}: {audit['target_field']})"
       )
       rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
+      rendered = _apply_byte_dispersion_floor(rendered, target_metric, byte_dispersion_floor=byte_dispersion_floor)
       return rendered + "\n"
 
     elif pipeline_type == PipelineArchitecture.EMPIRICAL_BAYES_3STAGE:
@@ -1008,6 +1197,7 @@ class MultiStageTemplateRouter:
           "{{target_metric_func_stddev}}",
           f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: stddev, {audit['target_field']}: {audit['target_field']})"
       )
+      rendered = _apply_byte_dispersion_floor(rendered, target_metric, byte_dispersion_floor=byte_dispersion_floor)
       if hypothesis_goal:
         rendered = f"// Goal: {hypothesis_goal}\n" + rendered
       return rendered + "\n"
@@ -1072,6 +1262,7 @@ class MultiStageTemplateRouter:
             f"{{{{m{idx}_metric_func_stddev}}}}",
             f"metrics.{m}(period: 1d, window: 30d, {metric_type_arg}, agg: stddev, {triad_audit['target_field']}: {triad_audit['target_field']})"
         )
+        rendered = _apply_byte_dispersion_floor(rendered, m, floor_vars=(f"$m{idx}_floor",))
 
       if hypothesis_goal:
         rendered = f"// Goal: {hypothesis_goal}\n" + rendered
@@ -1129,6 +1320,7 @@ class MultiStageTemplateRouter:
       rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
       rendered = rendered.replace("{{max_signature_diversity}}", str(max_signature_diversity))
       rendered = rendered.replace("{{min_raw_events}}", str(min_raw_events))
+      rendered = _apply_byte_dispersion_floor(rendered, target_metric, byte_dispersion_floor=byte_dispersion_floor)
 
       if hypothesis_goal:
         rendered = f"// Goal: {hypothesis_goal}\n" + rendered
@@ -1188,6 +1380,7 @@ class MultiStageTemplateRouter:
       rendered = rendered.replace("{{max_diversity_ratio}}", "0.10")
       rendered = rendered.replace("{{min_concentration_ratio}}", "0.75")
       rendered = rendered.replace("{{min_raw_events}}", "5")
+      rendered = _apply_byte_dispersion_floor(rendered, target_metric, byte_dispersion_floor=byte_dispersion_floor)
 
       if hypothesis_goal:
         rendered = f"// Goal: {hypothesis_goal}\n" + rendered
@@ -1245,6 +1438,7 @@ class MultiStageTemplateRouter:
       rendered = rendered.replace("{{min_raw_hits}}", "3")
       rendered = rendered.replace("{{max_dormant_days}}", "2")
       rendered = rendered.replace("{{min_breadth_count}}", "3")
+      rendered = _apply_byte_dispersion_floor(rendered, target_metric, byte_dispersion_floor=byte_dispersion_floor)
 
       if hypothesis_goal:
         rendered = f"// Goal: {hypothesis_goal}\n" + rendered
@@ -1478,8 +1672,10 @@ class MultiStageTemplateRouter:
           f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: num_metric_periods, principal.asset.hostname: principal.asset.hostname)"
       )
       rendered = rendered.replace("{{anomaly_threshold}}", str(anomaly_threshold))
+      rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
       rendered = rendered.replace("{{max_asset_age_days}}", "7.0")
       rendered = rendered.replace("{{today_date}}", _today_date())
+      rendered = _apply_byte_dispersion_floor(rendered, target_metric, byte_dispersion_floor=byte_dispersion_floor)
       if hypothesis_goal:
         rendered = f"// Goal: {hypothesis_goal}\n" + rendered
       return rendered + "\n"
@@ -1506,6 +1702,8 @@ class MultiStageTemplateRouter:
       rendered = rendered.replace("{{metric_type_val}}", metric_type_val)
       rendered = rendered.replace("{{dimension_key}}", audit["target_field"])
       rendered = rendered.replace("{{extra_dimensions}}", "")
+      rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
+      rendered = _apply_byte_dispersion_floor(rendered, target_metric, byte_dispersion_floor=byte_dispersion_floor)
       if hypothesis_goal:
         rendered = f"// Goal: {hypothesis_goal}\n" + rendered
       return rendered + "\n"
@@ -1532,6 +1730,8 @@ class MultiStageTemplateRouter:
       rendered = rendered.replace("{{metric_type_val}}", metric_type_val)
       rendered = rendered.replace("{{dimension_key}}", audit["target_field"])
       rendered = rendered.replace("{{extra_dimensions}}", "")
+      rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
+      rendered = _apply_byte_dispersion_floor(rendered, target_metric, byte_dispersion_floor=byte_dispersion_floor)
       if hypothesis_goal:
         rendered = f"// Goal: {hypothesis_goal}\n" + rendered
       return rendered + "\n"
@@ -1571,6 +1771,7 @@ class MultiStageTemplateRouter:
       rendered = rendered.replace("{{ecg_prevalence_path}}", "entity.domain.prevalence")
       rendered = rendered.replace("{{max_fleet_prevalence}}", "3")
       rendered = rendered.replace("{{today_date}}", _today_date())
+      rendered = _apply_byte_dispersion_floor(rendered, target_metric, byte_dispersion_floor=byte_dispersion_floor)
       if hypothesis_goal:
         rendered = f"// Goal: {hypothesis_goal}\n" + rendered
       return rendered + "\n"
@@ -1630,6 +1831,8 @@ class MultiStageTemplateRouter:
       rendered = rendered.replace("{{ecg_prevalence_path}}", "entity.domain.prevalence")
       rendered = rendered.replace("{{max_fleet_prevalence}}", "3")
       rendered = rendered.replace("{{today_date}}", _today_date())
+      rendered = _apply_byte_dispersion_floor(rendered, m_a, floor_vars=("$a_floor",))
+      rendered = _apply_byte_dispersion_floor(rendered, m_b, floor_vars=("$b_floor",))
       if hypothesis_goal:
         rendered = f"// Goal: {hypothesis_goal}\n" + rendered
       return rendered + "\n"
@@ -1646,6 +1849,7 @@ class MultiStageTemplateRouter:
           max_threshold=max_threshold,
           condition_expression=condition_expression,
           identifier_field=identifier_field,
+          byte_dispersion_floor=byte_dispersion_floor,
       )
     else:
       raise ValueError(f"Unsupported pipeline type: {pipeline_type}")
@@ -1785,7 +1989,8 @@ class MultiStageTemplateRouter:
         "        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,\n"
         f"        {metric_args}\n"
         "    ))\n"
-        "    $fail_z = ($failed_obs - $hist_fail_avg) / if($hist_fail_stddev > 0, $hist_fail_stddev, 1.0)\n"
+        "    $dispersion_floor = math.sqrt(if($hist_fail_avg > 1.0, $hist_fail_avg, 1.0))\n"
+        "    $fail_z = ($failed_obs - $hist_fail_avg) / if($hist_fail_stddev > $dispersion_floor, $hist_fail_stddev, $dispersion_floor)\n"
         "}\n\n"
         "stage stage2_total_traffic {\n"
         f"    {total_filter_block}\n"
@@ -1802,12 +2007,14 @@ class MultiStageTemplateRouter:
         f"  {match_keys} by 1d\n\n"
         "outcome:\n"
         "  $fail_z = max($stage1_http_failure_surge.fail_z)\n"
+        "  $active_days = max($stage1_http_failure_surge.hist_fail_active_days)\n"
         "  $observed_fails = max($stage1_http_failure_surge.failed_obs)\n"
         "  $total_events = max($stage2_total_traffic.total_obs)\n"
         "  $fail_ratio = $observed_fails / ($total_events + 0.001)\n"
         "  $recon_score = $fail_z * $fail_ratio\n\n"
         "condition:\n"
-        f"  $fail_z >= {anomaly_threshold}\n"
+        f"  $active_days >= {audit['min_baseline_days']}\n"
+        f"  and $fail_z >= {anomaly_threshold}\n"
         f"  and $fail_ratio >= {min_fail_ratio}\n\n"
         "order:\n"
         "  $recon_score desc\n"
@@ -1870,7 +2077,8 @@ class MultiStageTemplateRouter:
         "        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,\n"
         f"        {ent_field}: {ent_field}\n"
         "    ))\n"
-        "    $flow_z = ($observed_flows - $hist_flow_avg) / if($hist_flow_stddev > 0, $hist_flow_stddev, 1.0)\n"
+        "    $dispersion_floor = math.sqrt(if($hist_flow_avg > 1.0, $hist_flow_avg, 1.0))\n"
+        "    $flow_z = ($observed_flows - $hist_flow_avg) / if($hist_flow_stddev > $dispersion_floor, $hist_flow_stddev, $dispersion_floor)\n"
         "    $flow_cv = $hist_flow_stddev / if($hist_flow_avg > 0, $hist_flow_avg, 1.0)\n"
         "    $bytes_per_flow = $observed_bytes / ($observed_flows + 0.001)\n"
         "}\n\n"
@@ -1959,7 +2167,9 @@ class MultiStageTemplateRouter:
           "        principal.process.file.sha256: principal.process.file.sha256,\n"
           "        security_result.rule_name: security_result.rule_name\n"
           "    ))\n"
-          "    $d_z = ($d_obs - $d_mu) / if($d_sigma > 0, $d_sigma, 1.0)\n"
+          "    $d_floor = math.sqrt(if($d_mu > 1.0, $d_mu, 1.0))\n"
+          "    $d_raw_z = ($d_obs - $d_mu) / if($d_sigma > $d_floor, $d_sigma, $d_floor)\n"
+          "    $d_z = if($d_days >= 7, $d_raw_z, 0.0)\n"
           "    $d_novel = if($d_days = 0, 1, 0)\n"
           "}\n\n"
           "$user = $stage1_alert_detail.user\n"
@@ -2005,7 +2215,9 @@ class MultiStageTemplateRouter:
         "        principal.asset.hostname: principal.asset.hostname,\n"
         "        security_result.rule_name: security_result.rule_name\n"
         "    ))\n"
-        "    $d_z = ($d_obs - $d_mu) / if($d_sigma > 0, $d_sigma, 1.0)\n"
+        "    $d_floor = math.sqrt(if($d_mu > 1.0, $d_mu, 1.0))\n"
+        "    $d_raw_z = ($d_obs - $d_mu) / if($d_sigma > $d_floor, $d_sigma, $d_floor)\n"
+        "    $d_z = if($d_days >= 7, $d_raw_z, 0.0)\n"
         "    $d_novel = if($d_days = 0, 1, 0)\n"
         "}\n\n"
         "$host = $stage1_alert_detail.host\n\n"
@@ -2389,7 +2601,13 @@ class ChainedHuntRouter:
         "      metadata.event_type: metadata.event_type,\n"
         "      principal.asset.hostname: principal.asset.hostname, principal.process.file.sha256: principal.process.file.sha256\n"
         "    ))\n"
-        "    $z_score = ($obs - $mu) / if($sigma > 0, $sigma, 1.0)\n"
+        "    $days = max(metrics.file_executions_total(\n"
+        "      period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,\n"
+        "      metadata.event_type: metadata.event_type,\n"
+        "      principal.asset.hostname: principal.asset.hostname, principal.process.file.sha256: principal.process.file.sha256\n"
+        "    ))\n"
+        "    $dispersion_floor = math.sqrt(if($mu > 1.0, $mu, 1.0))\n"
+        "    $z_score = ($obs - $mu) / if($sigma > $dispersion_floor, $sigma, $dispersion_floor)\n"
         "}\n"
         "\n"
         "$host = $stage1_process_outlier.host\n"
@@ -2400,11 +2618,12 @@ class ChainedHuntRouter:
         "\n"
         "outcome:\n"
         "  $process_z = max($stage1_process_outlier.z_score)\n"
+        "  $active_days = max($stage1_process_outlier.days)\n"
         "  $observed_launches = max($stage1_process_outlier.obs)\n"
         "  $historical_mean = max($stage1_process_outlier.mu)\n"
         "\n"
         "condition:\n"
-        f"  $process_z >= {anomaly_threshold}\n"
+        f"  $active_days >= 7 and $process_z >= {anomaly_threshold}\n"
         "\n"
         "order:\n"
         "  $process_z desc\n"

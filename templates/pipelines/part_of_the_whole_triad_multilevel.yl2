@@ -63,9 +63,12 @@ stage all_entities {
     $m3_p_std = max({{m3_metric_func_stddev}})
 
     // In-Stage Personal Historical Z-Scores across the Triad (Outcomes-in-Outcomes)
-    $z1_personal = ($m1_obs - $m1_p_avg) / if($m1_p_std > 0, $m1_p_std, 1.0)
-    $z2_personal = ($m2_obs - $m2_p_avg) / if($m2_p_std > 0, $m2_p_std, 1.0)
-    $z3_personal = ($m3_obs - $m3_p_avg) / if($m3_p_std > 0, $m3_p_std, 1.0)
+    $m1_floor = math.sqrt(if($m1_p_avg > 1.0, $m1_p_avg, 1.0))
+    $m2_floor = math.sqrt(if($m2_p_avg > 1.0, $m2_p_avg, 1.0))
+    $m3_floor = math.sqrt(if($m3_p_avg > 1.0, $m3_p_avg, 1.0))
+    $z1_personal = ($m1_obs - $m1_p_avg) / if($m1_p_std > $m1_floor, $m1_p_std, $m1_floor)
+    $z2_personal = ($m2_obs - $m2_p_avg) / if($m2_p_std > $m2_floor, $m2_p_std, $m2_floor)
+    $z3_personal = ($m3_obs - $m3_p_avg) / if($m3_p_std > $m3_floor, $m3_p_std, $m3_floor)
 }
 
 // Fleet stage: Enterprise Whole (Macro baseline across the entire fleet)

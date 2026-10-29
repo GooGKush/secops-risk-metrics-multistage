@@ -38,7 +38,8 @@ stage stage1_macro_intensity {
     $hist_stddev = max({{target_metric_func_stddev}})
     $hist_active_days = max({{target_metric_func_active_days}})
 
-    $z_intensity = ($observed_intensity - $hist_mean) / if($hist_stddev > 0, $hist_stddev, 1.0)
+    $dispersion_floor = math.sqrt(if($hist_mean > 1.0, $hist_mean, 1.0))
+    $z_intensity = ($observed_intensity - $hist_mean) / if($hist_stddev > $dispersion_floor, $hist_stddev, $dispersion_floor)
 }
 
 // Stage 2: Micro Telemetry (Axis 2: Contemporary Breadth / Forensic Hits)

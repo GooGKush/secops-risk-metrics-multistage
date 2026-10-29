@@ -63,7 +63,14 @@ from scripts.preflight_validator import (
 )
 from scripts.radar_collector import EntityRadarCollector, MetricSpoke
 from scripts.statistical_validator import StatisticalAntipatternAuditor
-from scripts.template_router import ChainedHuntRouter, MultiStageTemplateRouter
+from scripts.template_router import (
+    DEFAULT_FLEET_BYTE_DISPERSION_FLOORS,
+    ChainedHuntRouter,
+    MultiStageTemplateRouter,
+    build_byte_dispersion_floor_probe,
+    parse_byte_dispersion_floor_probe,
+    resolve_byte_dispersion_floor,
+)
 from scripts.timeline_assembler import TimelineAssembler, cri_from_score, parse_stats_payload
 from scripts.triage_formatter import CommonMarkTriageFormatter
 from scripts.ueba_constants import (
@@ -780,6 +787,7 @@ def compile_hunt_pipeline(
     reference_time: Optional[datetime.datetime] = None,
     today_so_far: bool = False,
     has_run_command: bool = True,
+    byte_dispersion_floor: Optional[float] = None,
     **kwargs: Any,
 ) -> Dict[str, Any]:
   """Compiles a multi-stage YARA-L 2.0 hunt pipeline, pre-flight specification card, and time windows.
@@ -1385,6 +1393,7 @@ def compile_hunt_pipeline(
           scoring_end_date=eff_scoring_end_date,
           fold_change_threshold=eff_fold,
           robust_threshold=eff_robust,
+          byte_dispersion_floor=byte_dispersion_floor,
       )
       audit_info = PreFlightValidator.audit(
           target_metric=primary_metric,
@@ -1720,7 +1729,7 @@ def _normalize_single_row(raw_row: Dict[str, Any]) -> Dict[str, Any]:
   hist_avg = raw_avg if raw_avg is not None else 0.0
   hist_stddev = raw_std if raw_std is not None else 1.0
 
-  active_days = _first_float((
+  active_days_keys = (
       "active_days",
       "hist_active_days",
       "historical_active_days",
@@ -1731,7 +1740,10 @@ def _normalize_single_row(raw_row: Dict[str, Any]) -> Dict[str, Any]:
       "hist_fail_active_days",
       "baseline_days",
       "raw_active_days",
-  ), 30.0)
+  )
+  raw_active_days = _first_float(active_days_keys)
+  has_explicit_active_days = raw_active_days is not None
+  active_days = raw_active_days if raw_active_days is not None else 30.0
 
   score_keys = (
       "modified_z",
@@ -1917,6 +1929,7 @@ def _normalize_single_row(raw_row: Dict[str, Any]) -> Dict[str, Any]:
       "hist_stddev": round(hist_stddev, 2) if hist_stddev is not None else 1.0,
       "historical_stddev": round(hist_stddev, 2) if hist_stddev is not None else 1.0,
       "active_days": int(round(active_days)) if active_days is not None else 30,
+      "has_explicit_active_days": has_explicit_active_days,
       "score_key": matched_key,
       "z_equivalent": round(z_equiv, 4) if z_equiv is not None else None,
       "is_true_sigma": true_sigma,
@@ -2009,6 +2022,20 @@ def _extract_and_normalize_rows(
   return [], {"stats": {"results": []}}
 
 
+_MATURITY_GATED_MODELS: frozenset[StatisticalModel] = frozenset({
+    StatisticalModel.STANDARD_Z_SCORE,
+    StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z,
+    StatisticalModel.COEFFICIENT_OF_VARIATION,
+    StatisticalModel.HOURLY_TEMPORAL_ZSCORE,
+    StatisticalModel.CIRCADIAN_VON_MISES,
+    StatisticalModel.MACD_MOMENTUM_VELOCITY,
+    StatisticalModel.PIECEWISE_CRI,
+    StatisticalModel.FLEET_PREVALENCE_SHIELD,
+    StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD,
+    StatisticalModel.LONGITUDINAL_CUSUM,
+})
+
+
 def render_forensic_dossier(
     rows: Union[None, str, List[Dict[str, Any]], Dict[str, Any], Sequence[Tuple[str, Any]]],
     executed_query: str,
@@ -2025,6 +2052,7 @@ def render_forensic_dossier(
     radar_sector_payloads: Optional[Dict[str, Any]] = None,
     radar_query_texts: Optional[Dict[str, str]] = None,
     today_so_far: bool = False,
+    min_baseline_days: int = DEFAULT_MIN_BASELINE_DAYS,
     **kwargs: Any,
 ) -> Dict[str, Any]:
   """Renders a 6-Section CommonMark Forensic Triage Dossier with CRI scoring, SVG/HTML charts, and next steps.
@@ -2118,6 +2146,8 @@ def render_forensic_dossier(
           "outcome_classification": "AUDIT_BLOCKED",
           "outlier_count": 0,
           "outliers": [],
+          "immature_entities": [],
+          "immature_count": 0,
           "dossier_markdown": blocked_md,
           "markdown": blocked_md,
           "clean_hunt_markdown": blocked_md,
@@ -2128,6 +2158,17 @@ def render_forensic_dossier(
           "output_html_path": None,
           "audit_result": audit_result,
       }
+
+  eff_min_days = max(int(min_baseline_days), 1)
+  immature_entities: List[Dict[str, Any]] = []
+  if stat_model_enum in _MATURITY_GATED_MODELS:
+    mature_outliers: List[Dict[str, Any]] = []
+    for r in outliers:
+      if r.get("has_explicit_active_days") and r.get("active_days", 30) < eff_min_days:
+        immature_entities.append(r)
+      else:
+        mature_outliers.append(r)
+    outliers = mature_outliers
 
   qualifying_outliers = [
       r
@@ -2141,7 +2182,11 @@ def render_forensic_dossier(
   primary_metric_col = (
       outliers[0].get("score_key")
       if (outliers and isinstance(outliers[0].get("score_key"), str))
-      else "z_score"
+      else (
+          immature_entities[0].get("score_key")
+          if (immature_entities and isinstance(immature_entities[0].get("score_key"), str))
+          else "z_score"
+      )
   )
   reduced_data: Dict[str, Any] = {
       "outlier_count": len(outliers),
@@ -2150,13 +2195,27 @@ def render_forensic_dossier(
       "fleet_wave": len(qualifying_outliers) >= 10,
   }
 
-  outcome_class = CommonMarkTriageFormatter.classify_hunt_outcome(reduced_data, anomaly_threshold)
-  next_steps_md = CommonMarkTriageFormatter.build_agentic_next_steps(
-      reduced_data=reduced_data,
-      target_metric=clean_metric,
-      statistical_model=model_label,
-      anomaly_threshold=anomaly_threshold,
-  )
+  if not outliers and immature_entities:
+    outcome_class = "SPARSE_BASELINE"
+    next_steps_md = CommonMarkTriageFormatter.build_agentic_next_steps(
+        reduced_data={
+            "outlier_count": len(immature_entities),
+            "top_outliers": immature_entities,
+            "primary_score_metric": primary_metric_col,
+            "outcome_override": "SPARSE_BASELINE",
+        },
+        target_metric=clean_metric,
+        statistical_model=model_label,
+        anomaly_threshold=anomaly_threshold,
+    )
+  else:
+    outcome_class = CommonMarkTriageFormatter.classify_hunt_outcome(reduced_data, anomaly_threshold)
+    next_steps_md = CommonMarkTriageFormatter.build_agentic_next_steps(
+        reduced_data=reduced_data,
+        target_metric=clean_metric,
+        statistical_model=model_label,
+        anomaly_threshold=anomaly_threshold,
+    )
 
   # 2. Optional 360° Radar Payload (D6 Guardrails G1-G3: raw udm_search sector payloads only)
   radar_payload: Optional[Dict[str, Any]] = None
@@ -2324,7 +2383,15 @@ def render_forensic_dossier(
     pivot_filters = ['metadata.event_type = "USER_LOGIN"']
     target_field = "principal.user.userid" if ent_enum == EntityType.USER else "principal.asset.hostname"
 
-  top_entity = outliers[0]["entity"] if outliers else ("target_user" if ent_enum == EntityType.USER else "target_host")
+  top_entity = (
+      outliers[0]["entity"]
+      if outliers
+      else (
+          immature_entities[0]["entity"]
+          if immature_entities
+          else ("target_user" if ent_enum == EntityType.USER else "target_host")
+      )
+  )
   ui_pivot_query = " AND ".join(pivot_filters + [f'{target_field} = "{top_entity}"'])
   bridge_pivot_query = f'{target_field} in %ueba_hunt_bridge.entity'
   mitre_recon_note = (
@@ -2338,7 +2405,7 @@ def render_forensic_dossier(
       else []
   )
 
-  if not outliers and radar_payload is None:
+  if not outliers and not immature_entities and radar_payload is None:
     # Build 6-section zero-row dossier that preserves both Clean Hunt markers and all 6 section headers
     dossier_lines = [
         f"#### 1. Statistical Outlier Report: `{clean_metric}` ({model_label}){mitre_recon_note} (Nominal Baseline)",
@@ -2404,6 +2471,8 @@ def render_forensic_dossier(
         "outcome_classification": outcome_class,
         "outlier_count": 0,
         "outliers": [],
+        "immature_entities": [],
+        "immature_count": 0,
         "dossier_markdown": dossier_md,
         "markdown": dossier_md,
         "clean_hunt_markdown": clean_hunt_md,
@@ -2420,12 +2489,23 @@ def render_forensic_dossier(
   # 6. Populated 5-Section Dossier
   sparse_callout = None
   min_days_seen = min((r.get("active_days", 30) for r in outliers), default=30)
-  if min_days_seen < 7:
+  if immature_entities:
+    min_immature_days = min(r.get("active_days", 0) for r in immature_entities)
+    immature_preview = ", ".join(
+        f"`{r['entity']}` ($N = {r.get('active_days', 0)}$)" for r in immature_entities[:5]
+    )
     sparse_callout = (
         "> [!WARNING]\n"
-        f"> **⚠️ Sparse Baseline Caution (Minimum Active Days $N = {min_days_seen} < 7$)**:\n"
-        "> One or more ranked entities have fewer than 7 active baseline days in the 30-day window. "
-        "Consider Empirical Bayes shrinkage (`EMPIRICAL_BAYES_3STAGE`) or `TWO_PART_HURDLE`."
+        f"> **⚠️ Sparse Baseline Caution (Immature Entities Excluded from Z-Scoring, Minimum Active Days $N = {min_immature_days} < {eff_min_days}$)**:\n"
+        f"> Excluded **{len(immature_entities)}** immature entity/entities ({immature_preview}) from `{model_label}` Z-alerting per D8 (`$active_days >= {eff_min_days}`). "
+        "Route cold-start / dormant accounts to `TWO_PART_HURDLE` (`two_part_hurdle.yl2`) or `metrics.*` `first_seen` novelty (`PF-11` / `WS1-12`), never parametric Z."
+    )
+  elif min_days_seen < eff_min_days:
+    sparse_callout = (
+        "> [!WARNING]\n"
+        f"> **⚠️ Sparse Baseline Caution (Minimum Active Days $N = {min_days_seen} < {eff_min_days}$)**:\n"
+        f"> One or more ranked entities have fewer than {eff_min_days} active baseline days in the 30-day window. "
+        "Route immature entities to `TWO_PART_HURDLE` (`two_part_hurdle.yl2`), `metrics.*` `first_seen` novelty (`PF-11` / `WS1-12`), or Empirical Bayes shrinkage (`EMPIRICAL_BAYES_3STAGE`)."
     )
 
   any_true_sigma = any(r.get("is_true_sigma") for r in outliers)
@@ -2434,12 +2514,17 @@ def render_forensic_dossier(
       f"| Entity | Observed | 30d Mean (μ) | 30d StdDev (σ) | {score_col_header} | CRI Score (0–100) | Visual Magnitude |",
       "| :----- | :------- | :----------- | :------------- | :------ | :---------------- | :--------------- |",
   ]
-  for r in outliers:
-    score_cell = r.get("score_display") or "N/A"
-    cri_cell = format_cri(r.get("cri"))
+  if outliers:
+    for r in outliers:
+      score_cell = r.get("score_display") or "N/A"
+      cri_cell = format_cri(r.get("cri"))
+      table_lines.append(
+          f"| `{r['entity']}` | `{r['observed']}` | `{r['hist_avg']}` | `{r['hist_stddev']}` | "
+          f"`{score_cell}` | **`{cri_cell}`** ({r['cri_badge']}) | `{r['visual_bar']}` |"
+      )
+  else:
     table_lines.append(
-        f"| `{r['entity']}` | `{r['observed']}` | `{r['hist_avg']}` | `{r['hist_stddev']}` | "
-        f"`{score_cell}` | **`{cri_cell}`** ({r['cri_badge']}) | `{r['visual_bar']}` |"
+        f"| *(0 mature entities; {len(immature_entities)} immature routed to novelty/hurdle)* | `0` | `0.00` | `1.00` | `N/A` | **`N/A`** (INFORMATIONAL) | `░░░░░░░░` |"
     )
 
   projected_cols = sorted(list(outliers[0].keys())) if outliers else []
@@ -2590,6 +2675,8 @@ def render_forensic_dossier(
       "outcome_classification": outcome_class,
       "outlier_count": len(outliers),
       "outliers": outliers,
+      "immature_entities": immature_entities,
+      "immature_count": len(immature_entities),
       "dossier_markdown": dossier_md,
       "markdown": dossier_md,
       "triage_report_markdown": legacy_report_md,

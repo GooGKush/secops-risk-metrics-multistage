@@ -34,7 +34,8 @@ stage stage1_macro_baseline {
     $hist_stddev = max({{target_metric_func_stddev}})
     $hist_active_days = max({{target_metric_func_active_days}})
 
-    $z_score = ($observed_val - $hist_mean) / if($hist_stddev > 0, $hist_stddev, 1.0)
+    $dispersion_floor = math.sqrt(if($hist_mean > 1.0, $hist_mean, 1.0))
+    $z_score = ($observed_val - $hist_mean) / if($hist_stddev > $dispersion_floor, $hist_stddev, $dispersion_floor)
 }
 
 // Stage 2: Parallel Micro-Analysis on Raw Telemetry (UDM_EVENTS)

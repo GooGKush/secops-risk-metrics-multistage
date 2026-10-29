@@ -53,7 +53,8 @@ stage all_entities {
     $personal_std = max({{target_metric_func_stddev}})
 
     // In-Stage Personal Historical Z-Score (Outcomes-in-Outcomes)
-    $z_personal = ($obs - $personal_avg) / if($personal_std > 0, $personal_std, 1.0)
+    $personal_floor = math.sqrt(if($personal_avg > 1.0, $personal_avg, 1.0))
+    $z_personal = ($obs - $personal_avg) / if($personal_std > $personal_floor, $personal_std, $personal_floor)
 }
 
 // >>> TEAM COHORT

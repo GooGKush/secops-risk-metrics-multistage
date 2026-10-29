@@ -182,7 +182,11 @@ class CommonMarkTriageFormatter:
       anomaly_threshold: float = 3.0,
   ) -> str:
     """Generates outcome-driven agentic follow-up recommendations for Pillar 4 or Clean Hunt reports."""
-    outcome = cls.classify_hunt_outcome(reduced_data, anomaly_threshold)
+    outcome = (
+        reduced_data.get("outcome_override")
+        if isinstance(reduced_data, dict) and reduced_data.get("outcome_override")
+        else cls.classify_hunt_outcome(reduced_data, anomaly_threshold)
+    )
     if isinstance(reduced_data, list):
       reduced_data = {"top_outliers": reduced_data}
     outliers = reduced_data.get("top_outliers", [])
@@ -206,9 +210,9 @@ class CommonMarkTriageFormatter:
     elif outcome == "SPARSE_BASELINE":
       lines = [
           f"> * **🧭 Agentic Next Steps (Outcome Classification: `{outcome}` — State 3 → Phase 1B Pivot)** (MITRE Tactic: `{mitre['tactic']}`):",
-          f">   * **[1] Switch to Sparse-History / Cold-Start Math**: Re-evaluate `{top_entity}` on `{target_metric}` using `TWO_PART_HURDLE` (`two_part_hurdle.yl2`), `POISSON` (`poisson_rarity.yl2`), or `BAYESIAN_GAMMA` (`poisson_gamma_bayesian.yl2`) for $N < 7$ active days.",
+          f">   * **[1] Route Immature Entities ($N < 7$ Active Days) to Hurdle or Novelty**: Re-evaluate `{top_entity}` on `{target_metric}` using `TWO_PART_HURDLE` (`two_part_hurdle.yl2`), `metrics.*` `first_seen` novelty (`PF-11` / `WS1-12`), `POISSON` (`poisson_rarity.yl2`), or `BAYESIAN_GAMMA` (`poisson_gamma_bayesian.yl2`) — never parametric Z.",
           f">   * **[2] Borrow Peer / Fleet Baseline Strength**: Pivot to `EMPIRICAL_BAYES_3STAGE` or `PART_OF_THE_WHOLE_MULTILEVEL` so thin personal history is regularized by the peer cohort.",
-          f">   * **[3] Verify Infant Asset / Dormant Account Lifecycle**: Run `HYBRID_METRIC_DERIVED_ASSET_AGE_2STAGE` (`hybrid_metric_derived_asset_age_2stage.yl2`) on `{top_entity}`.",
+          f">   * **[3] Verify Infant Asset / Dormant Account Lifecycle**: Check `metrics.*` `first_seen` / `last_seen` timestamps or run `HYBRID_METRIC_DERIVED_ASSET_AGE_2STAGE` (`hybrid_metric_derived_asset_age_2stage.yl2`) on `{top_entity}`.",
       ]
     else:
       lines = [

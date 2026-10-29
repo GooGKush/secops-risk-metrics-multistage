@@ -18,7 +18,8 @@ stage stage2_daily_drift {
 
     // Raw and standardized daily drift with k = 0.5 sigma slack allowance
     $raw_drift = $observed - $hist_avg
-    $safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)
+    $dispersion_floor = math.sqrt(if($hist_avg > 1.0, $hist_avg, 1.0))
+    $safe_stddev = if($hist_stddev > $dispersion_floor, $hist_stddev, $dispersion_floor)
     $slack_allowance = 0.5 * $safe_stddev
     $slack_excess = $raw_drift - $slack_allowance
     $daily_z = $raw_drift / $safe_stddev
@@ -48,7 +49,7 @@ outcome:
 
 // Significance gate: decision interval H >= {{anomaly_threshold}} (default 4.0 sigma) across >= 2 drift days.
 condition:
-  $cusum_drift_score >= {{anomaly_threshold}} and $drift_days >= 2
+  $active_days >= {{min_baseline_days}} and $cusum_drift_score >= {{anomaly_threshold}} and $drift_days >= 2
 
 order:
   $cusum_drift_score desc

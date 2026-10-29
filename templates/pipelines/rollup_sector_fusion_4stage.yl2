@@ -49,7 +49,8 @@ stage sector_a_detail {
         period: 1d, window: 30d, metric: {{sector_a_metric_arg}}, agg: num_metric_periods,
         {{sector_a_metric_filters}}
     ))
-    $d_z_raw = ($d_obs - $d_avg) / if($d_std > 0, $d_std, 1.0)
+    $d_floor = math.sqrt(if($d_avg > 1.0, $d_avg, 1.0))
+    $d_z_raw = ($d_obs - $d_avg) / if($d_std > $d_floor, $d_std, $d_floor)
     $d_z = if($d_days >= {{min_baseline_days}} and $d_z_raw > 0, $d_z_raw, 0.0)
     $d_hot = if($d_days >= {{min_baseline_days}} and $d_z_raw >= 3.0, 1, 0)
     $d_novel = if($d_days = 0, 1, 0)
@@ -95,7 +96,8 @@ stage sector_b {
         period: 1d, window: 30d, metric: {{sector_b_metric_arg}}, agg: num_metric_periods,
         {{sector_b_entity_field}}: {{sector_b_entity_field}}
     ))
-    $z_b_raw = ($b_obs - $b_avg) / if($b_std > 0, $b_std, 1.0)
+    $b_floor = math.sqrt(if($b_avg > 1.0, $b_avg, 1.0))
+    $z_b_raw = ($b_obs - $b_avg) / if($b_std > $b_floor, $b_std, $b_floor)
     $z_b_pos = if($z_b_raw > 0, $z_b_raw, 0.0)
     $z_b = if($b_days >= {{min_baseline_days}}, $z_b_pos, 0.0)
 }

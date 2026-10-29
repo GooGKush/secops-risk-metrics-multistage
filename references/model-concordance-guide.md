@@ -24,7 +24,7 @@ In multi-stage hunting workflows:
 
 | # | `StatisticalModel` Enum | Declared Prose Name | Mandatory `outcome:` Variables | Key Mathematical Operations | Primary `order:` Clause | Prohibited Fallback Anti-Pattern |
 |---|---|---|---|---|---|---|
-| 1 | `STANDARD_Z_SCORE` | Parametric Historical Z-Score | `$personal_diff`, `$safe_stddev`, `$personal_z` | Linear deviation, positive stddev guard | `order: $personal_z desc` | Missing safe stddev guard (`> 0`) |
+| 1 | `STANDARD_Z_SCORE` | Parametric Historical Z-Score | `$personal_diff`, `$dispersion_floor`, `$safe_stddev`, `$personal_z` | Linear deviation, D8 count/byte dispersion floor (`sqrt(max(avg, 1.0))` or fleet byte floor), `$active_days >= 7` gate | `order: $personal_z desc` | Missing dispersion floor (`1.0` fallback) or missing `$active_days >= 7` gate |
 | 2 | `MAD` | True Median Absolute Deviation / Modified $Z$ (with 30d $Z$ cross-check) | `$median_val`, `$mad`, `$mean_abs_dev`, `$robust_scale`, `$safe_robust_scale`, `$modified_z`, `$personal_z`, `$z_gap`, `$raw_active_days`, `$in_scoring_window` | `window.median` over stage1 daily rows (`mad_center` → `mad_spread`), $\text{MAD}/0.6745$, Iglewicz-Hoaglin $1.253314\cdot\text{meanAD}$ fallback | `order: $modified_z desc` | `0.6745 * (x - mean) / stddev` (a rescaled classical $Z$, not MAD) |
 | 3 | `VARIANCE` | Fano Factor / Index of Dispersion | `$variance`, `$safe_lambda`, `$fano_factor` | Variance calculation ($\sigma^2$), ratio to mean | `order: $fano_factor desc` | Omitting variance calculation |
 | 4 | `POISSON` | Discrete Poisson Rarity Z-Score | `$diff`, `$safe_lambda`, `$sqrt_lambda`, `$poisson_z` | `math.sqrt($safe_lambda)` | `order: $poisson_z desc` | Linear stddev denominator instead of square-root mean |
@@ -49,20 +49,20 @@ Every query carries the model's significance gate as a root `condition:` placed 
 
 | Model | Gate variable | Default root `condition:` | Unit | Card wording | Template placeholder |
 |---|---|---|---|---|---|
-| `STANDARD_Z_SCORE` | `$personal_z` | `$personal_z >= 3.0` | σ | `Z >= 3.0σ` | `{{anomaly_threshold}}` |
-| `ASYMMETRIC_DIRECTIONAL_Z` | `$upper_tail_z` | `$upper_tail_z >= 3.0` | σ | `Upper-tail Z >= 3.0σ` | `{{anomaly_threshold}}` |
+| `STANDARD_Z_SCORE` | `$active_days`, `$personal_z` | `$active_days >= 7 and $personal_z >= 3.0` | σ | `Z >= 3.0σ` | `{{anomaly_threshold}}` |
+| `ASYMMETRIC_DIRECTIONAL_Z` | `$active_days`, `$upper_tail_z` | `$active_days >= 7 and $upper_tail_z >= 3.0` | σ | `Upper-tail Z >= 3.0σ` | `{{anomaly_threshold}}` |
 | `POISSON` | `$poisson_z` | `$poisson_z >= 3.0` | σ (√λ) | `Poisson Z >= 3.0σ` | `{{anomaly_threshold}}` |
-| `HOURLY_TEMPORAL_ZSCORE` | `$hourly_z` | `$hourly_z >= 3.0` | σ (hourly) | `Hourly Z >= 3.0σ` | `{{anomaly_threshold}}` |
-| `CIRCADIAN_VON_MISES` | `$circadian_threat_score` | `$circadian_threat_score >= 3.0` | σ × off-hours multiplier | `Circadian score >= 3.0` | `{{anomaly_threshold}}` |
-| `MACD_MOMENTUM_VELOCITY` | `$fast_z` | `$fast_z >= 3.0` (ranked by momentum) | σ | `Fast Z >= 3.0σ` | `{{anomaly_threshold}}` |
-| `PIECEWISE_CRI` | `$clamped_z` | `$clamped_z >= 3.0` (ranked by CRI tier) | σ (winsorized) | `Z >= 3.0σ (CRI >= 85)` | `{{anomaly_threshold}}` |
-| `FLEET_PREVALENCE_SHIELD` | `$shielded_z` | `$shielded_z >= 3.0` | σ (fleet-discounted) | `Shielded Z >= 3.0σ` | `{{anomaly_threshold}}` |
+| `HOURLY_TEMPORAL_ZSCORE` | `$active_days`, `$hourly_z` | `$active_days >= 7 and $hourly_z >= 3.0` | σ (hourly) | `Hourly Z >= 3.0σ` | `{{anomaly_threshold}}` |
+| `CIRCADIAN_VON_MISES` | `$active_days`, `$circadian_threat_score` | `$active_days >= 7 and $circadian_threat_score >= 3.0` | σ × off-hours multiplier | `Circadian score >= 3.0` | `{{anomaly_threshold}}` |
+| `MACD_MOMENTUM_VELOCITY` | `$active_days`, `$fast_z` | `$active_days >= 7 and $fast_z >= 3.0` (ranked by momentum) | σ | `Fast Z >= 3.0σ` | `{{anomaly_threshold}}` |
+| `PIECEWISE_CRI` | `$active_days`, `$clamped_z` | `$active_days >= 7 and $clamped_z >= 3.0` (ranked by CRI tier) | σ (winsorized) | `Z >= 3.0σ (CRI >= 85)` | `{{anomaly_threshold}}` |
+| `FLEET_PREVALENCE_SHIELD` | `$active_days`, `$shielded_z` | `$active_days >= 7 and $shielded_z >= 3.0` | σ (fleet-discounted) | `Shielded Z >= 3.0σ` | `{{anomaly_threshold}}` |
 | `TWO_PART_HURDLE` | `$active_days`, `$intensity_z` | `$active_days <= 2 or $intensity_z >= 3.0` | dormancy break or σ | `Dormant awakening OR Z >= 3.0σ` | `{{anomaly_threshold}}` |
-| `ADAPTIVE_CONTEXT_THRESHOLD` | `$sensitivity_excess` | `$sensitivity_excess >= 0.0` | σ above the context threshold (1.75σ / 3.00σ) | `Z >= context threshold` | none (built into the score) |
-| `LONGITUDINAL_CUSUM` | `$cusum_drift_score`, `$drift_days` | `$cusum_drift_score >= 3.0 and $drift_days >= 2` | cumulative σ excess over 0.5σ slack | `Drift above 0.5σ slack` | `{{anomaly_threshold}}` |
+| `ADAPTIVE_CONTEXT_THRESHOLD` | `$active_days`, `$sensitivity_excess` | `$active_days >= 7 and $sensitivity_excess >= 0.0` | σ above the context threshold (1.75σ / 3.00σ) | `Z >= context threshold` | none (built into the score) |
+| `LONGITUDINAL_CUSUM` | `$active_days`, `$cusum_drift_score`, `$drift_days` | `$active_days >= 7 and $cusum_drift_score >= 3.0 and $drift_days >= 2` | cumulative σ excess over 0.5σ slack | `Drift above 0.5σ slack` | `{{anomaly_threshold}}` |
 | `BAYESIAN_GAMMA` | `$bayes_shift_ratio` | `$bayes_shift_ratio >= 2.0` | fold change (posterior / 30d mean) | `>= 2.0× baseline (posterior)` | `{{fold_change_threshold}}` |
 | `BAYESIAN_BETA_BINOMIAL` | `$posterior_lift` | `$posterior_lift >= 2.0` | fold change (posterior / prior) | `>= 2.0× prior failure rate` | `{{fold_change_threshold}}` |
-| `COEFFICIENT_OF_VARIATION` | `$surge_ratio`, `$cv` | `$surge_ratio >= 2.0 and $cv <= 0.5` | fold change on a predictable entity | `>= 2.0× baseline, CV <= 0.5` | `{{fold_change_threshold}}` |
+| `COEFFICIENT_OF_VARIATION` | `$active_days`, `$surge_ratio`, `$cv` | `$active_days >= 7 and $surge_ratio >= 2.0 and $cv <= 0.5` | fold change on a predictable entity | `>= 2.0× baseline, CV <= 0.5` | `{{fold_change_threshold}}` |
 | `RELATIVE_DEVIATION` | `$fold_change` | `$fold_change >= 2.0` (ranked by `$ratio`) | fold change | `>= 2.0× baseline` | `{{fold_change_threshold}}` |
 | `MAD` | `$modified_z` | `... and $modified_z >= 3.5` (AND-ed with the scoring-window and sample-size gates) | modified Z | `Modified Z >= 3.5` | `{{robust_threshold}}` |
 | `QUANTILE_IQR_SKEW` | `$tukey_fence_ratio` | `$in_scoring_window = 1 and $raw_active_days >= 7 and $tukey_fence_ratio >= 2.0` | fold over fence | `Skew-Adjusted Fence >= 2.0×` | `{{fold_change_threshold}}` |
@@ -90,11 +90,12 @@ outcome:
   $hist_max = max($stage1_extract.historical_max)
 
   $personal_diff = $observed - $hist_avg
-  $safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)
+  $dispersion_floor = math.sqrt(if($hist_avg > 1.0, $hist_avg, 1.0))
+  $safe_stddev = if($hist_stddev > $dispersion_floor, $hist_stddev, $dispersion_floor)
   $personal_z = $personal_diff / $safe_stddev
 
 condition:
-  $personal_z >= 3.0
+  $active_days >= 7 and $personal_z >= 3.0
 
 order:
   $personal_z desc
@@ -214,7 +215,7 @@ outcome:
   $surge_ratio = $observed / $safe_hist_avg
 
 condition:
-  $surge_ratio >= 2.0 and $cv <= 0.5
+  $active_days >= 7 and $surge_ratio >= 2.0 and $cv <= 0.5
 
 order:
   $surge_ratio desc
@@ -237,14 +238,15 @@ outcome:
   $max_hourly = max($stage1_extract.historical_max)
 
   $hourly_diff = $observed_hour - $avg_hourly
-  $safe_stddev_hourly = if($stddev_hourly > 0, $stddev_hourly, 1.0)
+  $dispersion_floor = math.sqrt(if($avg_hourly > 1.0, $avg_hourly, 1.0))
+  $safe_stddev_hourly = if($stddev_hourly > $dispersion_floor, $stddev_hourly, $dispersion_floor)
   $hourly_z = $hourly_diff / $safe_stddev_hourly
 
   $safe_avg_hourly = if($avg_hourly > 0, $avg_hourly, 1.0)
   $hourly_surge_ratio = $observed_hour / $safe_avg_hourly
 
 condition:
-  $hourly_z >= 3.0
+  $active_days >= 7 and $hourly_z >= 3.0
 
 order:
   $hourly_z desc
@@ -364,7 +366,7 @@ outcome:
   $max_daily_z = max($stage2_daily_drift.daily_z)
 
 condition:
-  $cusum_drift_score >= 3.0 and $drift_days >= 2
+  $active_days >= 7 and $cusum_drift_score >= 3.0 and $drift_days >= 2
 
 order:
   $cusum_drift_score desc
@@ -413,11 +415,12 @@ outcome:
   $diff = $observed - $hist_avg
   $excess_surge = if($diff > 0, $diff, 0.0)
 
-  $safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)
+  $dispersion_floor = math.sqrt(if($hist_avg > 1.0, $hist_avg, 1.0))
+  $safe_stddev = if($hist_stddev > $dispersion_floor, $hist_stddev, $dispersion_floor)
   $upper_tail_z = $excess_surge / $safe_stddev
 
 condition:
-  $upper_tail_z >= 3.0
+  $active_days >= 7 and $upper_tail_z >= 3.0
 
 order:
   $upper_tail_z desc
@@ -435,7 +438,8 @@ outcome:
   $hist_max = max($stage1_extract.historical_max)
 
   $diff = $observed - $hist_avg
-  $safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)
+  $dispersion_floor = math.sqrt(if($hist_avg > 1.0, $hist_avg, 1.0))
+  $safe_stddev = if($hist_stddev > $dispersion_floor, $hist_stddev, $dispersion_floor)
   $raw_z = $diff / $safe_stddev
 
   $clamped_low = if($raw_z < -4.0, -4.0, $raw_z)
@@ -447,7 +451,7 @@ outcome:
   $cri_score = if($clamped_z >= 1.0, $cri_tier2, 15.0)
 
 condition:
-  $clamped_z >= 3.0
+  $active_days >= 7 and $clamped_z >= 3.0
 
 order:
   $cri_score desc
@@ -483,7 +487,8 @@ outcome:
   $active_days = max($stage1_extract.historical_active_days)
 
   $raw_diff = $observed - $hist_avg
-  $safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)
+  $dispersion_floor = math.sqrt(if($hist_avg > 1.0, $hist_avg, 1.0))
+  $safe_stddev = if($hist_stddev > $dispersion_floor, $hist_stddev, $dispersion_floor)
   $personal_z = $raw_diff / $safe_stddev
 
   $fleet_count = max($stage2_fleet_wave.fleet_entities)
@@ -493,7 +498,7 @@ outcome:
   $shielded_z = $personal_z / $prevalence_factor
 
 condition:
-  $shielded_z >= 3.0
+  $active_days >= 7 and $shielded_z >= 3.0
 
 order:
   $shielded_z desc
@@ -516,7 +521,8 @@ outcome:
   $active_days = max($stage1_extract.historical_active_days)
 
   $raw_diff = $observed - $hist_avg
-  $safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)
+  $dispersion_floor = math.sqrt(if($hist_avg > 1.0, $hist_avg, 1.0))
+  $safe_stddev = if($hist_stddev > $dispersion_floor, $hist_stddev, $dispersion_floor)
   $personal_z = $raw_diff / $safe_stddev
 
   $sparse_threshold = 3.5
@@ -526,7 +532,7 @@ outcome:
   $sensitivity_excess = $personal_z - $effective_threshold
 
 condition:
-  $sensitivity_excess >= 0.0
+  $active_days >= 7 and $sensitivity_excess >= 0.0
 
 order:
   $sensitivity_excess desc
@@ -544,7 +550,8 @@ outcome:
   $hist_max = max($stage1_extract.historical_max)
 
   $fast_diff = $observed - $hist_avg
-  $safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)
+  $dispersion_floor = math.sqrt(if($hist_avg > 1.0, $hist_avg, 1.0))
+  $safe_stddev = if($hist_stddev > $dispersion_floor, $hist_stddev, $dispersion_floor)
   $fast_z = $fast_diff / $safe_stddev
 
   $slow_diff = $hist_max - $hist_avg
@@ -560,7 +567,7 @@ outcome:
   $macd_momentum_score = if($macd_diff > 0, $breakout_score, $fast_z)
 
 condition:
-  $fast_z >= 3.0
+  $active_days >= 7 and $fast_z >= 3.0
 
 order:
   $macd_momentum_score desc
@@ -579,7 +586,8 @@ outcome:
 
   $avg_hourly = $hist_avg_daily / 24.0
   $scaled_hourly_sd = $hist_stddev_daily / 4.899
-  $safe_stddev_hourly = if($scaled_hourly_sd > 0, $scaled_hourly_sd, 1.0)
+  $dispersion_floor = math.sqrt(if($avg_hourly > 1.0, $avg_hourly, 1.0))
+  $safe_stddev_hourly = if($scaled_hourly_sd > $dispersion_floor, $scaled_hourly_sd, $dispersion_floor)
   $hourly_diff = $observed_hour - $avg_hourly
   $hourly_z = $hourly_diff / $safe_stddev_hourly
 
@@ -595,7 +603,7 @@ outcome:
   $circadian_threat_score = $pos_z * $circadian_weight
 
 condition:
-  $circadian_threat_score >= 3.0
+  $active_days >= 7 and $circadian_threat_score >= 3.0
 
 order:
   $circadian_threat_score desc

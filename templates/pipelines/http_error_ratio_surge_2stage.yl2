@@ -38,7 +38,8 @@ stage stage1_http_failure_surge {
         principal.asset.hostname: principal.asset.hostname
     ))
 
-    $fail_z = ($failed_obs - $hist_fail_avg) / if($hist_fail_stddev > 0, $hist_fail_stddev, 1.0)
+    $dispersion_floor = math.sqrt(if($hist_fail_avg > 1.0, $hist_fail_avg, 1.0))
+    $fail_z = ($failed_obs - $hist_fail_avg) / if($hist_fail_stddev > $dispersion_floor, $hist_fail_stddev, $dispersion_floor)
 }
 
 // Stage 2: Host Overall Web Traffic Baseline (Total Volume)
@@ -63,6 +64,7 @@ match:
 
 outcome:
   $fail_z = max($stage1_http_failure_surge.fail_z)
+  $active_days = max($stage1_http_failure_surge.hist_fail_active_days)
   $observed_fails = max($stage1_http_failure_surge.failed_obs)
   $total_events = max($stage2_total_traffic.total_obs)
   $distinct_targets = max($stage1_http_failure_surge.distinct_error_targets)
@@ -76,7 +78,8 @@ outcome:
   $recon_score = $fail_z * $fail_ratio
 
 condition:
-  $fail_z >= 3.0
+  $active_days >= 7
+  and $fail_z >= 3.0
   and $fail_ratio >= 0.40
   and $distinct_uris >= 5
 

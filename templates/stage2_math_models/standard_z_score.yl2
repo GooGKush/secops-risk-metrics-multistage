@@ -14,12 +14,13 @@ outcome:
 
   // 1. Personal Historical Z-Score: (Observed - 30d Mean) / Safe StdDev
   $personal_diff = $observed - $hist_avg
-  $safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)
+  $dispersion_floor = math.sqrt(if($hist_avg > 1.0, $hist_avg, 1.0))
+  $safe_stddev = if($hist_stddev > $dispersion_floor, $hist_stddev, $dispersion_floor)
   $personal_z = $personal_diff / $safe_stddev
 
 // Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
 condition:
-  $personal_z >= {{anomaly_threshold}}
+  $active_days >= {{min_baseline_days}} and $personal_z >= {{anomaly_threshold}}
 
 order:
   $personal_z desc

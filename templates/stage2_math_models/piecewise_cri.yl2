@@ -14,7 +14,8 @@ outcome:
 
   // 1. Parametric Z-Score
   $diff = $observed - $hist_avg
-  $safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)
+  $dispersion_floor = math.sqrt(if($hist_avg > 1.0, $hist_avg, 1.0))
+  $safe_stddev = if($hist_stddev > $dispersion_floor, $hist_stddev, $dispersion_floor)
   $raw_z = $diff / $safe_stddev
 
   // 2. Winsorization Clamp: restrict raw Z to [-4.0, +6.0]
@@ -29,7 +30,7 @@ outcome:
 
 // Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
 condition:
-  $clamped_z >= {{anomaly_threshold}}
+  $active_days >= {{min_baseline_days}} and $clamped_z >= {{anomaly_threshold}}
 
 order:
   $cri_score desc

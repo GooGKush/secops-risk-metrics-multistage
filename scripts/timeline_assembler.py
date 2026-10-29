@@ -27,6 +27,7 @@ if _SCRIPT_DIR not in sys.path:
 
 try:
   from .ueba_constants import (
+      DEFAULT_MIN_BASELINE_DAYS,
       _coerce_finite_float,
       calculate_cri,
       coerce_cri_int,
@@ -38,6 +39,7 @@ try:
 except ImportError:
   try:
     from scripts.ueba_constants import (
+        DEFAULT_MIN_BASELINE_DAYS,
         _coerce_finite_float,
         calculate_cri,
         coerce_cri_int,
@@ -48,6 +50,7 @@ except ImportError:
     )
   except ImportError:
     from ueba_constants import (  # type: ignore[no-redef]
+        DEFAULT_MIN_BASELINE_DAYS,
         _coerce_finite_float,
         calculate_cri,
         coerce_cri_int,
@@ -229,7 +232,7 @@ class TimelineAssembler:
       self,
       entity_field: Optional[str] = None,
       score_field: Optional[str] = None,
-      min_baseline_days: int = 5,
+      min_baseline_days: int = DEFAULT_MIN_BASELINE_DAYS,
       top_n: int = 15,
   ):
     self.entity_field = entity_field
@@ -800,7 +803,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                       help="DAY or DAY=REASON for a shard that failed after one retry.")
   parser.add_argument("--entity-field", help="Entity column (default: auto-detect)")
   parser.add_argument("--score-field", help="Score column; *_sq columns are square-rooted (default: auto-detect)")
-  parser.add_argument("--min-baseline-days", type=int, default=5)
+  parser.add_argument("--min-baseline-days", type=int, default=DEFAULT_MIN_BASELINE_DAYS)
   parser.add_argument("--top", type=int, default=15)
   parser.add_argument("--markdown-out")
   parser.add_argument("--json-out")

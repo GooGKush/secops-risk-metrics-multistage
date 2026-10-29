@@ -35,13 +35,15 @@ stage host_extract {
     $hist_active_days = max({{target_metric_func_active_days}})
 
     // In-Stage Personal Historical Z-Score (Outcomes-in-Outcomes)
-    $personal_z = ($observed_24h - $hist_avg) / if($hist_stddev > 0, $hist_stddev, 1.0)
+    $dispersion_floor = math.sqrt(if($hist_avg > 1.0, $hist_avg, 1.0))
+    $personal_z = ($observed_24h - $hist_avg) / if($hist_stddev > $dispersion_floor, $hist_stddev, $dispersion_floor)
 }
 
-// Stage 2: Concurrent Fleet-Wide Macro Baseline across all active endpoints today
+// Stage 2: Concurrent Fleet-Wide Macro Baseline across mature active endpoints today
 stage fleet_stats {
     $host = $host_extract.host
     $ws = $host_extract.window_start
+    $host_extract.hist_active_days >= {{min_baseline_days}}
 
   match:
     $ws by 1d

@@ -128,13 +128,13 @@ stage stage1_extract {
         metadata.product_name: metadata.product_name,
         target.resource.name: target.resource.name
     ))
-    $dest_z = ($observed_reads - $dest_avg) / if($dest_stddev > 0, $dest_stddev, 1.0)
-    $write_z = ($observed_writes - $dest_write_avg) / if($dest_write_stddev > 0, $dest_write_stddev, 1.0)
-    $del_z = ($observed_deletes - $dest_del_avg) / if($dest_del_stddev > 0, $dest_del_stddev, 1.0)
-    $create_z = ($observed_creates - $dest_create_avg) / if($dest_create_stddev > 0, $dest_create_stddev, 1.0)
+    $dest_z = ($observed_reads - $dest_avg) / if($dest_stddev > math.sqrt(if($dest_avg > 1.0, $dest_avg, 1.0)), $dest_stddev, math.sqrt(if($dest_avg > 1.0, $dest_avg, 1.0)))
+    $write_z = ($observed_writes - $dest_write_avg) / if($dest_write_stddev > math.sqrt(if($dest_write_avg > 1.0, $dest_write_avg, 1.0)), $dest_write_stddev, math.sqrt(if($dest_write_avg > 1.0, $dest_write_avg, 1.0)))
+    $del_z = ($observed_deletes - $dest_del_avg) / if($dest_del_stddev > math.sqrt(if($dest_del_avg > 1.0, $dest_del_avg, 1.0)), $dest_del_stddev, math.sqrt(if($dest_del_avg > 1.0, $dest_del_avg, 1.0)))
+    $create_z = ($observed_creates - $dest_create_avg) / if($dest_create_stddev > math.sqrt(if($dest_create_avg > 1.0, $dest_create_avg, 1.0)), $dest_create_stddev, math.sqrt(if($dest_create_avg > 1.0, $dest_create_avg, 1.0)))
 
     // 2. Caller Origin IP Outlier Score
-    $origin_z = ($observed_reads - $origin_avg) / if($origin_stddev > 0, $origin_stddev, 1.0)
+    $origin_z = ($observed_reads - $origin_avg) / if($origin_stddev > math.sqrt(if($origin_avg > 1.0, $origin_avg, 1.0)), $origin_stddev, math.sqrt(if($origin_avg > 1.0, $origin_avg, 1.0)))
 }
 
 // --- STAGE 2: Caller Origin IP Rollup across target repositories ---
@@ -151,7 +151,8 @@ stage stage2_origin_rollup {
     $ip_total_reads = sum($stage1_extract.observed_reads)
     $origin_avg = max($stage1_extract.origin_avg)
     $origin_stddev = max($stage1_extract.origin_stddev)
-    $ip_origin_z = ($ip_total_reads - $origin_avg) / if($origin_stddev > 0, $origin_stddev, 1.0)
+    $origin_floor = math.sqrt(if($origin_avg > 1.0, $origin_avg, 1.0))
+    $ip_origin_z = ($ip_total_reads - $origin_avg) / if($origin_stddev > $origin_floor, $origin_stddev, $origin_floor)
 }
 
 // --- ROOT STAGE: Dual-Branch Evaluation & Composite Risk Ranking ---
@@ -178,10 +179,14 @@ outcome:
   $distinct_ips = count_distinct($stage1_extract.ip)
 
   // Destination CRUD Z-Scores evaluated on rolled-up daily totals
-  $dest_z = ($obs - max($stage1_extract.dest_avg)) / if(max($stage1_extract.dest_stddev) > 0, max($stage1_extract.dest_stddev), 1.0)
-  $write_z = ($obs_writes - max($stage1_extract.dest_write_avg)) / if(max($stage1_extract.dest_write_stddev) > 0, max($stage1_extract.dest_write_stddev), 1.0)
-  $del_z = ($obs_deletes - max($stage1_extract.dest_del_avg)) / if(max($stage1_extract.dest_del_stddev) > 0, max($stage1_extract.dest_del_stddev), 1.0)
-  $create_z = ($obs_creates - max($stage1_extract.dest_create_avg)) / if(max($stage1_extract.dest_create_stddev) > 0, max($stage1_extract.dest_create_stddev), 1.0)
+  $dest_floor = math.sqrt(if(max($stage1_extract.dest_avg) > 1.0, max($stage1_extract.dest_avg), 1.0))
+  $write_floor = math.sqrt(if(max($stage1_extract.dest_write_avg) > 1.0, max($stage1_extract.dest_write_avg), 1.0))
+  $del_floor = math.sqrt(if(max($stage1_extract.dest_del_avg) > 1.0, max($stage1_extract.dest_del_avg), 1.0))
+  $create_floor = math.sqrt(if(max($stage1_extract.dest_create_avg) > 1.0, max($stage1_extract.dest_create_avg), 1.0))
+  $dest_z = ($obs - max($stage1_extract.dest_avg)) / if(max($stage1_extract.dest_stddev) > $dest_floor, max($stage1_extract.dest_stddev), $dest_floor)
+  $write_z = ($obs_writes - max($stage1_extract.dest_write_avg)) / if(max($stage1_extract.dest_write_stddev) > $write_floor, max($stage1_extract.dest_write_stddev), $write_floor)
+  $del_z = ($obs_deletes - max($stage1_extract.dest_del_avg)) / if(max($stage1_extract.dest_del_stddev) > $del_floor, max($stage1_extract.dest_del_stddev), $del_floor)
+  $create_z = ($obs_creates - max($stage1_extract.dest_create_avg)) / if(max($stage1_extract.dest_create_stddev) > $create_floor, max($stage1_extract.dest_create_stddev), $create_floor)
   $origin_z = max($stage2_origin_rollup.ip_origin_z)
   $composite_risk = if($dest_z > 0, $dest_z, 0.0) + if($write_z > 0, $write_z, 0.0) + if($del_z > 0, $del_z, 0.0) + if($create_z > 0, $create_z, 0.0) + if($origin_z > 0, $origin_z, 0.0)
 

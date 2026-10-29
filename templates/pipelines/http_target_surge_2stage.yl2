@@ -39,7 +39,8 @@ stage stage1_target_surge {
         target.hostname: target.hostname
     ))
 
-    $target_z = ($observed_val - $hist_mean) / if($hist_stddev > 0, $hist_stddev, 1.0)
+    $dispersion_floor = math.sqrt(if($hist_mean > 1.0, $hist_mean, 1.0))
+    $target_z = ($observed_val - $hist_mean) / if($hist_stddev > $dispersion_floor, $hist_stddev, $dispersion_floor)
     $origin_host = array_distinct($host)
 }
 
@@ -76,7 +77,8 @@ outcome:
   $target_risk_score = $target_z * $prevalence_dampener
 
 condition:
-  $target_z >= 3.0
+  $active_baseline_days >= 7
+  and $target_z >= 3.0
   and $connecting_fleet_hosts <= 2
 
 order:

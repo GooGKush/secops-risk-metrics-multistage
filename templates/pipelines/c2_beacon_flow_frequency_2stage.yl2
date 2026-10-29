@@ -39,7 +39,8 @@ stage stage1_outbound_flow_frequency {
         principal.asset.hostname: principal.asset.hostname
     ))
 
-    $flow_z = ($observed_flows - $hist_flow_avg) / if($hist_flow_stddev > 0, $hist_flow_stddev, 1.0)
+    $dispersion_floor = math.sqrt(if($hist_flow_avg > 1.0, $hist_flow_avg, 1.0))
+    $flow_z = ($observed_flows - $hist_flow_avg) / if($hist_flow_stddev > $dispersion_floor, $hist_flow_stddev, $dispersion_floor)
     $bytes_per_flow = $observed_bytes / ($observed_flows + 0.001)
 }
 
@@ -68,6 +69,7 @@ match:
 
 outcome:
   $flow_z = max($stage1_outbound_flow_frequency.flow_z)
+  $active_days = max($stage1_outbound_flow_frequency.hist_flow_active_days)
   $observed_flows = max($stage1_outbound_flow_frequency.observed_flows)
   $observed_bytes = max($stage1_outbound_flow_frequency.observed_bytes)
   $bytes_per_flow = max($stage1_outbound_flow_frequency.bytes_per_flow)
@@ -79,7 +81,8 @@ outcome:
   $beacon_score = $flow_z * if($bytes_per_flow < 4096, 2.0, 1.0)
 
 condition:
-  $flow_z >= 3.0
+  $active_days >= 7
+  and $flow_z >= 3.0
   and $observed_flows >= 50
 
 order:
