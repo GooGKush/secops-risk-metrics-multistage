@@ -453,12 +453,22 @@ def _inject_stage1_filters(
   return query[:stage_match.start()] + stage_open + injected_events + match_header + query[stage_match.end():]
 
 
+def _rewrite_ecg_event_date(compiled_query: str, date_str: str) -> str:
+  """Pins timestamp.get_date(...) equality predicates in ECG event stages to date_str."""
+  return re.sub(
+      r'(timestamp\.get_date\([^)]+\)\s*=\s*)"\d{4}-\d{2}-\d{2}"',
+      rf'\1"{date_str}"',
+      compiled_query,
+  )
+
+
 def _compute_execution_windows(
     compiled_query: str,
     mode: str = "A",
     window_days: int = 1,
     statistical_model: Optional[StatisticalModel] = None,
     reference_time: Optional[datetime.datetime] = None,
+    today_so_far: bool = False,
 ) -> Dict[str, Any]:
   """Computes UTC ISO-8601 execution windows, baseline horizon dates, and Mode C shards."""
   now = reference_time or datetime.datetime.now(datetime.timezone.utc)
@@ -473,11 +483,17 @@ def _compute_execution_windows(
   mode_clean = (mode or "A").strip().upper()
   if mode_clean.startswith("MODE"):
     mode_clean = mode_clean.replace("MODE", "").strip()
-  if mode_clean not in ("A", "B", "C", "D"):
+  eff_today_so_far = bool(today_so_far)
+  if mode_clean in ("A_TODAY", "A_PARTIAL"):
+    mode_clean = "A"
+    eff_today_so_far = True
+  elif mode_clean not in ("A", "B", "C", "D"):
     mode_clean = "A"
 
   has_ecg = bool(re.search(r"\bgraph\.(?:entity|metadata|relations)\b", compiled_query))
   ecg_72h_anchor_applied = False
+  is_partial_day = False
+  partial_day_warning: Optional[str] = None
 
   if mode_clean == "A":
     if statistical_model == StatisticalModel.LONGITUDINAL_CUSUM or "$cusum_drift_score" in compiled_query:
@@ -486,24 +502,42 @@ def _compute_execution_windows(
           "sequential drift requires a multi-day Mode B or Mode C window."
       )
     eff_days = 1
+    if eff_today_so_far:
+      scored_day = today_midnight
+      scored_day_str = scored_day.strftime("%Y-%m-%d")
+      end_iso_out = end_iso
+      eval_label = "Mode A: Today So Far (Partial UTC Day — Low-Biased vs Full-Day Baseline)"
+      is_partial_day = True
+      partial_day_warning = (
+          f"Partial UTC day ([{scored_day_str}T00:00:00Z -> {end_iso}]) compared against a "
+          "full-day (period: 1d, window: 30d) baseline without elapsed-fraction scaling; "
+          "sub-full-day Z-scores are systematically low-biased and may miss active breakouts."
+      )
+    else:
+      scored_day = today_midnight - datetime.timedelta(days=1)
+      scored_day_str = scored_day.strftime("%Y-%m-%d")
+      end_iso_out = today_midnight.strftime("%Y-%m-%dT00:00:00Z")
+      eval_label = f"Mode A: Last Complete UTC Day ({scored_day_str})"
+
     if statistical_model in (StatisticalModel.MAD, StatisticalModel.QUANTILE_IQR_SKEW):
       # MAD and Quantile require 30d raw search window for empirical quantiles/median while $in_scoring_window gates to the scored day
-      start_dt = today_midnight - datetime.timedelta(days=29)
+      start_dt = scored_day - datetime.timedelta(days=29)
     elif has_ecg:
-      # ECG snapshot freshness requires UTC date -2d at 00:00:00Z while event stage filters to today
-      start_dt = today_midnight - datetime.timedelta(days=2)
+      # ECG snapshot freshness requires scored UTC date -2d at 00:00:00Z while event stage filters to the scored day
+      start_dt = scored_day - datetime.timedelta(days=2)
       ecg_72h_anchor_applied = True
+      compiled_query = _rewrite_ecg_event_date(compiled_query, scored_day_str)
     else:
-      start_dt = today_midnight
+      start_dt = scored_day
     start_iso = start_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-    baseline_start = (today_midnight - datetime.timedelta(days=30)).strftime("%Y-%m-%d")
-    baseline_end = (today_midnight - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
-    eval_label = "Mode A: Today (Default)"
+    end_iso = end_iso_out
+    baseline_start = (scored_day - datetime.timedelta(days=30)).strftime("%Y-%m-%d")
+    baseline_end = (scored_day - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
     shards = [{
-        "day": today_midnight.strftime("%Y-%m-%d"),
+        "day": scored_day_str,
         "start_time": start_iso,
         "end_time": end_iso,
-        "baseline_window": f"[{baseline_start}, {today_midnight.strftime('%Y-%m-%d')})",
+        "baseline_window": f"[{baseline_start}, {scored_day_str})",
         "query": compiled_query,
     }]
 
@@ -541,7 +575,7 @@ def _compute_execution_windows(
       shard_start = f"{day_str}T00:00:00Z"
       shard_end = end_iso if offset == 0 else f"{day_str}T23:59:59Z"
       b_start = (day_dt - datetime.timedelta(days=30)).strftime("%Y-%m-%d")
-      shard_query = compiled_query.replace(f'"{today_str}"', f'"{day_str}"')
+      shard_query = _rewrite_ecg_event_date(compiled_query, day_str).replace(f'"{today_str}"', f'"{day_str}"')
       shards.append({
           "day": day_str,
           "start_time": shard_start,
@@ -569,6 +603,9 @@ def _compute_execution_windows(
       "mode": mode_clean,
       "window_days": eff_days,
       "evaluation_mode_label": eval_label,
+      "is_partial_day": is_partial_day,
+      "partial_day_warning": partial_day_warning,
+      "effective_query": compiled_query,
       "start_time": start_iso,
       "end_time": end_iso,
       "probe_start_time": probe_start_iso,
@@ -723,6 +760,7 @@ def compile_hunt_pipeline(
     scoring_days: Optional[int] = None,
     scoring_end_date: Optional[str] = None,
     reference_time: Optional[datetime.datetime] = None,
+    today_so_far: bool = False,
     **kwargs: Any,
 ) -> Dict[str, Any]:
   """Compiles a multi-stage YARA-L 2.0 hunt pipeline, pre-flight specification card, and time windows.
@@ -1277,6 +1315,9 @@ def compile_hunt_pipeline(
       eff_scoring_end_date = scoring_end_date
       if stat_model_enum in (StatisticalModel.MAD, StatisticalModel.QUANTILE_IQR_SKEW):
         mode_norm_for_scoring = (mode or "A").strip().upper().replace("MODE", "").strip() or "A"
+        is_today_opt = bool(today_so_far) or mode_norm_for_scoring in ("A_TODAY", "A_PARTIAL")
+        if mode_norm_for_scoring in ("A_TODAY", "A_PARTIAL"):
+          mode_norm_for_scoring = "A"
         if eff_scoring_days is None:
           if mode_norm_for_scoring in ("A", "C"):
             eff_scoring_days = 1
@@ -1284,9 +1325,15 @@ def compile_hunt_pipeline(
             eff_scoring_days = max(window_days if window_days > 1 else 7, 2)
           else:
             eff_scoring_days = max(window_days, 1)
-        if eff_scoring_end_date is None and reference_time is not None:
-          ref_utc = reference_time if reference_time.tzinfo is not None else reference_time.replace(tzinfo=datetime.timezone.utc)
-          eff_scoring_end_date = ref_utc.strftime("%Y-%m-%d")
+        if eff_scoring_end_date is None:
+          ref_now = reference_time or datetime.datetime.now(datetime.timezone.utc)
+          if ref_now.tzinfo is None:
+            ref_now = ref_now.replace(tzinfo=datetime.timezone.utc)
+          ref_midnight = ref_now.replace(hour=0, minute=0, second=0, microsecond=0)
+          if mode_norm_for_scoring == "A" and not is_today_opt:
+            eff_scoring_end_date = (ref_midnight - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+          else:
+            eff_scoring_end_date = ref_midnight.strftime("%Y-%m-%d")
       compiled_query = router.build_query(
           target_metric=primary_metric,
           entity_type=ent_enum,
@@ -1318,21 +1365,23 @@ def compile_hunt_pipeline(
       )
     compiled_query = _inject_stage1_filters(compiled_query, entity_value=entity_value, custom_filter=custom_filter, entity_type=ent_enum)
 
-  # 2. Validate AST and Statistical Antipatterns
-  ast_errors = MalachiteASTValidator.validate_query(compiled_query)
-  stat_violations = [
-      f"[{sv.antipattern.value}] stage '{sv.stage_name}': {sv.description}"
-      for sv in StatisticalAntipatternAuditor.audit_query(compiled_query)
-  ]
-
-  # 3. Compute Execution Windows & Turn-1 10-Minute Probe Query
+  # 2. Compute Execution Windows & Turn-1 10-Minute Probe Query
   window_spec = _compute_execution_windows(
       compiled_query=compiled_query,
       mode=mode,
       window_days=window_days,
       statistical_model=stat_model_enum if plane_upper != "MICRO_RAW" else None,
       reference_time=reference_time,
+      today_so_far=today_so_far,
   )
+  compiled_query = window_spec["effective_query"]
+
+  # 3. Validate AST and Statistical Antipatterns
+  ast_errors = MalachiteASTValidator.validate_query(compiled_query)
+  stat_violations = [
+      f"[{sv.antipattern.value}] stage '{sv.stage_name}': {sv.description}"
+      for sv in StatisticalAntipatternAuditor.audit_query(compiled_query)
+  ]
 
   probe_filter_lines = list(audit_info.get("event_filter", ['metadata.event_type = "USER_LOGIN"']))
   probe_query = " AND ".join(probe_filter_lines)
@@ -1359,9 +1408,16 @@ def compile_hunt_pipeline(
       significance_threshold=sig_label,
       min_baseline_days=audit_info.get("min_baseline_days", 7),
   )
+  if window_spec["partial_day_warning"]:
+    preflight_card = (
+        f"{preflight_card}\n\n"
+        "> [!WARNING]\n"
+        f"> **⚠️ Partial UTC Day — Low-Biased vs Full-Day Baseline**: {window_spec['partial_day_warning']}"
+    )
 
   clearance_question = (
-      "Would you like me to proceed with **Mode A (Today vs 30-Day Baseline)**, "
+      "Would you like me to proceed with **Mode A (Last Complete UTC Day vs 30-Day Baseline)** "
+      "[or **Mode A — Today So Far (Partial UTC Day)**], "
       "**Mode B (2–7 Day Fixed-Baseline Timeline)**, or **Mode C (Per-Day Baseline Shards)**? "
       "(Thresholds can be tuned first.)"
   )
@@ -1395,6 +1451,8 @@ def compile_hunt_pipeline(
       "mode": window_spec["mode"],
       "window_days": window_spec["window_days"],
       "evaluation_mode_label": window_spec["evaluation_mode_label"],
+      "is_partial_day": window_spec["is_partial_day"],
+      "partial_day_warning": window_spec["partial_day_warning"],
       "sensitivity": sens_tier,
       "anomaly_threshold": eff_anomaly,
       "min_baseline_days": audit_info.get("min_baseline_days", 7),
@@ -1410,6 +1468,7 @@ def compile_hunt_pipeline(
           "end_time": window_spec["end_time"],
           "mode": window_spec["mode"],
           "window_days": window_spec["window_days"],
+          "is_partial_day": window_spec["is_partial_day"],
           "baseline_start_date": window_spec["baseline_start_date"],
           "baseline_end_date": window_spec["baseline_end_date"],
           "ecg_72h_anchor_applied": window_spec["ecg_72h_anchor_applied"],
@@ -1799,6 +1858,7 @@ def render_forensic_dossier(
     skip_postflight_audit: bool = False,
     radar_sector_payloads: Optional[Dict[str, Any]] = None,
     radar_query_texts: Optional[Dict[str, str]] = None,
+    today_so_far: bool = False,
     **kwargs: Any,
 ) -> Dict[str, Any]:
   """Renders a 6-Section CommonMark Forensic Triage Dossier with CRI scoring, SVG/HTML charts, and next steps.
@@ -1830,6 +1890,16 @@ def render_forensic_dossier(
 
   outliers, raw_envelope = _extract_and_normalize_rows(rows)
   mode_clean = (mode or "A").strip().upper().replace("MODE", "").strip() or "A"
+  eff_today_so_far = bool(today_so_far) or mode_clean in ("A_TODAY", "A_PARTIAL")
+  if mode_clean in ("A_TODAY", "A_PARTIAL"):
+    mode_clean = "A"
+  partial_day_warning: Optional[str] = (
+      "Partial UTC day ([today 00:00:00Z -> now]) compared against a full-day "
+      "(period: 1d, window: 30d) baseline without elapsed-fraction scaling; "
+      "sub-full-day Z-scores are systematically low-biased and may miss active breakouts."
+      if (mode_clean == "A" and eff_today_so_far)
+      else None
+  )
 
   # 1. Post-Flight Execution Audit & QueryIntegrityGate Verification (runs before zero-row return)
   audit_result = None
@@ -2033,7 +2103,11 @@ def render_forensic_dossier(
     embed_tag = f'<agent-embed src="file://{resolved_html_path}"></agent-embed>'
 
   # 5. Handle Zero-Row Clean Hunt vs Populated 6-Section Dossier
-  eval_mode_str = f"Mode {mode_clean}"
+  eval_mode_str = (
+      "Mode A: Today So Far (Partial UTC Day — Low-Biased vs Full-Day Baseline)"
+      if (mode_clean == "A" and eff_today_so_far)
+      else f"Mode {mode_clean}"
+  )
   clean_hunt_md = CommonMarkTriageFormatter.format_clean_hunt_report(
       target_metric=clean_metric,
       statistical_model=model_label,
@@ -2061,6 +2135,11 @@ def render_forensic_dossier(
       " (MITRE TA0043 Reconnaissance / T1595 Active Scanning & Directory Probing)"
       if clean_metric in ("http_queries_fail", "dns_queries_fail")
       else ""
+  )
+  partial_day_pillar3_lines = (
+      [f"> * **Partial-Day Low-Bias Disclosure**: {partial_day_warning}"]
+      if partial_day_warning
+      else []
   )
 
   if not outliers and radar_payload is None:
@@ -2093,6 +2172,7 @@ def render_forensic_dossier(
         "> [!IMPORTANT]",
         f"> **Nominal Baseline Verification: `{clean_metric}` ({model_label}){mitre_recon_note}**",
         f"> * **The Core Finding**: No entities breached the `{anomaly_threshold}σ` gate during the active evaluation window.",
+        *partial_day_pillar3_lines,
         next_steps_md,
         "",
         "---",
@@ -2123,6 +2203,8 @@ def render_forensic_dossier(
     return {
         "status": "RENDERED",
         "is_zero_row": True,
+        "is_partial_day": bool(partial_day_warning),
+        "partial_day_warning": partial_day_warning,
         "outcome_classification": outcome_class,
         "outlier_count": 0,
         "outliers": [],
@@ -2238,6 +2320,7 @@ def render_forensic_dossier(
       "> [!IMPORTANT]",
       f"> **Threat Translation & Attack Scenarios: `{clean_metric}` ({model_label}){mitre_recon_note}**",
       core_finding_line,
+      *partial_day_pillar3_lines,
       "> * **Security Significance**: Statistically significant departure from historical entity behavior indicating potential credential compromise, automated staging, or anomalous data movement.",
       "> * **Potential Attack Scenarios**: Credential stuffing, lateral expansion, living-off-the-land execution, or staged exfiltration.",
       "> * **Legitimate False Positives**: Scheduled enterprise backups, administrative batch jobs, or fleet patch rollouts.",
@@ -2300,6 +2383,8 @@ def render_forensic_dossier(
   return {
       "status": "RENDERED",
       "is_zero_row": False,
+      "is_partial_day": bool(partial_day_warning),
+      "partial_day_warning": partial_day_warning,
       "outcome_classification": outcome_class,
       "outlier_count": len(outliers),
       "outliers": outliers,
@@ -2585,7 +2670,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
   p_compile.add_argument("--entity-type", dest="entity_type", default="USER")
   p_compile.add_argument("--entity-value", "--entity", dest="entity_value", default=None)
   p_compile.add_argument("--custom-filter", dest="custom_filter", default=None)
-  p_compile.add_argument("--mode", default="A", choices=["A", "B", "C", "D"])
+  p_compile.add_argument("--mode", default="A", choices=["A", "A_TODAY", "A_PARTIAL", "B", "C", "D"])
+  p_compile.add_argument("--today-so-far", dest="today_so_far", action="store_true", help="Score Today So Far ([today 00:00Z -> now]) with partial-day low-bias warning")
   p_compile.add_argument("--window-days", dest="window_days", type=int, default=1)
   p_compile.add_argument("--sensitivity", default="BALANCED")
   p_compile.add_argument("--threshold", dest="anomaly_threshold", type=float, default=None)
@@ -2618,6 +2704,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
   p_render.add_argument("--metric", "--metric-name", dest="metric_name", default="auth_attempts_total")
   p_render.add_argument("--entity-type", dest="entity_type", default="USER")
   p_render.add_argument("--mode", default="A")
+  p_render.add_argument("--today-so-far", dest="today_so_far", action="store_true", help="Flag Today So Far partial-day low-bias disclosure in dossier")
   p_render.add_argument("--window-days", dest="window_days", type=int, default=14)
   p_render.add_argument("--threshold", dest="anomaly_threshold", type=float, default=3.0)
   p_render.add_argument("--output-html", dest="output_html_path", default=None)
@@ -2663,6 +2750,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         service_account=args.service_account,
         killchain_archetype=args.killchain_archetype,
         chained_path=args.chained_path,
+        today_so_far=args.today_so_far,
     )
     if args.format == "query":
       print(res["compiled_query"])
@@ -2704,6 +2792,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
           entity_type=args.entity_type,
           mode=args.mode,
           window_days=args.window_days,
+          today_so_far=args.today_so_far,
       )
       exec_query = compiled["compiled_query"]
 
@@ -2726,6 +2815,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         output_html_path=args.output_html_path,
         radar_scores=args.radar_scores,
         radar_sector_payloads=radar_payloads_arg,
+        today_so_far=args.today_so_far,
     )
     if args.format == "markdown":
       print(res["dossier_markdown"])

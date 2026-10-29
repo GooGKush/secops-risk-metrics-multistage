@@ -739,7 +739,7 @@ class PreFlightValidator:
       peer_cohort: str,
       statistical_model: str,
       entity_graph_dimension: str = "N/A",
-      evaluation_mode: str = "Mode A: Today (Default)",
+      evaluation_mode: str = "Mode A: Last Complete UTC Day (Default)",
       significance_threshold: Optional[str] = None,
       active_days: Optional[int] = None,
       min_baseline_days: Optional[int] = None,

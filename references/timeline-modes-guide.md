@@ -19,8 +19,9 @@ A `metrics.*(period: 1d, window: 30d, ...)` call resolves to **one baseline wind
 
 | Request | `D0` | Baseline applied |
 | :--- | :--- | :--- |
-| Mode A, today `00:00Z` → now, run after `04:00Z` | today | last 30 full days |
-| Mode A, run before `04:00Z` | yesterday | 30 days ending yesterday `00:00Z` (yesterday excluded; say so on the card) |
+| Mode A (default), last complete UTC day (`yesterday 00:00Z` → `today 00:00Z`) | yesterday | 30 full days before yesterday (`[yesterday − 30d, yesterday)`); full day vs full-day `period: 1d` baseline |
+| Mode A — Today So Far (`today 00:00Z` → now, `--today-so-far`), run after `04:00Z` | today | last 30 full days (partial UTC day vs full-day baseline — low-biased; never scale counts by elapsed fraction) |
+| Mode A — Today So Far (`today 00:00Z` → now, `--today-so-far`), run before `04:00Z` | yesterday | 30 days ending yesterday `00:00Z` (yesterday excluded and partial UTC day low-biased; say so on the card and Pillar 3) |
 | Mode B, 7 days ending today | first scored day | 30 days before the first scored day, reused for all 7 |
 | Mode C shard for day `D` (`D 00:00Z` → `D+1 00:00Z`) | `D` | 30 days before `D` |
 
@@ -94,7 +95,7 @@ python3 scripts/timeline_assembler.py \
 
 | Need | Mode |
 | :--- | :--- |
-| Active triage, today only | A |
+| Active single-day triage (last complete UTC day by default; Today So Far on request) | A |
 | Quick look at the last few days in any client | B (state the fixed-baseline bias) |
 | Per-day accuracy, onset dating, or more than 7 days | C (`run_command` present only) |
 | Specific single past date | A-style single-day request for that date (auto-bypass Mode B) |

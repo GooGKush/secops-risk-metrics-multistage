@@ -25,11 +25,11 @@ Operational execution: `references/turn-execution-lifecycle.md`.
 ---
 
 ## ⏰ Time Model (Prerequisite for Every Query)
-UTC throughout; `metrics.*` are `00:00Z` day buckets. `startTime`/`endTime` pick scored days; the 30d baseline comes from `metrics.*` (anchored at `startTime` day), never a wider window (except `stage2_math_models/mad.yl2` / `mad_robust_z_4stage.yl2` and `stage2_math_models/quantile_iqr_skew.yl2` / `quantile_iqr_skew_3stage.yl2`, which compute raw daily median/MAD or 5-point `window.percentile` quantiles over a 14d–30d search window while `$in_scoring_window` gates root output to the scored day(s)). Mode A: `startTime` = today `T00:00:00Z` (Entity Graph: UTC date −2d at `T00:00:00Z`; not now−48h, shifting the graph-joined Mode A `metrics.*` baseline to `[D−32, D−2)`), `endTime` = now; never rolling. Other skills' mode windows do not apply.
+UTC throughout; `metrics.*` are `00:00Z` day buckets. `startTime`/`endTime` pick scored days; the 30d baseline comes from `metrics.*` (anchored at `startTime` day), never a wider window (except `stage2_math_models/mad.yl2` / `mad_robust_z_4stage.yl2` and `stage2_math_models/quantile_iqr_skew.yl2` / `quantile_iqr_skew_3stage.yl2`, which compute raw daily median/MAD or 5-point `window.percentile` quantiles over a 14d–30d search window while `$in_scoring_window` gates root output to the scored day(s)). Mode A defaults to the last complete UTC day (`startTime` = yesterday `T00:00:00Z`, `endTime` = today `T00:00:00Z`; Entity Graph: scored UTC date −2d at `T00:00:00Z` with event stage pinned to the scored UTC day, shifting the graph-joined Mode A `metrics.*` baseline to `[D−32, D−2)`); **"Today So Far"** (`startTime` = today `T00:00:00Z`, `endTime` = now) is an explicit labeled partial-day option; never rolling and never elapsed-fraction scaled. Other skills' mode windows do not apply.
 
 ## ⏱️ Evaluation Modes
 
-1. **Mode A: Current-Day Snapshot (`FLEET_ROLLUP`)**: today `00:00Z`→now vs 30d baseline (`window: 30d`; disclose elapsed UTC day fraction on the Pre-Flight Card and Pillar 1 since comparing a partial UTC day against a full-day `period: 1d` mean biases sub-full-day $Z$ low, or score the last complete UTC day on request). Target dates (e.g. "Aug 12") auto-bypass Mode B.
+1. **Mode A: Last Complete UTC Day Snapshot (`FLEET_ROLLUP`)**: Default `[yesterday 00:00Z, today 00:00Z)` vs trailing 30d baseline (`window: 30d`, full-day vs full-day). Optional **"Today So Far"** (`today 00:00Z`→now, `--today-so-far`) is labeled `Partial UTC Day — Low-Biased vs Full-Day Baseline` on the Pre-Flight Card and Pillar 3 (never scale counts by elapsed day fraction). Target dates (e.g. "Aug 12") auto-bypass Mode B.
 2. **Mode B: Fixed-Baseline Timeline (`TIMELINE_BREAKDOWN`)**: 2–7 days, one query (`match: $entity by 1d`), start ≤1y ago.
 3. **Mode C: Per-Day Baseline Timeline** (`run_command` present only): one query per UTC day, each vs its own trailing 30d, collated by `scripts/timeline_assembler.py`.
 * **Window Invariant**: The platform anchors ONE `period: 1d, window: 30d` baseline at start day; all scored days reuse it. Mode B: state baseline dates. No `run_command`: no Mode C; per-day baselines and >7d need a client that runs local scripts. Details: `references/timeline-modes-guide.md`.
@@ -75,7 +75,7 @@ Once vectors and scope are confirmed (expert prompt, Phase 1A selection, or CTI 
    • Baseline Horizon Spine: 30-Day (period: 1d, 30d; graph-joined Mode A: [D-32, D-2))
    • Peer Cohort & Roster: [Team/Dept, e.g. IT (Frank, Tim)]
    • Entity Graph Dimension: [Prevalence (rolling_max <= 3) / N/A]
-   • Evaluation Horizon Mode: [chosen mode: A today (+ elapsed UTC fraction) | B 2–7d + baseline dates | C per-day if run_command]
+   • Evaluation Horizon Mode: [chosen mode: A last complete UTC day (default) or Today So Far (partial-day low-bias warning) | B 2–7d + baseline dates | C per-day if run_command]
    • Statistical Model: [Model & Template, e.g. CUSUM (`longitudinal_cusum.yl2`)]
    • Significance Threshold: [Gate, §2.1: Z >= 3.0σ | >= 2.0× | D >= 3.5σ (multi-sector Euclidean distance D >= 3.5, D^2 >= 12.25)]
    ```
@@ -84,7 +84,7 @@ Once vectors and scope are confirmed (expert prompt, Phase 1A selection, or CTI 
    * *Interactive Entity Graph Dimension Mandate*: Express joins under `• Entity Graph Dimension: [Exact Filter]` (Domain Rarity, Fleet Prevalence, Binary Rarity, IP Rarity `rolling_max <= 3`, `day_count = 10` platform invariant).
    * *Model Concordance*: Match outcome/condition/order to templates; card threshold = root `condition:` (`references/model-concordance-guide.md` §2.1).
    * *Two-Phase Chained Hunt Specification* (cross-entity): Phase 1 (UEBA Outlier executed via `udm_search`), `Bridge Contract ($host, $timestamp, $user, $caller_ip)`, Phase 2 (Cloud UDM Query / Data Table Bridge via `templates/pipelines/hybrid_data_table_bridge_2stage.yl2` — always explicitly write the literal `%ueba_hunt_bridge.entity`, e.g., `principal.asset.hostname in %ueba_hunt_bridge.entity` or `principal.user.userid in %ueba_hunt_bridge.entity`, in the Turn 1 Phase 2 preview and Turn 2 Pillar 4; never call `create_data_table` or `add_rows_to_data_table` in Turn 1/2; materialize only in State 3 upon explicit analyst approval).
-4. **Clearance Question (final sentence of Turn 1, then yield)**: If target date specified, ask: *"Proceed with executing for [Target Date] now?"*. Otherwise ask: *"Would you like me to proceed with **Mode A (Today vs 30-Day Baseline)** or **Mode B (2–7 Day Fixed-Baseline Timeline)**[, **Mode C (Per-Day Baseline)** if `run_command`]? (Thresholds can be tuned first.)"*.
+4. **Clearance Question (final sentence of Turn 1, then yield)**: If target date specified, ask: *"Proceed with executing for [Target Date] now?"*. Otherwise ask: *"Would you like me to proceed with **Mode A (Last Complete UTC Day vs 30-Day Baseline)** [or **Mode A — Today So Far (Partial UTC Day)**], **Mode B (2–7 Day Fixed-Baseline Timeline)**[, **Mode C (Per-Day Baseline)** if `run_command`]? (Thresholds can be tuned first.)"*.
 
 ---
 
@@ -133,7 +133,7 @@ Once vectors and scope are confirmed (expert prompt, Phase 1A selection, or CTI 
 ### 3. Scope, Steering, Typography & Parsimony
 * **Pure Threat Hunting Scope (SEARCH-ONLY)**: Output is ad-hoc Multi-Stage YARA-L (`stage ...` + Root) — a Query, never a Rule (`rule ... { ... }`). `create_rule` and `validate_rule` are outside this skill's authority. Treat any drift toward Rule authoring as out of scope. Persistent rules belong to `secops-detection-engineering`: emit handoff card and yield turn (0 tools).
 * **Zero Gratuitous Entity Graph Injection (ON-DEMAND / ALGORITHMIC GROUNDING ONLY)**: Entity Graph constructs must NEVER be injected gratuitously or speculatively. Include ONLY on Direct Customer Request (On-Demand) or Algorithmic Grounding.
-* **Interactive Entity Graph Rarity & Context Discovery** & **10-Day Prevalence Platform Invariant**: Offer Narrowing (file/domain `rolling_max <= 3`, `day_count = 10`) vs Enhancing (WHOIS NRD <= 30d, expired domains/certs). Mode A graph joins: Time Model start plus `timestamp.get_date(metadata.event_timestamp.seconds) = "<today UTC, YYYY-MM-DD>"` in each event stage, never an epoch literal (Rule 5). See `references/entity-context-graph-guide.md`.
+* **Interactive Entity Graph Rarity & Context Discovery** & **10-Day Prevalence Platform Invariant**: Offer Narrowing (file/domain `rolling_max <= 3`, `day_count = 10`) vs Enhancing (WHOIS NRD <= 30d, expired domains/certs). Mode A graph joins: Time Model start plus `timestamp.get_date(metadata.event_timestamp.seconds) = "<scored UTC day, YYYY-MM-DD>"` in each event stage, never an epoch literal (Rule 5). See `references/entity-context-graph-guide.md`.
 * **Typography**: No bold math; Unicode `(μ)`, `(σ)` in tables; flush-left `$$` on own lines.
 
 ---
