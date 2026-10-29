@@ -796,6 +796,15 @@ def active_statistical_models() -> List[StatisticalModel]:
   return [m for m in StatisticalModel if m not in retired]
 
 
+def is_compatible_metric_model(metric_name: str, model: StatisticalModel) -> bool:
+  """Returns True when (metric_name, model) is domain-compatible in MultiStageTemplateRouter."""
+  if metric_name not in METRIC_CATALOG:
+    return False
+  if model == StatisticalModel.POISSON and mc.baseline_semantics(metric_name).metric_arg == "value_sum":
+    return False
+  return True
+
+
 def render_full_matrix(
     *,
     template_dir: Path = TEMPLATES_DIR,
@@ -810,6 +819,8 @@ def render_full_matrix(
     mdef = METRIC_CATALOG[metric_name]
     for entity_type in mdef.supported_entity_types:
       for model in active_models:
+        if not is_compatible_metric_model(metric_name, model):
+          continue
         for mode in MatchMode:
           rec_id = f"matrix::{metric_name}::{entity_type.value}::{model.value}::{mode.value}"
           try:

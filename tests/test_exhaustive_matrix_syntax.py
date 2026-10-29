@@ -115,9 +115,22 @@ class ExhaustiveMatrixSyntaxTest(unittest.TestCase):
               anomaly_threshold=3.0,
           )
 
+      from scripts import malachite_catalog as mc
+      is_value_sum = mc.baseline_semantics(metric_name).metric_arg == "value_sum"
       for model in math_models:
         for mode in match_modes:
           context = f"Metric={metric_name}, Model={model.value}, Mode={mode.value}"
+          if model == StatisticalModel.POISSON and is_value_sum:
+            with self.assertRaisesRegex(ValueError, r"POISSON.*event_count_sum|value_sum|byte"):
+              self.router.build_query(
+                  target_metric=metric_name,
+                  entity_type=entity_type,
+                  statistical_model=model,
+                  anomaly_threshold=3.0,
+                  match_mode=mode,
+              )
+            tested_permutations += 1
+            continue
           query = self.router.build_query(
               target_metric=metric_name,
               entity_type=entity_type,

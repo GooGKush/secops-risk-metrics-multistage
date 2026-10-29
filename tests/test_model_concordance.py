@@ -58,9 +58,13 @@ MODEL_AST_CONTRACTS = {
     },
     StatisticalModel.POISSON: {
         "template": "poisson_rarity.yl2",
-        "mandatory_vars": ["$diff", "$safe_lambda", "$sqrt_lambda", "$poisson_z"],
+        "mandatory_vars": ["$diff", "$safe_lambda", "$fano_cal", "$safe_poisson_sd", "$sqrt_lambda", "$poisson_z"],
         "order_var": "$poisson_z",
-        "required_ops": ["math.sqrt($safe_lambda)", "$poisson_z = $diff / $sqrt_lambda"],
+        "required_ops": [
+            "$fano_cal = $var_cal / $safe_lambda",
+            "$safe_poisson_sd = math.sqrt($eff_var)",
+            "$poisson_z = $diff / $safe_poisson_sd",
+        ],
         "prohibited_substitutions": ["$personal_z"],
     },
     StatisticalModel.COEFFICIENT_OF_VARIATION: {
@@ -408,6 +412,14 @@ class TestModelConcordance(unittest.TestCase):
       for model in StatisticalModel:
         if model in RETIRED_MODEL_CONTRACTS:
           with self.assertRaisesRegex(ValueError, "retired"):
+            self.router.build_query(
+                target_metric=metric,
+                entity_type=entity_type,
+                statistical_model=model,
+            )
+          continue
+        if model == StatisticalModel.POISSON and metric == "network_bytes_outbound":
+          with self.assertRaisesRegex(ValueError, r"POISSON.*event_count_sum|value_sum|byte"):
             self.router.build_query(
                 target_metric=metric,
                 entity_type=entity_type,

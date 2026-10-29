@@ -891,6 +891,67 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
     self.assertEqual(_eval_reldev(observed=200.0, hist_avg=100.0), (2.0, 1.0, 3.0))
     self.assertEqual(_eval_reldev(observed=80.0, hist_avg=100.0), (0.8, -0.2, 0.0))
 
+  def test_ws3_poisson_blocks_byte_metrics_and_handles_overdispersion(self):
+    """WS3-POISSON: Rejects value_sum byte metrics and switches to NB scale when calendar Fano > 2.0."""
+    from scripts import malachite_catalog as mc
+    from scripts.preflight_validator import METRIC_CATALOG, MalachiteASTValidator
+    from scripts.statistical_validator import StatisticalAntipatternAuditor
+    import scripts.ueba_hybrid_engine as engine_mod
+
+    byte_metrics = [m for m in METRIC_CATALOG if mc.baseline_semantics(m).metric_arg == "value_sum"]
+    self.assertEqual(len(byte_metrics), 6)
+    for bm in byte_metrics:
+      et = METRIC_CATALOG[bm].supported_entity_types[0]
+      with self.assertRaisesRegex(ValueError, r"POISSON.*event_count_sum|value_sum|byte"):
+        self.router.build_query(
+            target_metric=bm,
+            entity_type=et,
+            statistical_model=StatisticalModel.POISSON,
+        )
+      with self.assertRaisesRegex(ValueError, r"POISSON.*event_count_sum|value_sum|byte"):
+        engine_mod.compile_hunt_pipeline(
+            statistical_model="POISSON",
+            metrics=bm,
+            entity_type=et.value,
+        )
+
+    q = self.router.build_query(
+        target_metric="auth_attempts_fail",
+        entity_type=EntityType.USER,
+        statistical_model=StatisticalModel.POISSON,
+    )
+    self.assertEqual(MalachiteASTValidator.validate_query(q), [])
+    self.assertEqual(MalachiteASTValidator.validate_model_concordance(q, StatisticalModel.POISSON), [])
+    self.assertEqual(StatisticalAntipatternAuditor.audit_query(q), [])
+    self.assertIn("$fano_cal = $var_cal / $safe_lambda", q)
+    self.assertIn("$eff_var = if($active_days >= 2 and $fano_cal > 2.0, $nb_var, $safe_lambda)", q)
+    self.assertIn("$safe_poisson_sd = math.sqrt($eff_var)", q)
+    self.assertIn("$poisson_z = $diff / $safe_poisson_sd", q)
+
+    pipe_raw = (self.router.template_dir / "pipelines" / "poisson_rarity_2stage.yl2").read_text(encoding="utf-8")
+    self.assertIn("$fano_cal = $var_cal / $safe_lambda", pipe_raw)
+    self.assertIn("$poisson_z = $diff / $safe_poisson_sd", pipe_raw)
+
+    # Low dispersion (Fano <= 2.0): uses pure Poisson sqrt(safe_lambda) = 1.0 -> (5 - 1) / 1 = 4.0
+    z_poisson = engine_mod.calculate_poisson_rarity_z(
+        observed=5.0,
+        hist_sum=30.0,
+        active_days=30,
+        hist_avg=1.0,
+        hist_stddev=1.0,
+    )
+    self.assertAlmostEqual(z_poisson, 4.0, places=4)
+
+    # Overdispersed count baseline (charles.hardy: Fano_cal = 181.34 > 2.0): uses calendar NB scale ~99.75 instead of 7.41
+    z_overdisp = engine_mod.calculate_poisson_rarity_z(
+        observed=785.0,
+        hist_sum=1646.0,
+        active_days=10,
+        hist_avg=164.6,
+        hist_stddev=114.4875,
+    )
+    self.assertAlmostEqual(z_overdisp, 7.3186, places=4)
+
 
 if __name__ == "__main__":
   unittest.main()

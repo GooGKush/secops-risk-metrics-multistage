@@ -16,7 +16,7 @@ if str(SKILL_ROOT) not in sys.path:
 
 from scripts import malachite_catalog as mc
 from scripts.preflight_validator import METRIC_CATALOG, MalachiteASTValidator, StatisticalModel
-from scripts.template_router import MatchMode
+from scripts.template_router import MatchMode, MultiStageTemplateRouter
 from tests.live.live_compile_harness import (
     DEFAULT_COMPILE_END_TIME,
     DEFAULT_COMPILE_START_TIME,
@@ -34,6 +34,7 @@ from tests.live.live_compile_harness import (
     build_pf11_first_seen_probes,
     export_execution_results,
     export_manifest,
+    is_compatible_metric_model,
     load_manifest,
     render_all_pipelines,
     render_full_matrix,
@@ -72,9 +73,22 @@ class TestOfflineFullMatrixRenderer(unittest.TestCase):
     cls.summary = summarize_matrix_records(cls.records)
 
   def test_full_matrix_counts_and_zero_render_or_ast_crashes(self) -> None:
-    expected_pairs = sum(len(m.supported_entity_types) for m in METRIC_CATALOG.values())
     active_models = active_statistical_models()
-    expected_cells = expected_pairs * len(active_models) * len(MatchMode)
+    expected_cells = sum(
+        len(m.supported_entity_types) * len(MatchMode)
+        for mname, m in METRIC_CATALOG.items()
+        for model in active_models
+        if is_compatible_metric_model(mname, model)
+    )
+    router = MultiStageTemplateRouter()
+    for mname, m in METRIC_CATALOG.items():
+      if mc.baseline_semantics(mname).metric_arg == "value_sum":
+        with self.assertRaisesRegex(ValueError, r"POISSON.*event_count_sum|value_sum|byte"):
+          router.build_query(
+              target_metric=mname,
+              entity_type=m.supported_entity_types[0],
+              statistical_model=StatisticalModel.POISSON,
+          )
     disk_pipelines = sorted(p.name for p in (TEMPLATES_DIR / "pipelines").glob("*.yl2"))
 
     self.assertEqual(len(METRIC_CATALOG), 38)

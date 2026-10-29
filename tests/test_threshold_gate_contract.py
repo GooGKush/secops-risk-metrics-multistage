@@ -104,10 +104,23 @@ class RouterGateTest(unittest.TestCase):
     self.router = MultiStageTemplateRouter()
 
   def _q(self, model, **kw):
+    if model == StatisticalModel.POISSON:
+      return self.router.build_query(
+          target_metric="auth_attempts_total",
+          entity_type=EntityType.USER,
+          statistical_model=model,
+          **kw,
+      )
     return self.router.build_query(target_metric="network_bytes_outbound", entity_type=EntityType.ASSET,
                                    statistical_model=model, **kw)
 
   def test_every_model_renders_its_default_gate(self):
+    with self.assertRaisesRegex(ValueError, r"POISSON.*event_count_sum|value_sum|byte"):
+      self.router.build_query(
+          target_metric="network_bytes_outbound",
+          entity_type=EntityType.ASSET,
+          statistical_model=StatisticalModel.POISSON,
+      )
     for model in StatisticalModel:
       with self.subTest(model=model.value):
         if model in RETIRED_GATE_MODELS:
