@@ -82,6 +82,79 @@ class TestUEBAHybridEngineCompile(unittest.TestCase):
       self.assertEqual(res["statistical_model"], expected_model)
       self.assertTrue(res["ast_valid"], f"Alias {alias} failed AST: {res['ast_errors']}")
 
+  def test_ws2_05_silence_and_dropout_aliases_raise_not_supported(self):
+    """WS2-05: SILENCE_DETECTION, DROP_OUT, SILENCE, and DROPOUT must raise 'not supported' instead of upper-tail Z."""
+    from scripts import ueba_hybrid_engine as engine_mod
+    from scripts.ueba_hybrid_engine import resolve_statistical_model
+
+    for alias in ("SILENCE_DETECTION", "DROP_OUT", "SILENCE", "DROPOUT", "silence_detection", "drop-out"):
+      with self.subTest(alias=alias, fn="resolve_statistical_model"):
+        with self.assertRaises(ValueError) as ctx:
+          resolve_statistical_model(alias)
+        self.assertIn("not supported", str(ctx.exception).lower())
+
+      with self.subTest(alias=alias, fn="compile_hunt_pipeline"):
+        with self.assertRaises(ValueError) as ctx_compile:
+          compile_hunt_pipeline(
+              statistical_model=alias,
+              metrics="auth_attempts_total",
+              entity_type="USER",
+          )
+        self.assertIn("not supported", str(ctx_compile.exception).lower())
+
+    compile_plan_fn = getattr(engine_mod, "compile_hunt_plan", None)
+    self.assertIsNotNone(compile_plan_fn, "compile_hunt_plan alias must be exported")
+    with self.assertRaises(ValueError) as ctx_plan:
+      compile_plan_fn(statistical_model="SILENCE_DETECTION", metrics="auth_attempts_total", entity_type="USER")
+    self.assertIn("not supported", str(ctx_plan.exception).lower())
+
+  def test_ws2_05_jitter_and_beacon_aliases_handoff_to_statistical_hunter(self):
+    """WS2-05: JITTER / BEACON_REGULARITY hand off to secops-statistical-hunter C2_BEACONING_JITTER (never daily CV)."""
+    from scripts import ueba_hybrid_engine as engine_mod
+    from scripts.ueba_hybrid_engine import resolve_statistical_model
+
+    for alias in ("JITTER", "BEACON_REGULARITY", "BEACON", "C2_BEACONING_JITTER", "C2_JITTER", "jitter", "beacon-regularity"):
+      with self.subTest(alias=alias, fn="resolve_statistical_model"):
+        with self.assertRaises(ValueError) as ctx:
+          resolve_statistical_model(alias)
+        self.assertIn("secops-statistical-hunter", str(ctx.exception))
+        self.assertIn("C2_BEACONING_JITTER", str(ctx.exception))
+
+      with self.subTest(alias=alias, fn="compile_hunt_pipeline"):
+        res = compile_hunt_pipeline(
+            statistical_model=alias,
+            metrics="network_flows_outbound",
+            entity_type="ASSET",
+            entity_value="wkst-c2-01",
+        )
+        self.assertEqual(res["status"], "HANDOFF_REQUIRED")
+        self.assertEqual(res["target_skill"], "secops-statistical-hunter")
+        self.assertEqual(res["model_routed"], "C2_BEACONING_JITTER")
+        self.assertEqual(res["compiled_query"], "")
+        self.assertNotIn("COEFFICIENT_OF_VARIATION", res.get("statistical_model", ""))
+        self.assertIn("```json:secops-threat-hunt-handoff-v1", res["handoff_card"])
+        self.assertNotIn("```yara", res["handoff_card"])
+        self.assertEqual(res["handoff_payload"]["target_skill"], "secops-statistical-hunter")
+        self.assertEqual(res["handoff_payload"]["intent"], "C2_BEACONING_JITTER")
+        self.assertEqual(res["handoff_payload"]["target_entity"]["value"], "wkst-c2-01")
+
+    # Also verify MICRO_RAW plane does not silently render local jitter CV when JITTER/BEACON is passed
+    res_micro = compile_hunt_pipeline(
+        statistical_model="JITTER",
+        plane="MICRO_RAW",
+        entity_type="ASSET",
+        entity_value="proxy-edge-01",
+    )
+    self.assertEqual(res_micro["status"], "HANDOFF_REQUIRED")
+    self.assertEqual(res_micro["target_skill"], "secops-statistical-hunter")
+    self.assertEqual(res_micro["model_routed"], "C2_BEACONING_JITTER")
+
+    compile_plan_fn = getattr(engine_mod, "compile_hunt_plan", None)
+    self.assertIsNotNone(compile_plan_fn, "compile_hunt_plan alias must be exported")
+    res_plan = compile_plan_fn(statistical_model="BEACON_REGULARITY", entity_type="ASSET", entity_value="srv-01")
+    self.assertEqual(res_plan["status"], "HANDOFF_REQUIRED")
+    self.assertEqual(res_plan["model_routed"], "C2_BEACONING_JITTER")
+
   def test_compile_all_38_catalog_metrics(self):
     """All 38 metrics in METRIC_CATALOG must compile cleanly via compile_hunt_pipeline."""
     self.assertEqual(len(METRIC_CATALOG), 38)

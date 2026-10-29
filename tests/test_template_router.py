@@ -516,6 +516,36 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
           self.assertEqual(MalachiteASTValidator.validate_query(q), [], f"{path_name}:{key}")
           self.assertEqual(StatisticalAntipatternAuditor.audit_query(q), [], f"{path_name}:{key}")
 
+  def test_ws2_05_router_rejects_silence_and_jitter_aliases(self):
+    """WS2-05: MultiStageTemplateRouter.build_query raises clear ValueErrors on SILENCE/DROP_OUT and JITTER/BEACON."""
+    for silence_alias in ("SILENCE_DETECTION", "DROP_OUT", "SILENCE", "DROPOUT"):
+      with self.subTest(alias=silence_alias):
+        with self.assertRaises(ValueError) as ctx:
+          self.router.build_query(
+              target_metric="auth_attempts_total",
+              entity_type=EntityType.USER,
+              statistical_model=silence_alias,  # type: ignore[arg-type]
+          )
+        self.assertIn("not supported", str(ctx.exception).lower())
+        with self.assertRaises(ValueError) as ctx_res:
+          self.router.build_query(
+              target_metric="resource_read_total",
+              entity_type=EntityType.USER,
+              statistical_model=silence_alias,  # type: ignore[arg-type]
+          )
+        self.assertIn("not supported", str(ctx_res.exception).lower())
+
+    for jitter_alias in ("JITTER", "BEACON_REGULARITY", "BEACON", "C2_BEACONING_JITTER", "C2_JITTER"):
+      with self.subTest(alias=jitter_alias):
+        with self.assertRaises(ValueError) as ctx:
+          self.router.build_query(
+              target_metric="network_flows_outbound",
+              entity_type=EntityType.ASSET,
+              statistical_model=jitter_alias,  # type: ignore[arg-type]
+          )
+        self.assertIn("secops-statistical-hunter", str(ctx.exception))
+        self.assertIn("C2_BEACONING_JITTER", str(ctx.exception))
+
 
 if __name__ == "__main__":
   unittest.main()
