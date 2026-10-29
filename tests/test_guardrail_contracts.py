@@ -219,10 +219,11 @@ class TestGuardrailContracts(unittest.TestCase):
     self.assertNotIn("compared to its own trailing 30d baseline (`period", self.skill_content)
 
   def test_mode_c_is_capability_gated_and_mode_b_capped(self):
-    """Mode C requires run_command; Mode B is a 2-7 day single query; no-shell clients get the harness note."""
+    """Mode C requires run_command; Mode B is a 2-3 day single query (D9); no-shell clients get the harness note."""
     self.assertIn("(`run_command` present only)", self.skill_content)
-    self.assertIn("2–7 days, one query", self.skill_content)
+    self.assertIn("2–3 days, one query", self.skill_content)
     self.assertIn("need a client that runs local scripts", self.skill_content)
+    self.assertNotIn("2–7 days", self.skill_content)
     self.assertNotIn("2–14", self.skill_content)
 
   def test_mode_c_execution_contracts_amended(self):

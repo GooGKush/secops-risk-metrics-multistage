@@ -372,20 +372,20 @@ class TestUEBAHybridEngineCompile(unittest.TestCase):
     self.assertEqual(res_ecg["end_time"], "2026-10-17T00:00:00Z")
     self.assertIn('"2026-10-16"', res_ecg["compiled_query"])
 
-    # Mode B 7-day fixed-baseline timeline
+    # Mode B 3-day fixed-baseline timeline (D9 / WS1-10 default & cap = 3 days)
     res_b = compile_hunt_pipeline(
         statistical_model="zscore",
         metrics="network_bytes_outbound",
         entity_type="ASSET",
         mode="B",
-        window_days=7,
+        window_days=3,
         reference_time=ref_time,
     )
     self.assertEqual(res_b["mode"], "B")
-    self.assertEqual(res_b["window_days"], 7)
-    self.assertEqual(res_b["start_time"], "2026-10-11T00:00:00Z")
-    self.assertEqual(res_b["search_window"]["baseline_start_date"], "2026-09-11")
-    self.assertEqual(res_b["search_window"]["baseline_end_date"], "2026-10-10")
+    self.assertEqual(res_b["window_days"], 3)
+    self.assertEqual(res_b["start_time"], "2026-10-15T00:00:00Z")
+    self.assertEqual(res_b["search_window"]["baseline_start_date"], "2026-09-15")
+    self.assertEqual(res_b["search_window"]["baseline_end_date"], "2026-10-14")
 
     # Mode C 5-day rolling shards
     res_c = compile_hunt_pipeline(
@@ -782,9 +782,11 @@ class TestUEBAHybridEngineCLIAndCatalog(unittest.TestCase):
         metrics="auth_attempts_total",
         entity_type="USER",
         mode="B",
-        window_days=5,
+        window_days=3,
         reference_time=ref_time,
     )
+    self.assertEqual(res_mad_b["mode"], "B")
+    self.assertEqual(res_mad_b["window_days"], 3)
     self.assertTrue(res_mad_b["ast_valid"])
     self.assertIn("$in_scoring_window = 1", res_mad_b["compiled_query"])
 
@@ -1144,6 +1146,100 @@ class TestUEBAHybridEngineCLIAndCatalog(unittest.TestCase):
       self.assertIn("low-biased", pillar3_slice.lower())
       # Verify zero elapsed-fraction scaling of observed or z_score
       self.assertEqual(dossier["outliers"][0]["observed"], 120.0)
+
+  def test_ws1_10_mode_b_defaults_and_caps_at_3_days_or_redirects_to_mode_c(self):
+    """WS1-10 / D9: Mode B defaults to 3d, redirects >3d to Mode C when run_command is available, or caps at 3d otherwise."""
+    from scripts.ueba_hybrid_engine import _compute_execution_windows, main as cli_main
+
+    ref_time = datetime.datetime(2026, 10, 28, 12, 0, 0, tzinfo=datetime.timezone.utc)
+
+    with self.subTest("mode_b_default_is_3_days"):
+      res_b_default = compile_hunt_pipeline(
+          statistical_model="STANDARD_Z_SCORE",
+          metrics="auth_attempts_total",
+          entity_type="USER",
+          mode="B",
+          reference_time=ref_time,
+      )
+      self.assertEqual(res_b_default["mode"], "B")
+      self.assertEqual(res_b_default["window_days"], 3)
+      self.assertEqual(res_b_default["start_time"], "2026-10-26T00:00:00Z")
+
+      win_b_default = _compute_execution_windows(
+          compiled_query="",
+          mode="B",
+          window_days=1,
+          reference_time=ref_time,
+      )
+      self.assertEqual(win_b_default["window_days"], 3)
+
+    with self.subTest("mode_b_7d_redirects_to_mode_c_with_run_command"):
+      res_redirect = compile_hunt_pipeline(
+          statistical_model="STANDARD_Z_SCORE",
+          metrics="network_bytes_outbound",
+          entity_type="ASSET",
+          mode="B",
+          window_days=7,
+          has_run_command=True,
+          reference_time=ref_time,
+      )
+      self.assertEqual(res_redirect["mode"], "C")
+      self.assertEqual(res_redirect["redirected_from_mode"], "B")
+      self.assertEqual(res_redirect["window_days"], 7)
+      self.assertEqual(len(res_redirect["shards"]), 7)
+      self.assertTrue(res_redirect["mode_notice"])
+      self.assertIn("Mode C", res_redirect["mode_notice"])
+      self.assertIn("Mode C", res_redirect["preflight_card_markdown"])
+
+    with self.subTest("mode_b_7d_caps_at_3d_without_run_command_and_via_cli"):
+      res_capped = compile_hunt_pipeline(
+          statistical_model="STANDARD_Z_SCORE",
+          metrics="network_bytes_outbound",
+          entity_type="ASSET",
+          mode="B",
+          window_days=7,
+          has_run_command=False,
+          reference_time=ref_time,
+      )
+      self.assertEqual(res_capped["mode"], "B")
+      self.assertEqual(res_capped["window_days"], 3)
+      self.assertEqual(res_capped["capped_from_days"], 7)
+      self.assertTrue(res_capped["mode_notice"])
+      self.assertIn("3 days", res_capped["mode_notice"])
+      self.assertIn("run_command", res_capped["mode_notice"])
+      self.assertIn("timeline_assembler.py", res_capped["mode_notice"])
+      self.assertIn("3 days", res_capped["preflight_card_markdown"])
+
+      win_capped = _compute_execution_windows(
+          compiled_query="",
+          mode="B",
+          window_days=7,
+          reference_time=ref_time,
+      )
+      self.assertEqual(win_capped["mode"], "B")
+      self.assertEqual(win_capped["window_days"], 3)
+      self.assertEqual(win_capped["capped_from_days"], 7)
+
+      buf = io.StringIO()
+      with patch("sys.stdout", buf):
+        rc = cli_main(["compile", "--metrics", "network_bytes_outbound", "--mode", "B", "--window-days", "7", "--no-run-command", "--format", "json"])
+      self.assertEqual(rc, 0)
+      cli_capped = json.loads(buf.getvalue())
+      self.assertEqual(cli_capped["mode"], "B")
+      self.assertEqual(cli_capped["window_days"], 3)
+      self.assertEqual(cli_capped["capped_from_days"], 7)
+
+    with self.subTest("cusum_exception_allows_single_request_up_to_14d"):
+      res_cusum_b = compile_hunt_pipeline(
+          statistical_model="LONGITUDINAL_CUSUM",
+          metrics="auth_attempts_total",
+          entity_type="USER",
+          mode="B",
+          window_days=7,
+          reference_time=ref_time,
+      )
+      self.assertEqual(res_cusum_b["mode"], "B")
+      self.assertEqual(res_cusum_b["window_days"], 7)
 
 
 if __name__ == "__main__":
