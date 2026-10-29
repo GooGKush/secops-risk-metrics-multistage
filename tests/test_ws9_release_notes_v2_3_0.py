@@ -68,6 +68,18 @@ class TestWS9ReleaseNotesV230(unittest.TestCase):
       with self.subTest(item_id=item_id):
         self.assertIn(item_id, v230_section, f"Missing {item_id} in v2.3.0 RELEASE_NOTES.md section")
 
+  def test_v2_3_0_docs_match_d3_d8_d9_ws1_13_and_final_counts(self) -> None:
+    v230_section = self.release_text.split("## 📢 What's New in v2.2.0", 1)[0]
+    for forbidden in ("2–5 days", "Mode B `5d`", "Mode B 5d", "elapsed_hours / 24.0", "1048576.0"):
+      with self.subTest(forbidden=forbidden):
+        self.assertNotIn(forbidden, v230_section, f"Stale claim {forbidden!r} in v2.3.0 RELEASE_NOTES.md")
+    self.assertIn("634/634 offline unit tests", v230_section)
+
+    active_readme = self.readme_text.split("### v2.2.0", 1)[0]
+    for forbidden in ("Mode B 5d cap", "Mode B `5d` Cap", "capped Mode B at 5 days", "elapsed-hours opt-in", "impossible travel velocity"):
+      with self.subTest(forbidden_readme=forbidden):
+        self.assertNotIn(forbidden, active_readme, f"Stale claim {forbidden!r} in active/v2.3.0 README.md")
+
   def test_active_readme_tree_and_tables_reflect_d1_and_new_artifacts(self) -> None:
     active_readme = self.readme_text.split("## 📦 Recent Releases", 1)[0]
     retired_files = (
