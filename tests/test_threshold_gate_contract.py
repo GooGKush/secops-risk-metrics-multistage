@@ -58,6 +58,7 @@ EXPECTED_DEFAULT_GATES = {
     StatisticalModel.RELATIVE_DEVIATION: "$fold_change >= 2.0",
     StatisticalModel.MAD: "$in_scoring_window = 1 and $raw_active_days >= 7 and $modified_z >= 3.5",
     StatisticalModel.QUANTILE_IQR_SKEW: "$in_scoring_window = 1 and $raw_active_days >= 7 and $tukey_excess_z >= 1.0",
+    StatisticalModel.FIRST_SEEN_NOVELTY: "$novelty_flag = 1",
     StatisticalModel.VARIANCE: None,
 }
 

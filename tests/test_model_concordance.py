@@ -244,6 +244,25 @@ MODEL_AST_CONTRACTS = {
         ],
         "prohibited_substitutions": ["$personal_z", "$ratio"],
     },
+    StatisticalModel.FIRST_SEEN_NOVELTY: {
+        "template": "first_seen_novelty.yl2",
+        "mandatory_vars": [
+            "$observed",
+            "$prior_first_seen",
+            "$prior_last_seen",
+            "$peak_period_start",
+            "$active_days",
+            "$novelty_flag",
+        ],
+        "order_var": "$novelty_flag",
+        "required_ops": [
+            "$prior_first_seen = min($stage1_extract.prior_first_seen)",
+            "$prior_last_seen = max($stage1_extract.prior_last_seen)",
+            "$peak_period_start = max($stage1_extract.peak_period_start)",
+            "$novelty_flag = if($prior_first_seen = 0 and $observed >= {{min_novelty_events}}, 1, 0)",
+        ],
+        "prohibited_substitutions": ["$personal_z", "$ratio"],
+    },
 }
 
 RETIRED_MODEL_CONTRACTS = {

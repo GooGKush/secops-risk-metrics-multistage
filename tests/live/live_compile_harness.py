@@ -473,6 +473,15 @@ def render_all_pipelines(
           ),
       ),
       (
+          "first_seen_novelty_2stage.yl2",
+          PipelineArchitecture.FIRST_SEEN_NOVELTY_2STAGE.value,
+          lambda: router.build_pipeline_query(
+              PipelineArchitecture.FIRST_SEEN_NOVELTY_2STAGE,
+              target_metric="auth_attempts_total",
+              entity_type=EntityType.USER,
+          ),
+      ),
+      (
           "fusion_rare_destination_3stage.yl2",
           PipelineArchitecture.FUSION_RARE_DESTINATION_3STAGE.value,
           lambda: router.build_pipeline_query(
@@ -1219,12 +1228,7 @@ def build_pf11_first_seen_probes(
   for metric_name in sorted(METRIC_CATALOG.keys()):
     spec = extract_stage1_spec(metric_name, template_dir=template_dir)
     primary_query = _build_pf11_probe_sql(spec)
-    # Note: Offline `MalachiteASTValidator` currently restricts `metric:` to
-    # `value_sum | event_count_sum`; assert zero OTHER AST errors exist.
-    other_errs = [
-        e for e in MalachiteASTValidator.validate_query(primary_query)
-        if not e.startswith("INVALID_METRIC_TYPE")
-    ]
+    other_errs = MalachiteASTValidator.validate_query(primary_query)
     if other_errs:
       raise ValueError(f"PF-11 probe for {metric_name} failed AST structure validation: {other_errs}")
 
@@ -1232,10 +1236,7 @@ def build_pf11_first_seen_probes(
     if metric_name in NETWORK_IP_FALLBACK_METRICS:
       ip_spec = extract_stage1_spec(metric_name, template_dir=template_dir, rebind_field="principal.asset.ip")
       fallback_query = _build_pf11_probe_sql(ip_spec)
-      fb_errs = [
-          e for e in MalachiteASTValidator.validate_query(fallback_query)
-          if not e.startswith("INVALID_METRIC_TYPE")
-      ]
+      fb_errs = MalachiteASTValidator.validate_query(fallback_query)
       if fb_errs:
         raise ValueError(f"PF-11 IP fallback probe for {metric_name} failed AST validation: {fb_errs}")
 

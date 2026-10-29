@@ -99,13 +99,14 @@ class TestOfflineFullMatrixRenderer(unittest.TestCase):
     disk_pipelines = sorted(p.name for p in (TEMPLATES_DIR / "pipelines").glob("*.yl2"))
 
     self.assertEqual(len(METRIC_CATALOG), 38)
-    self.assertEqual(len(StatisticalModel), 18)
-    self.assertEqual(len(active_models), 14)
+    self.assertEqual(len(StatisticalModel), 19)
+    self.assertEqual(len(active_models), 15)
     self.assertIn(StatisticalModel.QUANTILE_IQR_SKEW, set(active_models))
     self.assertIn(StatisticalModel.RELATIVE_DEVIATION, set(active_models))
+    self.assertIn(StatisticalModel.FIRST_SEEN_NOVELTY, set(active_models))
     self.assertNotIn(StatisticalModel.PIECEWISE_CRI, set(active_models))
     self.assertNotIn(StatisticalModel.FLEET_PREVALENCE_SHIELD, set(active_models))
-    self.assertEqual(len(disk_pipelines), 32)
+    self.assertEqual(len(disk_pipelines), 33)
 
     self.assertEqual(self.summary["matrix_cell_count"], expected_cells)
     self.assertEqual(self.summary["pipeline_count"], len(disk_pipelines))
@@ -128,7 +129,7 @@ class TestOfflineFullMatrixRenderer(unittest.TestCase):
 
     # Named-cohort variants for part_of_the_whole_* also render and pass AST validation.
     with_cohorts = render_all_pipelines(include_cohort_variants=True)
-    self.assertEqual(len(with_cohorts), 34)
+    self.assertEqual(len(with_cohorts), 35)
     cohort_recs = [r for r in with_cohorts if "#named_cohort" in r.record_id]
     self.assertEqual(len(cohort_recs), 2)
     for rec in cohort_recs:
