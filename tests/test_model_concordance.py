@@ -324,6 +324,102 @@ class TestModelConcordance(unittest.TestCase):
     for model in StatisticalModel:
       self.assertIn(model.value, content, f"Guide missing coverage for {model.value}")
 
+  def test_ws2_07_router_output_passes_validate_model_concordance_for_all_models_and_modes(self):
+    """WS2-07: Router build_query output must pass validate_model_concordance and PostFlightExecutionAuditor across all 18 models x modes."""
+    from scripts.preflight_validator import MalachiteASTValidator, PostFlightExecutionAuditor
+
+    representative_targets = [
+        ("network_bytes_outbound", EntityType.ASSET),
+        ("auth_attempts_total", EntityType.USER),
+        ("file_executions_total", EntityType.ASSET),
+        ("resource_read_total", EntityType.USER),
+        ("resource_read_total", EntityType.RESOURCE),
+    ]
+    for metric, entity_type in representative_targets:
+      for model in StatisticalModel:
+        for mode in (MatchMode.TIMELINE_BREAKDOWN, MatchMode.FLEET_ROLLUP):
+          with self.subTest(metric=metric, entity_type=entity_type.value, model=model.value, mode=mode.value):
+            query = self.router.build_query(
+                target_metric=metric,
+                entity_type=entity_type,
+                statistical_model=model,
+                match_mode=mode,
+                scoring_end_date="2026-10-27",
+            )
+            concordance_errors = MalachiteASTValidator.validate_model_concordance(query, model)
+            self.assertEqual(
+                concordance_errors,
+                [],
+                f"Router output failed validate_model_concordance for {model.value}/{mode.value}: {concordance_errors}",
+            )
+            audit_res = PostFlightExecutionAuditor.audit_execution(
+                executed_query=query,
+                api_response={"stats": {"results": []}},
+                target_metric=metric,
+                entity_type=entity_type,
+                statistical_model=model,
+            )
+            self.assertTrue(
+                audit_res.is_valid,
+                f"PostFlightExecutionAuditor rejected router output for {model.value}/{mode.value}: {audit_res.errors}",
+            )
+
+  def test_ws2_07_validate_model_concordance_flags_topology_and_quantile_formula_mismatches(self):
+    """WS2-07: Dynamic template stage-topology check catches missing/extra stages and QUANTILE_IQR_SKEW formula drift."""
+    from scripts.preflight_validator import MalachiteASTValidator
+
+    z_query = self.router.build_query(
+        target_metric="network_bytes_outbound",
+        entity_type=EntityType.ASSET,
+        statistical_model=StatisticalModel.STANDARD_Z_SCORE,
+    )
+    cusum_query = self.router.build_query(
+        target_metric="network_bytes_outbound",
+        entity_type=EntityType.ASSET,
+        statistical_model=StatisticalModel.LONGITUDINAL_CUSUM,
+    )
+
+    # Multi-stage Stage-2 models must reject a 1-named-stage query
+    for multi_stage_model in (
+        StatisticalModel.LONGITUDINAL_CUSUM,
+        StatisticalModel.FLEET_PREVALENCE_SHIELD,
+        StatisticalModel.QUANTILE_IQR_SKEW,
+        StatisticalModel.MAD,
+    ):
+      with self.subTest(missing_stage_for=multi_stage_model.value):
+        errs = MalachiteASTValidator.validate_model_concordance(z_query, multi_stage_model)
+        self.assertTrue(
+            any("STAGE_TOPOLOGY_MISMATCH" in e for e in errs),
+            f"Expected STAGE_TOPOLOGY_MISMATCH for {multi_stage_model.value}, got {errs}",
+        )
+
+    # Single-stage Stage-2 models (including BAYESIAN_GAMMA / BAYESIAN_BETA_BINOMIAL) must reject extra stages
+    for single_stage_model in (
+        StatisticalModel.STANDARD_Z_SCORE,
+        StatisticalModel.BAYESIAN_GAMMA,
+        StatisticalModel.BAYESIAN_BETA_BINOMIAL,
+    ):
+      with self.subTest(extra_stage_for=single_stage_model.value):
+        errs = MalachiteASTValidator.validate_model_concordance(cusum_query, single_stage_model)
+        self.assertTrue(
+            any("STAGE_TOPOLOGY_MISMATCH" in e for e in errs),
+            f"Expected STAGE_TOPOLOGY_MISMATCH for {single_stage_model.value}, got {errs}",
+        )
+
+    # QUANTILE_IQR_SKEW without window.percentile(...) must trigger MODEL_FORMULA_MISMATCH
+    q_query = self.router.build_query(
+        target_metric="network_bytes_outbound",
+        entity_type=EntityType.ASSET,
+        statistical_model=StatisticalModel.QUANTILE_IQR_SKEW,
+        scoring_end_date="2026-10-27",
+    )
+    broken_quantile = q_query.replace("window.percentile(", "max(")
+    q_errs = MalachiteASTValidator.validate_model_concordance(broken_quantile, StatisticalModel.QUANTILE_IQR_SKEW)
+    self.assertTrue(
+        any("MODEL_FORMULA_MISMATCH" in e for e in q_errs),
+        f"Expected MODEL_FORMULA_MISMATCH when window.percentile is missing, got {q_errs}",
+    )
+
 
 if __name__ == "__main__":
   unittest.main()
