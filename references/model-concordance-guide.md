@@ -33,7 +33,7 @@ In multi-stage hunting workflows:
 | 7 | `BAYESIAN_GAMMA` | Empirical Bayes Poisson-Gamma (Fleet Prior & NB Predictive Z) | `$mu_cal`, `$var_cal`, `$excess_var`, `$posterior_rate`, `$post_rate_var`, `$cred_w`, `$pred_var`, `$safe_pred_sd`, `$bayesian_z` | Fleet-fitted `Gamma(alpha0, beta0)` slots, posterior rate $(\alpha_0 + S)/(\beta_0 + 30)$, NB posterior-predictive residual Z without double-counting $\mu$ (`B-E10`) | `order: $bayesian_z desc` | Self-estimated per-entity $\beta_0 = \mu/\sigma^2$ or posterior/mean fold-change ratio |
 | 8 | `BAYESIAN_BETA_BINOMIAL` | Empirical Bayes Paired Beta-Binomial Failure Rate (Predictive Z) | `$obs_fail`, `$obs_total`, `$hist_fail_sum`, `$hist_total_sum`, `$prior_fail_rate`, `$posterior_fail_rate`, `$posterior_rate`, `$pred_mean`, `$pred_var`, `$safe_pred_sd`, `$beta_binomial_z` | Paired Stage-1 `*_fail`/`*_total` counts + 30d sums, fleet `Beta(alpha0, beta0)` prior, Beta-Binomial posterior-predictive residual Z | `order: $beta_binomial_z desc` | Pseudo-trial count normalization or running on unpaired metrics |
 | 9 | `LONGITUDINAL_CUSUM` | Multi-Day Cumulative Drift (Windowed Slack Sum) | `$raw_drift`, `$safe_stddev`, `$slack_allowance`, `$slack_excess`, `$daily_excess`, `$cusum_drift`, `$windowed_slack_sum`, `$cusum_drift_score`, `$drift_days` | Per-day slack excess ($Z_t - 0.5\sigma$) gated on `$active_days >= 7`, multi-day Windowed Slack Sum `sum($stage2_daily_drift.daily_excess)` across window | `order: $cusum_drift_score desc` | Allowing immature baselines (`$active_days < 7`) to accumulate slack or claiming recursive Page $S_t$ inside YARA-L |
-| 10 | `TWO_PART_HURDLE` | Two-Part Hurdle Model (Zero-Inflated) | `$is_dormant_awakening`, `$raw_diff`, `$safe_stddev`, `$intensity_z`, `$obs_plus_one`, `$log_obs`, `$dormant_score`, `$hurdle_threat_score` | Bernoulli hurdle trigger (`10.0 + math.log($obs_plus_one)`), conditional continuous intensity | `order: $hurdle_threat_score desc` | Single-equation continuous model without dormant penalty |
+| 10 | `TWO_PART_HURDLE` | Two-Part Hurdle Model (Dormant Awakening Volume + Active Intensity) | `$hist_max`, `$mu_cal`, `$dormant_days`, `$is_dormant_awakening`, `$awakening_ratio`, `$dormant_score`, `$safe_stddev`, `$raw_z`, `$intensity_z`, `$hurdle_threat_score` | Dormant branch (`$active_days < 7`) requires `$observed >= {{min_awakening_volume}}` and `$observed > $hist_max`; active branch (`$active_days >= 7`) rectifies positive `$intensity_z` | `order: $hurdle_threat_score desc` | Unconditional `$active_days <= 2` `10 + ln(obs)` boost that lets `obs=4` outrank real `+5σ` surges |
 | 11 | `ASYMMETRIC_DIRECTIONAL_Z` *(MERGED D1)* | Merged into `STANDARD_Z_SCORE` | `$personal_diff`, `$dispersion_floor`, `$safe_stddev`, `$personal_z` | Upper-tail positive `$personal_z >= 3.0` is identical to `STANDARD_Z_SCORE` (`standard_z_score.yl2`) | `order: $personal_z desc` | Maintaining duplicate `asymmetric_directional_z.yl2` |
 | 12 | `PIECEWISE_CRI` *(RETIRED D1)* | Retired — Computed via `ueba_constants.calculate_cri` | — | CRI is a reporting-only translation computed in Python (`WS7-01`), never in YARA-L | — | Emitting discrete step-ladder CRI in YARA-L |
 | 13 | `FLEET_PREVALENCE_SHIELD` *(RETIRED D1)* | Retired — Replaced by `hybrid_metric_fleet_prevalence_2stage.yl2` | — | Replaced by token-scoped `hybrid_metric_fleet_prevalence_2stage.yl2` or `dual_baseline_delta_z_3stage.yl2` | — | Dividing personal Z by raw daily active-entity count `1 + ln(fleet_count)` |
@@ -57,7 +57,7 @@ Every query carries the model's significance gate as a root `condition:` placed 
 | `MACD_MOMENTUM_VELOCITY` | `$active_days`, `$macd_z` | `$active_days >= 7 and $macd_z >= 3.0` | σ | `Above-Max Z >= 3.0σ` | `{{anomaly_threshold}}` |
 | `PIECEWISE_CRI` | — | **retired (`D1`)** | — | `RETIRED (D1 -> ueba_constants.calculate_cri)` | — |
 | `FLEET_PREVALENCE_SHIELD` | — | **retired (`D1`)** | — | `RETIRED (D1 -> hybrid_metric_fleet_prevalence_2stage.yl2)` | — |
-| `TWO_PART_HURDLE` | `$active_days`, `$intensity_z` | `$active_days <= 2 or $intensity_z >= 3.0` | dormancy break or σ | `Dormant awakening OR Z >= 3.0σ` | `{{anomaly_threshold}}` |
+| `TWO_PART_HURDLE` | `$hurdle_threat_score` | `$hurdle_threat_score >= 3.0` | hurdle score (own scale, not σ) | `Hurdle Score >= 3.0 (Dormant >= 25 & > Max, OR Active Z >= 3.0σ)` | `{{anomaly_threshold}}` |
 | `ADAPTIVE_CONTEXT_THRESHOLD` | `$active_days`, `$sensitivity_excess` | `$active_days >= 7 and $sensitivity_excess >= 0.0` | σ above the context threshold (1.75σ / 3.00σ) | `Z >= context threshold` | none (built into the score) |
 | `LONGITUDINAL_CUSUM` | `$active_days`, `$cusum_drift_score`, `$drift_days` | `$active_days >= 7 and $cusum_drift_score >= 3.0 and $drift_days >= 2` | cumulative σ excess over 0.5σ slack | `Windowed Slack Sum >= 3.0σ (>= 2 drift days)` | `{{anomaly_threshold}}` |
 | `BAYESIAN_GAMMA` | `$bayesian_z` | `$bayesian_z >= 3.0` | σ (NB posterior-predictive) | `Bayesian Z >= 3.0σ` | `{{anomaly_threshold}}` |
@@ -362,7 +362,7 @@ order:
 ```
 
 ### 10. `TWO_PART_HURDLE` (`two_part_hurdle.yl2`)
-* **Hypothesis**: Zero-inflated dormant account reactivation: crossing the zero-hurdle warrants a log-scaled awakening score (`10.0 + math.log($observed + 1.0)`), with per-calendar-day rate (`$hist_sum / 30.0`), `$dormant_days`, and rebuilt calendar statistics (`PF-1`, `PF-2`, `WS1-05`), while active baseline entities are scored by continuous intensity $Z$ with D8 dispersion floor.
+* **Hypothesis**: Zero-inflated dormant account reactivation: immature/dormant accounts (`$active_days < 7`) must satisfy BOTH `$observed >= {{min_awakening_volume}}` (default `25`) AND `$observed > $hist_max` (`3.0 + ln(max(1, obs / max(hist_max, min_awakening_volume)))`), with per-calendar-day rate (`$hist_sum / 30.0`), `$dormant_days = 30.0 - $active_days`, and rebuilt calendar statistics (`PF-1`, `PF-2`, `WS1-05`), while mature active entities (`$active_days >= 7`) are scored by rectified positive intensity $Z$ with D8 dispersion floor. Ranked on its own hurdle scale (not true $\sigma$).
 * **Mandatory AST Contract**:
 ```yara
 outcome:
@@ -370,6 +370,7 @@ outcome:
   $hist_sum = max($stage1_extract.historical_sum)
   $hist_avg = max($stage1_extract.historical_avg)
   $hist_stddev = max($stage1_extract.historical_stddev)
+  $hist_max = max($stage1_extract.historical_max)
   $active_days = max($stage1_extract.historical_active_days)
 
   $mu_cal = $hist_sum / 30.0
@@ -379,20 +380,18 @@ outcome:
   $raw_var_cal = ($sum_x2 / 30.0) - ($mu_cal * $mu_cal)
   $sd_cal = math.sqrt(if($raw_var_cal > 0.0, $raw_var_cal, 0.0))
 
-  $is_dormant_awakening = if($active_days <= 2 and $observed > 0, 1.0, 0.0)
+  $is_dormant_awakening = if($active_days < 7 and $observed >= 25 and $observed > $hist_max, 1.0, 0.0)
+  $awakening_ratio = $observed / if($hist_max > 25, $hist_max, 25)
+  $dormant_score = $is_dormant_awakening * (3.0 + math.log(if($awakening_ratio > 1.0, $awakening_ratio, 1.0)))
 
-  $raw_diff = $observed - $hist_avg
   $dispersion_floor = math.sqrt(if($hist_avg > 1.0, $hist_avg, 1.0))
   $safe_stddev = if($hist_stddev > $dispersion_floor, $hist_stddev, $dispersion_floor)
-  $intensity_z = $raw_diff / $safe_stddev
-
-  $obs_plus_one = $observed + 1.0
-  $log_obs = math.log($obs_plus_one)
-  $dormant_score = 10.0 + $log_obs
-  $hurdle_threat_score = if($active_days <= 2, $dormant_score, $intensity_z)
+  $raw_z = ($observed - $hist_avg) / $safe_stddev
+  $intensity_z = if($raw_z > 0.0, $raw_z, 0.0)
+  $hurdle_threat_score = if($active_days < 7, $dormant_score, $intensity_z)
 
 condition:
-  $active_days <= 2 or $intensity_z >= 3.0
+  $hurdle_threat_score >= 3.0
 
 order:
   $hurdle_threat_score desc

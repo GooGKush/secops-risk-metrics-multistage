@@ -35,6 +35,7 @@ DEFAULT_GAMMA_PRIOR_ALPHA0 = 0.5
 DEFAULT_GAMMA_PRIOR_BETA0 = 0.1
 DEFAULT_BETA_PRIOR_ALPHA0 = 1.0
 DEFAULT_BETA_PRIOR_BETA0 = 19.0
+DEFAULT_MIN_AWAKENING_VOLUME = 25
 
 
 def resolve_beta_binomial_pair(metric_name: str) -> Tuple[str, str]:
@@ -706,6 +707,8 @@ class MultiStageTemplateRouter:
       "coefficient_of_variation": "Regular-Volume Surge (Low-CV Predictable Baseline)",
       StatisticalModel.LONGITUDINAL_CUSUM: "Multi-Day Cumulative Drift (Windowed Slack Sum)",
       "longitudinal_cusum": "Multi-Day Cumulative Drift (Windowed Slack Sum)",
+      StatisticalModel.TWO_PART_HURDLE: "Two-Part Hurdle Model (Dormant Awakening Volume + Active Intensity)",
+      "two_part_hurdle": "Two-Part Hurdle Model (Dormant Awakening Volume + Active Intensity)",
       StatisticalModel.MACD_MOMENTUM_VELOCITY: "Above-Historical-Max Z (Linear Peak Exceedance)",
       "macd_momentum": "Above-Historical-Max Z (Linear Peak Exceedance)",
       "macd_momentum_velocity": "Above-Historical-Max Z (Linear Peak Exceedance)",
@@ -1148,6 +1151,7 @@ class MultiStageTemplateRouter:
       prior_alpha0: Optional[float] = None,
       prior_beta0: Optional[float] = None,
       fleet_prior_payload: Optional[Any] = None,
+      min_awakening_volume: int = DEFAULT_MIN_AWAKENING_VOLUME,
   ) -> str:
     """Renders stage1 extractor + stage2 math model.
 
@@ -1358,6 +1362,10 @@ class MultiStageTemplateRouter:
       stage2_raw = self._expand_mad_keys(stage2_raw, primary_var, group_keys[1:])
 
     stage2_rendered = stage2_raw.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
+    if "{{min_awakening_volume}}" in stage2_rendered:
+      if int(min_awakening_volume) < 1:
+        raise ValueError(f"min_awakening_volume must be >= 1, got {min_awakening_volume}.")
+      stage2_rendered = stage2_rendered.replace("{{min_awakening_volume}}", str(int(min_awakening_volume)))
     if "{{prior_alpha0}}" in stage2_rendered or "{{prior_beta0}}" in stage2_rendered:
       is_beta_binom = statistical_model == StatisticalModel.BAYESIAN_BETA_BINOMIAL
       def_a0 = DEFAULT_BETA_PRIOR_ALPHA0 if is_beta_binom else DEFAULT_GAMMA_PRIOR_ALPHA0
@@ -1451,6 +1459,7 @@ class MultiStageTemplateRouter:
       prior_alpha0: Optional[float] = None,
       prior_beta0: Optional[float] = None,
       fleet_prior_payload: Optional[Any] = None,
+      min_awakening_volume: int = DEFAULT_MIN_AWAKENING_VOLUME,
   ) -> str:
     """Renders 3-Stage and 4-Stage advanced DAG pipelines, then resolves the root significance gate.
 

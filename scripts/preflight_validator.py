@@ -71,7 +71,7 @@ DEFAULT_SIGNIFICANCE_GATES: Dict["StatisticalModel", str] = {
     StatisticalModel.BAYESIAN_GAMMA: "Bayesian Z >= 3.0σ",
     StatisticalModel.BAYESIAN_BETA_BINOMIAL: "Beta-Binomial Z >= 3.0σ",
     StatisticalModel.LONGITUDINAL_CUSUM: "Windowed Slack Sum >= 3.0σ (>= 2 drift days)",
-    StatisticalModel.TWO_PART_HURDLE: "Dormant awakening OR Z >= 3.0σ",
+    StatisticalModel.TWO_PART_HURDLE: "Hurdle Score >= 3.0 (Dormant >= 25 & > Max, OR Active Z >= 3.0σ)",
     StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z: "Z >= 3.0σ (merged into STANDARD_Z_SCORE)",
     StatisticalModel.PIECEWISE_CRI: "RETIRED (D1 -> ueba_constants.calculate_cri)",
     StatisticalModel.FLEET_PREVALENCE_SHIELD: "RETIRED (D1 -> hybrid_metric_fleet_prevalence_2stage.yl2)",
@@ -1620,6 +1620,12 @@ class MalachiteASTValidator:
         errors.append(
             "MODEL_FORMULA_MISMATCH: LONGITUDINAL_CUSUM must emit Windowed Slack Sum "
             "$windowed_slack_sum and $cusum_drift_score across mature baseline days."
+        )
+    elif model == StatisticalModel.TWO_PART_HURDLE:
+      if "$is_dormant_awakening" not in query_text or "$hist_max" not in query_text or "$hurdle_threat_score" not in query_text:
+        errors.append(
+            "MODEL_FORMULA_MISMATCH: TWO_PART_HURDLE must gate dormant awakenings on $hist_max and "
+            "awakening volume and score via $hurdle_threat_score."
         )
 
     return errors

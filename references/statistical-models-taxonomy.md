@@ -225,20 +225,20 @@ Before running a multi-stage statistical hunt, explain the approach to the secur
 ---
 
 ## 10. Two-Part Hurdle Model for Zero-Inflated Telemetry (`TWO_PART_HURDLE`)
-* **Security Problem Solved**: Properly evaluates dormant accounts (dormant service accounts, offboarded contractors, backup admins) that have near-zero activity for 28 days and suddenly execute actions.
+* **Security Problem Solved**: Properly evaluates dormant or sparse accounts (dormant service accounts, offboarded contractors, backup admins) that have `< 7` active days (`dormant_days = 30 - active_days`, or elapsed days since `last_seen`) without letting low-volume ephemeral activity flood the ranking.
 * **Mathematical Formulation**:
-  * **Part 1 (Discrete Bernoulli Hurdle)**: If $\text{Active Days} \le 2$, applies immediate dormant awakening penalty:
-    $$\text{Dormant Penalty} = x \cdot 2.0$$
-  * **Part 2 (Continuous Conditional Intensity)**: If account is routinely active, evaluates continuous Gaussian Z-score:
-    $$Z_{\text{intensity}} = \frac{x - \mu}{\sigma_{\text{safe}}}$$
-  * **Composite Score**:
-    $$\text{Hurdle Threat Score} = \text{if}(\text{Active Days} \le 2, \text{Dormant Penalty}, Z_{\text{intensity}})$$
+  * **Part 1 (Gated Dormant Awakening Hurdle, $N_{\text{active}} < 7$)**: Requires BOTH $x \ge V_{\min}$ (`{{min_awakening_volume}}`, default `25`) AND $x > x_{\max,30\text{d}}$:
+    $$S_{\text{dormant}} = \begin{cases} 3.0 + \ln\!\left(\max\!\left(1, \frac{x}{\max(x_{\max,30\text{d}}, V_{\min})}\right)\right) & \text{if } N_{\text{active}} < 7 \land x \ge V_{\min} \land x > x_{\max,30\text{d}} \\ 0 & \text{otherwise} \end{cases}$$
+  * **Part 2 (Rectified Active Intensity, $N_{\text{active}} \ge 7$)**: Evaluates positive rectified Gaussian Z-score with D8 dispersion floor:
+    $$Z_{\text{intensity}} = \max\!\left(0, \frac{x - \mu}{\sigma_{\text{safe}}}\right)$$
+  * **Composite Hurdle Score (own scale, not true $\sigma$)**:
+    $$\text{Hurdle Threat Score} = \text{if}(N_{\text{active}} < 7, S_{\text{dormant}}, Z_{\text{intensity}})$$
 * **Post-Hunt Plain-English Cyber Impact Statement Template**:
 ```markdown
 > [!IMPORTANT]
 > **Two-Part Hurdle Verdict: Dormant Account Awakening (`[target_metric]`)**
-> * **Account State**: Entity `[entity]` was active only **[active_days]** days out of 30.
-> * **Hurdle Response**: Crossed the discrete dormant hurdle with **[observed]** actions, triggering an immediate tripwire threat score of **[hurdle_threat_score]**.
+> * **Account State**: Entity `[entity]` was active only **[active_days]** days out of 30 (`[dormant_days]` dormant days).
+> * **Hurdle Response**: Exceeded both minimum awakening volume (`[min_awakening_volume]`) and 30d historical peak (`[hist_max]`) with **[observed]** actions, yielding a hurdle threat score of **[hurdle_threat_score]**.
 > * **Investigative Meaning**: Dormant account awakening detected. Represents potential compromised credential reactivation or rogue staging on an abandoned asset.
 ```
 

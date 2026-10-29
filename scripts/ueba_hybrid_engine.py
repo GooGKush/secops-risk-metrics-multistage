@@ -986,6 +986,7 @@ def compile_hunt_pipeline(
     prior_alpha0: Optional[float] = None,
     prior_beta0: Optional[float] = None,
     fleet_prior_payload: Optional[Any] = None,
+    min_awakening_volume: int = 25,
     start_time: Optional[str] = None,
     end_time: Optional[str] = None,
     target_date: Optional[str] = None,
@@ -1719,6 +1720,7 @@ def compile_hunt_pipeline(
           prior_alpha0=prior_alpha0,
           prior_beta0=prior_beta0,
           fleet_prior_payload=fleet_prior_payload,
+          min_awakening_volume=min_awakening_volume,
       )
       audit_info = PreFlightValidator.audit(
           target_metric=primary_metric,
@@ -3387,24 +3389,96 @@ def calculate_part_whole_ratio(current_val: float, baseline_mean: float) -> floa
   return round(cur / base, 4)
 
 
+def calculate_two_part_hurdle_details(
+    observed_val: float,
+    baseline_mean: float,
+    baseline_stddev: float = 1.0,
+    active_days: int = 0,
+    min_active_days: int = DEFAULT_MIN_BASELINE_DAYS,
+    min_awakening_volume: float = 25.0,
+    hist_max: Optional[float] = None,
+    last_seen_seconds: Optional[float] = None,
+    eval_timestamp_seconds: Optional[float] = None,
+    byte_dispersion_floor: Optional[float] = None,
+) -> Dict[str, Any]:
+  """Computes the Two-Part Hurdle breakdown with awakening-volume & hist_max gates and WS1-05 dormancy (WS3-HURDLE)."""
+  obs = float(observed_val)
+  mean = float(baseline_mean)
+  std = float(baseline_stddev)
+  n_days = float(active_days)
+  eff_min_days = float(min_active_days)
+  eff_awaken_vol = float(min_awakening_volume)
+  if eff_awaken_vol < 1.0:
+    raise ValueError(f"min_awakening_volume must be >= 1, got {min_awakening_volume}.")
+  eff_hist_max = float(hist_max) if hist_max is not None else max(0.0, mean)
+
+  if (
+      last_seen_seconds is not None
+      and eval_timestamp_seconds is not None
+      and float(last_seen_seconds) > 0.0
+      and float(eval_timestamp_seconds) >= float(last_seen_seconds)
+  ):
+    dormant_days = (float(eval_timestamp_seconds) - float(last_seen_seconds)) / 86400.0
+  else:
+    dormant_days = max(0.0, 30.0 - n_days)
+
+  is_dormant_branch = n_days < eff_min_days
+  is_dormant_awakening = bool(
+      is_dormant_branch and obs >= eff_awaken_vol and obs > eff_hist_max
+  )
+  awakening_ref = max(eff_hist_max, eff_awaken_vol)
+  awakening_ratio = (obs / awakening_ref) if awakening_ref > 0.0 else 1.0
+  dormant_score = (
+      3.0 + math.log(max(awakening_ratio, 1.0)) if is_dormant_awakening else 0.0
+  )
+
+  floor = (
+      float(byte_dispersion_floor)
+      if byte_dispersion_floor is not None
+      else math.sqrt(max(mean, 1.0))
+  )
+  safe_std = max(std, floor)
+  raw_z = (obs - mean) / safe_std
+  intensity_z = max(0.0, raw_z)
+  hurdle_score = dormant_score if is_dormant_branch else intensity_z
+  return {
+      "hurdle_threat_score": round(hurdle_score, 4),
+      "dormant_score": round(dormant_score, 4),
+      "intensity_z": round(intensity_z, 4),
+      "is_dormant_awakening": is_dormant_awakening,
+      "dormant_days": round(dormant_days, 4),
+      "is_true_sigma": False,
+  }
+
+
 def calculate_two_part_hurdle(
     observed_val: float,
     baseline_mean: float,
     baseline_stddev: float = 1.0,
     active_days: int = 0,
-    min_active_days: int = 1,
+    min_active_days: int = DEFAULT_MIN_BASELINE_DAYS,
+    min_awakening_volume: float = 25.0,
+    hist_max: Optional[float] = None,
+    last_seen_seconds: Optional[float] = None,
+    eval_timestamp_seconds: Optional[float] = None,
+    byte_dispersion_floor: Optional[float] = None,
 ) -> float:
-  """Computes the Two-Part Hurdle anomaly score separating zero-baseline cold starts from active surges."""
-  obs = float(observed_val)
-  if obs <= 0.0:
+  """Computes the Two-Part Hurdle score on its own scale (not true sigma) separating gated dormant awakenings from rectified active Z."""
+  if float(observed_val) <= 0.0:
     return 0.0
-  mean = float(baseline_mean)
-  std = float(baseline_stddev)
-  is_dormant = (active_days < min_active_days and mean == 0.0)
-  if is_dormant:
-    return round(10.0 + math.log(max(obs, 1.0) + 1.0), 4)
-  safe_std = std if std > 0.0 else 1.0
-  return round(max(0.0, (obs - mean) / safe_std), 4)
+  details = calculate_two_part_hurdle_details(
+      observed_val=observed_val,
+      baseline_mean=baseline_mean,
+      baseline_stddev=baseline_stddev,
+      active_days=active_days,
+      min_active_days=min_active_days,
+      min_awakening_volume=min_awakening_volume,
+      hist_max=hist_max,
+      last_seen_seconds=last_seen_seconds,
+      eval_timestamp_seconds=eval_timestamp_seconds,
+      byte_dispersion_floor=byte_dispersion_floor,
+  )
+  return float(details["hurdle_threat_score"])
 
 
 def calculate_bayesian_joint_odds(
@@ -3650,6 +3724,8 @@ class UEBAHybridEngine:
   select_hybrid_models = staticmethod(select_hybrid_models)
   calculate_part_whole_ratio = staticmethod(calculate_part_whole_ratio)
   calculate_two_part_hurdle = staticmethod(calculate_two_part_hurdle)
+  calculate_two_part_hurdle_details = staticmethod(calculate_two_part_hurdle_details)
+  calculate_windowed_slack_sum = staticmethod(calculate_windowed_slack_sum)
   calculate_bayesian_joint_odds = staticmethod(calculate_bayesian_joint_odds)
   calculate_macd_momentum = staticmethod(calculate_macd_momentum)
   calculate_hourly_zscore = staticmethod(calculate_hourly_zscore)

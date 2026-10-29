@@ -299,6 +299,7 @@ class SubmissionTestSuite:
     rendered = rendered.replace("{{fusion_threshold_sq}}", "12.25")
     rendered = rendered.replace("{{robust_threshold}}", "3.5")
     rendered = rendered.replace("{{tukey_excess_threshold}}", "1.0")
+    rendered = rendered.replace("{{min_awakening_volume}}", "25")
     rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
     rendered = rendered.replace(
         "{{first_scored_date}}", datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d"))
@@ -849,6 +850,7 @@ order:
     s2_dir = self.skill_root / "templates" / "stage2_math_models"
     allowed_s2_slots = {
         "min_baseline_days",
+        "min_awakening_volume",
         "anomaly_threshold",
         "fold_change_threshold",
         "robust_threshold",

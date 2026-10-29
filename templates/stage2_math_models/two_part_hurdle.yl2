@@ -1,4 +1,4 @@
-// Stage 2 (Root Stage): Two-Part Zero-Inflated Hurdle Model (Dormant Awakening + Intensity)
+// Stage 2 (Root Stage): Two-Part Zero-Inflated Hurdle Model (Dormant Awakening Volume + Active Intensity)
 $entity = $stage1_extract.entity
 $ws = $stage1_extract.window_start
 
@@ -10,6 +10,7 @@ outcome:
   $hist_sum = max($stage1_extract.historical_sum)
   $hist_avg = max($stage1_extract.historical_avg)
   $hist_stddev = max($stage1_extract.historical_stddev)
+  $hist_max = max($stage1_extract.historical_max)
   $active_days = max($stage1_extract.historical_active_days)
 
   // Per-calendar-day rate, dormancy & rebuilt 30d calendar statistics (PF-1, PF-2, WS1-05)
@@ -20,24 +21,21 @@ outcome:
   $raw_var_cal = ($sum_x2 / 30.0) - ($mu_cal * $mu_cal)
   $sd_cal = math.sqrt(if($raw_var_cal > 0.0, $raw_var_cal, 0.0))
 
-  // Part 1 (Binary Hurdle): Dormant Entity Awakening (0-2 active days in 30d window)
-  $is_dormant_awakening = if($active_days <= 2 and $observed > 0, 1.0, 0.0)
+  // Part 1 (Binary Hurdle): Dormant / Immature Entity Awakening (< min_baseline_days, >= min_awakening_volume, > hist_max)
+  $is_dormant_awakening = if($active_days < {{min_baseline_days}} and $observed >= {{min_awakening_volume}} and $observed > $hist_max, 1.0, 0.0)
+  $awakening_ratio = $observed / if($hist_max > {{min_awakening_volume}}, $hist_max, {{min_awakening_volume}})
+  $dormant_score = $is_dormant_awakening * (3.0 + math.log(if($awakening_ratio > 1.0, $awakening_ratio, 1.0)))
 
-  // Part 2 (Truncated Normal Intensity): Standard Z-Score with D8 floor for active baseline entities
-  $raw_diff = $observed - $hist_avg
+  // Part 2 (Active Intensity): Positive rectified Z-Score with D8 floor for mature entities ($active_days >= min_baseline_days)
   $dispersion_floor = math.sqrt(if($hist_avg > 1.0, $hist_avg, 1.0))
   $safe_stddev = if($hist_stddev > $dispersion_floor, $hist_stddev, $dispersion_floor)
-  $intensity_z = $raw_diff / $safe_stddev
-
-  // Unified Two-Part Hurdle Score: scales dormant awakenings smoothly by log volume (10.0 + ln(obs + 1))
-  $obs_plus_one = $observed + 1.0
-  $log_obs = math.log($obs_plus_one)
-  $dormant_score = 10.0 + $log_obs
-  $hurdle_threat_score = if($active_days <= 2, $dormant_score, $intensity_z)
+  $raw_z = ($observed - $hist_avg) / $safe_stddev
+  $intensity_z = if($raw_z > 0.0, $raw_z, 0.0)
+  $hurdle_threat_score = if($active_days < {{min_baseline_days}}, $dormant_score, $intensity_z)
 
 // Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
 condition:
-  $active_days <= 2 or $intensity_z >= {{anomaly_threshold}}
+  $hurdle_threat_score >= {{anomaly_threshold}}
 
 order:
   $hurdle_threat_score desc
