@@ -141,8 +141,6 @@ MODEL_ALIAS_MAP: Dict[str, StatisticalModel] = {
     # 6. Coefficient of Variation (CV)
     "CV": StatisticalModel.COEFFICIENT_OF_VARIATION,
     "COEFFICIENT_OF_VARIATION": StatisticalModel.COEFFICIENT_OF_VARIATION,
-    "BEACON_REGULARITY": StatisticalModel.COEFFICIENT_OF_VARIATION,
-    "JITTER": StatisticalModel.COEFFICIENT_OF_VARIATION,
     # 7. Hourly Temporal Z-Score
     "HOURLY_TEMPORAL_ZSCORE": StatisticalModel.HOURLY_TEMPORAL_ZSCORE,
     "HOURLY_ZSCORE": StatisticalModel.HOURLY_TEMPORAL_ZSCORE,
@@ -167,12 +165,10 @@ MODEL_ALIAS_MAP: Dict[str, StatisticalModel] = {
     "HURDLE": StatisticalModel.TWO_PART_HURDLE,
     "DORMANT_AWAKENING": StatisticalModel.TWO_PART_HURDLE,
     "COLD_START": StatisticalModel.TWO_PART_HURDLE,
-    # 12. Asymmetric Directional Z (Silence / Drop-out)
+    # 12. Asymmetric Directional Z (Upper-Tail)
     "ASYMMETRIC_DIRECTIONAL_Z": StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z,
     "ASYMMETRIC_Z": StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z,
     "DIRECTIONAL_Z": StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z,
-    "SILENCE_DETECTION": StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z,
-    "DROP_OUT": StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z,
     # 13. Piecewise Sigmoid CRI
     "PIECEWISE_CRI": StatisticalModel.PIECEWISE_CRI,
     "CRI": StatisticalModel.PIECEWISE_CRI,
@@ -255,11 +251,39 @@ def resolve_entity_type(entity_type: Union[str, EntityType]) -> EntityType:
   return EntityType.USER
 
 
+UNSUPPORTED_SILENCE_ALIASES: frozenset[str] = frozenset({
+    "SILENCE_DETECTION",
+    "DROP_OUT",
+    "SILENCE",
+    "DROPOUT",
+})
+
+HANDOFF_JITTER_ALIASES: frozenset[str] = frozenset({
+    "BEACON_REGULARITY",
+    "JITTER",
+    "BEACON",
+    "C2_BEACONING_JITTER",
+    "C2_JITTER",
+})
+
+
 def resolve_statistical_model(model: Union[str, StatisticalModel]) -> StatisticalModel:
   """Resolves a model alias or enum value to a canonical StatisticalModel."""
   if isinstance(model, StatisticalModel):
     return model
   raw = (model or "STANDARD_Z_SCORE").strip().upper().replace("-", "_").replace(" ", "_")
+  if raw in UNSUPPORTED_SILENCE_ALIASES:
+    raise ValueError(
+        f"Statistical model '{model}' (silence / drop-out detection) is not supported: "
+        "metrics.* and match ... by 1d emit no zero-count buckets, so lower-tail silence "
+        "detection is not supported until a zero-day-aware lower-tail detector exists."
+    )
+  if raw in HANDOFF_JITTER_ALIASES:
+    raise ValueError(
+        f"Statistical model '{model}' requires sub-hour inter-arrival timing on raw UDM telemetry; "
+        "hand off to 'secops-statistical-hunter' model 'C2_BEACONING_JITTER' instead of rendering "
+        "daily COEFFICIENT_OF_VARIATION."
+    )
   if raw in MODEL_ALIAS_MAP:
     return MODEL_ALIAS_MAP[raw]
   for member in StatisticalModel:
@@ -541,10 +565,10 @@ def _build_micro_raw_query(
       if ln.strip():
         extra_lines += f"    {ln.strip()}\n"
 
-  if "CV" in model_upper or "JITTER" in model_upper or "BEACON" in model_upper:
+  if "CV" in model_upper:
     return (
         f"// Goal: {goal}\n"
-        "// Plane: MICRO_RAW (Sub-Hour Coefficient of Variation / Jitter)\n"
+        "// Plane: MICRO_RAW (Sub-Hour Coefficient of Variation)\n"
         "stage stage1_micro_buckets {\n"
         '    metadata.event_type = "NETWORK_HTTP"\n'
         f"    {ent_field} = {ent_var}\n"
@@ -682,8 +706,61 @@ def compile_hunt_pipeline(
   model_str_upper = (
       statistical_model.value
       if isinstance(statistical_model, StatisticalModel)
-      else str(statistical_model or "STANDARD_Z_SCORE").strip().upper().replace("-", "_")
+      else str(statistical_model or "STANDARD_Z_SCORE").strip().upper().replace("-", "_").replace(" ", "_")
   )
+  if model_str_upper in UNSUPPORTED_SILENCE_ALIASES:
+    raise ValueError(
+        f"Statistical model '{statistical_model}' (silence / drop-out detection) is not supported: "
+        "metrics.* and match ... by 1d emit no zero-count buckets, so lower-tail silence "
+        "detection is not supported until a zero-day-aware lower-tail detector exists."
+    )
+  if model_str_upper in HANDOFF_JITTER_ALIASES:
+    handoff_ent_type = (
+        "USER"
+        if ent_enum == EntityType.USER
+        else ("RESOURCE" if ent_enum == EntityType.RESOURCE else "HOSTNAME")
+    )
+    handoff_ent_val = (
+        entity_value.strip()
+        if entity_value and entity_value.strip().lower() not in ("fleet", "fleet-wide", "all", "*", "unknown", "none")
+        else "fleet"
+    )
+    lookback_str = f"{max(window_days, 1) * 24}h" if window_days and window_days > 1 else "24h"
+    payload = build_handoff_payload(
+        intent="C2_BEACONING_JITTER",
+        entity_type=handoff_ent_type,
+        entity_value=handoff_ent_val,
+        lookback=lookback_str,
+        sensitivity=sens_tier,
+        justification=hypothesis_goal,
+    )
+    demarcation_card = format_handoff_card(payload, ack=None)
+    return {
+        "status": "HANDOFF_REQUIRED",
+        "action": "CONSULTATIVE_DEMARCATION",
+        "protocol": SUPPORTED_PROTOCOL,
+        "request_id": payload["request_id"],
+        "source_skill": "secops-risk-metrics-multistage",
+        "target_skill": "secops-statistical-hunter",
+        "intent": "C2_BEACONING_JITTER",
+        "model_routed": "C2_BEACONING_JITTER",
+        "statistical_model": "C2_BEACONING_JITTER",
+        "entity_type": ent_enum.value,
+        "entity_value": entity_value or "Fleet-Wide",
+        "sensitivity": sens_tier,
+        "handoff_payload": payload,
+        "payload": payload,
+        "handoff_card": demarcation_card,
+        "handoff_card_markdown": demarcation_card,
+        "demarcation_card_markdown": demarcation_card,
+        "preflight_card": demarcation_card,
+        "preflight_card_markdown": demarcation_card,
+        "compiled_query": "",
+        "query": "",
+        "ast_valid": True,
+        "ast_errors": [],
+        "statistical_violations": [],
+    }
   if arch_key in ("single_metric", "local_2stage", "2stage") and model_str_upper in MODEL_IMPLIED_ARCHITECTURE:
     arch_key = MODEL_IMPLIED_ARCHITECTURE[model_str_upper]
 
@@ -2370,10 +2447,14 @@ def calculate_hourly_zscore(
   return round((float(observed_hour) - float(avg_hourly)) / safe_std, 4)
 
 
+compile_hunt_plan = compile_hunt_pipeline
+
+
 class UEBAHybridEngine:
   """Object-oriented facade over compile_hunt_pipeline, dispatch_hybrid_handoff, and render_forensic_dossier."""
 
   compile_hunt_pipeline = staticmethod(compile_hunt_pipeline)
+  compile_hunt_plan = staticmethod(compile_hunt_pipeline)
   dispatch_hybrid_handoff = staticmethod(dispatch_hybrid_handoff)
   render_forensic_dossier = staticmethod(render_forensic_dossier)
   get_metric_catalog_summary = staticmethod(get_metric_catalog_summary)

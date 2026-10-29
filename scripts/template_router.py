@@ -506,6 +506,21 @@ class MultiStageTemplateRouter:
         identifier_field=identifier_field,
     )
 
+    if isinstance(statistical_model, str):
+      norm_model = statistical_model.strip().upper().replace("-", "_").replace(" ", "_")
+      if norm_model in ("SILENCE_DETECTION", "DROP_OUT", "SILENCE", "DROPOUT"):
+        raise ValueError(
+            f"Statistical model '{statistical_model}' (silence / drop-out detection) is not supported: "
+            "metrics.* and match ... by 1d emit no zero-count buckets, so lower-tail silence "
+            "detection is not supported until a zero-day-aware lower-tail detector exists."
+        )
+      if norm_model in ("BEACON_REGULARITY", "JITTER", "BEACON", "C2_BEACONING_JITTER", "C2_JITTER"):
+        raise ValueError(
+            f"Statistical model '{statistical_model}' requires sub-hour inter-arrival timing on raw UDM telemetry; "
+            "hand off to 'secops-statistical-hunter' model 'C2_BEACONING_JITTER' instead of rendering "
+            "daily COEFFICIENT_OF_VARIATION."
+        )
+
     # Enforce Local-Baseline Isolation: multi-database account queries must route to CLOUD_REPOSITORY_SCOPE_DUAL_BRANCH.
     # An explicit MAD request is exempt: MAD groups by the full (user, vendor, product, resource) baseline tuple,
     # which already isolates each repository's baseline.
