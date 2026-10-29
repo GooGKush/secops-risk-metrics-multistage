@@ -480,6 +480,11 @@ def _compute_execution_windows(
   ecg_72h_anchor_applied = False
 
   if mode_clean == "A":
+    if statistical_model == StatisticalModel.LONGITUDINAL_CUSUM or "$cusum_drift_score" in compiled_query:
+      raise ValueError(
+          "LONGITUDINAL_CUSUM cannot run in single-day Mode A; "
+          "sequential drift requires a multi-day Mode B or Mode C window."
+      )
     eff_days = 1
     if statistical_model in (StatisticalModel.MAD, StatisticalModel.QUANTILE_IQR_SKEW):
       # MAD and Quantile require 30d raw search window for empirical quantiles/median while $in_scoring_window gates to the scored day
@@ -816,6 +821,17 @@ def compile_hunt_pipeline(
     stat_model_enum = StatisticalModel.QUANTILE_IQR_SKEW
   elif arch_key in ("mad_robust", "mad_robust_3stage"):
     stat_model_enum = StatisticalModel.MAD
+  elif arch_key in ("longitudinal_cusum", "longitudinal_cusum_2stage"):
+    stat_model_enum = StatisticalModel.LONGITUDINAL_CUSUM
+
+  mode_norm_early = (mode or "A").strip().upper()
+  if mode_norm_early.startswith("MODE"):
+    mode_norm_early = mode_norm_early.replace("MODE", "").strip()
+  if mode_norm_early not in ("B", "C", "D") and stat_model_enum == StatisticalModel.LONGITUDINAL_CUSUM:
+    raise ValueError(
+        "LONGITUDINAL_CUSUM cannot run in single-day Mode A; "
+        "sequential drift requires a multi-day Mode B or Mode C window."
+    )
   metric_list = normalize_metrics_list(metrics, ent_enum, arch_key)
   if len(metric_list) >= 2 and arch_key in ("single_metric", "local_2stage", "2stage"):
     arch_key = "multi_sector_fusion_4stage" if len(metric_list) >= 3 else "dual_sector_fusion_3stage"
