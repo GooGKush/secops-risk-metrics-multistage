@@ -1,8 +1,8 @@
 // ============================================================================
-// ARCHITECTURE: 2-STAGE MACD DUAL-SPINE MOMENTUM VELOCITY PIPELINE
+// ARCHITECTURE: 2-STAGE ABOVE-HISTORICAL-MAX Z PIPELINE (FORMERLY MACD MOMENTUM VELOCITY)
 // Skill: secops-risk-metrics-multistage
-// Purpose: Detects sudden momentum acceleration where short-term surge diverges from slow baseline anchor
-// Formula: MACD_Diff = Z_Fast - Z_Slow; MACD_Score = Scaled_Surge when MACD_Diff > 0 else Z_Fast
+// Purpose: Detects linear peak exceedance where today's volume breaks out above the 30-day historical ceiling
+// Formula: personal_z = (obs - avg) / safe_stddev; above_max_z = max(0, obs - hist_max) / safe_stddev; macd_z = personal_z + above_max_z
 // event_filter slot: the metric's "Observed event filter" lines from references/metric-sector-catalog.md, one per line.
 // Telemetry Metric Mappings:
 //   - Network Bytes (Outbound): metrics.network_bytes_outbound (metric: value_sum, obs: sum(network.sent_bytes))
@@ -45,7 +45,7 @@ stage stage1_extract {
     ))
 }
 
-// Stage 2 (Root Stage): MACD Momentum Velocity & Divergence Scoring
+// Stage 2 (Root Stage): Above-Historical-Max Z (Linear Peak Exceedance — D1 / WS3-D1)
 $entity = $stage1_extract.entity
 $ws = $stage1_extract.window_start
 
@@ -59,29 +59,22 @@ outcome:
   $active_days = max($stage1_extract.historical_active_days)
   $hist_max = max($stage1_extract.historical_max)
 
-  // 1. Fast Spine: Instantaneous Standardized Deviation (Daily Velocity)
-  $fast_diff = $observed - $hist_avg
+  // 1. Personal Standardized Z-Score (Current 24h vs 30d Mean)
+  $personal_diff = $observed - $hist_avg
   $dispersion_floor = math.sqrt(if($hist_avg > 1.0, $hist_avg, 1.0))
   $safe_stddev = if($hist_stddev > $dispersion_floor, $hist_stddev, $dispersion_floor)
-  $fast_z = $fast_diff / $safe_stddev
+  $personal_z = $personal_diff / $safe_stddev
 
-  // 2. Slow Spine: Historical Baseline Departure (Reference Anchor)
-  $slow_diff = $hist_max - $hist_avg
-  $slow_z = $slow_diff / $safe_stddev
-
-  // 3. Momentum Velocity & Divergence (MACD Spread)
-  $macd_diff = $fast_z - $slow_z
-  $safe_max = if($hist_max > 0, $hist_max, 1.0)
-  $velocity_ratio = $observed / $safe_max
-
-  // 4. Half-Rectified Acceleration Surge (monotone positive above $fast_z when $macd_diff > 0)
-  $scaled_diff = $macd_diff * $velocity_ratio
-  $breakout_score = $fast_z + $scaled_diff
-  $macd_momentum_score = if($macd_diff > 0, $breakout_score, $fast_z)
+  // 2. Linear Above-Historical-Max Z (ReLU exceedance above 30d historical peak; zero quadratic overflow)
+  $exceed_raw = $observed - $hist_max
+  $exceed_pos = if($exceed_raw > 0, $exceed_raw, 0.0)
+  $above_max_z = $exceed_pos / $safe_stddev
+  $macd_z = $personal_z + $above_max_z
+  $macd_momentum_score = $macd_z
 
 // Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
 condition:
-  $active_days >= {{min_baseline_days}} and $fast_z >= {{anomaly_threshold}}
+  $active_days >= {{min_baseline_days}} and $macd_z >= {{anomaly_threshold}}
 
 order:
-  $macd_momentum_score desc
+  $macd_z desc

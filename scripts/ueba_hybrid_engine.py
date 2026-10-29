@@ -163,16 +163,14 @@ MODEL_ALIAS_MAP: Dict[str, StatisticalModel] = {
     "HURDLE": StatisticalModel.TWO_PART_HURDLE,
     "DORMANT_AWAKENING": StatisticalModel.TWO_PART_HURDLE,
     "COLD_START": StatisticalModel.TWO_PART_HURDLE,
-    # 12. Asymmetric Directional Z (Upper-Tail)
-    "ASYMMETRIC_DIRECTIONAL_Z": StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z,
-    "ASYMMETRIC_Z": StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z,
-    "DIRECTIONAL_Z": StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z,
-    # 13. Piecewise Sigmoid CRI
+    # 12. Asymmetric Directional Z (Merged into STANDARD_Z_SCORE under D1)
+    "ASYMMETRIC_DIRECTIONAL_Z": StatisticalModel.STANDARD_Z_SCORE,
+    # 13. Piecewise Sigmoid CRI (Retired under D1 -> ueba_constants.calculate_cri)
     "PIECEWISE_CRI": StatisticalModel.PIECEWISE_CRI,
     "CRI": StatisticalModel.PIECEWISE_CRI,
     "CALIBRATED_RISK_INDEX": StatisticalModel.PIECEWISE_CRI,
     "SIGMOID_CRI": StatisticalModel.PIECEWISE_CRI,
-    # 14. Fleet Prevalence Shield
+    # 14. Fleet Prevalence Shield (Retired under D1 -> hybrid_metric_fleet_prevalence_2stage.yl2)
     "FLEET_PREVALENCE_SHIELD": StatisticalModel.FLEET_PREVALENCE_SHIELD,
     "PATCH_TUESDAY_SHIELD": StatisticalModel.FLEET_PREVALENCE_SHIELD,
     "PREVALENCE_SHIELD": StatisticalModel.FLEET_PREVALENCE_SHIELD,
@@ -180,12 +178,14 @@ MODEL_ALIAS_MAP: Dict[str, StatisticalModel] = {
     "ADAPTIVE_CONTEXT_THRESHOLD": StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD,
     "ADAPTIVE_THRESHOLD": StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD,
     "DYNAMIC_THRESHOLD": StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD,
-    # 16. MACD Momentum Velocity
+    # 16. Above-Historical-Max Z (formerly MACD Momentum Velocity)
     "MACD_MOMENTUM_VELOCITY": StatisticalModel.MACD_MOMENTUM_VELOCITY,
     "MACD_MOMENTUM": StatisticalModel.MACD_MOMENTUM_VELOCITY,
     "MACD": StatisticalModel.MACD_MOMENTUM_VELOCITY,
     "MOMENTUM_VELOCITY": StatisticalModel.MACD_MOMENTUM_VELOCITY,
     "EWMA_BURST": StatisticalModel.MACD_MOMENTUM_VELOCITY,
+    "ABOVE_HISTORICAL_MAX_Z": StatisticalModel.MACD_MOMENTUM_VELOCITY,
+    "ABOVE_MAX_Z": StatisticalModel.MACD_MOMENTUM_VELOCITY,
     # 18. Quantile / IQR / Bowley Skewness Tukey Fence
     "QUANTILE_IQR_SKEW": StatisticalModel.QUANTILE_IQR_SKEW,
     "QUANTILE": StatisticalModel.QUANTILE_IQR_SKEW,
@@ -282,7 +282,10 @@ HANDOFF_TIME_OF_DAY_ALIASES: frozenset[str] = frozenset({
     "HOUR_OF_DAY_PROFILE",
 })
 
-RETIRED_MODEL_ALIASES: Dict[str, str] = {}
+RETIRED_MODEL_ALIASES: Dict[str, str] = {
+    "ASYMMETRIC_Z": "STANDARD_Z_SCORE (merged under D1)",
+    "DIRECTIONAL_Z": "STANDARD_Z_SCORE (merged under D1)",
+}
 
 
 def resolve_statistical_model(model: Optional[Union[str, StatisticalModel]]) -> StatisticalModel:
@@ -1126,9 +1129,20 @@ def compile_hunt_pipeline(
   if model_str_upper in RETIRED_MODEL_ALIASES:
     replacement = RETIRED_MODEL_ALIASES[model_str_upper]
     raise ValueError(f"Statistical model '{model_str_upper}' is retired; use {replacement}.")
+  merged_advisories: List[str] = []
+  if (
+      model_str_upper == "ASYMMETRIC_DIRECTIONAL_Z"
+      or statistical_model == StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z
+  ):
+    merged_advisories.append(
+        "ASYMMETRIC_DIRECTIONAL_Z merged into STANDARD_Z_SCORE (D1): upper-tail positive Z >= threshold is identical to Standard Z."
+    )
   stat_model_enum = (
       StatisticalModel.STANDARD_Z_SCORE
-      if model_str_upper in MODEL_IMPLIED_ARCHITECTURE
+      if (
+          model_str_upper in MODEL_IMPLIED_ARCHITECTURE
+          or statistical_model == StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z
+      )
       else resolve_statistical_model(statistical_model)
   )
   if arch_key in ("quantile_iqr_skew", "quantile_iqr_skew_3stage"):
@@ -1926,6 +1940,7 @@ def compile_hunt_pipeline(
       "ast_valid": len(ast_errors) == 0,
       "ast_errors": ast_errors,
       "statistical_violations": stat_violations,
+      "advisories": list(dict.fromkeys([*router.last_advisories, *merged_advisories])),
       "audit": audit_info,
       "preflight_card": preflight_card,
       "preflight_card_markdown": preflight_card_markdown,
@@ -2139,8 +2154,14 @@ def _normalize_single_row(raw_row: Dict[str, Any]) -> Dict[str, Any]:
   score_keys = (
       "modified_z",
       "m_z_score",
+      "tukey_excess_z",
       "quantile_z",
       "fence_z",
+      "macd_z",
+      "above_max_z",
+      "bayesian_z",
+      "beta_binomial_z",
+      "adaptive_z",
       "tukey_fence_ratio",
       "fold_change",
       "surge_ratio",
@@ -2436,8 +2457,6 @@ _MATURITY_GATED_MODELS: frozenset[StatisticalModel] = frozenset({
     StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z,
     StatisticalModel.COEFFICIENT_OF_VARIATION,
     StatisticalModel.MACD_MOMENTUM_VELOCITY,
-    StatisticalModel.PIECEWISE_CRI,
-    StatisticalModel.FLEET_PREVALENCE_SHIELD,
     StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD,
     StatisticalModel.LONGITUDINAL_CUSUM,
 })
@@ -3255,14 +3274,14 @@ SECTOR_HYBRID_MODELS: Dict[str, List[str]] = {
     "USER_CREDENTIAL_SIGNALS": [
         "standard_z_score",
         "two_part_hurdle",
-        "asymmetric_directional_z",
+        "quantile_iqr_skew",
         "adaptive_context_threshold",
         "bayesian_beta_binomial",
     ],
     "HOST_ENDPOINT_HEALTH": [
         "standard_z_score",
         "poisson",
-        "fleet_prevalence_shield",
+        "quantile_iqr_skew",
         "two_part_hurdle",
         "mad",
     ],
@@ -3284,7 +3303,7 @@ SECTOR_HYBRID_MODELS: Dict[str, List[str]] = {
         "standard_z_score",
         "bayesian_beta_binomial",
         "coefficient_of_variation",
-        "fleet_prevalence_shield",
+        "quantile_iqr_skew",
         "mad",
     ],
     "DNS_RESOLUTION_TELEMETRY": [
@@ -3297,7 +3316,7 @@ SECTOR_HYBRID_MODELS: Dict[str, List[str]] = {
     "WORKSPACE_SAAS_ACTIVITY": [
         "standard_z_score",
         "longitudinal_cusum",
-        "asymmetric_directional_z",
+        "quantile_iqr_skew",
         "two_part_hurdle",
         "relative_deviation",
     ],
@@ -3391,22 +3410,18 @@ def calculate_macd_momentum(
     hist_avg: float,
     hist_stddev: float,
     hist_max: float = 0.0,
+    dispersion_floor: Optional[float] = None,
 ) -> float:
-  """Computes the MACD momentum & velocity crossover score."""
+  """Computes linear Above-Historical-Max Z: personal_z + max(0, observed - hist_max) / safe_stddev."""
   obs = float(observed_val)
   avg = float(hist_avg)
   std = float(hist_stddev)
-  hmax = float(hist_max) if hist_max and float(hist_max) > 0.0 else max(avg, 1.0)
-  safe_std = std if std > 0.0 else 1.0
-  fast_diff = obs - avg
-  fast_z = fast_diff / safe_std
-  slow_diff = hmax - avg
-  slow_z = slow_diff / safe_std
-  macd_diff = fast_z - slow_z
-  safe_max = hmax if hmax > 0.0 else 1.0
-  velocity_ratio = obs / safe_max
-  scaled_diff = macd_diff * velocity_ratio
-  return round(scaled_diff if macd_diff > 0.0 else fast_z, 4)
+  floor = float(dispersion_floor) if dispersion_floor is not None else math.sqrt(max(avg, 1.0))
+  safe_std = max(std, floor)
+  hmax = float(hist_max) if hist_max and float(hist_max) > 0.0 else avg
+  personal_z = (obs - avg) / safe_std
+  above_max_z = max(0.0, obs - hmax) / safe_std
+  return round(personal_z + above_max_z, 4)
 
 
 def calculate_hourly_zscore(

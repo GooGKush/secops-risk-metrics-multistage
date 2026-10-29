@@ -28,17 +28,17 @@ In multi-stage hunting workflows:
 | 2 | `MAD` | True Median Absolute Deviation / Modified $Z$ (with 30d $Z$ cross-check) | `$median_val`, `$mad`, `$mean_abs_dev`, `$robust_scale`, `$safe_robust_scale`, `$modified_z`, `$personal_z`, `$z_gap`, `$raw_active_days`, `$in_scoring_window` | `window.median` over stage1 daily rows (`mad_center` → `mad_spread`), $\text{MAD}/0.6745$, Iglewicz-Hoaglin $1.253314\cdot\text{meanAD}$ fallback | `order: $modified_z desc` | `0.6745 * (x - mean) / stddev` (a rescaled classical $Z$, not MAD) |
 | 3 | `VARIANCE` | Fano Factor / Index of Dispersion | `$variance`, `$safe_lambda`, `$fano_factor` | Variance calculation ($\sigma^2$), ratio to mean | `order: $fano_factor desc` | Omitting variance calculation |
 | 4 | `POISSON` | Discrete Poisson Rarity Z-Score | `$diff`, `$safe_lambda`, `$sqrt_lambda`, `$poisson_z` | `math.sqrt($safe_lambda)` | `order: $poisson_z desc` | Linear stddev denominator instead of square-root mean |
-| 5 | `COEFFICIENT_OF_VARIATION` | CV Predictability & Surge Ratio | `$safe_hist_avg`, `$cv`, `$surge_ratio` | Relative dispersion ($\sigma / \mu$) | `order: $surge_ratio desc` | Standard Gaussian $Z$ without CV stability factor |
+| 5 | `COEFFICIENT_OF_VARIATION` | Regular-Volume Surge (Low-CV Predictable Baseline) | `$safe_hist_avg`, `$cv`, `$surge_ratio` | Fold-change surge gated on low relative dispersion ($\sigma / \mu \le 0.5$) | `order: $surge_ratio desc` | Standard Gaussian $Z$ without CV stability filter |
 | 6 | `HOURLY_TEMPORAL_ZSCORE` *(RETIRED D1)* | Retired — Hand off to `HOUR_OF_DAY_PROFILE` | — | Handed off to `secops-statistical-hunter` `HOUR_OF_DAY_PROFILE` (`PF-10` / `WS2-02`) | — | Comparing 1h buckets against 24h daily `metrics.*` baselines |
 | 7 | `BAYESIAN_GAMMA` | Empirical Bayes Poisson-Gamma Conjugate | `$variance_raw`, `$safe_variance`, `$beta_prior`, `$alpha_prior`, `$alpha_post`, `$beta_post`, `$posterior_mean`, `$bayes_shift_ratio` | Method of Moments hyperparameters, posterior conjugate updating | `order: $bayes_shift_ratio desc` | Bare $Z$-score omitting Gamma hyperparameters ($\alpha, \beta$) |
 | 8 | `BAYESIAN_BETA_BINOMIAL` | Beta-Binomial Bayesian Ratio Regularization | `$denom_scale`, `$scaled_prior`, `$scaled_obs`, `$prior_rate`, `$obs_rate`, `$prior_alpha`, `$prior_beta`, `$post_alpha`, `$post_denom`, `$posterior_rate`, `$safe_prior`, `$posterior_lift` | Proportion normalization into `[0, 1]`, M=10 Beta prior, N=10 conjugate update | `order: $posterior_lift desc` | Unnormalized raw counts (>1.0) causing negative `1.0 - p` |
 | 9 | `LONGITUDINAL_CUSUM` | Longitudinal CUSUM Drift Accumulation | `$raw_drift`, `$safe_stddev`, `$slack_allowance`, `$slack_excess`, `$daily_excess`, `$cusum_drift`, `$cusum_drift_score`, `$drift_days` | Per-day slack excess ($Z_t - 0.5\sigma$), multi-day `sum($stage2_daily_drift.daily_excess)` across window | `order: $cusum_drift_score desc` | Single-bucket Z-score omitting multi-day drift accumulation |
 | 10 | `TWO_PART_HURDLE` | Two-Part Hurdle Model (Zero-Inflated) | `$is_dormant_awakening`, `$raw_diff`, `$safe_stddev`, `$intensity_z`, `$obs_plus_one`, `$log_obs`, `$dormant_score`, `$hurdle_threat_score` | Bernoulli hurdle trigger (`10.0 + math.log($obs_plus_one)`), conditional continuous intensity | `order: $hurdle_threat_score desc` | Single-equation continuous model without dormant penalty |
-| 11 | `ASYMMETRIC_DIRECTIONAL_Z` | Asymmetric Directional Z-Score | `$diff`, `$excess_surge`, `$safe_stddev`, `$upper_tail_z` | ReLU activation (`if($diff > 0, $diff, 0.0)`), upper-tail focus | `order: $upper_tail_z desc` | Two-tailed symmetrical Z-score penalizing activity drops |
-| 12 | `PIECEWISE_CRI` | Winsorized Z-Score & Piecewise CRI | `$diff`, `$safe_stddev`, `$raw_z`, `$clamped_low`, `$clamped_z`, `$cri_tier4`, `$cri_tier3`, `$cri_tier2`, `$cri_score` | Winsorization clamp to $[-4.0, +6.0]$, piecewise tiers [0-100] | `order: $cri_score desc` | Unclamped unbounded Z-score |
-| 13 | `FLEET_PREVALENCE_SHIELD` | Fleet Prevalence Discounting | `$fleet_entities`, `$raw_diff`, `$safe_stddev`, `$personal_z`, `$fleet_count`, `$log_fleet`, `$prevalence_factor`, `$shielded_z` | Cross-entity `stage2_fleet_wave` (`count_distinct`), log-prevalence dampening (`1.0 + math.log($fleet_count)`) | `order: $shielded_z desc` | Per-entity `count()` always equalling 1 or lacking fleet wave stage |
+| 11 | `ASYMMETRIC_DIRECTIONAL_Z` *(MERGED D1)* | Merged into `STANDARD_Z_SCORE` | `$personal_diff`, `$dispersion_floor`, `$safe_stddev`, `$personal_z` | Upper-tail positive `$personal_z >= 3.0` is identical to `STANDARD_Z_SCORE` (`standard_z_score.yl2`) | `order: $personal_z desc` | Maintaining duplicate `asymmetric_directional_z.yl2` |
+| 12 | `PIECEWISE_CRI` *(RETIRED D1)* | Retired — Computed via `ueba_constants.calculate_cri` | — | CRI is a reporting-only translation computed in Python (`WS7-01`), never in YARA-L | — | Emitting discrete step-ladder CRI in YARA-L |
+| 13 | `FLEET_PREVALENCE_SHIELD` *(RETIRED D1)* | Retired — Replaced by `hybrid_metric_fleet_prevalence_2stage.yl2` | — | Replaced by token-scoped `hybrid_metric_fleet_prevalence_2stage.yl2` or `dual_baseline_delta_z_3stage.yl2` | — | Dividing personal Z by raw daily active-entity count `1 + ln(fleet_count)` |
 | 14 | `ADAPTIVE_CONTEXT_THRESHOLD` | Baseline-Maturity Adaptive Sensitivity | `$raw_diff`, `$safe_stddev`, `$personal_z`, `$sparse_threshold`, `$mature_threshold`, `$effective_threshold`, `$sensitivity_excess` | Baseline-maturity thresholding ($3.5\sigma$ for sparse `< 7d` vs $2.5\sigma$ for mature `>= 7d`) | `order: $sensitivity_excess desc` | Static uniform threshold or loosening threshold on noisy sparse baselines |
-| 15 | `MACD_MOMENTUM_VELOCITY` | MACD Dual-Spine Momentum Indicator | `$fast_diff`, `$safe_stddev`, `$fast_z`, `$slow_diff`, `$slow_z`, `$macd_diff`, `$safe_max`, `$velocity_ratio`, `$breakout_boost`, `$breakout_score`, `$macd_momentum_score` | Fast spine deviation, slow reference anchor, monotone ceiling breakout boost (`$fast_z + $breakout_boost`) | `order: $macd_momentum_score desc` | Non-monotone cliff at historical max or univariate Z fallback |
+| 15 | `MACD_MOMENTUM_VELOCITY` | Above-Historical-Max Z (Linear Peak Exceedance) | `$personal_diff`, `$safe_stddev`, `$personal_z`, `$exceed_raw`, `$exceed_pos`, `$above_max_z`, `$macd_z`, `$macd_momentum_score` | Linear peak exceedance (`$above_max_z = max(0, obs - hist_max) / safe_stddev`, `$macd_z = $personal_z + $above_max_z`) | `order: $macd_z desc` | Quadratic `* $velocity_ratio` byte overflow or dropping `$personal_z` |
 | 16 | `CIRCADIAN_VON_MISES` *(RETIRED D1)* | Retired — Hand off to `HOUR_OF_DAY_PROFILE` | — | Handed off to `secops-statistical-hunter` `HOUR_OF_DAY_PROFILE` (`PF-10` / `WS2-02`) | — | Comparing 1h counts or fixed 14:00 UTC centers against 24h `metrics.*` baselines |
 | 17 | `RELATIVE_DEVIATION` | Relative Deviation / Fold Change vs 30d Mean | `$dev`, `$safe_hist_avg`, `$ratio` | $(x-\mu)/\mu$ fold change | `order: $ratio desc` | Labelling it MAD (it is mean-anchored, 0% breakdown point) |
 | 18 | `QUANTILE_IQR_SKEW` | 1-Stage Non-Parametric Quantiles, Bowley Skewness & Skew-Adjusted Tukey Fence | `$q25_val`, `$q50_val`, `$q75_val`, `$iqr`, `$safe_iqr`, `$bowley_skew`, `$tail_heaviness`, `$adj_upper_fence`, `$tukey_fence_ratio` | `window.percentile` 5-point envelope in 1 stage, Bowley skewness, Hubert–Vandervieren fence | `order: $tukey_fence_ratio desc` | Consuming 2 stages when 1-stage quantile envelope suffices |
@@ -50,13 +50,13 @@ Every query carries the model's significance gate as a root `condition:` placed 
 | Model | Gate variable | Default root `condition:` | Unit | Card wording | Template placeholder |
 |---|---|---|---|---|---|
 | `STANDARD_Z_SCORE` | `$active_days`, `$personal_z` | `$active_days >= 7 and $personal_z >= 3.0` | σ | `Z >= 3.0σ` | `{{anomaly_threshold}}` |
-| `ASYMMETRIC_DIRECTIONAL_Z` | `$active_days`, `$upper_tail_z` | `$active_days >= 7 and $upper_tail_z >= 3.0` | σ | `Upper-tail Z >= 3.0σ` | `{{anomaly_threshold}}` |
+| `ASYMMETRIC_DIRECTIONAL_Z` | `$active_days`, `$personal_z` | `$active_days >= 7 and $personal_z >= 3.0` | σ | `Z >= 3.0σ (merged into STANDARD_Z_SCORE)` | `{{anomaly_threshold}}` |
 | `POISSON` | `$poisson_z` | `$poisson_z >= 3.0` | σ (√λ) | `Poisson Z >= 3.0σ` | `{{anomaly_threshold}}` |
 | `HOURLY_TEMPORAL_ZSCORE` | — | **retired (`D1`)** | — | `RETIRED (D1 -> HOUR_OF_DAY_PROFILE)` | — |
 | `CIRCADIAN_VON_MISES` | — | **retired (`D1`)** | — | `RETIRED (D1 -> HOUR_OF_DAY_PROFILE)` | — |
-| `MACD_MOMENTUM_VELOCITY` | `$active_days`, `$fast_z` | `$active_days >= 7 and $fast_z >= 3.0` (ranked by momentum) | σ | `Fast Z >= 3.0σ` | `{{anomaly_threshold}}` |
-| `PIECEWISE_CRI` | `$active_days`, `$clamped_z` | `$active_days >= 7 and $clamped_z >= 3.0` (ranked by CRI tier) | σ (winsorized) | `Z >= 3.0σ (CRI >= 85)` | `{{anomaly_threshold}}` |
-| `FLEET_PREVALENCE_SHIELD` | `$active_days`, `$shielded_z` | `$active_days >= 7 and $shielded_z >= 3.0` | σ (fleet-discounted) | `Shielded Z >= 3.0σ` | `{{anomaly_threshold}}` |
+| `MACD_MOMENTUM_VELOCITY` | `$active_days`, `$macd_z` | `$active_days >= 7 and $macd_z >= 3.0` | σ | `Above-Max Z >= 3.0σ` | `{{anomaly_threshold}}` |
+| `PIECEWISE_CRI` | — | **retired (`D1`)** | — | `RETIRED (D1 -> ueba_constants.calculate_cri)` | — |
+| `FLEET_PREVALENCE_SHIELD` | — | **retired (`D1`)** | — | `RETIRED (D1 -> hybrid_metric_fleet_prevalence_2stage.yl2)` | — |
 | `TWO_PART_HURDLE` | `$active_days`, `$intensity_z` | `$active_days <= 2 or $intensity_z >= 3.0` | dormancy break or σ | `Dormant awakening OR Z >= 3.0σ` | `{{anomaly_threshold}}` |
 | `ADAPTIVE_CONTEXT_THRESHOLD` | `$active_days`, `$sensitivity_excess` | `$active_days >= 7 and $sensitivity_excess >= 0.0` | σ above the context threshold (1.75σ / 3.00σ) | `Z >= context threshold` | none (built into the score) |
 | `LONGITUDINAL_CUSUM` | `$active_days`, `$cusum_drift_score`, `$drift_days` | `$active_days >= 7 and $cusum_drift_score >= 3.0 and $drift_days >= 2` | cumulative σ excess over 0.5σ slack | `Drift above 0.5σ slack` | `{{anomaly_threshold}}` |
@@ -211,8 +211,8 @@ order:
   $poisson_z desc
 ```
 
-### 5. `COEFFICIENT_OF_VARIATION` (`coefficient_of_variation.yl2`)
-* **Hypothesis**: Evaluation of predictability: high relative surge on low-variance entities represents extreme anomaly.
+### 5. `COEFFICIENT_OF_VARIATION` — Regular-Volume Surge (`coefficient_of_variation.yl2`)
+* **Hypothesis**: Regular-volume surge on a predictable entity ($\text{CV} \le 0.5$): high relative surge on low-variance entities represents an acute anomaly.
 * **Mandatory AST Contract**:
 ```yara
 outcome:
@@ -392,113 +392,17 @@ order:
   $hurdle_threat_score desc
 ```
 
-### 11. `ASYMMETRIC_DIRECTIONAL_Z` (`asymmetric_directional_z.yl2`)
-* **Hypothesis**: Security threats represent surges; drops below baseline are benign and should not alert.
-* **Mandatory AST Contract**:
-```yara
-outcome:
-  $observed = max($stage1_extract.observed_val)
-  $hist_avg = max($stage1_extract.historical_avg)
-  $hist_stddev = max($stage1_extract.historical_stddev)
-  $active_days = max($stage1_extract.historical_active_days)
-  $hist_max = max($stage1_extract.historical_max)
+### 11. `ASYMMETRIC_DIRECTIONAL_Z` *(MERGED INTO `STANDARD_Z_SCORE` — `D1`)*
+* **Status**: Merged into `STANDARD_Z_SCORE` (`standard_z_score.yl2`) under `D1`. Under an upper-tail gate (`$personal_z >= 3.0`), ReLU clamping of negative deviations produces identical results to `STANDARD_Z_SCORE`. Passing `ASYMMETRIC_DIRECTIONAL_Z` routes cleanly to `STANDARD_Z_SCORE` with an advisory.
 
-  $diff = $observed - $hist_avg
-  $excess_surge = if($diff > 0, $diff, 0.0)
+### 12. `PIECEWISE_CRI` *(RETIRED — `D1`)*
+* **Status**: Retired from YARA-L templates under `D1`. Calibrated Risk Index (`CRI`) is a reporting-only translation computed canonically in Python via `ueba_constants.calculate_cri` (`WS7-01`), never as a discrete step-ladder in YARA-L.
 
-  $dispersion_floor = math.sqrt(if($hist_avg > 1.0, $hist_avg, 1.0))
-  $safe_stddev = if($hist_stddev > $dispersion_floor, $hist_stddev, $dispersion_floor)
-  $upper_tail_z = $excess_surge / $safe_stddev
-
-condition:
-  $active_days >= 7 and $upper_tail_z >= 3.0
-
-order:
-  $upper_tail_z desc
-```
-
-### 12. `PIECEWISE_CRI` (`piecewise_cri.yl2`)
-* **Hypothesis**: Winsorized robust scaling mapped to discrete human-interpretable severity tiers [0-100].
-* **Mandatory AST Contract**:
-```yara
-outcome:
-  $observed = max($stage1_extract.observed_val)
-  $hist_avg = max($stage1_extract.historical_avg)
-  $hist_stddev = max($stage1_extract.historical_stddev)
-  $active_days = max($stage1_extract.historical_active_days)
-  $hist_max = max($stage1_extract.historical_max)
-
-  $diff = $observed - $hist_avg
-  $dispersion_floor = math.sqrt(if($hist_avg > 1.0, $hist_avg, 1.0))
-  $safe_stddev = if($hist_stddev > $dispersion_floor, $hist_stddev, $dispersion_floor)
-  $raw_z = $diff / $safe_stddev
-
-  $clamped_low = if($raw_z < -4.0, -4.0, $raw_z)
-  $clamped_z = if($clamped_low > 6.0, 6.0, $clamped_low)
-
-  $cri_tier4 = if($clamped_z >= 4.0, 95.0, 85.0)
-  $cri_tier3 = if($clamped_z >= 3.0, $cri_tier4, 65.0)
-  $cri_tier2 = if($clamped_z >= 2.0, $cri_tier3, 40.0)
-  $cri_score = if($clamped_z >= 1.0, $cri_tier2, 15.0)
-
-condition:
-  $active_days >= 7 and $clamped_z >= 3.0
-
-order:
-  $cri_score desc
-```
-
-### 13. `FLEET_PREVALENCE_SHIELD` (`fleet_prevalence_shield.yl2` & `hybrid_metric_fleet_prevalence_2stage.yl2`)
-* **Hypothesis**: Concurrent spikes across many fleet entities indicate global events (e.g. Patch Tuesday / enterprise IT rollouts), not targeted attacks.
-* **Variant A: Single-Plane Metric Prevalence Shield (`fleet_prevalence_shield.yl2`)**:
-  - *Mandatory AST Contract*:
-```yara
-stage stage2_fleet_wave {
-    $day_ws = $stage1_extract.window_start
-
-  match:
-    $day_ws by 1d
-
-  outcome:
-    $fleet_entities = count_distinct($stage1_extract.entity)
-}
-
-$entity = $stage1_extract.entity
-$ws = $stage1_extract.window_start
-$day_ws = $stage1_extract.window_start
-$day_ws = $stage2_fleet_wave.day_ws
-
-match:
-  $entity, $ws by 1d
-
-outcome:
-  $observed = max($stage1_extract.observed_val)
-  $hist_avg = max($stage1_extract.historical_avg)
-  $hist_stddev = max($stage1_extract.historical_stddev)
-  $active_days = max($stage1_extract.historical_active_days)
-
-  $raw_diff = $observed - $hist_avg
-  $dispersion_floor = math.sqrt(if($hist_avg > 1.0, $hist_avg, 1.0))
-  $safe_stddev = if($hist_stddev > $dispersion_floor, $hist_stddev, $dispersion_floor)
-  $personal_z = $raw_diff / $safe_stddev
-
-  $fleet_count = max($stage2_fleet_wave.fleet_entities)
-
-  $log_fleet = math.log($fleet_count)
-  $prevalence_factor = 1.0 + $log_fleet
-  $shielded_z = $personal_z / $prevalence_factor
-
-condition:
-  $active_days >= 7 and $shielded_z >= 3.0
-
-order:
-  $shielded_z desc
-```
-* **Variant B: Dual-Plane Token-Centric Normalization (`hybrid_metric_fleet_prevalence_2stage.yl2`)**:
-  - *Use Case*: Process execution hunts for unfamiliar binaries during deployments (`target.process.file.sha256 = $token`).
-  - *Match Topology*: Match on `$token by 1d`, joining Stage 1 personal surge with Stage 2 fleet breadth.
-  - *Hyperbolic Prevalence Dampener*: `$prevalence_dampener = 1.0 / ($fleet_adopters + 1.0)`
-  - *Outlier Scoring*: `$normalized_odds_score = $personal_z * $prevalence_dampener` (order: `$normalized_odds_score desc`).
+### 13. `FLEET_PREVALENCE_SHIELD` *(RETIRED — `D1`)*
+* **Status**: Single-plane `fleet_prevalence_shield.yl2` is retired under `D1` because dividing `$personal_z` by `1 + ln(fleet_count)` (where `fleet_count` counts every active entity on that day, not surging entities) suppresses real attacks on any active telemetry day.
+* **Active Replacements**:
+  - **Token-Scoped Binary / Rollout Prevalence (`hybrid_metric_fleet_prevalence_2stage.yl2`)**: Match on `$token by 1d`, joining Stage 1 personal surge with Stage 2 `DERIVED_CONTEXT` binary prevalence (`rolling_max <= 3`, `$normalized_odds_score = $personal_z * $prevalence_dampener`).
+  - **Fleet-Wide Mean/Stddev Surge Suppression (`dual_baseline_delta_z_3stage.yl2`)**: Subtracts concurrent fleet Z-score (`$delta_z = $personal_z - $fleet_z`).
 
 
 ### 14. `ADAPTIVE_CONTEXT_THRESHOLD` (`adaptive_context_threshold.yl2`)
@@ -529,8 +433,8 @@ order:
   $sensitivity_excess desc
 ```
 
-### 15. `MACD_MOMENTUM_VELOCITY` (`macd_momentum_velocity.yl2`)
-* **Hypothesis**: Detects sudden momentum acceleration where short-term surge diverges from slow baseline anchor and breaks out above the 30-day historical maximum (`$fast_z + $breakout_boost` when `$macd_diff > 0`).
+### 15. `MACD_MOMENTUM_VELOCITY` — Above-Historical-Max Z (`macd_momentum_velocity.yl2`)
+* **Hypothesis**: Detects linear peak exceedance where today's volume breaks out above the 30-day historical maximum (`$macd_z = $personal_z + $above_max_z`), avoiding quadratic byte overflow.
 * **Mandatory AST Contract**:
 ```yara
 outcome:
@@ -540,28 +444,22 @@ outcome:
   $active_days = max($stage1_extract.historical_active_days)
   $hist_max = max($stage1_extract.historical_max)
 
-  $fast_diff = $observed - $hist_avg
+  $personal_diff = $observed - $hist_avg
   $dispersion_floor = math.sqrt(if($hist_avg > 1.0, $hist_avg, 1.0))
   $safe_stddev = if($hist_stddev > $dispersion_floor, $hist_stddev, $dispersion_floor)
-  $fast_z = $fast_diff / $safe_stddev
+  $personal_z = $personal_diff / $safe_stddev
 
-  $slow_diff = $hist_max - $hist_avg
-  $slow_z = $slow_diff / $safe_stddev
-
-  $macd_diff = $fast_z - $slow_z
-
-  $safe_max = if($hist_max > 0, $hist_max, 1.0)
-  $velocity_ratio = $observed / $safe_max
-
-  $breakout_boost = $macd_diff * $velocity_ratio
-  $breakout_score = $fast_z + $breakout_boost
-  $macd_momentum_score = if($macd_diff > 0, $breakout_score, $fast_z)
+  $exceed_raw = $observed - $hist_max
+  $exceed_pos = if($exceed_raw > 0, $exceed_raw, 0.0)
+  $above_max_z = $exceed_pos / $safe_stddev
+  $macd_z = $personal_z + $above_max_z
+  $macd_momentum_score = $macd_z
 
 condition:
-  $active_days >= 7 and $fast_z >= 3.0
+  $active_days >= 7 and $macd_z >= 3.0
 
 order:
-  $macd_momentum_score desc
+  $macd_z desc
 ```
 
 ### 16. `CIRCADIAN_VON_MISES` *(RETIRED — `D1` / `PF-10` / `WS2-02`)*

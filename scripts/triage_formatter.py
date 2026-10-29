@@ -114,7 +114,7 @@ class CommonMarkTriageFormatter:
   MITRE_KILLCHAIN_PROGRESSION: Dict[str, Dict[str, str]] = {
       "auth": {
           "tactic": "TA0001 Initial Access / TA0006 Credential Access",
-          "upstream": "TA0001 Initial Access (`circadian_von_mises_2stage.yl2`)",
+          "upstream": "TA0001 Initial Access (`secops-statistical-hunter` `HOUR_OF_DAY_PROFILE`)",
           "downstream": "TA0002 Execution (`CREDENTIAL_ACCESS_TO_EXECUTION`) or TA0008 Lateral Movement (`CREDENTIAL_ACCESS_TO_LATERAL_MOVEMENT`)",
       },
       "file_executions": {
@@ -203,7 +203,7 @@ class CommonMarkTriageFormatter:
     elif outcome == "FLEET_WAVE":
       lines = [
           f"> * **🧭 Agentic Next Steps (Outcome Classification: `{outcome}` — State 3 → Phase 1B Pivot)** (MITRE Tactic: `{mitre['tactic']}`):",
-          f">   * **[1] Suppress Rollout / Patch Wave Noise**: Re-score `{target_metric}` in Phase 1B using `FLEET_PREVALENCE_SHIELD` (`fleet_prevalence_shield.yl2`), `HYBRID_METRIC_FLEET_PREVALENCE_2STAGE`, or `DUAL_BASELINE_3STAGE` (`ΔZ = Z_personal - Z_fleet`).",
+          f">   * **[1] Suppress Rollout / Patch Wave Noise**: Re-score `{target_metric}` in Phase 1B using `HYBRID_METRIC_FLEET_PREVALENCE_2STAGE` (`hybrid_metric_fleet_prevalence_2stage.yl2`) or `DUAL_BASELINE_3STAGE` (`ΔZ = Z_personal - Z_fleet`).",
           f">   * **[2] Isolate Peer Cohort Departure**: Slice `{top_entity}` against its functional team cohort via `PART_OF_THE_WHOLE_MULTILEVEL` (`part_of_the_whole_multilevel.yl2`).",
           f">   * **[3] Filter by Enterprise Prevalence**: Apply `DERIVED_CONTEXT` rarity gating (`rolling_max <= 3`) to drop fleet-wide binaries or domains.",
       ]

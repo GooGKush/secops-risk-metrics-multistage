@@ -16,12 +16,12 @@ The Google SecOps Multi-Stage Risk Analytics Engine provides 12 distinct categor
 | **4. 🧠 Sparse Activity Regularization** | `BAYESIAN_GAMMA`, `BAYESIAN_BETA_BINOMIAL` | Low-Volume Service Accounts, Auth Ratios | Regularizes sparse observations via 30-day prior stability, preventing false alarms on quiet accounts with low sample sizes. |
 | **5. 💧 Sub-Threshold Drift Accumulation** | `LONGITUDINAL_CUSUM` ($S_t^+ = \max(0, S_{t-1}^+ + Z_t - k)$) | Network Bytes, Cloud Resource CRUD | Uncovers low-and-slow data exfiltration or privilege creeping that stays below daily $3\sigma$ alerting hurdles but accumulates massive multi-day drift. |
 | **6. 🚪 Zero-Inflated Dormant Awakening** | `TWO_PART_HURDLE` | Inactive Accounts, Service Accounts | Applies a severe discrete penalty when a dormant account wakes up, while transitioning to continuous volume intensity once active. |
-| **7. 🔼 One-Sided Upper-Tail Spikes** | `ASYMMETRIC_DIRECTIONAL_Z` (ReLU) | Bandwidth, File Touches, Process Runs | Concentrates risk exclusively on volumetric surges, zeroing out drops below mean so weekend quiescence never triggers false alerts. |
-| **8. 🛡️ Concurrency Immunity & Suppression** | `FLEET_PREVALENCE_SHIELD`, `DUAL_BASELINE_3STAGE` | Workstation Egress, Admin Downloads | Disarms false positives during mass enterprise events (Patch Tuesday, vulnerability scans) by discounting individual scores when $>10$ hosts spike concurrently. |
+| **7. 🔼 One-Sided Upper-Tail Spikes** | `STANDARD_Z_SCORE` (merged `ASYMMETRIC_DIRECTIONAL_Z`) | Bandwidth, File Touches, Process Runs | Upper-tail positive $Z \ge 3.0$ concentrates risk exclusively on volumetric surges so weekend quiescence never triggers alerts. |
+| **8. 🛡️ Concurrency Immunity & Suppression** | `HYBRID_METRIC_FLEET_PREVALENCE_2STAGE`, `DUAL_BASELINE_3STAGE` | Process Executions, Workstation Egress | Disarms false positives during enterprise rollouts via token-scoped `DERIVED_CONTEXT` prevalence or fleet-wide $\Delta Z = Z_{\text{personal}} - Z_{\text{fleet}}$. |
 | **9. 🌙 Context-Modulated Sensitivity** | `ADAPTIVE_CONTEXT_THRESHOLD` | Off-Hours Logins, Weekend Bandwidth | Dynamically tightens detection hurdles (lowering threshold from $3.0\sigma$ to $1.75\sigma$) during high-risk off-hours or quiet shifts. |
-| **10. 🎯 Distortion-Proof Severity Tiering** | `PIECEWISE_CRI` (Winsorization + CRI) | Enterprise Leaderboards, Multi-Metric Hunts | Absorbs extreme mathematical blowouts on quiet accounts (Winsorized clamp) and maps raw deviations directly to deterministic SOC investigation SLAs ($0–100$). |
-| **11. 🚀 Momentum Velocity & Acceleration** | `MACD_MOMENTUM_VELOCITY` ($\Delta Z = Z_{\text{fast}} - Z_{\text{slow}}$) | Network Egress, Auth Attempts, DNS Volumes | Catches sudden acceleration departures where today's velocity breaks out beyond 30-day baseline ceiling and historical maximums. |
-| **12. ⏰ Cyclic 24h Clock Deviance** | `CIRCADIAN_VON_MISES` ($D_{\text{circ}}^2 / 72.0$) | Off-Hours Authentication, Weekend Bandwidth | Penalizes deviations on a circular 24-hour clock using von Mises quadratic arc distance, avoiding linear time wrapping errors. |
+| **10. 🎯 Calibrated Severity Tiering** | `ueba_constants.calculate_cri` *(retired `PIECEWISE_CRI`)* | Post-Query Triage Reporting | Translates standardized deviations into canonical $[0, 100]$ SOC severity bands in Python reporting (`WS7-01`). |
+| **11. 🚀 Above-Historical-Max Z** | `MACD_MOMENTUM_VELOCITY` ($Z_{\text{personal}} + Z_{\text{above\_max}}$) | Network Egress, Auth Attempts, DNS Volumes | Catches linear peak exceedance where today's volume breaks out beyond both the 30-day mean and the 30-day historical maximum. |
+| **12. ⏰ Per-Hour-of-Day Profiling** | Handoff to `HOUR_OF_DAY_PROFILE` *(retired `CIRCADIAN_VON_MISES`)* | Off-Hours Authentication, Weekend Bandwidth | Hands off sub-day temporal profiling to `secops-statistical-hunter` `HOUR_OF_DAY_PROFILE` (`D1` / `PF-10`). |
 
 > [!TIP]
 > **Ask for more information** if you would like a deep dive on how any of these specific models help expose behavioral outliers for your security use cases.
@@ -140,8 +140,8 @@ Before running a multi-stage statistical hunt, explain the approach to the secur
 
 ---
 
-## 5. Relative Volatility Ratio (`COEFFICIENT_OF_VARIATION`)
-* **Security Problem Solved**: Evaluates whether an entity's day-to-day behavior is predictable and disciplined or erratic and unstable.
+## 5. Regular-Volume Surge (`COEFFICIENT_OF_VARIATION`)
+* **Security Problem Solved**: Detects fold-change volume surges (`$surge_ratio >= 2.0`) specifically on entities with regular, predictable day-to-day baselines (`$cv <= 0.5`).
 * **Mathematical Formulation**:
   $$CV = \frac{\sigma}{\mu_{\text{safe}}}, \quad \mu_{\text{safe}} = \text{if}(\mu > 0, \mu, 1.0)$$
 * **Threat Meaning**:
@@ -243,57 +243,18 @@ Before running a multi-stage statistical hunt, explain the approach to the secur
 
 ---
 
-## 11. Asymmetric Directional Surge (`ASYMMETRIC_DIRECTIONAL_Z`)
-* **Security Problem Solved**: Eliminates two-tailed false positives caused by harmless activity drops (e.g. employee vacation, weekend server quiescence) by using a Rectified Linear Unit (ReLU) transfer function to concentrate 100% of risk on positive surges.
-* **Mathematical Formulation (ReLU Activation)**:
-  $$\text{Surge} = \max(0, x - \mu) = \text{if}(x - \mu > 0, x - \mu, 0.0)$$
-  $$Z_{\text{upper}} = \frac{\text{Surge}}{\sigma_{\text{safe}}}$$
-* **Post-Hunt Plain-English Cyber Impact Statement Template**:
-```markdown
-> [!IMPORTANT]
-> **One-Sided Surge Verdict: Asymmetric Directional Z (`[target_metric]`)**
-> * **Upper-Tail Deviation**: **[upper_tail_z]σ** (Drops below baseline mean strictly clamped to 0.0).
-> * **Investigative Meaning**: Confirmed one-way volumetric surge. Quiescence and activity dips are ignored; alert reflects purely malicious upward volumetric expansion.
-```
+## 11. Asymmetric Directional Surge (`ASYMMETRIC_DIRECTIONAL_Z` — Merged into `STANDARD_Z_SCORE` under `D1`)
+* **Status**: Merged into `STANDARD_Z_SCORE` (`standard_z_score.yl2`) under `D1` because upper-tail positive thresholding (`$personal_z >= 3.0`) already ignores negative deviations.
 
 ---
 
-## 12. Distortion-Proof Severity Tiering & Winsorization (`PIECEWISE_CRI`)
-* **Security Problem Solved**: Prevents ultra-quiet accounts with near-zero historical variance ($\sigma \approx 0.02$) from producing astronomical Z-scores ($+85.0\sigma$) that hijack the top of the investigation queue, while mapping raw deviations directly into deterministic, SLA-bound SOC triage tiers ($0–100$).
-* **Mathematical Formulation**:
-  * **Step 1 (Parametric Z)**: $Z_{\text{raw}} = (x - \mu) / \sigma_{\text{safe}}$
-  * **Step 2 (Winsorization Clamp)**: Clamps extreme values to $[-4.0, +6.0]$:
-    $$Z_{\text{clamped}} = \max(-4.0, \min(6.0, Z_{\text{raw}}))$$
-  * **Step 3 (Piecewise Linear CRI Mapping)**: This model emits discrete midpoint scores on the same universal $0–100$ scale as every other model, so each tier maps 1-to-1 onto the 5 canonical CRI severity bands (`clean-handoff-udm-schema.md` Phase 2):
-    $$\text{CRI} = \begin{cases} 95 & \text{if } Z_{\text{clamped}} \ge 4.0 \quad (\text{CRI } 90\text{–}100: \text{CRITICAL}) \\ 85 & \text{if } 3.0 \le Z_{\text{clamped}} < 4.0 \quad (\text{CRI } 70\text{–}89: \text{HIGH}) \\ 65 & \text{if } 2.0 \le Z_{\text{clamped}} < 3.0 \quad (\text{CRI } 46\text{–}69: \text{MEDIUM}) \\ 40 & \text{if } 1.0 \le Z_{\text{clamped}} < 2.0 \quad (\text{CRI } 26\text{–}45: \text{LOW}) \\ 15 & \text{if } Z_{\text{clamped}} < 1.0 \quad (\text{CRI } 0\text{–}25: \text{INFORMATIONAL / NOMINAL}) \end{cases}$$
-    *(Note: In post-query Python reporting, `CRI(Z)` applies the continuous logistic curve with zero-floor $\text{CRI}(Z) = 0$ for $Z \le 0$.)*
-* **Post-Hunt Plain-English Cyber Impact Statement Template**:
-```markdown
-> [!IMPORTANT]
-> **Distortion-Proof Triage Verdict: Calibrated Risk Index (`[target_metric]`)**
-> * **Raw vs. Clamped Deviation**: Raw Z-Score of **[raw_z]σ** was Winsorized to **[clamped_z]σ** to absorb low-volume variance distortion.
-> * **Deterministic CRI Triage Score**: 🚨 **[cri_score] / 100** (Operational Tier: [Severity Tier]).
-> * **SOC Action Playbook**: Direct match to incident SLA: [Immediate Containment / Tier-2 Investigation / 7-Day Watchlist].
-```
+## 12. Calibrated Risk Index (`PIECEWISE_CRI` — Retired from YARA-L under `D1`)
+* **Status**: `piecewise_cri.yl2` is retired under `D1`. Calibrated Risk Index (`CRI`) is computed canonically in Python post-processing via `ueba_constants.calculate_cri` (`WS7-01`).
 
 ---
 
-## 13. Concurrency Immunity & Fleet Prevalence Discounting (`FLEET_PREVALENCE_SHIELD`)
-* **Security Problem Solved**: Automatically suppresses individual false alarms during enterprise-wide mass events (e.g. Patch Tuesday OS updates, vulnerability scanner crawls, mass software rollouts) without requiring manual allowlisting.
-* **Mathematical Formulation**:
-  $$Z_{\text{personal}} = \frac{x - \mu}{\sigma_{\text{safe}}}$$
-  $$\text{Prevalence Factor} = \text{if}(\text{Fleet Count} > 10, 0.15, 1.0)$$
-  $$Z_{\text{shielded}} = Z_{\text{personal}} \cdot \text{Prevalence Factor}$$
-* **Threat Meaning**: If $>10$ entities experience concurrent spikes, the activity is discounted by 85%, ensuring that only truly targeted, isolated anomalies break through to analysts.
-* **Post-Hunt Plain-English Cyber Impact Statement Template**:
-```markdown
-> [!IMPORTANT]
-> **Fleet Concurrency Immunity Verdict: Prevalence Shield (`[target_metric]`)**
-> * **Personal Spike**: Host `[entity]` exhibited a raw surge of **[personal_z]σ**.
-> * **Fleet Concurrency**: **[fleet_count] hosts** concurrently spiked across the enterprise today.
-> * **Shielded Risk Score**: Discounted by 85% to **[shielded_z]σ** due to high fleet prevalence.
-> * **Investigative Meaning**: Activity was part of a widespread enterprise event rather than a targeted host compromise.
-```
+## 13. Fleet Prevalence Normalization (`FLEET_PREVALENCE_SHIELD` — Retired under `D1`)
+* **Status**: Single-plane `fleet_prevalence_shield.yl2` is retired under `D1`; use token-scoped `hybrid_metric_fleet_prevalence_2stage.yl2` (`HYBRID_METRIC_FLEET_PREVALENCE_2STAGE`) or `dual_baseline_delta_z_3stage.yl2` (`DUAL_BASELINE_3STAGE`).
 
 ---
 
@@ -316,28 +277,10 @@ Before running a multi-stage statistical hunt, explain the approach to the secur
 
 ---
 
-## 15. MACD Dual-Spine Momentum Indicator (`MACD_MOMENTUM_VELOCITY`)
-* **Security Problem Solved**: Detects abrupt momentum acceleration and velocity divergence where today's instantaneous burst breaks out past the slow 30-day baseline anchor and exceeds the entity's historical maximum departure.
+## 15. Above-Historical-Max Z (`MACD_MOMENTUM_VELOCITY`)
+* **Security Problem Solved**: Detects linear peak exceedance where today's volume breaks out above both the 30-day baseline mean and the 30-day historical maximum without quadratic byte overflow.
 * **Mathematical Formulation**:
-  $$Z_{\text{fast}} = \frac{x_{\text{observed}} - \mu_{\text{30d}}}{\sigma_{\text{safe}}}, \quad Z_{\text{slow}} = \frac{\mu_{\text{max}} - \mu_{\text{30d}}}{\sigma_{\text{safe}}}$$
-  $$\text{MACD}_{\text{diff}} = Z_{\text{fast}} - Z_{\text{slow}}$$
-  $$\text{Velocity Ratio} = \frac{x_{\text{observed}}}{\text{if}(\mu_{\text{max}} > 0, \mu_{\text{max}}, 1.0)}$$
-  $$\text{Score} = \text{if}(\text{MACD}_{\text{diff}} > 0, \text{MACD}_{\text{diff}} \times \text{Velocity Ratio}, Z_{\text{fast}})$$
-* **Where**:
-  * $\sigma_{\text{safe}} = \text{if}(\sigma > 0, \sigma, 1.0)$
-  * $x_{\text{observed}}$: Current observed volume (`$stage1_extract.observed_val`)
-  * $\mu_{\text{30d}}$: 30-day baseline average (`$stage1_extract.historical_avg`)
-  * $\mu_{\text{max}}$: 30-day peak recorded value (`$stage1_extract.historical_max`)
-* **Threat Meaning**: Identifies massive, runaway velocity departures (e.g. rapid automated data exfiltration or high-frequency API abuse) that break cleanly through historic ceiling records.
-* **Post-Hunt Plain-English Cyber Impact Statement Template**:
-```markdown
-> [!IMPORTANT]
-> **MACD Momentum Velocity Verdict: Acceleration Breakout (`[target_metric]`)**
-> * **Instantaneous Velocity**: Entity `[entity]` performed **[observed]** actions today against a 30-day average of **[hist_avg]** and historical maximum of **[hist_max]**.
-> * **Dual-Spine Departure**: Fast spine $Z_{\text{fast}} = \mathbf{[fast_z]\sigma}$, Slow spine anchor $Z_{\text{slow}} = \mathbf{[slow_z]\sigma}$.
-> * **Momentum Spread**: Accelerating departure of **+[macd_diff]σ** beyond historical peak capacity with a velocity ratio of **[velocity_ratio]×**.
-> * **Investigative Meaning**: Activity exhibits runaway kinetic acceleration, breaking past the 30-day ceiling and confirming unconstrained automated execution.
-```
+  $$Z_{\text{personal}} = \frac{x_{\text{observed}} - \mu_{\text{30d}}}{\sigma_{\text{safe}}}, \quad Z_{\text{above\_max}} = \frac{\max(0, x_{\text{observed}} - x_{\text{max,30d}})}{\sigma_{\text{safe}}}, \quad Z_{\text{macd}} = Z_{\text{personal}} + Z_{\text{above\_max}}$$
 
 ---
 

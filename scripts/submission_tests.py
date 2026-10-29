@@ -506,8 +506,8 @@ order:
         TestCase(
             test_id="PIPE-10-MACD-MOMENTUM",
             category="Pipeline Template",
-            name="2-Stage MACD Dual-Spine Momentum Velocity Pipeline",
-            description="Evaluates outbound network bytes using short-term velocity divergence against historical baseline anchor.",
+            name="2-Stage Above-Historical-Max Z Pipeline",
+            description="Evaluates outbound network bytes using linear peak exceedance above 30-day historical maximum.",
             generator=lambda: self.router.build_pipeline_query(
                 PipelineArchitecture.MACD_MOMENTUM_VELOCITY_2STAGE,
                 target_metric="network_bytes_outbound",
@@ -544,6 +544,35 @@ order:
                 entity_type=EntityType.USER,
             ),
             expected_stages=["sector_a", "sector_b", "fleet_sector_norm"],
+        )
+    )
+
+    matrix.append(
+        TestCase(
+            test_id="PIPE-13-FLEET-PREVALENCE-HYBRID",
+            category="Pipeline Template",
+            name="2-Stage Dual-Plane Fleet Prevalence Normalization Pipeline",
+            description="Joins personal process execution surge with Entity Graph DERIVED_CONTEXT binary prevalence to discount corporate rollout waves.",
+            generator=lambda: self.router.build_pipeline_query(
+                PipelineArchitecture.HYBRID_METRIC_FLEET_PREVALENCE_2STAGE,
+                target_metric="file_executions_total",
+                entity_type=EntityType.ASSET,
+            ),
+            expected_stages=["stage1_personal_surge", "stage2_fleet_prevalence"],
+        )
+    )
+
+    matrix.append(
+        TestCase(
+            test_id="PIPE-14-PART-OF-WHOLE-TRIAD",
+            category="Pipeline Template",
+            name="3-Metric Multilevel Part-of-the-Whole Triad Pipeline",
+            description="Evaluates sibling triad Z-scores and fleet-normalized composite distance with Samuelson small-cohort guardrails.",
+            generator=lambda: self.router.build_pipeline_query(
+                PipelineArchitecture.PART_OF_THE_WHOLE_TRIAD_MULTILEVEL,
+                entity_type=EntityType.ASSET,
+            ),
+            expected_stages=["all_entities", "enterprise_stats"],
         )
     )
 
@@ -611,11 +640,9 @@ order:
         ("ROUTER-08-FANO", "auth_attempts_fail", EntityType.USER, StatisticalModel.VARIANCE, "Variance-to-mean Fano factor on auth failures"),
         ("ROUTER-09-CUSUM", "network_bytes_outbound", EntityType.ASSET, StatisticalModel.LONGITUDINAL_CUSUM, "Longitudinal CUSUM drift on egress bytes"),
         ("ROUTER-10-HURDLE", "auth_attempts_total", EntityType.USER, StatisticalModel.TWO_PART_HURDLE, "Two-part hurdle model for zero-inflated auth"),
-        ("ROUTER-11-ASYMMETRIC-Z", "file_executions_total", EntityType.ASSET, StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z, "Asymmetric directional upper-tail surge on process executions"),
-        ("ROUTER-12-PIECEWISE-CRI", "network_bytes_outbound", EntityType.ASSET, StatisticalModel.PIECEWISE_CRI, "Piecewise Winsorized Calibrated Risk Index"),
-        ("ROUTER-13-FLEET-SHIELD", "network_bytes_outbound", EntityType.ASSET, StatisticalModel.FLEET_PREVALENCE_SHIELD, "Fleet prevalence concurrency discount shield"),
+        ("ROUTER-11-ASYMMETRIC-Z", "file_executions_total", EntityType.ASSET, StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z, "Merged standard Z upper-tail surge on process executions"),
         ("ROUTER-14-ADAPTIVE-THRESH", "auth_attempts_total", EntityType.USER, StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD, "Adaptive context-modulated sensitivity tightening"),
-        ("ROUTER-15-MACD-MOMENTUM", "network_bytes_outbound", EntityType.ASSET, StatisticalModel.MACD_MOMENTUM_VELOCITY, "MACD dual-spine momentum velocity on egress"),
+        ("ROUTER-15-MACD-MOMENTUM", "network_bytes_outbound", EntityType.ASSET, StatisticalModel.MACD_MOMENTUM_VELOCITY, "Above-Historical-Max Z linear peak exceedance on egress"),
         ("ROUTER-16-RELATIVE-DEV", "auth_attempts_total", EntityType.USER, StatisticalModel.RELATIVE_DEVIATION, "Relative deviation fold change on auth attempts"),
     ]
 

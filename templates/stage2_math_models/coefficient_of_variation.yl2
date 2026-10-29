@@ -1,4 +1,4 @@
-// Root Stage: Predictability Stability Filter via CV (Preserving Daily Timeline)
+// Root Stage: Regular-Volume Surge (Low-CV Predictable Baseline — Preserving Daily Timeline)
 $entity = $stage1_extract.entity
 $ws = $stage1_extract.window_start
 

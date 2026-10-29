@@ -524,9 +524,7 @@ class MultiStageTemplateRouter:
       StatisticalModel.BAYESIAN_BETA_BINOMIAL: "beta_binomial_bayesian.yl2",
       StatisticalModel.LONGITUDINAL_CUSUM: "longitudinal_cusum.yl2",
       StatisticalModel.TWO_PART_HURDLE: "two_part_hurdle.yl2",
-      StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z: "asymmetric_directional_z.yl2",
-      StatisticalModel.PIECEWISE_CRI: "piecewise_cri.yl2",
-      StatisticalModel.FLEET_PREVALENCE_SHIELD: "fleet_prevalence_shield.yl2",
+      StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z: "standard_z_score.yl2",
       StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD: "adaptive_context_threshold.yl2",
       StatisticalModel.MACD_MOMENTUM_VELOCITY: "macd_momentum_velocity.yl2",
       StatisticalModel.QUANTILE_IQR_SKEW: "quantile_iqr_skew.yl2",
@@ -538,10 +536,14 @@ class MultiStageTemplateRouter:
   STAGE2_FALLBACK_TEMPLATES: Dict[str, str] = {}
 
   MODEL_DESCRIPTIONS = {
+      StatisticalModel.COEFFICIENT_OF_VARIATION: "Regular-Volume Surge (Low-CV Predictable Baseline)",
+      "coefficient_of_variation": "Regular-Volume Surge (Low-CV Predictable Baseline)",
       StatisticalModel.LONGITUDINAL_CUSUM: "Multi-Day Cumulative Drift (Windowed Slack Sum)",
       "longitudinal_cusum": "Multi-Day Cumulative Drift (Windowed Slack Sum)",
-      StatisticalModel.MACD_MOMENTUM_VELOCITY: "MACD Multi-Horizon Momentum & Velocity Crossover",
-      "macd_momentum": "MACD Multi-Horizon Momentum & Velocity Crossover",
+      StatisticalModel.MACD_MOMENTUM_VELOCITY: "Above-Historical-Max Z (Linear Peak Exceedance)",
+      "macd_momentum": "Above-Historical-Max Z (Linear Peak Exceedance)",
+      "macd_momentum_velocity": "Above-Historical-Max Z (Linear Peak Exceedance)",
+      StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z: "Standard Z-Score (Merged from ASYMMETRIC_DIRECTIONAL_Z per D1)",
       "diversity_deficit": "Lexical Diversity Deficit & Target Concentration",
       "diversity_deficit_entropy": "Lexical Diversity Deficit & Target Concentration",
   }
@@ -980,6 +982,7 @@ class MultiStageTemplateRouter:
     default: 7), ending at scoring_end_date (UTC YYYY-MM-DD; default today). The gate is a date
     string rendered into stage1 ($in_scoring_window), never wall-clock time or an epoch literal.
     """
+    self.last_advisories = []
     if identifier_field is None and identifier_coverage_payload is not None:
       identifier_field = select_identifier_from_coverage(
           identifier_coverage_payload,
@@ -998,11 +1001,20 @@ class MultiStageTemplateRouter:
       raise ValueError(f"Unknown statistical model: '{statistical_model}'")
     if isinstance(statistical_model, StatisticalModel) and statistical_model in RETIRED_STATISTICAL_MODELS:
       raise ValueError(RETIRED_STATISTICAL_MODELS[statistical_model])
+    raw_model_arg = statistical_model
     if not isinstance(statistical_model, StatisticalModel):
+      if str(raw_model_arg).strip().upper().replace("-", "_").replace(" ", "_") == "ASYMMETRIC_DIRECTIONAL_Z":
+        self.last_advisories.append(
+            "ASYMMETRIC_DIRECTIONAL_Z merged into STANDARD_Z_SCORE (D1): upper-tail positive Z >= threshold is identical to Standard Z."
+        )
       from .ueba_hybrid_engine import resolve_statistical_model
       statistical_model = resolve_statistical_model(statistical_model)
     if statistical_model in RETIRED_STATISTICAL_MODELS:
       raise ValueError(RETIRED_STATISTICAL_MODELS[statistical_model])
+    if statistical_model == StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z:
+      self.last_advisories.append(
+          "ASYMMETRIC_DIRECTIONAL_Z merged into STANDARD_Z_SCORE (D1): upper-tail positive Z >= threshold is identical to Standard Z."
+      )
 
     # Enforce Local-Baseline Isolation: default STANDARD_Z_SCORE multi-database account queries
     # route to CLOUD_REPOSITORY_SCOPE_DUAL_BRANCH; explicit non-Z models render directly.
@@ -3285,7 +3297,7 @@ class ChainedHuntRouter:
       phase1 = router.build_query(
           target_metric="workspace_total_download_actions",
           entity_type=EntityType.USER,
-          statistical_model=StatisticalModel.PIECEWISE_CRI,
+          statistical_model=StatisticalModel.STANDARD_Z_SCORE,
           anomaly_threshold=anomaly_threshold,
           hypothesis_goal="Phase 1 (TA0009 Collection): Identify users with bulk Workspace download hoarding",
       )

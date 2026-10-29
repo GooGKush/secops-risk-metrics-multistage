@@ -72,11 +72,11 @@ DEFAULT_SIGNIFICANCE_GATES: Dict["StatisticalModel", str] = {
     StatisticalModel.BAYESIAN_BETA_BINOMIAL: ">= 2.0× prior failure rate",
     StatisticalModel.LONGITUDINAL_CUSUM: "Drift above 0.5σ slack",
     StatisticalModel.TWO_PART_HURDLE: "Dormant awakening OR Z >= 3.0σ",
-    StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z: "Upper-tail Z >= 3.0σ",
-    StatisticalModel.PIECEWISE_CRI: "Z >= 3.0σ (CRI >= 85)",
-    StatisticalModel.FLEET_PREVALENCE_SHIELD: "Shielded Z >= 3.0σ",
+    StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z: "Z >= 3.0σ (merged into STANDARD_Z_SCORE)",
+    StatisticalModel.PIECEWISE_CRI: "RETIRED (D1 -> ueba_constants.calculate_cri)",
+    StatisticalModel.FLEET_PREVALENCE_SHIELD: "RETIRED (D1 -> hybrid_metric_fleet_prevalence_2stage.yl2)",
     StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD: "Z >= context threshold",
-    StatisticalModel.MACD_MOMENTUM_VELOCITY: "Fast Z >= 3.0σ",
+    StatisticalModel.MACD_MOMENTUM_VELOCITY: "Above-Max Z >= 3.0σ",
     StatisticalModel.CIRCADIAN_VON_MISES: "RETIRED (D1 -> HOUR_OF_DAY_PROFILE)",
     StatisticalModel.QUANTILE_IQR_SKEW: "Skew-Adjusted Fence >= 2.0×",
 }
@@ -92,6 +92,17 @@ RETIRED_STATISTICAL_MODELS: Dict[StatisticalModel, str] = {
         "Statistical model 'CIRCADIAN_VON_MISES' is retired (D1 / PF-10): metrics.* provides only "
         "daily (period: 1d, window: 30d) baselines and cannot profile per-hour-of-day circular "
         "means; hand off to 'secops-statistical-hunter' model 'HOUR_OF_DAY_PROFILE'."
+    ),
+    StatisticalModel.PIECEWISE_CRI: (
+        "Statistical model 'PIECEWISE_CRI' is retired (D1): CRI is a reporting-only translation "
+        "computed canonically via ueba_constants.calculate_cri (WS7-01); query with STANDARD_Z_SCORE "
+        "(or another active model) instead of piecewise_cri.yl2."
+    ),
+    StatisticalModel.FLEET_PREVALENCE_SHIELD: (
+        "Statistical model 'FLEET_PREVALENCE_SHIELD' is retired (D1): raw active-entity counting "
+        "(1 + ln(fleet_count)) suppresses attacks on any active telemetry day; use "
+        "hybrid_metric_fleet_prevalence_2stage.yl2 (PipelineArchitecture.HYBRID_METRIC_FLEET_PREVALENCE_2STAGE) "
+        "or dual_baseline_delta_z_3stage.yl2 (PipelineArchitecture.DUAL_BASELINE_3STAGE)."
     ),
 }
 
@@ -1576,12 +1587,15 @@ class MalachiteASTValidator:
     elif model == StatisticalModel.POISSON:
       if "sqrt" not in query_text.lower() and "poisson" not in query_text.lower():
         errors.append("MODEL_FORMULA_MISMATCH: Discrete Poisson model must calculate standard Poisson residual using sqrt(lambda).")
-    elif model == StatisticalModel.STANDARD_Z_SCORE:
+    elif model in (StatisticalModel.STANDARD_Z_SCORE, StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z):
       if "+ 1.0" not in query_text and "if(" not in query_text and "stddev" not in query_text.lower():
         errors.append("MODEL_FORMULA_MISMATCH: Standard Z-Score must apply dispersion floor (+ 1.0) or nested logic if($std > 0, $std, 1.0) to denominator.")
     elif model == StatisticalModel.MACD_MOMENTUM_VELOCITY:
-      if "macd" not in query_text.lower() and "slow_z" not in query_text:
-        errors.append("MODEL_FORMULA_MISMATCH: MACD model must include dual-spine momentum differential ($macd_diff).")
+      if "$above_max_z" not in query_text or "$macd_z" not in query_text:
+        errors.append(
+            "MODEL_FORMULA_MISMATCH: Above-Historical-Max Z (MACD_MOMENTUM_VELOCITY) must compute linear "
+            "$above_max_z and $macd_z = $personal_z + $above_max_z."
+        )
 
     return errors
 
