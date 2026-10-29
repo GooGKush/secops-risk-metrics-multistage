@@ -1164,8 +1164,37 @@ def compile_hunt_pipeline(
         "so each UTC day is scored against its own trailing 30-day baseline."
     )
   metric_list = normalize_metrics_list(metrics, ent_enum, arch_key)
-  if len(metric_list) >= 2 and arch_key in ("single_metric", "local_2stage", "2stage"):
-    arch_key = "multi_sector_fusion_4stage" if len(metric_list) >= 3 else "dual_sector_fusion_3stage"
+  pf7_multi_metric_err = (
+      f"Cannot compile {len(metric_list)} metrics ({metric_list}) in a single in-query fusion DAG: "
+      "Chronicle YARA-L multi-stage queries support at most 2 UDM event stages (PF-7), and "
+      "compile_hunt_pipeline refuses to silently slice metrics[:2]. Pass exactly 2 metrics for "
+      "DUAL_SECTOR_FUSION_3STAGE / MULTI_SECTOR_FUSION_4STAGE, pass a valid 3-metric sibling triad "
+      "(e.g., auth_attempts_total/fail/success) for PART_OF_THE_WHOLE_TRIAD_MULTILEVEL, or use "
+      "decoupled architecture='360_radar' sector queries for >= 3 heterogeneous sectors."
+  )
+  if len(metric_list) == 2 and arch_key in ("single_metric", "local_2stage", "2stage"):
+    arch_key = "dual_sector_fusion_3stage"
+  elif len(metric_list) >= 3 and arch_key in ("single_metric", "local_2stage", "2stage"):
+    is_valid_sibling_triad = False
+    if (
+        len(metric_list) == 3
+        and len(set(metric_list)) == 3
+        and all(m in METRIC_CATALOG and not mc.is_composite_only(m) for m in metric_list)
+    ):
+      try:
+        PreFlightValidator.audit_triad(
+            metric_list,
+            entity_type=ent_enum,
+            min_baseline_days=min_baseline_days,
+            identifier_field=identifier_field,
+        )
+        is_valid_sibling_triad = True
+      except ValueError:
+        is_valid_sibling_triad = False
+    if is_valid_sibling_triad:
+      arch_key = "triad"
+    else:
+      raise ValueError(pf7_multi_metric_err)
   primary_metric = metric_list[0]
   if (
       identifier_field is None
@@ -1352,17 +1381,19 @@ def compile_hunt_pipeline(
     canonical_arch = PipelineArchitecture.EMPIRICAL_BAYES_3STAGE.value
 
   elif arch_key in ("fusion", "sector_fusion", "dual_sector_fusion", "dual_sector_fusion_3stage", "fusion_3stage", "multi_sector_fusion", "multi_sector_fusion_4stage", "fusion_4stage", "rollup_sector_fusion"):
+    if len(metric_list) > 2:
+      raise ValueError(pf7_multi_metric_err)
     is_four_stage = arch_key in ("multi_sector_fusion_4stage", "fusion_4stage", "rollup_sector_fusion")
     pipe_enum = PipelineArchitecture.MULTI_SECTOR_FUSION_4STAGE if is_four_stage else PipelineArchitecture.DUAL_SECTOR_FUSION_3STAGE
     if len(metric_list) < 2:
       second = "network_bytes_outbound" if primary_metric != "network_bytes_outbound" else "auth_attempts_fail"
       metric_list = [primary_metric, second]
-    for m in metric_list[:2]:
+    for m in metric_list:
       if ent_enum not in METRIC_CATALOG[m].supported_entity_types:
         ent_enum = EntityType.ASSET
     compiled_query = router.build_pipeline_query(
         pipe_enum,
-        target_metrics=metric_list[:2],
+        target_metrics=metric_list,
         entity_type=ent_enum,
         anomaly_threshold=eff_anomaly,
         min_baseline_days=min_baseline_days,
@@ -1378,9 +1409,14 @@ def compile_hunt_pipeline(
     canonical_arch = pipe_enum.value
 
   elif arch_key in ("triad", "part_of_the_whole_triad_multilevel", "part_of_the_whole_triad"):
+    if len(metric_list) > 3:
+      raise ValueError(
+          f"Triad architecture supports at most 3 sibling metrics in one stage, got {len(metric_list)} ({metric_list}); "
+          "use architecture='360_radar' for decoupled multi-sector hunts (PF-7)."
+      )
     compiled_query = router.build_pipeline_query(
         PipelineArchitecture.PART_OF_THE_WHOLE_TRIAD_MULTILEVEL,
-        target_metrics=metric_list[:3],
+        target_metrics=metric_list,
         entity_type=ent_enum,
         anomaly_threshold=eff_anomaly,
         min_baseline_days=min_baseline_days,
@@ -1452,8 +1488,10 @@ def compile_hunt_pipeline(
     canonical_arch = PipelineArchitecture.RARE_DESTINATION_ECG_3STAGE.value
 
   elif arch_key in ("fusion_rare_destination", "fusion_rare_destination_3stage"):
+    if len(metric_list) > 2:
+      raise ValueError(pf7_multi_metric_err)
     compiled_query = router.build_fusion_rare_destination_query(
-        target_metrics=metric_list[:2] if len(metric_list) >= 2 else None,
+        target_metrics=metric_list if len(metric_list) == 2 else None,
         entity_type=ent_enum,
         fusion_threshold_sq=eff_fusion_sq,
         hypothesis_goal=hypothesis_goal,
