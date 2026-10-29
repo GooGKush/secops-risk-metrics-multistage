@@ -240,17 +240,47 @@ class MultiStageTemplateRouter:
       condition_expression: Optional[str] = None,
       default_score: str = "$personal_z",
       only_if_template_gate: bool = False,
+      include_significance_gate: bool = True,
   ) -> str:
     """Resolves the template's root significance gate and applies any analyst override.
 
     Every score-producing template ships a default root gate (`<gate var> >= {{<placeholder>}}`, see
     GATE_PLACEHOLDERS). An override (condition_expression, or min/max_threshold on the gate variable)
     REPLACES that default clause and keeps the template's other condition clauses (e.g. MAD's
-    scoring-window and sample-size gates). When the template has no default gate clause the override
-    is AND-ed into the root condition (or a new root condition is created), unless
-    only_if_template_gate is set; renderers that already resolved their own gate use that flag so an
-    override is never applied twice. Remaining placeholders are filled with their defaults.
+    scoring-window and sample-size gates). When include_significance_gate is False (e.g. decoupled
+    360° radar sector queries fused post-query), significance gating is omitted while structural
+    scoring-window guards ($in_scoring_window = 1) are preserved.
     """
+    if not include_significance_gate:
+      cond = cls._ROOT_CONDITION_RE.search(rendered)
+      if cond:
+        body = cond.group(1)
+        m = cls._GATE_CLAUSE_RE.search(body)
+        if "$in_scoring_window" in body and m:
+          stripped = re.sub(
+              r"\s+(?:and|or)\s+" + re.escape(m.group(0)) + r"|" + re.escape(m.group(0)) + r"\s+(?:and|or)\s+",
+              "",
+              body,
+              count=1,
+          )
+          rendered = rendered[:cond.start(1)] + stripped + rendered[cond.end(1):]
+        else:
+          rendered = re.sub(
+              r"(?:^[ \t]*// Significance gate:[^\n]*\n)?^condition:[ \t]*\n.*?\n[ \t]*\n(?=[ \t]*order:)",
+              "",
+              rendered,
+              flags=re.M | re.S,
+          )
+      values = {
+          "anomaly_threshold": anomaly_threshold,
+          "fold_change_threshold": fold_change_threshold,
+          "fusion_threshold_sq": fusion_threshold_sq,
+          "robust_threshold": robust_threshold,
+      }
+      for name, value in values.items():
+        rendered = rendered.replace("{{" + name + "}}", str(value))
+      return rendered
+
     clause = None
     cond = cls._ROOT_CONDITION_RE.search(rendered)
     if cond:
@@ -479,14 +509,15 @@ class MultiStageTemplateRouter:
       scoring_end_date: Optional[str] = None,
       fold_change_threshold: float = 2.0,
       robust_threshold: float = 3.5,
+      include_significance_gate: bool = True,
   ) -> str:
     """Renders stage1 extractor + stage2 math model.
 
     Significance gate: every stage2 model except the Fano factor ships a default root `condition:`
     (sigma models: `>= anomaly_threshold`; ratio models: `>= fold_change_threshold`; MAD:
     `$modified_z >= robust_threshold`). min_threshold / max_threshold / condition_expression replace
-    that default gate. apply_threshold_condition is retained for backward compatibility and no longer
-    changes the output: the default gate is always applied.
+    that default gate. Pass include_significance_gate=False to emit an ungated query (e.g. 360° radar
+    decoupled sectors fused post-query). apply_threshold_condition is retained for backward compatibility.
 
     scoring_days applies to StatisticalModel.MAD only: the raw search window is the robust baseline
     (~30d), so the number of most-recent days actually scored is set explicitly (Mode A: 1, Mode B
@@ -524,6 +555,7 @@ class MultiStageTemplateRouter:
           min_threshold=min_threshold,
           max_threshold=max_threshold,
           condition_expression=condition_expression,
+          include_significance_gate=include_significance_gate,
       )
 
     stage1_path = self.template_dir / "stage1_extractors" / f"{target_metric}.yl2"
@@ -615,8 +647,17 @@ class MultiStageTemplateRouter:
         min_threshold=min_threshold,
         max_threshold=max_threshold,
         condition_expression=condition_expression,
+        include_significance_gate=include_significance_gate,
     )
     gate = self.root_condition(stage2_rendered)
+    if not include_significance_gate:
+      gate_label = (
+          f"{gate} (NO-GATE significance threshold omitted for post-query Euclidean fusion)"
+          if gate
+          else "NONE (NO-GATE decoupled sector for post-query Euclidean fusion)"
+      )
+    else:
+      gate_label = gate or "NONE (model has no significance threshold; see template NO-GATE note)"
 
     model_label = statistical_model.value if hasattr(statistical_model, "value") else str(statistical_model)
     model_desc = self.MODEL_DESCRIPTIONS.get(model_key) or self.MODEL_DESCRIPTIONS.get(statistical_model)
@@ -629,7 +670,7 @@ class MultiStageTemplateRouter:
         f"// Event Filter: {' AND '.join(audit['event_filter'])}\n"
         f"// Statistical Model: {model_label}\n"
         f"{desc_line}"
-        f"// Significance Gate: {gate or 'NONE (model has no significance threshold; see template NO-GATE note)'}\n"
+        f"// Significance Gate: {gate_label}\n"
         f"// Match Mode: {match_mode.value}\n"
         f"// Baseline Window: 30-Day Historical Pre-Computed Metrics (Min Active Days: {audit['min_baseline_days']})\n"
         "// ============================================================================\n\n"
@@ -655,6 +696,7 @@ class MultiStageTemplateRouter:
       identifier_field: Optional[str] = None,
       fold_change_threshold: float = 2.0,
       fusion_threshold_sq: float = 12.25,
+      include_significance_gate: bool = True,
   ) -> str:
     """Renders 3-Stage and 4-Stage advanced DAG pipelines, then resolves the root significance gate.
 
@@ -679,7 +721,7 @@ class MultiStageTemplateRouter:
         identifier_field=identifier_field,
         fusion_threshold_sq=fusion_threshold_sq,
     )
-    return self._apply_significance_gate(
+    out = self._apply_significance_gate(
         rendered,
         anomaly_threshold=anomaly_threshold,
         fold_change_threshold=fold_change_threshold,
@@ -688,7 +730,11 @@ class MultiStageTemplateRouter:
         max_threshold=max_threshold,
         condition_expression=condition_expression,
         only_if_template_gate=True,
+        include_significance_gate=include_significance_gate,
     )
+    if not include_significance_gate and "// Significance Gate: NONE" not in out:
+      out = "// Significance Gate: NONE (NO-GATE decoupled sector for post-query Euclidean fusion)\n" + out
+    return out
 
   def _render_pipeline(
       self,
@@ -1578,6 +1624,7 @@ class MultiStageTemplateRouter:
       max_threshold: Optional[float] = None,
       condition_expression: Optional[str] = None,
       target_metric: str = "resource_read_total",
+      include_significance_gate: bool = True,
   ) -> str:
     """Builds a verified Cloud Repository Scope pipeline guaranteeing target.resource.name binding."""
     return self.build_pipeline_query(
@@ -1590,6 +1637,7 @@ class MultiStageTemplateRouter:
         min_threshold=min_threshold,
         max_threshold=max_threshold,
         condition_expression=condition_expression,
+        include_significance_gate=include_significance_gate,
     )
 
   def build_failure_ratio_surge_query(
@@ -1815,6 +1863,7 @@ class MultiStageTemplateRouter:
       entity_type: EntityType = EntityType.ASSET,
       anomaly_threshold: float = 3.0,
       hypothesis_goal: Optional[str] = None,
+      include_significance_gate: bool = True,
   ) -> str:
     """Builds a 2-Stage Security & EDR Alert Surge pipeline for metrics.alert_event_name_count.
 
@@ -1824,9 +1873,19 @@ class MultiStageTemplateRouter:
     metric_name = "alert_event_name_count"
     filter_block = "\n    ".join(mc.baseline_semantics(metric_name).observed_filter)
     goal_line = f"// Goal: {hypothesis_goal}\n" if hypothesis_goal else ""
+    gate_header_line = (
+        ""
+        if include_significance_gate
+        else "// Significance Gate: NONE (NO-GATE decoupled sector for post-query Euclidean fusion)\n"
+    )
+    condition_block = (
+        f"condition:\n  $alert_z >= {anomaly_threshold}\n\n"
+        if include_significance_gate
+        else ""
+    )
     if entity_type == EntityType.USER:
       return (
-          f"{goal_line}// Purpose: Hunt for user-attributed EDR & security alert surges across host and process context\n"
+          f"{goal_line}{gate_header_line}// Purpose: Hunt for user-attributed EDR & security alert surges across host and process context\n"
           "// ============================================================================\n"
           "// ARCHITECTURE: 2-STAGE USER-ATTRIBUTED SECURITY & EDR ALERT SURGE PIPELINE\n"
           "// ============================================================================\n\n"
@@ -1877,13 +1936,12 @@ class MultiStageTemplateRouter:
           "  $total_alerts = sum($stage1_alert_detail.d_obs)\n"
           "  $distinct_rules = count_distinct($stage1_alert_detail.rule_name)\n"
           "  $novel_rules = sum($stage1_alert_detail.d_novel)\n\n"
-          "condition:\n"
-          f"  $alert_z >= {anomaly_threshold}\n\n"
+          f"{condition_block}"
           "order:\n"
           "  $alert_z desc\n"
       )
     return (
-        f"{goal_line}// Purpose: Hunt for host-level EDR & security alert surges across distinct rule names\n"
+        f"{goal_line}{gate_header_line}// Purpose: Hunt for host-level EDR & security alert surges across distinct rule names\n"
         "// ============================================================================\n"
         "// ARCHITECTURE: 2-STAGE HOST SECURITY & EDR ALERT SURGE PIPELINE\n"
         "// ============================================================================\n\n"
@@ -1923,8 +1981,7 @@ class MultiStageTemplateRouter:
         "  $total_alerts = sum($stage1_alert_detail.d_obs)\n"
         "  $distinct_rules = count_distinct($stage1_alert_detail.rule_name)\n"
         "  $novel_rules = sum($stage1_alert_detail.d_novel)\n\n"
-        "condition:\n"
-        f"  $alert_z >= {anomaly_threshold}\n\n"
+        f"{condition_block}"
         "order:\n"
         "  $alert_z desc\n"
     )

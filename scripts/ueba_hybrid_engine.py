@@ -906,14 +906,24 @@ def compile_hunt_pipeline(
           "web": ("http_queries_total", EntityType.ASSET),
       }
     sector_queries = {}
+    sa_radar_val = service_account or (
+        entity_value
+        if entity_value and entity_value.strip().lower() not in ("fleet", "fleet-wide", "all", "*", "unknown", "none")
+        else None
+    )
     for sec_name, (sec_metric, sec_ent) in sector_map.items():
       if sec_metric == "alert_event_name_count":
-        sq = router.build_alert_surge_query(entity_type=sec_ent, anomaly_threshold=eff_anomaly)
+        sq = router.build_alert_surge_query(
+            entity_type=sec_ent,
+            anomaly_threshold=eff_anomaly,
+            include_significance_gate=False,
+        )
       elif sec_metric.startswith("resource_"):
         sq = router.build_cloud_repository_scope_query(
-            service_account=service_account or entity_value,
+            service_account=sa_radar_val,
             anomaly_threshold=eff_anomaly,
             target_metric=sec_metric,
+            include_significance_gate=False,
         )
       else:
         sq = router.build_query(
@@ -923,8 +933,9 @@ def compile_hunt_pipeline(
             anomaly_threshold=eff_anomaly,
             min_baseline_days=min_baseline_days,
             match_mode=match_mode,
+            include_significance_gate=False,
         )
-      sector_queries[sec_name] = _inject_stage1_filters(sq, entity_value=entity_value, custom_filter=custom_filter)
+      sector_queries[sec_name] = _inject_stage1_filters(sq, entity_value=entity_value, custom_filter=custom_filter, entity_type=sec_ent)
 
     if arch_key == "radar_360_sector_web_http":
       compiled_query = router.build_pipeline_query(PipelineArchitecture.RADAR_360_SECTOR_WEB_HTTP)
@@ -1297,7 +1308,10 @@ def compile_hunt_pipeline(
       else f"Enterprise {ent_enum.value.title()} Population"
   )
   root_gate = MultiStageTemplateRouter.root_condition(compiled_query)
-  sig_label = root_gate or default_significance_threshold(stat_model_enum.value) or f"Z >= {eff_anomaly}σ (CRI >= 50)"
+  if canonical_arch == PipelineArchitecture.RADAR_360_DECOUPLED_SECTOR.value:
+    sig_label = f"NONE per sector (post-query Euclidean D >= {eff_anomaly})"
+  else:
+    sig_label = root_gate or default_significance_threshold(stat_model_enum.value) or f"Z >= {eff_anomaly}σ (CRI >= 50)"
 
   preflight_card = PreFlightValidator.render_preflight_card(
       target_scope=target_scope_label,
