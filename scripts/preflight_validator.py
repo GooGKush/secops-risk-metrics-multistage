@@ -4,6 +4,7 @@ Author: Greg Kushmerek
 """
 
 from dataclasses import dataclass
+import datetime
 from enum import Enum
 from pathlib import Path
 import re
@@ -150,6 +151,134 @@ class PipelineArchitecture(str, Enum):
   RARE_DESTINATION_ECG_3STAGE = "RARE_DESTINATION_ECG_3STAGE"
   FUSION_RARE_DESTINATION_3STAGE = "FUSION_RARE_DESTINATION_3STAGE"
   FIRST_SEEN_NOVELTY_2STAGE = "FIRST_SEEN_NOVELTY_2STAGE"
+
+
+# Empirically verified 23/38 metrics returning non-zero `(period: 1h, window: today)` rows in `gus-sdl`
+# (`WS0-03` / `PF-10`, `tests/live/baseline_gus_sdl.json`). All 38/38 compile when paired with a
+# companion `(period: 1d, window: 30d)` anchor (`PF-10b`); the remaining 15/38 returned 0 rows in the
+# reference tenant (`workspace_*`, `resource_deletion_*`, `resource_written_*`, `resource_creation_fail`,
+# `file_executions_success`, `alert_event_name_count`).
+PF10_SUPPORTED_HOURLY_TODAY_METRICS: frozenset[str] = frozenset({
+    "auth_attempts_fail",
+    "auth_attempts_success",
+    "auth_attempts_total",
+    "dns_bytes_outbound",
+    "dns_queries_fail",
+    "dns_queries_success",
+    "dns_queries_total",
+    "file_executions_fail",
+    "file_executions_total",
+    "http_queries_fail",
+    "http_queries_success",
+    "http_queries_total",
+    "network_bytes_inbound",
+    "network_bytes_outbound",
+    "network_bytes_total",
+    "network_flows_inbound",
+    "network_flows_outbound",
+    "network_flows_total",
+    "resource_creation_success",
+    "resource_creation_total",
+    "resource_read_fail",
+    "resource_read_success",
+    "resource_read_total",
+})
+
+
+def _parse_utc_iso_strict(ts: str) -> datetime.datetime:
+  """Parses a UTC ISO-8601 timestamp string into a timezone-aware UTC datetime."""
+  s = str(ts or "").strip()
+  if not s:
+    raise ValueError("Expected non-empty UTC ISO-8601 timestamp.")
+  if s.endswith("Z"):
+    dt = datetime.datetime.fromisoformat(s[:-1] + "+00:00")
+  else:
+    dt = datetime.datetime.fromisoformat(s)
+    if dt.tzinfo is None:
+      raise ValueError(f"Timestamp '{ts}' must specify UTC ('Z' or '+00:00').")
+    dt = dt.astimezone(datetime.timezone.utc)
+  return dt
+
+
+def validate_intraday_hourly_window(
+    start_time: str,
+    end_time: str,
+    *,
+    allow_short_window: bool = False,
+) -> Dict[str, Any]:
+  """Enforces WS1-13 / PF-10 Guardrails R1-R3 on `(period: 1h, window: today)` query windows.
+
+  Guardrails:
+    - R1: `start_time` must be UTC hour-aligned (`minute == 0, second == 0, microsecond == 0`)
+      so `[00:00Z, startTime)` aligns cleanly to pre-computed 1h UEBA buckets without double-counting.
+    - R2: `end_time - start_time >= 4h` by default due to Chronicle's ~3-4h hourly rollup
+      materialization lag (`allow_short_window=True` overrides with an explicit lag warning).
+    - R3: Window must remain within a single UTC date (`end_time` on `start_time.date()` or exact
+      next-day `00:00:00Z`). When `start_time` is `00:00:00Z`, explicitly flags
+      `empty_earlier_today_interval=True` explaining that `[00:00Z, startTime)` has 0 prior hours
+      so `metrics.*(period: 1h, window: today)` returns `0`.
+  """
+  start_dt = _parse_utc_iso_strict(start_time)
+  end_dt = _parse_utc_iso_strict(end_time)
+  if end_dt <= start_dt:
+    raise ValueError(f"end_time ({end_time}) must be strictly after start_time ({start_time}).")
+
+  if start_dt.minute != 0 or start_dt.second != 0 or start_dt.microsecond != 0:
+    raise ValueError(
+        f"R1 violation: intraday_hourly (period: 1h, window: today) requires a UTC hour-aligned "
+        f"start_time (MM:SS = 00:00Z) so [00:00Z, startTime) aligns to 1h buckets; got '{start_time}'."
+    )
+
+  utc_midnight = start_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+  next_midnight = utc_midnight + datetime.timedelta(days=1)
+  if end_dt > next_midnight:
+    raise ValueError(
+        f"R3 / PF-10 violation: intraday_hourly (period: 1h, window: today) must stay within a "
+        f"single UTC date ({utc_midnight.strftime('%Y-%m-%d')}); got {start_time} .. {end_time}."
+    )
+
+  raw_window_hours = (end_dt - start_dt).total_seconds() / 3600.0
+  short_window_warning: Optional[str] = None
+  if raw_window_hours < 4.0:
+    if not allow_short_window:
+      raise ValueError(
+          f"R2 violation: intraday_hourly (period: 1h, window: today) requires raw window >= 4h "
+          f"(end_time - start_time >= 4 hours) due to Chronicle's ~3-4h hourly rollup materialization lag; "
+          f"got {raw_window_hours:.2f}h ({start_time} .. {end_time}). Pass allow_short_window=True to override."
+      )
+    short_window_warning = (
+        f"Short intraday raw window ({raw_window_hours:.2f}h < 4.0h): Chronicle hourly UEBA rollups "
+        "exhibit ~3-4h materialization lag, so recent hours near start_time may not yet be populated in "
+        "metrics.*(period: 1h, window: today)."
+    )
+
+  earlier_today_hours = int((start_dt - utc_midnight).total_seconds() // 3600)
+  empty_earlier_today = earlier_today_hours == 0
+  start_iso = start_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+  end_iso = end_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+  midnight_iso = utc_midnight.strftime("%Y-%m-%dT00:00:00Z")
+  interval_note = (
+      f"start_time is {midnight_iso} (00:00Z), so the earlier-today interval [{midnight_iso}, {start_iso}) "
+      "is empty (0 prior hours) and metrics.*(period: 1h, window: today) returns 0; "
+      f"$full_today_so_far equals raw observed activity in [{start_iso}, {end_iso})."
+      if empty_earlier_today
+      else (
+          f"Earlier-today pre-computed metrics.*(period: 1h, window: today) covers [{midnight_iso}, {start_iso}) "
+          f"({earlier_today_hours} hourly bucket(s)) and stitches with raw events in [{start_iso}, {end_iso})."
+      )
+  )
+  return {
+      "utc_date": utc_midnight.strftime("%Y-%m-%d"),
+      "start_time": start_iso,
+      "end_time": end_iso,
+      "earlier_today_hours": earlier_today_hours,
+      "raw_window_hours": round(raw_window_hours, 4),
+      "empty_earlier_today_interval": empty_earlier_today,
+      "earlier_today_interval": f"[{midnight_iso}, {start_iso})",
+      "raw_window_interval": f"[{start_iso}, {end_iso})",
+      "earlier_today_interval_note": interval_note,
+      "short_window_warning": short_window_warning,
+  }
 
 
 # Empirically verified 21/38 metrics returning non-zero `metric: first_seen` rows in `gus-sdl`
@@ -962,6 +1091,8 @@ class MalachiteASTValidator:
     `location` is "stage '<name>'" or "root stage" and prefixes each message.
     """
     errors: List[str] = []
+    has_hourly_today = False
+    has_daily_30d = False
     for m_name, args_body in re.findall(r"metrics\.([a-zA-Z0-9_]+)\s*\(([^)]+)\)", body, re.DOTALL):
       m_lower = m_name.lower()
       called_params = re.findall(r"([a-zA-Z0-9_.]+)\s*:", args_body)
@@ -1009,6 +1140,10 @@ class MalachiteASTValidator:
       window_match = re.search(r"\bwindow\s*:\s*([a-zA-Z0-9_]+)", args_body)
       if period_match and window_match and not has_slots:
         pw_pair = (period_match.group(1), window_match.group(1))
+        if pw_pair == ("1h", "today"):
+          has_hourly_today = True
+        elif pw_pair == ("1d", "30d"):
+          has_daily_30d = True
         if pw_pair not in MalachiteASTValidator.VALID_PERIOD_WINDOW_PAIRS:
           errors.append(
               f"INVALID_METRIC_PERIOD_WINDOW in {location}: Unsupported (period: {pw_pair[0]}, window: {pw_pair[1]}) "
@@ -1091,6 +1226,13 @@ class MalachiteASTValidator:
               f"INVALID_WILDCARD_METRIC_FILTER in {location}: Wildcard '*' filter ({wildcard_keys}) on "
               f"'metrics.{m_name}' is only valid with 'metric: num_unique_filter_values', not 'metric: {m_type_val}'."
           )
+    if has_hourly_today and not has_daily_30d:
+      errors.append(
+          f"MISSING_D30_COMPANION_FOR_HOURLY_TODAY in {location}: Queries invoking "
+          "metrics.*(period: 1h, window: today) must also include at least one companion "
+          "metrics.*(period: 1d, window: 30d) call in the same stage/query (PF-10b: native "
+          "SecOps UEBA backend requires an 86400s daily dimensional anchor)."
+      )
     return errors
 
 

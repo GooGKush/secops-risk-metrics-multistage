@@ -16,6 +16,7 @@ from .preflight_validator import (
     EntityType,
     MalachiteASTValidator,
     MatchMode,
+    PF10_SUPPORTED_HOURLY_TODAY_METRICS,
     PF11_POPULATED_FIRST_SEEN_METRICS,
     PipelineArchitecture,
     PreFlightValidator,
@@ -1340,6 +1341,253 @@ class MultiStageTemplateRouter:
     return out[:active_m.end()] + novelty_lookups + out[active_m.end():]
 
   @classmethod
+  def _inject_stage1_intraday_hourly(
+      cls,
+      stage1_content: str,
+      extractor_metric: str,
+      metric_arg: str,
+      *,
+      include_first_seen: bool = False,
+      paired_beta_metrics: Optional[Tuple[str, str]] = None,
+  ) -> str:
+    """Injects WS1-13 / PF-10 `(period: 1h, window: today)` earlier-today lookups alongside 30d anchors (PF-10b)."""
+    active_re = re.compile(
+        r"^[ \t]*\$historical_active_days\s*=\s*max\(metrics\."
+        + re.escape(extractor_metric)
+        + r"\(\s*period:\s*1d,\s*window:\s*30d,\s*metric:\s*[a-zA-Z0-9_]+,\s*agg:\s*num_metric_periods,\s*([^)]+?)\s*\)\)[ \t]*\n",
+        re.M | re.S,
+    )
+    active_m = active_re.search(stage1_content)
+    if not active_m:
+      raise ValueError(f"Could not locate $historical_active_days metrics lookup in {extractor_metric}.yl2")
+    dims_block = active_m.group(1).strip()
+
+    if paired_beta_metrics is not None:
+      fail_m, total_m = paired_beta_metrics
+      hourly_lookups = (
+          f"    $earlier_today_sum = max(metrics.{fail_m}(\n"
+          "        period: 1h, window: today, metric: event_count_sum, agg: sum,\n"
+          f"        {dims_block}\n"
+          "    ))\n"
+          f"    $earlier_today_peak_hour = max(metrics.{fail_m}(\n"
+          "        period: 1h, window: today, metric: event_count_sum, agg: max,\n"
+          f"        {dims_block}\n"
+          "    ))\n"
+          f"    $earlier_today_active_hours = max(metrics.{fail_m}(\n"
+          "        period: 1h, window: today, metric: event_count_sum, agg: num_metric_periods,\n"
+          f"        {dims_block}\n"
+          "    ))\n"
+          f"    $earlier_today_total_sum = max(metrics.{total_m}(\n"
+          "        period: 1h, window: today, metric: event_count_sum, agg: sum,\n"
+          f"        {dims_block}\n"
+          "    ))\n"
+      )
+    else:
+      first_seen_lookup = (
+          f"    $earlier_today_first_seen = min(metrics.{extractor_metric}(\n"
+          "        period: 1h, window: today, metric: first_seen, agg: min,\n"
+          f"        {dims_block}\n"
+          "    ))\n"
+          if include_first_seen
+          else ""
+      )
+      hourly_lookups = (
+          f"    $earlier_today_sum = max(metrics.{extractor_metric}(\n"
+          f"        period: 1h, window: today, metric: {metric_arg}, agg: sum,\n"
+          f"        {dims_block}\n"
+          "    ))\n"
+          f"    $earlier_today_peak_hour = max(metrics.{extractor_metric}(\n"
+          f"        period: 1h, window: today, metric: {metric_arg}, agg: max,\n"
+          f"        {dims_block}\n"
+          "    ))\n"
+          f"    $earlier_today_active_hours = max(metrics.{extractor_metric}(\n"
+          f"        period: 1h, window: today, metric: {metric_arg}, agg: num_metric_periods,\n"
+          f"        {dims_block}\n"
+          "    ))\n"
+          + first_seen_lookup
+      )
+    return stage1_content[:active_m.end()] + hourly_lookups + stage1_content[active_m.end():]
+
+  @classmethod
+  def _inject_root_intraday_hourly(
+      cls,
+      stage2_raw: str,
+      statistical_model: StatisticalModel,
+  ) -> str:
+    """Stitches `$full_today_so_far = $earlier_today_sum + $observed` into Root `outcome:` (R4: never / 24)."""
+    out = stage2_raw
+    base_lines = (
+        "  $earlier_today_sum = max($stage1_extract.earlier_today_sum)\n"
+        "  $earlier_today_peak_hour = max($stage1_extract.earlier_today_peak_hour)\n"
+        "  $earlier_today_active_hours = max($stage1_extract.earlier_today_active_hours)\n"
+    )
+    if statistical_model == StatisticalModel.POISSON:
+      out = re.sub(
+          r"(^[ \t]*\$k\s*=\s*max\(\$stage1_extract\.observed_val\)\n)",
+          r"\1" + base_lines + "  $full_today_so_far = $earlier_today_sum + $k\n",
+          out,
+          count=1,
+          flags=re.M,
+      )
+      out = out.replace("  $sum_x = $active_days * $hist_avg\n", "")
+      out = out.replace("  $mu_cal = $sum_x / 30.0", "  $mu_cal = ($active_days * $hist_avg) / 30.0")
+      out = out.replace(
+          "  $sum_x2 = ($df_minus_one * $hist_stddev * $hist_stddev) + ($active_days * $hist_avg * $hist_avg)\n",
+          "",
+      )
+      out = out.replace(
+          "  $raw_var_cal = ($sum_x2 / 30.0) - ($mu_cal * $mu_cal)",
+          "  $raw_var_cal = ((($df_minus_one * $hist_stddev * $hist_stddev) + ($active_days * $hist_avg * $hist_avg)) / 30.0) - ($mu_cal * $mu_cal)",
+      )
+      out = out.replace("  $sqrt_lambda = math.sqrt($safe_lambda)\n", "")
+      out = out.replace("  $diff = $k - $lambda\n", "")
+      out = out.replace(
+          "  $poisson_z = $diff / $safe_poisson_sd",
+          "  $poisson_z = ($full_today_so_far - $lambda) / $safe_poisson_sd",
+      )
+      return out
+
+    if statistical_model == StatisticalModel.BAYESIAN_BETA_BINOMIAL:
+      out = re.sub(
+          r"(^[ \t]*\$observed\s*=\s*\$obs_fail\n)",
+          r"\1"
+          + base_lines
+          + "  $earlier_today_total_sum = max($stage1_extract.earlier_today_total_sum)\n"
+          + "  $full_today_so_far = $earlier_today_sum + $observed\n"
+          + "  $full_today_total_so_far = $earlier_today_total_sum + $obs_total\n",
+          out,
+          count=1,
+          flags=re.M,
+      )
+      out = out.replace("  $alpha_pre = {{prior_alpha0}} + $hist_fail_sum\n", "")
+      out = out.replace("  $beta_pre = {{prior_beta0}} + $hist_succ_sum\n", "")
+      out = out.replace(
+          "  $ab = $alpha_pre + $beta_pre",
+          "  $ab = ({{prior_alpha0}} + $hist_fail_sum) + ({{prior_beta0}} + $hist_succ_sum)",
+      )
+      out = out.replace(
+          "  $prior_fail_rate = $alpha_pre / $ab",
+          "  $prior_fail_rate = ({{prior_alpha0}} + $hist_fail_sum) / $ab",
+      )
+      out = out.replace(
+          "  $posterior_fail_rate = ($alpha_pre + $obs_fail) / ($ab + $obs_total)",
+          "  $posterior_fail_rate = (({{prior_alpha0}} + $hist_fail_sum) + $full_today_so_far) / ($ab + $full_today_total_so_far)",
+      )
+      out = out.replace("  $posterior_rate = $posterior_fail_rate\n", "")
+      out = out.replace("  $pred_mean = $obs_total * $prior_fail_rate\n", "")
+      out = out.replace(
+          "  $pred_var = $obs_total * $prior_fail_rate * ($beta_pre / $ab) * (($ab + $obs_total) / ($ab + 1.0))",
+          "  $pred_var = $full_today_total_so_far * $prior_fail_rate * (({{prior_beta0}} + $hist_succ_sum) / $ab) * (($ab + $full_today_total_so_far) / ($ab + 1.0))",
+      )
+      out = out.replace(
+          "  $beta_binomial_z = ($obs_fail - $pred_mean) / $safe_pred_sd",
+          "  $beta_binomial_z = ($full_today_so_far - ($full_today_total_so_far * $prior_fail_rate)) / $safe_pred_sd",
+      )
+      return out
+
+    extra_first_seen = (
+        "  $earlier_today_first_seen = min($stage1_extract.earlier_today_first_seen)\n"
+        if statistical_model == StatisticalModel.FIRST_SEEN_NOVELTY
+        else ""
+    )
+    out = re.sub(
+        r"(^[ \t]*\$observed\s*=\s*max\(\$stage1_extract\.observed_val\)\n)",
+        r"\1" + base_lines + extra_first_seen + "  $full_today_so_far = $earlier_today_sum + $observed\n",
+        out,
+        count=1,
+        flags=re.M,
+    )
+
+    if statistical_model in (StatisticalModel.STANDARD_Z_SCORE, StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z):
+      out = out.replace(
+          "  $personal_diff = $observed - $hist_avg",
+          "  $personal_diff = $full_today_so_far - $hist_avg",
+      )
+    elif statistical_model == StatisticalModel.MACD_MOMENTUM_VELOCITY:
+      out = out.replace(
+          "  $personal_diff = $observed - $hist_avg",
+          "  $personal_diff = $full_today_so_far - $hist_avg",
+      )
+      out = out.replace(
+          "  $exceed_raw = $observed - $hist_max",
+          "  $exceed_raw = $full_today_so_far - $hist_max",
+      )
+    elif statistical_model == StatisticalModel.RELATIVE_DEVIATION:
+      out = out.replace(
+          "  $dev = $observed - $safe_hist_avg",
+          "  $dev = $full_today_so_far - $safe_hist_avg",
+      )
+      out = out.replace(
+          "  $fold_change = $observed / $safe_hist_avg",
+          "  $fold_change = $full_today_so_far / $safe_hist_avg",
+      )
+    elif statistical_model == StatisticalModel.COEFFICIENT_OF_VARIATION:
+      out = out.replace(
+          "  $surge_ratio = $observed / $safe_hist_avg",
+          "  $surge_ratio = $full_today_so_far / $safe_hist_avg",
+      )
+    elif statistical_model == StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD:
+      out = out.replace(
+          "  $raw_diff = $observed - $hist_avg",
+          "  $raw_diff = $full_today_so_far - $hist_avg",
+      )
+    elif statistical_model == StatisticalModel.BAYESIAN_GAMMA:
+      out = out.replace(
+          "  $sum_x2 = ($df_minus_one * $hist_stddev * $hist_stddev) + ($active_days * $hist_avg * $hist_avg)\n",
+          "",
+      )
+      out = out.replace(
+          "  $raw_var_cal = ($sum_x2 / 30.0) - ($mu_cal * $mu_cal)",
+          "  $raw_var_cal = ((($df_minus_one * $hist_stddev * $hist_stddev) + ($active_days * $hist_avg * $hist_avg)) / 30.0) - ($mu_cal * $mu_cal)",
+      )
+      out = out.replace("  $post_alpha_pre = {{prior_alpha0}} + $hist_sum\n", "")
+      out = out.replace("  $post_beta_pre = {{prior_beta0}} + 30.0\n", "")
+      out = out.replace(
+          "  $posterior_rate = $post_alpha_pre / $post_beta_pre",
+          "  $posterior_rate = ({{prior_alpha0}} + $hist_sum) / ({{prior_beta0}} + 30.0)",
+      )
+      out = out.replace(
+          "  $post_rate_var = $post_alpha_pre / ($post_beta_pre * $post_beta_pre)",
+          "  $post_rate_var = ({{prior_alpha0}} + $hist_sum) / (({{prior_beta0}} + 30.0) * ({{prior_beta0}} + 30.0))",
+      )
+      out = out.replace("  $cred_w = $active_days / ($active_days + {{prior_beta0}})\n", "")
+      out = out.replace(
+          "  $pred_var = $posterior_rate + $post_rate_var + ($cred_w * $excess_var)",
+          "  $pred_var = $posterior_rate + $post_rate_var + (($active_days / ($active_days + {{prior_beta0}})) * $excess_var)",
+      )
+      out = out.replace(
+          "  $bayesian_z = ($observed - $posterior_rate) / $safe_pred_sd",
+          "  $bayesian_z = ($full_today_so_far - $posterior_rate) / $safe_pred_sd",
+      )
+    elif statistical_model == StatisticalModel.TWO_PART_HURDLE:
+      out = out.replace("  $dormant_days = 30.0 - $active_days\n", "")
+      out = out.replace("  $df_minus_one = if($active_days > 1, $active_days, 1) - 1\n", "")
+      out = out.replace(
+          "  $sum_x2 = ($df_minus_one * $hist_stddev * $hist_stddev) + ($active_days * $hist_avg * $hist_avg)\n",
+          "",
+      )
+      out = out.replace("  $raw_var_cal = ($sum_x2 / 30.0) - ($mu_cal * $mu_cal)\n", "")
+      out = out.replace("  $sd_cal = math.sqrt(if($raw_var_cal > 0.0, $raw_var_cal, 0.0))\n", "")
+      out = out.replace(
+          "  $is_dormant_awakening = if($active_days < {{min_baseline_days}} and $observed >= {{min_awakening_volume}} and $observed > $hist_max, 1.0, 0.0)",
+          "  $is_dormant_awakening = if($active_days < {{min_baseline_days}} and $full_today_so_far >= {{min_awakening_volume}} and $full_today_so_far > $hist_max, 1.0, 0.0)",
+      )
+      out = out.replace(
+          "  $awakening_ratio = $observed / if($hist_max > {{min_awakening_volume}}, $hist_max, {{min_awakening_volume}})",
+          "  $awakening_ratio = $full_today_so_far / if($hist_max > {{min_awakening_volume}}, $hist_max, {{min_awakening_volume}})",
+      )
+      out = out.replace(
+          "  $raw_z = ($observed - $hist_avg) / $safe_stddev",
+          "  $raw_z = ($full_today_so_far - $hist_avg) / $safe_stddev",
+      )
+    elif statistical_model == StatisticalModel.FIRST_SEEN_NOVELTY:
+      out = out.replace(
+          "  $novelty_flag = if($prior_first_seen = 0 and $observed >= {{min_novelty_events}}, 1, 0)",
+          "  $novelty_flag = if($prior_first_seen = 0 and $full_today_so_far >= {{min_novelty_events}}, 1, 0)",
+      )
+    return out
+
+  @classmethod
   def _prune_unused_metrics_lookups(cls, stage1_content: str, downstream: str) -> str:
     """Removes stage1 `$var = max(metrics.*(...))` outcomes (and unused aliases) that nothing downstream reads.
 
@@ -1529,6 +1777,7 @@ class MultiStageTemplateRouter:
       learned_active_hours: Optional[Any] = None,
       novelty_subkey_field: Optional[str] = None,
       min_novelty_events: int = 1,
+      intraday_hourly: bool = False,
   ) -> str:
     """Renders stage1 extractor + stage2 math model.
 
@@ -1590,12 +1839,38 @@ class MultiStageTemplateRouter:
     if statistical_model == StatisticalModel.BAYESIAN_BETA_BINOMIAL:
       paired_beta_metrics = resolve_beta_binomial_pair(target_metric)
 
+    if intraday_hourly:
+      if target_metric not in PF10_SUPPORTED_HOURLY_TODAY_METRICS:
+        raise ValueError(
+            f"R5 / PF-10 violation: intraday_hourly=True (period: 1h, window: today) is not supported "
+            f"for metric '{target_metric}' (returned 0 rows in the empirical gus-sdl PF-10 probe). "
+            f"Supported metrics ({len(PF10_SUPPORTED_HOURLY_TODAY_METRICS)}/38): "
+            f"{sorted(PF10_SUPPORTED_HOURLY_TODAY_METRICS)}."
+        )
+      if paired_beta_metrics is not None:
+        for pm in paired_beta_metrics:
+          if pm not in PF10_SUPPORTED_HOURLY_TODAY_METRICS:
+            raise ValueError(
+                f"R5 / PF-10 violation: intraday_hourly=True requires both paired Beta-Binomial metrics "
+                f"{paired_beta_metrics} to be in PF10_SUPPORTED_HOURLY_TODAY_METRICS; '{pm}' is unsupported."
+            )
+      if statistical_model in (
+          StatisticalModel.MAD,
+          StatisticalModel.QUANTILE_IQR_SKEW,
+          StatisticalModel.LONGITUDINAL_CUSUM,
+      ):
+        raise ValueError(
+            f"R3 / PF-10 violation: intraday_hourly=True (period: 1h, window: today) requires a single-UTC-day "
+            f"raw window (<= 24h) and cannot be combined with multi-day raw-series model '{statistical_model.value}'."
+        )
+
     # Enforce Local-Baseline Isolation: default STANDARD_Z_SCORE multi-database account queries
-    # route to CLOUD_REPOSITORY_SCOPE_DUAL_BRANCH; explicit non-Z models render directly.
+    # route to CLOUD_REPOSITORY_SCOPE_DUAL_BRANCH; explicit non-Z models (or intraday_hourly) render directly.
     if (
         target_metric.startswith("resource_")
         and entity_type == EntityType.USER
         and statistical_model == StatisticalModel.STANDARD_Z_SCORE
+        and not intraday_hourly
     ):
       return self.build_pipeline_query(
           PipelineArchitecture.CLOUD_REPOSITORY_SCOPE_DUAL_BRANCH,
@@ -1702,6 +1977,16 @@ class MultiStageTemplateRouter:
       stage1_content = self._prune_unused_metrics_lookups(stage1_content, stage2_raw)
     elif statistical_model == StatisticalModel.FIRST_SEEN_NOVELTY:
       stage1_content = self._prune_unused_metrics_lookups(stage1_content, stage2_raw)
+
+    if intraday_hourly:
+      stage1_content = self._inject_stage1_intraday_hourly(
+          stage1_content,
+          extractor_metric=extractor_metric,
+          metric_arg=audit["metric_arg"],
+          include_first_seen=(statistical_model == StatisticalModel.FIRST_SEEN_NOVELTY),
+          paired_beta_metrics=paired_beta_metrics,
+      )
+      stage2_raw = self._inject_root_intraday_hourly(stage2_raw, statistical_model)
 
     # Harmonize Stage 2 entity variable with Stage 1 match variable ($user, $host, $entity, $sa)
     match_var_match = re.search(r'match:\s+([$][a-zA-Z0-9_]+)', stage1_content)

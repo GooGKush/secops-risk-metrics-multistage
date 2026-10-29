@@ -70,26 +70,93 @@ The compiler evaluates this via **AST Expression Inlining** (`substituteOutcomeV
 
 ---
 
-## 2. Daily vs. Hourly Match Granularity
+## 2. Daily Match Granularity & Opt-In Intra-Day `"Today So Far"` Stitching (`WS1-13`)
 
-While `metrics.*(...)` function calls always require the fixed `period: 1d, window: 30d` parameter pair, multi-stage DAG `match:` clauses support two temporal aggregation granularities:
+Multi-stage `metrics.*` DAGs operate primarily on UTC-day buckets (`by 1d`), with an opt-in Mode A intra-day stitching pattern (`intraday_hourly=True` / `--intraday-hourly`) for the `23/38` empirically populated `(period: 1h, window: today)` metrics:
 
-### Pattern 1: Daily Bucket Match (`by 1d`)
+### Pattern 1: Daily Bucket Match (`by 1d` — Default)
 * **Stage 1:** `match: $entity by 1d` -> Evaluates `00:00Z`-aligned UTC daily totals per entity against `metrics.*(period: 1d, window: 30d, ...)`.
 * **Stage 2 (Optional Fleet / Cohort Rollup):** `match: $window_start by 1d` -> Aggregates cross-sectional fleet or cohort statistics for that UTC day.
-* **Root Stage:** `match: $entity, $window_start by 1d` (or `match: $entity by 1d`) -> Compares each entity's daily observation against its 30-day baseline and/or peer distribution.
+* **Root Stage:** `match: $entity, $window_start by 1d` (or `match: $entity`) -> Compares each entity's daily observation against its 30-day baseline and/or peer distribution.
 
-### Pattern 2: Intra-Day Hourly Bucket Match (`by 1h`)
-* **Stage 1 (`macro_daily_baseline`):** `match: $entity by 1d` -> Queries `metrics.*(period: 1d, window: 30d, ...)` and derives the expected hourly rate ($\mu_{1\text{h}} = \mu_{1\text{d}} / 24.0$, $\sigma_{1\text{h}} = \sigma_{1\text{d}} / 4.898979$).
-* **Stage 2 (`micro_hourly_burst`):** `match: $entity by 1h` -> Aggregates raw events into 1-hour buckets within the evaluated UTC day.
-* **Root Stage:** Joins `$entity` across both stages (`templates/stage2_math_models/hourly_z_score.yl2`) to score the peak hourly burst `$max_hourly_observed` against the derived hourly baseline (`$hourly_z`).
+### Pattern 2: Opt-In Intra-Day `"Today So Far"` Stitching (`period: 1h, window: today` + `period: 1d, window: 30d`)
+When triaging an active UTC day in Mode A (`intraday_hourly=True` / `--intraday-hourly`) across a UTC hour-aligned raw window `[startTime, endTime)` (for example `2026-10-28T14:00:00Z` → `2026-10-28T19:00:00Z`), `metrics.*(period: 1h, window: today)` sums the pre-computed hourly buckets from `[00:00:00Z, startTime)` without scanning the earlier hours raw, and stitches `$full_today_so_far = $earlier_today_sum + $observed` against the **unscaled** 30-day daily baseline:
+
+```yara
+// Goal: Opt-in Mode A intra-day stitching pairing (period: 1h, window: today) with (period: 1d, window: 30d)
+stage stage1_extract {
+    metadata.event_type = "USER_LOGIN"
+    target.user.userid = $user
+    $user != ""
+
+  match:
+    $user by 1d
+
+  outcome:
+    $observed_val = count(metadata.id)
+    $historical_avg = max(metrics.auth_attempts_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+        target.user.userid: target.user.userid
+    ))
+    $historical_stddev = max(metrics.auth_attempts_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+        target.user.userid: target.user.userid
+    ))
+    $historical_active_days = max(metrics.auth_attempts_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+        target.user.userid: target.user.userid
+    ))
+    $earlier_today_sum = max(metrics.auth_attempts_total(
+        period: 1h, window: today, metric: event_count_sum, agg: sum,
+        target.user.userid: target.user.userid
+    ))
+    $earlier_today_peak_hour = max(metrics.auth_attempts_total(
+        period: 1h, window: today, metric: event_count_sum, agg: max,
+        target.user.userid: target.user.userid
+    ))
+    $earlier_today_active_hours = max(metrics.auth_attempts_total(
+        period: 1h, window: today, metric: event_count_sum, agg: num_metric_periods,
+        target.user.userid: target.user.userid
+    ))
+}
+
+$user = $stage1_extract.user
+
+match:
+  $user
+
+outcome:
+  $observed = max($stage1_extract.observed_val)
+  $earlier_today_sum = max($stage1_extract.earlier_today_sum)
+  $earlier_today_peak_hour = max($stage1_extract.earlier_today_peak_hour)
+  $earlier_today_active_hours = max($stage1_extract.earlier_today_active_hours)
+  $full_today_so_far = $earlier_today_sum + $observed
+  $hist_avg = max($stage1_extract.historical_avg)
+  $hist_stddev = max($stage1_extract.historical_stddev)
+  $active_days = max($stage1_extract.historical_active_days)
+  $dispersion_floor = math.sqrt(if($hist_avg > 1.0, $hist_avg, 1.0))
+  $safe_stddev = if($hist_stddev > $dispersion_floor, $hist_stddev, $dispersion_floor)
+  $personal_z = ($full_today_so_far - $hist_avg) / $safe_stddev
+
+condition:
+  $active_days >= 7 and $personal_z >= 3.0
+
+order:
+  $personal_z desc
+```
 
 ---
 
-## 3. Metric Period & Window Compiler Invariant (`period: 1d, window: 30d`)
+## 3. Metric `(period, window)` & Extended `metric:` / `agg:` Capabilities (`PF-10`, `PF-10b`, `PF-11`)
 
-1. **Universal `period: 1d, window: 30d` Invariant:** Across all 38 pre-computed `metrics.*` functions in Google SecOps, `period: 1d, window: 30d` is the **only** valid `(period, window)` combination (`validatePeriodAndWindow`). Passing `period: 1h`, `window: 24h`, or `window: today` inside `metrics.*(...)` is rejected by the Malachite compiler.
-2. **Hourly Volatility via Two-Stage Scaling (`HOURLY_TEMPORAL_ZSCORE`):** Never pass `period: 1h` to `metrics.*()`. Instead, use the 2-stage Macro-Day (`by 1d` + `metrics.*(period: 1d, window: 30d)`) + Micro-Hour (`by 1h`) pattern in `templates/stage2_math_models/hourly_z_score.yl2`.
+1. **Valid `(period, window)` Pairs (`PF-10`):** Google SecOps Malachite accepts `(period: 1d, window: 30d)` across all `38/38` metrics and `(period: 1h, window: today)` across `23/38` empirically populated metrics in `gus-sdl` (`PF10_SUPPORTED_HOURLY_TODAY_METRICS` in `scripts/preflight_validator.py`; the remaining `15/38` — `workspace_*`, `resource_deletion_*`, `resource_written_*`, `resource_creation_fail`, `file_executions_success`, and `alert_event_name_count` — returned 0 rows in the reference tenant).
+2. **`PF-10b` Companion Anchor Invariant (`MISSING_D30_COMPANION_FOR_HOURLY_TODAY`):** Every stage/query invoking `metrics.*(period: 1h, window: today)` **must** also include at least one companion `metrics.*(period: 1d, window: 30d)` call (the native SecOps UEBA backend requires an `86400s` daily dimensional anchor; standalone `(1h, today)` fails backend resolution and is blocked by `MalachiteASTValidator`).
+3. **Intra-Day Guardrails (`R1–R5`):**
+   * **R1 & R3 (UTC Hour Alignment & Single-Day Window):** `startTime` must be UTC hour-aligned (`MM:SS = 00:00Z`) within a single UTC date (`<= 24h`) so `[00:00Z, startTime)` aligns cleanly to 1h buckets without double-counting; when `startTime` is `00:00:00Z`, `[00:00Z, startTime)` is empty and `(1h, today)` returns `0`.
+   * **R2 (Materialization-Lag Floor):** Require `endTime - startTime >= 4h` by default due to Chronicle's ~3–4h hourly UEBA rollup lag (`--allow-short-intraday-window` overrides with an explicit lag warning).
+   * **R4 (Never Divide 30d Mean/SD by 24 & Asymmetric Partial-Day Verdict):** Never divide a 30-day daily mean or standard deviation to synthesize an hourly baseline. Compare `$full_today_so_far` directly against the unscaled 30-day upper tail: when `$full_today_so_far` already exceeds the 30-day upper tail, flag a **guaranteed full-day upper-tail breach**; when sub-threshold, report `"today so far (partial UTC day) — cannot clear entity until 24h complete"`. Sub-hour burst timing and circadian profiling hand off to `secops-statistical-hunter` (`HOUR_OF_DAY_PROFILE`, `POISSON_BURST_CLUSTERING`, `EWMA_BURST_VELOCITY`).
+   * **R5 (Supported Metric Gate):** `intraday_hourly=True` is restricted to the `23/38` `PF10_SUPPORTED_HOURLY_TODAY_METRICS`.
+4. **Extended `metric:` & `agg:` Capabilities (`PF-11` / `WS1-12`):** Beyond `event_count_sum` and `value_sum`, the Malachite compiler supports `metric: first_seen`, `metric: last_seen` (`21/38` `PF11_POPULATED_FIRST_SEEN_METRICS` populated in `gus-sdl`; used in `FIRST_SEEN_NOVELTY` as boolean `$novelty_flag`, never σ), and `metric: num_unique_filter_values` (requires exactly 1 wildcard `*` on a non-namespace filter plus `>= 1` concrete dimension filter), as well as `agg: period_start_for_max` and `agg: period_start_for_min`.
 
 ---
 

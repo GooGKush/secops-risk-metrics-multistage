@@ -54,6 +54,7 @@ from scripts.preflight_validator import (
     METRIC_CATALOG,
     MalachiteASTValidator,
     MatchMode,
+    PF10_SUPPORTED_HOURLY_TODAY_METRICS,
     PipelineArchitecture,
     PostFlightExecutionAuditor,
     QueryIntegrityGate,
@@ -62,6 +63,7 @@ from scripts.preflight_validator import (
     RETIRED_STATISTICAL_MODELS,
     StatisticalModel,
     default_significance_threshold,
+    validate_intraday_hourly_window,
 )
 from scripts.radar_collector import EntityRadarCollector, MetricSpoke
 from scripts.statistical_validator import StatisticalAntipatternAuditor
@@ -554,6 +556,52 @@ MODE_C_FADE_CAVEAT: str = (
 )
 
 
+def evaluate_intraday_today_so_far(
+    earlier_today_sum: float,
+    raw_observed: float,
+    hist_avg: float,
+    hist_stddev: float,
+    *,
+    threshold_sigma: float = 3.0,
+    dispersion_floor: Optional[float] = None,
+) -> Dict[str, Any]:
+  """Evaluates WS1-13 / R4 partial-day upper-tail breach vs cannot-clear semantics (never dividing 30d by 24)."""
+  e_sum = float(earlier_today_sum)
+  r_obs = float(raw_observed)
+  full_today = e_sum + r_obs
+  mu = float(hist_avg)
+  sd = float(hist_stddev)
+  eff_floor = float(dispersion_floor) if dispersion_floor is not None else math.sqrt(max(mu, 1.0))
+  safe_sd = max(sd, eff_floor)
+  upper_tail_cutoff = mu + float(threshold_sigma) * safe_sd
+  z_today_so_far = (full_today - mu) / safe_sd
+  guaranteed_breach = bool(full_today >= upper_tail_cutoff)
+  verdict = (
+      "GUARANTEED_FULL_DAY_BREACH"
+      if guaranteed_breach
+      else "PARTIAL_UTC_DAY_CANNOT_CLEAR"
+  )
+  status_label = (
+      "Guaranteed full-day upper-tail breach (full_today_so_far >= 30d upper tail)"
+      if guaranteed_breach
+      else "today so far (partial UTC day) — cannot clear entity until 24h complete"
+  )
+  return {
+      "earlier_today_sum": e_sum,
+      "raw_observed": r_obs,
+      "full_today_so_far": full_today,
+      "hist_avg": mu,
+      "hist_stddev": sd,
+      "safe_stddev": safe_sd,
+      "threshold_sigma": float(threshold_sigma),
+      "upper_tail_cutoff": upper_tail_cutoff,
+      "z_today_so_far": z_today_so_far,
+      "guaranteed_full_day_breach": guaranteed_breach,
+      "verdict": verdict,
+      "status_label": status_label,
+  }
+
+
 def _compute_execution_windows(
     compiled_query: str,
     mode: str = "A",
@@ -564,6 +612,8 @@ def _compute_execution_windows(
     start_time: Optional[str] = None,
     end_time: Optional[str] = None,
     target_date: Optional[str] = None,
+    intraday_hourly: bool = False,
+    allow_short_intraday_window: bool = False,
 ) -> Dict[str, Any]:
   """Computes UTC ISO-8601 execution windows, baseline horizon dates, and Mode C shards."""
   now = reference_time or datetime.datetime.now(datetime.timezone.utc)
@@ -593,8 +643,72 @@ def _compute_execution_windows(
   mode_notice: Optional[str] = None
   scored_day_window: Optional[Dict[str, str]] = None
   shard_pacing: Optional[Dict[str, Any]] = None
+  intraday_window_meta: Optional[Dict[str, Any]] = None
 
-  if mode_clean == "A":
+  if intraday_hourly and mode_clean != "A":
+    raise ValueError(
+        f"R3 / PF-10 violation: intraday_hourly=True (period: 1h, window: today) is supported only in "
+        f"single-UTC-day Mode A, got Mode '{mode_clean}'."
+    )
+
+  if mode_clean == "A" and intraday_hourly:
+    eff_days = 1
+    if end_time:
+      eff_end_dt = _parse_iso_utc(end_time)
+    elif (now - today_midnight) >= datetime.timedelta(hours=4):
+      eff_end_dt = now
+    else:
+      eff_end_dt = today_midnight
+    if start_time:
+      eff_start_dt = _parse_iso_utc(start_time)
+    else:
+      end_day_midnight = (
+          (eff_end_dt - datetime.timedelta(days=1))
+          if (eff_end_dt.hour == 0 and eff_end_dt.minute == 0 and eff_end_dt.second == 0)
+          else eff_end_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+      )
+      candidate_start = (eff_end_dt - datetime.timedelta(hours=5)).replace(minute=0, second=0, microsecond=0)
+      if candidate_start < end_day_midnight:
+        candidate_start = end_day_midnight
+      eff_start_dt = candidate_start
+    start_iso = eff_start_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    end_iso = eff_end_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    intraday_window_meta = validate_intraday_hourly_window(
+        start_iso,
+        end_iso,
+        allow_short_window=allow_short_intraday_window,
+    )
+    scored_day = eff_start_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+    scored_day_str = scored_day.strftime("%Y-%m-%d")
+    is_partial_day = True
+    eval_label = (
+        "Mode A: Intra-Day Stitched — today so far (partial UTC day) — cannot clear entity until 24h complete"
+    )
+    partial_day_warning = (
+        f"Intra-day (1h, today) stitched Mode A ({intraday_window_meta['earlier_today_interval_note']}): "
+        "today so far (partial UTC day) — cannot clear entity until 24h complete. "
+        "Upper-tail breaches (full_today_so_far >= 30d upper tail) are guaranteed full-day outliers; "
+        "hand off sub-hour burst timing to secops-statistical-hunter."
+    )
+    if intraday_window_meta.get("short_window_warning"):
+      partial_day_warning = f"{partial_day_warning} {intraday_window_meta['short_window_warning']}"
+    baseline_start = (scored_day - datetime.timedelta(days=30)).strftime("%Y-%m-%d")
+    baseline_end = (scored_day - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+    baseline_end_open = scored_day.strftime("%Y-%m-%d")
+    scored_day_window = {
+        "day": scored_day_str,
+        "start_time": start_iso,
+        "end_time": end_iso,
+    }
+    shards = [{
+        "day": scored_day_str,
+        "start_time": start_iso,
+        "end_time": end_iso,
+        "baseline_window": f"[{baseline_start}, {baseline_end_open})",
+        "query": compiled_query,
+    }]
+
+  elif mode_clean == "A":
     if statistical_model == StatisticalModel.LONGITUDINAL_CUSUM or "$cusum_drift_score" in compiled_query:
       raise ValueError(
           "LONGITUDINAL_CUSUM cannot run in single-day Mode A; "
@@ -839,6 +953,8 @@ def _compute_execution_windows(
       "scored_day_window": scored_day_window,
       "shard_pacing": shard_pacing,
       "shards": shards,
+      "intraday_hourly": bool(intraday_hourly),
+      "intraday_window_meta": intraday_window_meta,
   }
 
 
@@ -1002,6 +1118,8 @@ def compile_hunt_pipeline(
     target_date: Optional[str] = None,
     novelty_subkey_field: Optional[str] = None,
     min_novelty_events: int = 1,
+    intraday_hourly: bool = False,
+    allow_short_intraday_window: bool = False,
     **kwargs: Any,
 ) -> Dict[str, Any]:
   """Compiles a multi-stage YARA-L 2.0 hunt pipeline, pre-flight specification card, and time windows.
@@ -1656,20 +1774,43 @@ def compile_hunt_pipeline(
     plane_upper = "HYBRID" if "HYBRID" in pipe_enum.value else plane_upper
     if ent_enum not in METRIC_CATALOG[primary_metric].supported_entity_types:
       ent_enum = METRIC_CATALOG[primary_metric].supported_entity_types[0]
-    compiled_query = router.build_pipeline_query(
-        pipe_enum,
-        target_metric=primary_metric,
-        entity_type=ent_enum,
-        anomaly_threshold=eff_anomaly,
-        min_baseline_days=min_baseline_days,
-        hypothesis_goal=hypothesis_goal,
-        min_threshold=min_threshold,
-        max_threshold=max_threshold,
-        condition_expression=condition_expression,
-        identifier_field=identifier_field,
-        novelty_subkey_field=novelty_subkey_field,
-        min_novelty_events=min_novelty_events,
-    )
+    if pipe_enum == PipelineArchitecture.FIRST_SEEN_NOVELTY_2STAGE and intraday_hourly:
+      compiled_query = router.build_query(
+          target_metric=primary_metric,
+          entity_type=ent_enum,
+          statistical_model=StatisticalModel.FIRST_SEEN_NOVELTY,
+          anomaly_threshold=eff_anomaly,
+          min_baseline_days=min_baseline_days,
+          match_mode=match_mode,
+          hypothesis_goal=hypothesis_goal,
+          min_threshold=min_threshold,
+          max_threshold=max_threshold,
+          condition_expression=condition_expression,
+          identifier_field=identifier_field,
+          novelty_subkey_field=novelty_subkey_field,
+          min_novelty_events=min_novelty_events,
+          intraday_hourly=True,
+      )
+    elif intraday_hourly:
+      raise ValueError(
+          f"R3 / PF-10 violation: intraday_hourly=True is supported only on single-metric 2-stage "
+          f"Mode A pipelines, not pipeline architecture '{pipe_enum.value}'."
+      )
+    else:
+      compiled_query = router.build_pipeline_query(
+          pipe_enum,
+          target_metric=primary_metric,
+          entity_type=ent_enum,
+          anomaly_threshold=eff_anomaly,
+          min_baseline_days=min_baseline_days,
+          hypothesis_goal=hypothesis_goal,
+          min_threshold=min_threshold,
+          max_threshold=max_threshold,
+          condition_expression=condition_expression,
+          identifier_field=identifier_field,
+          novelty_subkey_field=novelty_subkey_field,
+          min_novelty_events=min_novelty_events,
+      )
     compiled_query = _inject_stage1_filters(compiled_query, entity_value=entity_value, custom_filter=custom_filter, entity_type=ent_enum)
     audit_info = PreFlightValidator.audit(target_metric=primary_metric, entity_type=ent_enum, min_baseline_days=min_baseline_days, identifier_field=identifier_field)
     if "DERIVED" in pipe_enum.value:
@@ -1680,7 +1821,11 @@ def compile_hunt_pipeline(
 
   else:
     # Default: 2-Stage Single Metric + Stage 2 Mathematical Model (or auto-routed composite/cloud scope)
-    if primary_metric == "alert_event_name_count" and stat_model_enum != StatisticalModel.FIRST_SEEN_NOVELTY:
+    if (
+        primary_metric == "alert_event_name_count"
+        and stat_model_enum != StatisticalModel.FIRST_SEEN_NOVELTY
+        and not intraday_hourly
+    ):
       compiled_query = router.build_alert_surge_query(
           entity_type=ent_enum,
           anomaly_threshold=eff_anomaly,
@@ -1755,6 +1900,7 @@ def compile_hunt_pipeline(
           learned_active_hours=learned_active_hours,
           novelty_subkey_field=novelty_subkey_field,
           min_novelty_events=min_novelty_events,
+          intraday_hourly=intraday_hourly,
       )
       audit_info = PreFlightValidator.audit(
           target_metric=primary_metric,
@@ -1765,7 +1911,12 @@ def compile_hunt_pipeline(
       )
       canonical_arch = (
           PipelineArchitecture.CLOUD_REPOSITORY_SCOPE_DUAL_BRANCH.value
-          if (primary_metric.startswith("resource_") and ent_enum == EntityType.USER and stat_model_enum == StatisticalModel.STANDARD_Z_SCORE)
+          if (
+              primary_metric.startswith("resource_")
+              and ent_enum == EntityType.USER
+              and stat_model_enum == StatisticalModel.STANDARD_Z_SCORE
+              and not intraday_hourly
+          )
           else PipelineArchitecture.LOCAL_2STAGE.value
       )
     compiled_query = _inject_stage1_filters(compiled_query, entity_value=entity_value, custom_filter=custom_filter, entity_type=ent_enum)
@@ -1781,6 +1932,8 @@ def compile_hunt_pipeline(
       start_time=start_time,
       end_time=end_time,
       target_date=target_date,
+      intraday_hourly=intraday_hourly,
+      allow_short_intraday_window=allow_short_intraday_window,
   )
   compiled_query = window_spec["effective_query"]
   effective_mode_notice = " ".join(
@@ -1946,6 +2099,8 @@ def compile_hunt_pipeline(
       "evaluation_mode_label": window_spec["evaluation_mode_label"],
       "is_partial_day": window_spec["is_partial_day"],
       "partial_day_warning": window_spec["partial_day_warning"],
+      "intraday_hourly": bool(intraday_hourly),
+      "intraday_window_meta": window_spec.get("intraday_window_meta"),
       "has_ecg_join": has_ecg_join,
       "ecg_source_type": ecg_source_type,
       "ecg_join_filter_disclosure": ecg_join_filter_disclosure,
@@ -2413,7 +2568,39 @@ def _normalize_single_row(raw_row: Dict[str, Any]) -> Dict[str, Any]:
       round(display_score, 2) if display_score is not None else None
   )
 
+  earlier_today_sum = _first_float(("earlier_today_sum",))
+  earlier_today_peak = _first_float(("earlier_today_peak_hour",))
+  earlier_today_hours = _first_float(("earlier_today_active_hours",))
+  earlier_today_first = _first_float(("earlier_today_first_seen",))
+  raw_full_today = _first_float(("full_today_so_far",))
+
   normalized = dict(row)
+  if earlier_today_sum is not None or raw_full_today is not None:
+    eff_earlier_sum = float(earlier_today_sum if earlier_today_sum is not None else 0.0)
+    eff_obs = float(observed if observed is not None else 0.0)
+    eff_full_today = (
+        float(raw_full_today)
+        if raw_full_today is not None
+        else (eff_earlier_sum + eff_obs)
+    )
+    intraday_eval = evaluate_intraday_today_so_far(
+        earlier_today_sum=eff_earlier_sum,
+        raw_observed=eff_obs,
+        hist_avg=float(hist_avg if hist_avg is not None else 0.0),
+        hist_stddev=float(hist_stddev if hist_stddev is not None else 1.0),
+    )
+    normalized["earlier_today_sum"] = round(eff_earlier_sum, 2)
+    normalized["full_today_so_far"] = round(eff_full_today, 2)
+    normalized["guaranteed_full_day_breach"] = intraday_eval["guaranteed_full_day_breach"]
+    normalized["intraday_verdict"] = intraday_eval["verdict"]
+    normalized["intraday_status_label"] = intraday_eval["status_label"]
+    if earlier_today_peak is not None:
+      normalized["earlier_today_peak_hour"] = round(earlier_today_peak, 2)
+    if earlier_today_hours is not None:
+      normalized["earlier_today_active_hours"] = int(round(earlier_today_hours))
+    if earlier_today_first is not None:
+      normalized["earlier_today_first_seen"] = int(round(earlier_today_first))
+
   normalized.update({
       "entity": entity,
       "observed": round(observed, 2) if observed is not None else 0.0,
@@ -2544,6 +2731,7 @@ def render_forensic_dossier(
     radar_query_texts: Optional[Dict[str, str]] = None,
     today_so_far: bool = False,
     min_baseline_days: int = DEFAULT_MIN_BASELINE_DAYS,
+    intraday_hourly: bool = False,
     **kwargs: Any,
 ) -> Dict[str, Any]:
   """Renders a 6-Section CommonMark Forensic Triage Dossier with CRI scoring, SVG/HTML charts, and next steps.
@@ -2574,16 +2762,42 @@ def render_forensic_dossier(
       unparseable_str_error = f"UNPARSEABLE_BACKEND_RESPONSE: Could not parse rows string as JSON: {exc}"
 
   outliers, raw_envelope = _extract_and_normalize_rows(rows)
+  eff_intraday_hourly = (
+      bool(intraday_hourly)
+      or ("window: today" in (executed_query or ""))
+      or any("earlier_today_sum" in r or "full_today_so_far" in r for r in outliers)
+  )
+  if eff_intraday_hourly:
+    for r in outliers:
+      if "earlier_today_sum" in r or "full_today_so_far" in r:
+        r_eval = evaluate_intraday_today_so_far(
+            earlier_today_sum=float(r.get("earlier_today_sum", 0.0)),
+            raw_observed=float(r.get("observed", 0.0)),
+            hist_avg=float(r.get("hist_avg", 0.0)),
+            hist_stddev=float(r.get("hist_stddev", 1.0)),
+            threshold_sigma=float(anomaly_threshold),
+        )
+        if "full_today_so_far" not in r or r["full_today_so_far"] is None:
+          r["full_today_so_far"] = round(r_eval["full_today_so_far"], 2)
+        r["guaranteed_full_day_breach"] = r_eval["guaranteed_full_day_breach"]
+        r["intraday_verdict"] = r_eval["verdict"]
+        r["intraday_status_label"] = r_eval["status_label"]
   mode_clean = (mode or "A").strip().upper().replace("MODE", "").strip() or "A"
-  eff_today_so_far = bool(today_so_far) or mode_clean in ("A_TODAY", "A_PARTIAL")
+  eff_today_so_far = bool(today_so_far) or mode_clean in ("A_TODAY", "A_PARTIAL") or eff_intraday_hourly
   if mode_clean in ("A_TODAY", "A_PARTIAL"):
     mode_clean = "A"
   partial_day_warning: Optional[str] = (
-      "Partial UTC day ([today 00:00:00Z -> now]) compared against a full-day "
-      "(period: 1d, window: 30d) baseline without elapsed-fraction scaling; "
-      "sub-full-day Z-scores are systematically low-biased and may miss active breakouts."
-      if (mode_clean == "A" and eff_today_so_far)
-      else None
+      "Intra-day (1h, today) stitched Mode A: today so far (partial UTC day) — cannot clear entity until 24h complete. "
+      "Upper-tail breaches (full_today_so_far >= 30d upper tail) are guaranteed full-day outliers; "
+      "hand off sub-hour burst timing to secops-statistical-hunter."
+      if (mode_clean == "A" and eff_intraday_hourly)
+      else (
+          "Partial UTC day ([today 00:00:00Z -> now]) compared against a full-day "
+          "(period: 1d, window: 30d) baseline without elapsed-fraction scaling; "
+          "sub-full-day Z-scores are systematically low-biased and may miss active breakouts."
+          if (mode_clean == "A" and eff_today_so_far)
+          else None
+      )
   )
 
   # 1. Post-Flight Execution Audit & QueryIntegrityGate Verification (runs before zero-row return)
@@ -2857,9 +3071,13 @@ def render_forensic_dossier(
 
   # 5. Handle Zero-Row Clean Hunt vs Populated 6-Section Dossier
   eval_mode_str = (
-      "Mode A: Today So Far (Partial UTC Day — Low-Biased vs Full-Day Baseline)"
-      if (mode_clean == "A" and eff_today_so_far)
-      else f"Mode {mode_clean}"
+      "Mode A: Intra-Day Stitched — today so far (partial UTC day) — cannot clear entity until 24h complete"
+      if (mode_clean == "A" and eff_intraday_hourly)
+      else (
+          "Mode A: Today So Far (Partial UTC Day — Low-Biased vs Full-Day Baseline)"
+          if (mode_clean == "A" and eff_today_so_far)
+          else f"Mode {mode_clean}"
+      )
   )
   has_ecg_join = bool(re.search(r"\bgraph\.(?:entity|metadata|relations)\b", executed_query or ""))
   ecg_join_filter_disclosure = _build_ecg_join_filter_disclosure(
@@ -3161,10 +3379,17 @@ def render_forensic_dossier(
   if outliers:
     top_score_cell = outliers[0].get("score_display") or "N/A"
     top_cri_cell = format_cri(outliers[0].get("cri"))
+    intraday_suffix = ""
+    if "full_today_so_far" in outliers[0]:
+      intraday_suffix = (
+          f" Stitched `full_today_so_far = {outliers[0]['full_today_so_far']}` "
+          f"(`earlier_today_sum = {outliers[0].get('earlier_today_sum', 0.0)}` + raw `observed = {outliers[0]['observed']}`) — "
+          f"**{outliers[0].get('intraday_status_label', '')}**."
+      )
     core_finding_line = (
         f"> * **The Core Finding**: Top entity `{top_entity}` registered `{top_score_cell}` "
         f"(`CRI = {top_cri_cell}`, {outliers[0]['cri_band_label']}) against its 30-day behavioral baseline "
-        f"(`μ = {outliers[0]['hist_avg']}`, `σ = {outliers[0]['hist_stddev']}`)."
+        f"(`μ = {outliers[0]['hist_avg']}`, `σ = {outliers[0]['hist_stddev']}`).{intraday_suffix}"
     )
   elif radar_payload:
     core_finding_line = (
@@ -3908,6 +4133,20 @@ def _build_arg_parser() -> argparse.ArgumentParser:
   p_compile.add_argument("--custom-filter", dest="custom_filter", default=None)
   p_compile.add_argument("--mode", default="A", choices=["A", "A_TODAY", "A_PARTIAL", "B", "C", "D"])
   p_compile.add_argument("--today-so-far", dest="today_so_far", action="store_true", help="Score Today So Far ([today 00:00Z -> now]) with partial-day low-bias warning")
+  p_compile.add_argument(
+      "--intraday-hourly",
+      dest="intraday_hourly",
+      action="store_true",
+      help="Opt-in WS1-13 / PF-10 intra-day (period: 1h, window: today) stitching alongside 30d companion baseline",
+  )
+  p_compile.add_argument(
+      "--allow-short-intraday-window",
+      dest="allow_short_intraday_window",
+      action="store_true",
+      help="Override R2 >= 4h raw window minimum on --intraday-hourly with explicit materialization-lag warning",
+  )
+  p_compile.add_argument("--start-time", dest="start_time", default=None, help="UTC ISO-8601 query startTime (hour-aligned when --intraday-hourly)")
+  p_compile.add_argument("--end-time", dest="end_time", default=None, help="UTC ISO-8601 query endTime")
   p_compile.add_argument("--no-run-command", dest="has_run_command", action="store_false", default=True, help="Simulate MCP-only client without local script execution (caps Mode B at 3 days)")
   p_compile.add_argument("--window-days", dest="window_days", type=int, default=1)
   p_compile.add_argument("--sensitivity", default="BALANCED")
@@ -3948,6 +4187,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
   p_render.add_argument("--entity-type", dest="entity_type", default="USER")
   p_render.add_argument("--mode", default="A")
   p_render.add_argument("--today-so-far", dest="today_so_far", action="store_true", help="Flag Today So Far partial-day low-bias disclosure in dossier")
+  p_render.add_argument("--intraday-hourly", dest="intraday_hourly", action="store_true", help="Enable WS1-13 / R4 intra-day (1h, today) upper-tail breach / cannot-clear dossier semantics")
   p_render.add_argument("--window-days", dest="window_days", type=int, default=14)
   p_render.add_argument("--threshold", dest="anomaly_threshold", type=float, default=3.0)
   p_render.add_argument("--output-html", dest="output_html_path", default=None)
@@ -3996,6 +4236,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         chained_path=args.chained_path,
         today_so_far=args.today_so_far,
         has_run_command=args.has_run_command,
+        intraday_hourly=args.intraday_hourly,
+        allow_short_intraday_window=args.allow_short_intraday_window,
+        start_time=args.start_time,
+        end_time=args.end_time,
     )
     if args.format == "query":
       print(res["compiled_query"])
@@ -4038,6 +4282,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
           mode=args.mode,
           window_days=args.window_days,
           today_so_far=args.today_so_far,
+          intraday_hourly=args.intraday_hourly,
       )
       exec_query = compiled["compiled_query"]
 
@@ -4061,6 +4306,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         radar_scores=args.radar_scores,
         radar_sector_payloads=radar_payloads_arg,
         today_so_far=args.today_so_far,
+        intraday_hourly=args.intraday_hourly,
     )
     if args.format == "markdown":
       print(res["dossier_markdown"])
