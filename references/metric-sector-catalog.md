@@ -949,8 +949,9 @@ it would just recompute the fleet, so delete them and rank by `$d_vs_fleet_sq`. 
 peers without naming them ("vs his team"), resolve the team with the AD TEAM LOOKUP
 (`references/multi-stage-metrics-guide.md`, Peer group rule) and ask for the roster only if AD has no
 team; never drop the comparison. With a
-peer group the template also scores the group as a whole against the fleet (`$z*_team_vs_enterprise`,
-`$d_team_vs_fleet_sq`). Because one stage carries all three metrics:
+peer group `team_cohort_stats` stays decoupled from `enterprise_stats` so the 4-stage triad pipeline
+remains within Chronicle's `maxJoinCount = 4` ceiling (`$d_vs_team_sq` + `$d_vs_fleet_sq`). Because one
+stage carries all three metrics:
 
 1. **One entity field for all three.** It must be valid alone for every metric (listed per triad).
    Bind it once: `<entity field> = $user` (or `$host`) in the stage and `<entity field>: <entity field>` in all

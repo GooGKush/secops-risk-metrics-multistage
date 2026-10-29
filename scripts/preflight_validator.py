@@ -1334,6 +1334,14 @@ class MalachiteASTValidator:
           "(Chronicle Search caps total Entity Context Graph sources across all stages at 1)."
       )
 
+    # 2C. Multi-Stage Total Join Ceiling (maxJoinCount = 4)
+    total_joins = MalachiteASTValidator.count_query_joins(query_text)
+    if total_joins > 4:
+      errors.append(
+          f"JOIN_LIMIT_EXCEEDED: Multi-stage query requires {total_joins} joins, exceeding Chronicle Malachite "
+          "maxJoinCount = 4 ceiling (1 UEBA metrics.* join + sum over stages of max(0, distinct_referenced_sources - 1) <= 4)."
+      )
+
     # 3. Stage 1 Extraction Contracts
     for stage_name, stage_body in stage1_matches:
       # Check outcome count limit <= 20
@@ -1650,6 +1658,44 @@ class MalachiteASTValidator:
     unprefixed_udm = bool(re.search(rf"(?<![a-zA-Z0-9_$.])\b{udm_roots}\.", no_metrics))
     udm_count = len(udm_aliases) + (1 if unprefixed_udm else 0)
     return udm_count, ecg_count
+
+  @staticmethod
+  def count_query_joins(query_text: str) -> int:
+    """Computes total Malachite SQL planner joins for a multi-stage YARA-L 2.0 search query.
+
+    Formula (`maxJoinCount = 4`):
+      - `1` join if the query invokes pre-computed `metrics.*(...)` UEBA dimensional exports, PLUS
+      - For each stage (named stages + unwrapped root stage):
+        `max(0, distinct_referenced_upstream_stages_or_events - 1)`, where distinct sources in a stage
+        are referenced upstream named stages (`$<stage>.*`) + UDM event sources + ECG sources + Data Tables.
+    """
+    stages, root_body = MalachiteASTValidator._extract_stage_blocks(query_text)
+    named_stage_set = {s.lstrip("$") for s, _ in stages}
+    all_blocks = [s_body for _, s_body in stages]
+    if root_body.strip():
+      all_blocks.append(root_body)
+    if not all_blocks:
+      return 0
+
+    has_metrics = False
+    inter_stage_joins = 0
+    for body in all_blocks:
+      clean = re.sub(r"//[^\n]*", "", body)
+      clean = re.sub(r"/\*.*?\*/", "", clean, flags=re.DOTALL)
+      clean = re.sub(r"\{\{[^}]*\}\}", "", clean)
+      clean = re.sub(r'"(?:\\.|[^"\\])*"', '""', clean)
+      clean = re.sub(r"`[^`]*`", "``", clean)
+      clean = re.sub(r"/(?:\\.|[^/\\])+/", "//", clean)
+      if re.search(r"\bmetrics\.[a-zA-Z0-9_]+\s*\(", clean):
+        has_metrics = True
+      u_cnt, e_cnt = MalachiteASTValidator._count_stage_data_sources(body, named_stage_set)
+      no_metrics = re.sub(r"metrics\.[a-zA-Z0-9_]+\s*\([^)]*\)", "", clean, flags=re.DOTALL)
+      ref_stages = {m for m in re.findall(r"\$([a-zA-Z0-9_]+)\.", no_metrics) if m in named_stage_set}
+      dt_tables = set(re.findall(r"%([a-zA-Z0-9_]+)\.", no_metrics))
+      distinct_sources = len(ref_stages) + u_cnt + e_cnt + len(dt_tables)
+      inter_stage_joins += max(0, distinct_sources - 1)
+
+    return (1 if has_metrics else 0) + inter_stage_joins
 
   @staticmethod
   def _check_arithmetic_in_event_section(stage_name: str, event_part: str) -> List[str]:

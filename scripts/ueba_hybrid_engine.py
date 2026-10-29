@@ -2750,6 +2750,8 @@ def render_forensic_dossier(
   - 360° Entity Behavioral Radar (`EntityRadarCollector`)
   - Self-contained HTML + SVG Chart Generation (`RiskMetricsChartGenerator` & `EntityRadarCollector`)
   """
+  start_time: Optional[str] = kwargs.get("start_time")
+  end_time: Optional[str] = kwargs.get("end_time")
   del kwargs
 
   clean_metric = (metric_name or "auth_attempts_total").strip()
@@ -2792,19 +2794,40 @@ def render_forensic_dossier(
   eff_today_so_far = bool(today_so_far) or mode_clean in ("A_TODAY", "A_PARTIAL") or eff_intraday_hourly
   if mode_clean in ("A_TODAY", "A_PARTIAL"):
     mode_clean = "A"
-  partial_day_warning: Optional[str] = (
-      "Intra-day (1h, today) stitched Mode A: today so far (partial UTC day) — cannot clear entity until 24h complete. "
-      "Upper-tail breaches (full_today_so_far >= 30d upper tail) are guaranteed full-day outliers; "
-      "hand off sub-hour burst timing to secops-statistical-hunter."
-      if (mode_clean == "A" and eff_intraday_hourly)
-      else (
-          "Partial UTC day ([today 00:00:00Z -> now]) compared against a full-day "
-          "(period: 1d, window: 30d) baseline without elapsed-fraction scaling; "
-          "sub-full-day Z-scores are systematically low-biased and may miss active breakouts."
-          if (mode_clean == "A" and eff_today_so_far)
-          else None
-      )
+  intraday_window_meta: Optional[Dict[str, Any]] = None
+  if eff_intraday_hourly and start_time and end_time:
+    intraday_window_meta = validate_intraday_hourly_window(
+        str(start_time),
+        str(end_time),
+        allow_short_window=True,
+    )
+  intraday_interval_note: Optional[str] = (
+      intraday_window_meta.get("earlier_today_interval_note") if intraday_window_meta else None
   )
+  if mode_clean == "A" and eff_intraday_hourly:
+    if intraday_interval_note:
+      partial_day_warning: Optional[str] = (
+          f"Intra-day (1h, today) stitched Mode A ({intraday_interval_note}): "
+          "today so far (partial UTC day) — cannot clear entity until 24h complete. "
+          "Upper-tail breaches (full_today_so_far >= 30d upper tail) are guaranteed full-day outliers; "
+          "hand off sub-hour burst timing to secops-statistical-hunter."
+      )
+      if intraday_window_meta and intraday_window_meta.get("short_window_warning"):
+        partial_day_warning = f"{partial_day_warning} {intraday_window_meta['short_window_warning']}"
+    else:
+      partial_day_warning = (
+          "Intra-day (1h, today) stitched Mode A: today so far (partial UTC day) — cannot clear entity until 24h complete. "
+          "Upper-tail breaches (full_today_so_far >= 30d upper tail) are guaranteed full-day outliers; "
+          "hand off sub-hour burst timing to secops-statistical-hunter."
+      )
+  elif mode_clean == "A" and eff_today_so_far:
+    partial_day_warning = (
+        "Partial UTC day ([today 00:00:00Z -> now]) compared against a full-day "
+        "(period: 1d, window: 30d) baseline without elapsed-fraction scaling; "
+        "sub-full-day Z-scores are systematically low-biased and may miss active breakouts."
+    )
+  else:
+    partial_day_warning = None
 
   # 1. Post-Flight Execution Audit & QueryIntegrityGate Verification (runs before zero-row return)
   audit_result = None
@@ -3151,6 +3174,7 @@ def render_forensic_dossier(
       ecg_join_filter_disclosure=ecg_join_filter_disclosure,
       cohort_cap_warning=cohort_cap_warning,
       mode_c_fade_caveat=mode_c_fade_caveat,
+      intraday_interval_note=intraday_interval_note,
   )
 
   # Resolve UDM pivot filter for Pillar 5
@@ -3264,6 +3288,7 @@ def render_forensic_dossier(
         "is_zero_row": True,
         "is_partial_day": bool(partial_day_warning),
         "partial_day_warning": partial_day_warning,
+        "intraday_window_meta": intraday_window_meta,
         "has_ecg_join": has_ecg_join,
         "ecg_join_filter_disclosure": ecg_join_filter_disclosure,
         "ecg_novelty_boost_disabled": ecg_novelty_boost_disabled,
@@ -3498,6 +3523,7 @@ def render_forensic_dossier(
       "is_zero_row": False,
       "is_partial_day": bool(partial_day_warning),
       "partial_day_warning": partial_day_warning,
+      "intraday_window_meta": intraday_window_meta,
       "has_ecg_join": has_ecg_join,
       "ecg_join_filter_disclosure": ecg_join_filter_disclosure,
       "ecg_novelty_boost_disabled": ecg_novelty_boost_disabled,
@@ -4194,6 +4220,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
   p_render.add_argument("--mode", default="A")
   p_render.add_argument("--today-so-far", dest="today_so_far", action="store_true", help="Flag Today So Far partial-day low-bias disclosure in dossier")
   p_render.add_argument("--intraday-hourly", dest="intraday_hourly", action="store_true", help="Enable WS1-13 / R4 intra-day (1h, today) upper-tail breach / cannot-clear dossier semantics")
+  p_render.add_argument("--start-time", dest="start_time", default=None, help="Optional UTC ISO-8601 query startTime for --intraday-hourly dossier interval notes")
+  p_render.add_argument("--end-time", dest="end_time", default=None, help="Optional UTC ISO-8601 query endTime for --intraday-hourly dossier interval notes")
   p_render.add_argument("--window-days", dest="window_days", type=int, default=14)
   p_render.add_argument("--threshold", dest="anomaly_threshold", type=float, default=3.0)
   p_render.add_argument("--output-html", dest="output_html_path", default=None)
@@ -4289,6 +4317,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
           window_days=args.window_days,
           today_so_far=args.today_so_far,
           intraday_hourly=args.intraday_hourly,
+          allow_short_intraday_window=True,
+          start_time=args.start_time,
+          end_time=args.end_time,
       )
       exec_query = compiled["compiled_query"]
 
@@ -4313,6 +4344,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         radar_sector_payloads=radar_payloads_arg,
         today_so_far=args.today_so_far,
         intraday_hourly=args.intraday_hourly,
+        start_time=args.start_time,
+        end_time=args.end_time,
     )
     if args.format == "markdown":
       print(res["dossier_markdown"])

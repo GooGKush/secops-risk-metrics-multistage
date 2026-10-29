@@ -31,8 +31,8 @@
 //   TRIAD COLLINEARITY & POSITIVE RECTIFICATION NOTE: Since total = fail + success, the 3 triad Z-scores
 //   span 2 linearly independent degrees of freedom; negative Z-scores are rectified at 0.0 before squaring
 //   (D^2 = sum(max(0, Z_m)^2)) so quiet peers never outrank surging outliers.
-//   Path user -> group -> enterprise: $z*_vs_team (one vs group), $z*_team_vs_enterprise and
-//   $d_team_vs_fleet_sq (group mean vs fleet; elevated = team campaign/rollout).
+//   MAX JOIN COUNT BUDGET (maxJoinCount = 4): team_cohort_stats joins only all_entities (1 UEBA metrics.*
+//   join + 0 in enterprise_stats + 0 in team_cohort_stats + 2 in loo_scores + 1 in Root = 4 joins).
 //
 // CONCRETE FIELD BINDING & INSTANTIATION GUIDE:
 // Slots event_filter and m1/m2/m3_observation_agg: take them from the triad's block in
@@ -99,10 +99,6 @@ stage enterprise_stats {
     $m3_fleet_avg = avg($all_entities.m3_obs)
     $m3_fleet_std = stddev($all_entities.m3_obs)
 
-    $m1_fleet_div = if($m1_fleet_std > 1.0, $m1_fleet_std, 1.0)
-    $m2_fleet_div = if($m2_fleet_std > 1.0, $m2_fleet_std, 1.0)
-    $m3_fleet_div = if($m3_fleet_std > 1.0, $m3_fleet_std, 1.0)
-
     $fleet_size = count_distinct($all_entities.{{entity_name}})
     $fleet_valid = if($fleet_size > 1, 1.0, 0.0)
     $fleet_peer_n = if($fleet_size > 1, $fleet_size, 2) - 1.0
@@ -114,11 +110,10 @@ stage enterprise_stats {
 }
 
 // >>> TEAM COHORT
-// Optional stage: Team Cohort Whole (named peers) + the group as a whole vs the fleet
+// Optional stage: Team Cohort Whole (named peers; decoupled from enterprise_stats to stay <= 4 joins)
 stage team_cohort_stats {
     $u = $all_entities.{{entity_name}}
     $ws = $all_entities.window_start
-    $ws = $enterprise_stats.ws
     {{cohort_filter}}
 
   match:
@@ -144,12 +139,6 @@ stage team_cohort_stats {
     $m1_team_ss = $team_peer_n * $m1_team_std * $m1_team_std
     $m2_team_ss = $team_peer_n * $m2_team_std * $m2_team_std
     $m3_team_ss = $team_peer_n * $m3_team_std * $m3_team_std
-
-    // Group vs Enterprise ("Team as Part of the Fleet"): team mean in fleet std units (positive-rectified)
-    $z1_team_vs_enterprise = ($m1_team_avg - max($enterprise_stats.m1_fleet_avg)) / max($enterprise_stats.m1_fleet_div)
-    $z2_team_vs_enterprise = ($m2_team_avg - max($enterprise_stats.m2_fleet_avg)) / max($enterprise_stats.m2_fleet_div)
-    $z3_team_vs_enterprise = ($m3_team_avg - max($enterprise_stats.m3_fleet_avg)) / max($enterprise_stats.m3_fleet_div)
-    $d_team_vs_fleet_sq = (if($z1_team_vs_enterprise > 0.0, $z1_team_vs_enterprise, 0.0) * if($z1_team_vs_enterprise > 0.0, $z1_team_vs_enterprise, 0.0)) + (if($z2_team_vs_enterprise > 0.0, $z2_team_vs_enterprise, 0.0) * if($z2_team_vs_enterprise > 0.0, $z2_team_vs_enterprise, 0.0)) + (if($z3_team_vs_enterprise > 0.0, $z3_team_vs_enterprise, 0.0) * if($z3_team_vs_enterprise > 0.0, $z3_team_vs_enterprise, 0.0))
 }
 // <<< TEAM COHORT
 
@@ -192,7 +181,6 @@ stage loo_scores {
     $t3_var = (max($team_cohort_stats.m3_team_ss) - (max($team_cohort_stats.team_n_over_nm1) * (max($all_entities.m3_obs) - max($team_cohort_stats.m3_team_avg)) * (max($all_entities.m3_obs) - max($team_cohort_stats.m3_team_avg)))) * max($team_cohort_stats.team_inv_df)
     $z3_vs_team = (max($all_entities.m3_obs) - $t3_loo_avg) / math.sqrt(if(if($t3_var > $t3_loo_avg, $t3_var, $t3_loo_avg) > {{m3_var_floor}}, if($t3_var > $t3_loo_avg, $t3_var, $t3_loo_avg), {{m3_var_floor}}))
 
-    $d_team_vs_fleet_sq = max($team_cohort_stats.d_team_vs_fleet_sq)
     $team_size = max($team_cohort_stats.team_size)
     // <<< TEAM COHORT
 }
@@ -227,8 +215,6 @@ outcome:
 
   $d_vs_team_sq = (if($z1_vs_team > 0.0, $z1_vs_team, 0.0) * if($z1_vs_team > 0.0, $z1_vs_team, 0.0)) + (if($z2_vs_team > 0.0, $z2_vs_team, 0.0) * if($z2_vs_team > 0.0, $z2_vs_team, 0.0)) + (if($z3_vs_team > 0.0, $z3_vs_team, 0.0) * if($z3_vs_team > 0.0, $z3_vs_team, 0.0))
 
-  // 4. Group vs Enterprise, computed in team_cohort_stats (elevated = team campaign/rollout)
-  $d_team_vs_fleet_sq = max($loo_scores.d_team_vs_fleet_sq)
   $samuelson_max_z = ($team_size - 1.0) / math.sqrt(if($team_size > 1, $team_size, 1.0))
   $samuelson_max_d_sq = 3.0 * $samuelson_max_z * $samuelson_max_z
   $cohort_too_small = if($samuelson_max_d_sq < {{fusion_threshold_sq}}, 1, 0)

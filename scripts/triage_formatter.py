@@ -242,6 +242,7 @@ class CommonMarkTriageFormatter:
       ecg_join_filter_disclosure: Optional[str] = None,
       cohort_cap_warning: Optional[str] = None,
       mode_c_fade_caveat: Optional[str] = None,
+      intraday_interval_note: Optional[str] = None,
   ) -> str:
     """Renders the lightweight 2-pillar Clean Hunt Summary for 0-row outcomes with agentic next steps."""
     next_steps = cls.build_agentic_next_steps(
@@ -267,6 +268,8 @@ class CommonMarkTriageFormatter:
         f"* **Result**: **0 observed events** (**0 ranked outlier entities**) exceeded the `{anomaly_threshold}σ` significance gate under **{evaluation_mode}** ($Z = 0.00\\sigma, D = 0.00\\sigma, \\text{{CRI}} = 0$, 🟢 **Nominal Fleet Baseline**).",
         "* **Baseline Horizon**: 30-Day Pre-Computed Behavioral Tables (`window: 30d`).",
     ]
+    if intraday_interval_note:
+      lines.append(f"* **Intra-Day Earlier-Today Interval (PF-10 / WS1-13)**: {intraday_interval_note}")
     if eff_ecg_disclosure:
       lines.append(f"* **ECG Inner-Join Filter Disclosure**: {eff_ecg_disclosure}")
     if cohort_cap_warning:
