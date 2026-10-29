@@ -153,17 +153,17 @@ Measured on GUS-SDL at 2026-10-01T11:50Z with the Playbook 1 shape (`day_count =
 | `2026-09-29T00:00:00Z` (D-2) | `metadata.event_timestamp.seconds >= 1790812800` (today 00:00Z) | rows; every match joined the `2026-09-30` graph day |
 | `2026-09-29T00:00:00Z` (D-2) | `timestamp.get_date(metadata.event_timestamp.seconds) = "2026-10-01"` (measured 15:00Z, HTTP + `DOMAIN_NAME`) | rows; every match in the `2026-10-01` bucket |
 
-**Mode A rule (any query with a `$alias.graph.*` stage):**
-1. Set `startTime` to **two days back at 00:00Z** (D-2, literally `YYYY-MM-DDT00:00:00Z`, not now minus 48 hours) and `endTime` to now. This covers the newest built graph day even early in the UTC day.
+**Mode A rule (any query with a `$alias.graph.*` stage, matching `ueba_hybrid_engine.py` D3 + WS1-08):**
+1. **Default Mode A (last complete UTC day `D = yesterday`)**: Set `startTime` to **the scored UTC day minus 2 at `00:00:00Z`** (`D - 2d 00:00:00Z`, literally `YYYY-MM-DDT00:00:00Z`, never `now - 48h`) and `endTime` to `today 00:00:00Z`. This guarantees overlap with built `DERIVED_CONTEXT` daily graph intervals. *(Explicit `"Today So Far"` option via `--today-so-far` / `today_so_far=True`: sets `D = today`, `startTime = today - 2d 00:00:00Z`, `endTime = now`, and stamps the partial-day low-bias warning).*
 2. **Baseline-Shift Consequence (`[D-32, D-2)`)**: Because Chronicle anchors the 30-day `metrics.*` baseline at `startTime`'s UTC day `D0`, setting `startTime` to `D-2 00:00Z` shifts the 30-day `metrics.*` baseline window to **`[D-32, D-2)`** (two days earlier than a non-graph Mode A query). Disclose `[D-32, D-2)` in the Pre-Flight Card and Pillar 2 Provenance Stamp.
-3. Keep the analysis on today: add `timestamp.get_date(metadata.event_timestamp.seconds) = "<today, YYYY-MM-DD>"` to **every event stage**, using today's UTC date. Without it the wider window silently pulls yesterday's events into "today". Use the date string, not an epoch literal: hand-computed epochs came out as tomorrow's midnight or now minus 48 hours, and an epoch above now matches nothing.
+3. **Pin every event stage to the scored UTC day**: Add `timestamp.get_date(metadata.event_timestamp.seconds) = "<scored UTC day, YYYY-MM-DD>"` (`yesterday` by default in Mode A; `today` only when `"Today So Far"` / `--today-so-far` is explicitly requested) to **every event stage**. Without it, the wider `D-2` search window silently pulls earlier days' events into the scored day. Use the date string, never an epoch literal: hand-computed epochs came out as tomorrow's midnight or `now - 48h`, and an epoch above `endTime` matches nothing.
 4. Do not add any time predicate to the graph stage; it joins on its key only (`$sha256`, `$domain`, `$host`, `$user`).
 
 <!-- yara-fragment: event stage only; the graph stage and root are unchanged from Playbook 1 -->
 ```yara
 stage stage1_process_baseline {
     metadata.event_type = "PROCESS_LAUNCH"
-    timestamp.get_date(metadata.event_timestamp.seconds) = "<today UTC, YYYY-MM-DD>"   // window starts D-2 00:00Z
+    timestamp.get_date(metadata.event_timestamp.seconds) = "<scored UTC day, YYYY-MM-DD>"   // window starts D-2 00:00:00Z
     principal.asset.hostname = $host
     principal.process.file.sha256 = $sha256
 

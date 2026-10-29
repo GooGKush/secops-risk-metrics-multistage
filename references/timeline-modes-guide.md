@@ -29,7 +29,7 @@ A `metrics.*(period: 1d, window: 30d, ...)` call resolves to **one baseline wind
 
 ## 2. Mode B: Fixed-Baseline Timeline (2–3 days, one request)
 
-* **Window**: `startTime` = first scored day `00:00Z`; `endTime` = now (or the day after the last scored day, `00:00Z`). Template `match:` stays `$entity, $ws by 1d`.
+* **Window**: `startTime` = first scored day `00:00:00Z` (`anchor_day = today_midnight − (eff_days − 1)d`, or `min(anchor_day, D−2)` with `timestamp.get_date(...) >= "<anchor_day>"` when joining `graph.*`); `endTime` = `(last_scored_day + 1d) 00:00:00Z` for complete-day historical ranges (or the request's ISO-8601 `end_iso` when the trailing `eff_days` window includes the active UTC day). Template `match:` stays `$entity, $ws by 1d`.
 * **Card, Pillar 2 Provenance Stamp, and Pillar 5 Appendix must state the baseline dates**: `Baseline: <D0 − 30d> → <D0>, applied to all <N> scored days`.
 * **Known bias** (state the relevant item in Pillar 3):
   1. **Sustained activity keeps scoring high.** A burst never enters the baseline, so day 3 of a burst scores like day 1. Useful for persistence; it inflates ranking.

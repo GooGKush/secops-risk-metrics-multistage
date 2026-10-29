@@ -39,7 +39,7 @@ Execute independent decoupled sector queries, retrieve the observed metrics per 
   - **Pillar 1 Surface**: **Multi-Sector Fleet Heatmap Matrix** (`radar_fleet_heatmap.html`) or **Ranked Fleet Outlier Bar Chart** (`radar_fleet_ranking.html`). Linear and matrix layouts provide clean, readable comparisons without radial centroid collapse. Never use the phrases `5-spoke radar`, `6-spoke radar`, or `spider radar` in a fleetwide review.
   - **Mandatory 5-Pillar Report on All Outcomes (Including 0-Event Sweeps)**: Fleetwide and single-entity 360° sweeps are NEVER abbreviated to a 2-pillar Clean Hunt summary. Even when all 6 sectors return 0 events across the fleet, you MUST render all **5 numbered Pillars** (`#### 1.` through `#### 5.`), including `#### 2. Ranked Outlier Summary & Provenance Stamp` with columns or rows covering all 6 canonical sectors (`Authentication`, `Cloud Infrastructure`, `Workspace / Endpoint Activity`, `Network Egress`, `DNS Resolution`, `Web & Proxy Activity`) and the composite Euclidean Threat Distance ($D = \sqrt{\sum_{i=1}^6 \max(0, Z_i)^2}$, e.g. `D = 0.00σ`, `CRI = 0`).
   - **Fleetwide Micro-Query Row Cap (`limit: 20`) & Post-Search Collation (`NATIVE_EXECUTION_GUARANTEE`)**: Every fleetwide decoupled sector micro-query (`$host != ""` or `$user != ""`) MUST end with `order:\n  $z desc\nlimit:\n  20` so each `udm_search` call returns at most the top 20 anomalous entity×day rows in `"stats"`. Never write ad-hoc scratch scripts in `scratch/` or substitute local scripts for live `udm_search` calls; sanctioned repository utilities (`scripts/radar_collector.py`, `scripts/ueba_hybrid_engine.py`, `scripts/chart_generator.py`) may be invoked strictly after `udm_search` completes under the Post-Search Execution Exemption to collate scores and render SVG/HTML visual artifacts.
-  - **Recommended Horizon**: **Mode B (2–7 Day Fixed-Baseline Timeline)**, run at the 7-day maximum. Because security anomalies and data exfiltration are bursty, episodic events, a multi-day window surfaces recent bursts that a single-day snapshot misses. All scored days share one baseline anchored at the first day (`timeline-modes-guide.md`).
+  - **Recommended Horizon**: **Mode B (2–3 Day Fixed-Baseline Timeline)**, run at the 3-day cap (or **Mode C: Per-Day Baseline Timeline** up to 30 days when `run_command` is present). Because security anomalies and data exfiltration are bursty, episodic events, a multi-day window surfaces recent bursts that a single-day snapshot misses. In Mode B all scored days share one baseline anchored at the first day (`timeline-modes-guide.md`).
   - **Sector Consistency & Euclidean Join Mandate**: Both single-entity and fleetwide threat fusion evaluate and report across all 6 canonical sectors: `Authentication`, `Cloud Infrastructure` (`Cloud CRUD`), `Workspace / Endpoint Activity`, `Network Egress`, `DNS Resolution`, and `Web & Proxy Activity`. Outlier ranking and multi-sector fusion MUST join sector Z-scores via the composite Euclidean Threat Distance formula ($D = \sqrt{\sum_{i=1}^6 \max(0, Z_i)^2}$) and piecewise Calibrated Risk Index ($\text{CRI}(D) = 0$ for $D \le 0$, else $\text{round}\left(\frac{100}{1 + e^{-0.6(D - 3.0)}}\right)$). Pillar 1, Pillar 2 (`#### 2. Ranked Outlier Summary & Provenance Stamp`), and Pillar 5 MUST report composite Threat Distance $D$, and Pillar 5 (Collapsible Technical Appendix) MUST provide the representative executed micro-query and Euclidean formulation.
   - **Interactive Drill-Down**: Offer an individual entity behavioral profile as a 1-click drill-down when the analyst selects a specific high-risk entity from the Ranked Outlier Summary Table.
   - **Drill-Down Query Construction**: When transitioning from a fleetwide sweep to an individual drilldown, constrain the target entity directly on the canonical UDM attribute in the stage predicates (e.g., `target.user.userid = "ola.burch"` with `$user = target.user.userid`). Variables bind to UDM fields rather than string literals, ensuring valid YARA-L compiler syntax.
@@ -111,7 +111,7 @@ PRE-FLIGHT HUNTING SPECIFICATION:
 • Baseline Horizon Spine: 30-Day Pre-Computed (period: 1d, 30d)
 • Peer Cohort & Roster:   [Department / Peer Group, e.g. Information Technology]
 • Entity Graph Dimension: N/A (360° Omnidirectional Behavioral Radar)
-• Evaluation Horizon Mode:[chosen mode only, e.g. Mode B: 7d, baseline <D0 − 30d> → <D0>]
+• Evaluation Horizon Mode:[chosen mode only, e.g. Mode A: last complete UTC day | Mode B: 3d, baseline <D0 − 30d> → <D0> | Mode C: per-day]
 • Statistical Model:      360° Entity Behavioral Risk Radar (6-Sector Fusion)
 • Significance Threshold: Z >= 3.0σ / D >= 3.5σ (CRI >= 57)
 ```
@@ -149,7 +149,7 @@ order:
 ```
 
 *Yield Turn Prompt*:
-> *"Would you like me to proceed with **Mode A (Today vs 30-Day Baseline)** or **Mode B (2–7 Day Fixed-Baseline Timeline)**[, or **Mode C (Per-Day Baseline)** if `run_command` is present]? (For open-ended fleet sweeps, Mode B is recommended to capture episodic bursts; Mode A is optimal for active incident triage; Mode C evaluates each day against its own trailing 30d baseline by pre-screening active sectors and passing `--shard YYYY-MM-DD:<sector>=<path>` to `scripts/timeline_assembler.py`.)"*
+> *"Would you like me to proceed with **Mode A (Last Complete UTC Day vs 30-Day Baseline)** [or **Mode A — Today So Far (Partial UTC Day)**], **Mode B (2–3 Day Fixed-Baseline Timeline)**[, or **Mode C (Per-Day Baseline)** if `run_command` is present]? (For multi-day fleet sweeps, Mode B captures 2–3 day bursts and Mode C evaluates up to 30 days against per-day trailing 30d baselines by pre-screening active sectors and passing `--shard YYYY-MM-DD:<sector>=<path>` to `scripts/timeline_assembler.py`; Mode A is optimal for single-day triage.)"*
 
 ---
 
@@ -667,13 +667,13 @@ And embeds in chat:
 * **Target Entity**: `<target_entity_id>` (Information Technology)
 * **Composite Threat Distance**: $D = 0.68\sigma$
 * **Calibrated Risk Index**: $\text{CRI} = 18 / 100$ (🟢 Nominal Volumetric Baseline)
-* **Evaluated Horizon**: Mode A (Today `00:00Z`→now vs. 30-Day Pre-Computed Baseline)
+* **Evaluated Horizon**: Mode A (Last Complete UTC Day `[yesterday 00:00Z, today 00:00Z)` vs. 30-Day Pre-Computed Baseline)
 
 ---
 
 #### 2. Ranked Outlier Summary & Provenance Stamp
 
-| Sector / Spoke | 24h Observed | 30d Mean (μ) | 30d StdDev (σ) | Z-Score | CRI Score | Visual Magnitude | Status |
+| Sector / Spoke | Observed | 30d Mean (μ) | 30d StdDev (σ) | Z-Score | CRI Score | Visual Magnitude | Status |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **IAM & Authentication** | 6 logins | 4.2 logins | 1.8 logins | $+0.64\sigma$ | 20 | `▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱` | 🟢 Nominal |
 | **DNS Resolution** | 4 queries | 3.5 queries | 1.2 queries | $+0.23\sigma$ | 16 | `▰▱▱▱▱▱▱▱▱▱▱▱▱▱▱` | 🟢 Nominal |
@@ -686,7 +686,7 @@ And embeds in chat:
 ```markdown
 PROVENANCE STAMP:
 • Statistical Model:         6-Sector Decoupled 360° Behavioral Risk Radar
-• Evaluation Window:         Current-day window (today 00:00Z → now, Mode A)
+• Evaluation Window:         Last complete UTC day (yesterday 00:00Z → today 00:00Z, Mode A)
 • Baseline Window:           Rolling 30-Day Pre-Computed (period: 1d, window: 30d)
 • Chronicle Target Customer: 8cbac5ae-8267-4da7-b405-cdbc6fa3f1d5 (Region: us, Project: gus-sdl)
 • Sector Join Runtime:       Client-Side Euclidean Join (radar_collector.py / browser V8)
@@ -702,7 +702,7 @@ All six evaluated behavioral sectors remain within expected historical variance 
 * **IAM & Authentication**: 6 observed logins vs. 30d baseline mean of 4.2 ($\sigma = 1.8$, $Z = +0.64\sigma$), representing normal routine access.
 * **DNS Resolution**: 4 queries vs. 30d baseline mean of 3.5 ($\sigma = 1.2$, $Z = +0.23\sigma$), within expected lookup volume.
 * **Web & Proxy Activity**: 0 requests vs. 30d baseline mean of 0.0 ($Z = +0.00\sigma$), nominal web browsing traffic.
-* **Cloud, Workspace, and Network Planes**: Zero observed actions across the current-day window matching zero-baseline history ($Z = +0.00\sigma$).
+* **Cloud, Workspace, and Network Planes**: Zero observed actions across the evaluated UTC day matching zero-baseline history ($Z = +0.00\sigma$).
 * **Composite Threat Distance**: Multi-sector Euclidean distance $D = 0.68\sigma$ ($\text{CRI} = 18 / 100$) indicates volumetric quiescence across all vectors with zero acute surges.
 
 ##### SOC Playbook & Immediate Remediation Recommendations
@@ -765,7 +765,7 @@ order:
 
 > [!NOTE]
 > **Single-Sector Micro-Query Standard (Mode A & Mode B)**:
-> Chronicle SIEM evaluates orthogonal telemetry planes independently. In both Mode A (current-day snapshot) and Mode B (2–7d fixed-baseline timeline), the 360° report displays exclusively this single representative micro-query (`stage auth_risk` with `order: $z desc`) in Pillar 5. All 6 sector Z-scores are joined in the report presentation layer (Pillars 1, 2, 3, and 5) to compute Euclidean distance $D$ and CRI.
+> Chronicle SIEM evaluates orthogonal telemetry planes independently. In both Mode A (last complete UTC day snapshot by default, or explicit `"Today So Far"`) and Mode B (2–3d fixed-baseline timeline), the 360° report displays exclusively this single representative micro-query (`stage auth_risk` with `order: $z desc`) in Pillar 5. All 6 sector Z-scores are joined in the report presentation layer (Pillars 1, 2, 3, and 5) to compute Euclidean distance $D$ and CRI.
 
 ##### 1. Multi-Sector Euclidean Threat Distance ($D$)
 $$D = \sqrt{\sum_{i=1}^{k} \max(0, Z_i)^2} = \sqrt{(0.64)^2 + (0.23)^2 + 0^2 + 0^2 + 0^2 + 0^2} \approx 0.68\sigma$$
@@ -790,11 +790,11 @@ When running in a pure command-line terminal without webview or shell calculatio
 
 ```markdown
 ### 🛡️ 360° Entity Behavioral Scorecard: `admin`
-• Evaluation Horizon: Current-Day Snapshot (2026-09-06 00:00Z → now)
+• Evaluation Horizon: Last Complete UTC Day Snapshot (2026-09-05 00:00Z → 2026-09-06 00:00Z, Mode A)
 • Historical Baseline: 30-Day Pre-Computed Metrics
 • Multi-Sector Consensus: 🚨 2 of 6 Sectors Active (High Threat Fusion)
 
-| Telemetry Sector | 24h Observed | Baseline Status | Vector State |
+| Telemetry Sector | Observed | Baseline Status | Vector State |
 | :--- | :--- | :--- | :--- |
 | **1. IAM & Authentication** | 4 failed challenges | Policy enforcement blocks | 🚨 **ELEVATED** |
 | **2. Cloud Infrastructure** | 14 CRUD actions     | CloudRun/Build modifications | 🚨 **ELEVATED** |

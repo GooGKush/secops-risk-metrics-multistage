@@ -240,7 +240,7 @@ PRE-FLIGHT HUNTING SPECIFICATION:
 • Baseline Horizon Spine: 30-Day (period: 1d, 30d)
 • Peer Cohort & Roster:   [Team/Dept, e.g. IT (Frank, Tim) / N/A]
 • Entity Graph Dimension: [Prevalence (day_count = 10, rolling_max <= 3) | WHOIS NRD (< 30d) | Infant Asset (< 7d) | N/A]
-• Evaluation Horizon Mode:[chosen mode only: A today | B 2–7d + baseline dates | C per-day shards]
+• Evaluation Horizon Mode:[chosen mode only: A last complete UTC day (default) or Today So Far | B 2–3d + baseline dates | C per-day shards]
 • Statistical Model:      [Model & Template, e.g. CUSUM Drift (`longitudinal_cusum.yl2`)]
 • Significance Threshold: [Model gate (model-concordance-guide.md §2.1): Z >= 3.0σ | 2.0σ <= Z < 3.0σ | >= 2.0× baseline | D >= 3.5σ | N/A (Fano)]
 ```
@@ -255,7 +255,7 @@ When the analyst asks a question or requests parameter adjustments prior to givi
 2. **Maintain Active Context**: Retain the active entity scope, telemetry vectors, and hunt objective in working context.
 3. **Update Specification**: Present the updated Pre-Flight Card reflecting the adjusted parameters (threshold, horizon, baseline model).
 4. **Re-Verify Query**: Probe the updated single-event UDM filter via `udm_search(maxEvents=1)` when query logic changes, and display the refreshed candidate query block.
-5. **Prompt for Clearance**: Conclude by asking whether to proceed with Mode A (Today vs 30-Day Baseline) or Mode B (2–7 Day Fixed-Baseline Timeline), plus Mode C (Per-Day Baseline) when `run_command` is present.
+5. **Prompt for Clearance**: Conclude by asking whether to proceed with Mode A (Last Complete UTC Day vs 30-Day Baseline, or explicit Mode A — Today So Far) or Mode B (2–3 Day Fixed-Baseline Timeline), plus Mode C (Per-Day Baseline) when `run_command` is present.
 
 ---
 

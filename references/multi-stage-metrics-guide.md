@@ -168,7 +168,7 @@ order:
 | :--- | :--- | :--- |
 | `events:` header inside `stage` blocks | Declare predicates directly inside `stage name { ... }` | Stage blocks in Multi-Stage YARA-L do not use `events:`. |
 | Wrapping the final stage in `stage name { ... }` | Unwrapped root level | The final stage must be at the root level of the query file. |
-| Search window wider than the days you score (e.g. 30d "to get the baseline", or a rolling `now-24h`) | Clamp the search window to the scored UTC day(s): Mode A = today `00:00Z` → now (D-2 `00:00Z` + `get_date` for Entity Graph joins); Mode B = first scored day `00:00Z` → now | The 30-day baseline comes from `metrics.*`, anchored at the `startTime` day (`timeline-modes-guide.md` §1). A wider window re-anchors the baseline earlier and scores extra days; a rolling `now-24h` starts on yesterday's date and splits results across two daily buckets. |
+| Search window wider than the days you score (e.g. 30d "to get the baseline", or a rolling `now-24h`) | Clamp the search window to the scored UTC day(s): Mode A default = last complete UTC day `[yesterday 00:00Z, today 00:00Z)` (or `[D-2 00:00Z, today 00:00Z)` + `get_date` = `<scored UTC day>` for Entity Graph joins; explicit `"Today So Far"` = `today 00:00Z` → now); Mode B = 2–3 days (`startTime` = first scored day `00:00Z`) | The 30-day baseline comes from `metrics.*`, anchored at the `startTime` day (`timeline-modes-guide.md` §1). A wider window re-anchors the baseline earlier and scores extra days; a rolling `now-24h` starts on yesterday's date and splits results across two daily buckets. |
 | `stage_name.$variable` or `stage_name.variable` | `$stage_name.variable` | In YARA-L, stage references require the leading `$` on the stage identifier (e.g. `$stage1_extract.actual`). Placing `$` after the dot causes an ANTLR syntax crash (`no viable alternative at input 'stage.$'`). |
 | Cross-sector joins in 360° profiling (e.g. Auth + Egress) | Decoupled parallel micro-queries | Multi-stage queries are inner joins; joining orthogonal sectors silently drops entities with zero events in either sector. |
 | Inverting `principal` vs `target` for User profiling | Use `target.user.userid` for `USER_LOGIN`; use `principal.user.userid` for Cloud CRUD, Workspace, Network, Endpoint | Login events target an account (`target.user.userid`); operational events are initiated by an actor (`principal.user.userid`). Metrics filters must match these dimensions. |
@@ -372,11 +372,11 @@ When generating multi-stage search queries, determine the analyst's analytical i
 
 ### 2. Recommended Search Time Ranges by Query Archetype (`timeline-modes-guide.md`)
 
-* **⚡ Mode A — Single-Day Snapshot (Default for Active Triage)**: **`[D0 00:00Z, now]`** (1 UTC day; or `[D-2 00:00Z, now]` + `timestamp.get_date(...) = "<D0>"` when joining `DERIVED_CONTEXT` / `GLOBAL_CONTEXT`).
-  * *Why:* Anchors the 30-day baseline strictly to `[D-31, D-1)` (or `[D-32, D-2)` for graph-joined queries) with zero self-contamination.
-* **📅 Mode B — Fixed-Baseline Timeline**: **`2 to 7 Days`** (`[D0 00:00Z, endTime]`, hard engine ceiling `<= 14d` for multi-stage queries) with `by 1d`.
-  * *Why:* Evaluates each UTC day in the 2–7d window against one shared 30-day baseline `[D0 - 30d, D0)` in a single `udm_search` call.
-* **🔁 Mode C — Per-Day Baseline Timeline (`run_command` present)**: **`2 to 14+ Days`** via 1-day `udm_search` shards collated by `scripts/timeline_assembler.py`.
+* **⚡ Mode A — Last Complete UTC Day Snapshot (Default for Active Triage)**: **`[yesterday 00:00Z, today 00:00Z)`** (1 complete UTC day; or **`[D-2 00:00Z, today 00:00Z)`** + `timestamp.get_date(...) = "<scored UTC day, YYYY-MM-DD>"` when joining `DERIVED_CONTEXT` / `GLOBAL_CONTEXT`). Optional **`"Today So Far"`** (`--today-so-far`, `[today 00:00Z, now]`) is an explicit partial-day option labeled low-biased against the full-day baseline.
+  * *Why:* Anchors the 30-day baseline strictly to `[yesterday-30d, yesterday)` (or `[D-32, D-2)` for graph-joined queries) with full-day vs full-day parity and zero self-contamination.
+* **📅 Mode B — Fixed-Baseline Timeline**: **`2 to 3 Days`** (default & cap 3 days; `[D0 00:00Z, endTime]` with `by 1d`).
+  * *Why:* Evaluates each UTC day in the 2–3d window against one shared 30-day baseline `[D0 - 30d, D0)` in a single `udm_search` call without excessive baseline staleness.
+* **🔁 Mode C — Per-Day Baseline Timeline (`run_command` present)**: **`Up to 30 Days`** (paced in batches of ≤10 shards) via 1-day `udm_search` shards collated by `scripts/timeline_assembler.py`.
   * *Why:* Gives every scored day `d_k` its own uncontaminated trailing 30-day baseline `[d_k - 30d, d_k)`.
 * **📐 Exception — `MAD` (`mad_robust_z_4stage.yl2` / `mad.yl2`)**: **`14 to 30 Days`** raw search window (1 event stage, so the 14-day multi-stage UDM join limit does not block a 30-day scan), gated by `$in_scoring_window = 1` in root `condition:`.
 
@@ -472,7 +472,7 @@ In Google SecOps, the **Entity Graph** pre-computes trailing prevalence context 
 1. **Source Type Filter**: Always set `$graph.graph.metadata.source_type = "DERIVED_CONTEXT"`.
 2. **Day Count Anchor**: Always set `$graph.graph.entity.<type>.prevalence.day_count = 10` to distinguish Prevalence from First/Last Seen records.
 3. **Non-Zero Bound**: Always include `rolling_max > 0` alongside `rolling_max <= 3` to avoid false positives on unpopulated entity stubs.
-4. **Mode A Freshness**: Set `startTime` to two days back at 00:00Z (D-2) and add `timestamp.get_date(metadata.event_timestamp.seconds) = "<today UTC, YYYY-MM-DD>"` to every event stage. A window that starts today 00:00Z overlaps no built prevalence records, so zero rows from it are a freshness gap, not a clean hunt. Mode B keeps its window and omits the date filter. See `references/entity-context-graph-guide.md`, Rule 5.
+4. **Mode A Freshness**: Set `startTime` to the scored UTC day minus 2 at `00:00:00Z` (`D-2`, with `endTime` = `today 00:00:00Z` by default, or `now` in explicit `"Today So Far"` / `--today-so-far`) and add `timestamp.get_date(metadata.event_timestamp.seconds) = "<scored UTC day, YYYY-MM-DD>"` to every event stage (`[D-32, D-2)` baseline shift disclosed). A window that starts today `00:00Z` overlaps no built prevalence records, so zero rows from it are a freshness gap, not a clean hunt. Mode B (2–3d) anchors `startTime` at `min(anchor_day, D-2)` with `timestamp.get_date(...) >= "<anchor_day>"`. See `references/entity-context-graph-guide.md`, Rule 5.
 
 ### 3. Hard Platform Limitation: 10-Day Period Invariant (`day_count = 10`):
 * **Platform Invariant**: In Google SecOps Entity Graph, prevalence tables are indexed strictly on a **fixed 10-day rolling window**.
@@ -857,7 +857,7 @@ Threat hunting follows a two-tier investigative lifecycle:
 
 ### Tier 1: Fleet/Vector Outlier Hunting (Broad Discovery)
 * **Goal**: Surface top anomalous identities or resources across an entire fleet or category on a specific vector (e.g. Cloud CRUD, Network Bytes, Authentication Spikes).
-* **Execution**: Single atomic multi-stage YARA-L query (Mode A current-day snapshot or Mode B 2–7d fixed-baseline timeline); Mode C runs that same query once per day (`timeline-modes-guide.md`).
+* **Execution**: Single atomic multi-stage YARA-L query (Mode A last complete UTC day snapshot by default — or explicit `"Today So Far"` — or Mode B 2–3d fixed-baseline timeline); Mode C runs that same query once per day up to 30 days (`timeline-modes-guide.md`).
 * **Reporting Standard**:
   * **Pillar 1**: Renders the distribution or timeline of the *target hunt itself* (e.g., bar chart of observed vs baseline $\mu$ for Mode A, or multi-day inception curve for Mode B).
   * **Pillars 2–5**: Ranked outlier summary & provenance stamp (Pillar 2), forensic vector breakdown & `[1]`/`[2]`/`[3]` next steps (Pillar 3), Chronicle UI manual pivot in `text` fence (Pillar 4), and collapsible technical appendix with the verbatim executed query (Pillar 5).
@@ -903,12 +903,12 @@ Under no circumstances should the assistant treat a follow-up query as a prompt 
    * If the entity is a display name with spaces, apply the **Identity Disambiguation Protocol** (spot-check $\le 5$ events; if 0 events match, halt and ask for technical account identifier).
 
 3. **Time Horizon Substitution & Anchor Mapping**:
-   * Standard snapshot queries operate in **Mode A** (current-day snapshot vs 30d baseline).
-   * Follow-up phrases such as *"looking backwards 14 days starting from [Date]"* or *"14-day timeline"* are timeline requests. Up to 7 days: **Mode B: Fixed-Baseline Timeline (`TIMELINE_BREAKDOWN`)**. Longer, or when per-day accuracy matters: **Mode C: Per-Day Baseline Timeline** if `run_command` is present; otherwise offer the 7-day Mode B and state that longer windows need a client that can run local scripts (`timeline-modes-guide.md`).
-   * **Date-Anchor Resolution** (Mode B, N ≤ 7 days):
+   * Standard snapshot queries operate in **Mode A** (last complete UTC day `[yesterday 00:00Z, today 00:00Z)` vs 30d baseline by default; or explicit `"Today So Far"` `[today 00:00Z, now)` with partial-day low-bias warning).
+   * Follow-up phrases such as *"looking backwards 14 days starting from [Date]"* or *"14-day timeline"* are timeline requests. For 2–3 days: **Mode B: Fixed-Baseline Timeline (`TIMELINE_BREAKDOWN`, capped at 3 days)**. Longer (>3 days, up to 30 days), or when per-day accuracy matters: **Mode C: Per-Day Baseline Timeline** if `run_command` is present; otherwise offer the 3-day Mode B and state that per-day baselines and timelines longer than 3 days need a client that can run local scripts (`timeline-modes-guide.md`).
+   * **Date-Anchor Resolution** (Mode B, N ≤ 3 days):
      $$\text{endTime} = \text{Anchor Date} + 1\text{d (e.g. 2026-08-19T00:00:00Z)}$$
-     $$\text{startTime} = \text{endTime} - N\text{d (e.g. 2026-08-12T00:00:00Z for N = 7)}$$
-     Mode C instead runs one shard per day in `[Anchor Date − N + 1, Anchor Date]`.
+     $$\text{startTime} = \text{endTime} - N\text{d (e.g. 2026-08-16T00:00:00Z for N = 3)}$$
+     Mode C instead runs one shard per day in `[Anchor Date − N + 1, Anchor Date]` (up to 30 days, paced in batches of ≤10).
    * **Timeline Query Semantics**: Multi-stage YARA-L groups daily observations with `match: $entity by 1d`. In one request every scored day reuses the single 30-day baseline anchored at `startTime` (`timeline-modes-guide.md` §1).
 
 4. **Follow-Up Clearance Protocol**:
@@ -921,7 +921,7 @@ When the analyst asks questions, requests methodological explanations, or adjust
 2. **Context Retention**: Maintain the active entity scope, telemetry vectors, and baseline configuration in working memory without restarting discovery.
 3. **Specification Refresh**: Present the refreshed Pre-Flight Hunting Specification Card reflecting updated thresholds or models.
 4. **Query Re-Verification**: When query logic changes, re-probe the event filter (`udm_search(query="<single_event_filter>", maxEvents=1)`; never the candidate) and display the updated candidate query block.
-5. **Prompt for Clearance**: Conclude by asking whether to proceed with Mode A (Today vs 30-Day Baseline) or Mode B (2–7 Day Fixed-Baseline Timeline), plus Mode C (Per-Day Baseline) when `run_command` is present, and yield the turn.
+5. **Prompt for Clearance**: Conclude by asking whether to proceed with Mode A (Last Complete UTC Day vs 30-Day Baseline, or explicit Mode A — Today So Far) or Mode B (2–3 Day Fixed-Baseline Timeline), plus Mode C (Per-Day Baseline) when `run_command` is present, and yield the turn.
 
 
 ---
@@ -1080,13 +1080,13 @@ To provide maximum analytical value without compromising mathematical integrity,
    Rather than attempting to calculate second-level timing across millions of raw events or relying solely on volume, the agent leverages **Entity Graph Derived Context** to screen for external destinations with isolated enterprise prevalence ($\le 3$ internal hosts over 10 days).
 2. **The Compilable Multi-Stage Query (`PIPE-09-PREVALENCE`)**:
    The query pairs raw `NETWORK_CONNECTION` events with `metrics.network_bytes_outbound` (for host-level historical context) and joins with `graph.entity.artifact.prevalence` (`rolling_max <= 3`, `day_count = 10`).
-   **Mode A window**: `startTime` two days back at 00:00Z (D-2), `endTime` now, and today's UTC date in the `get_date` line. A window that starts today 00:00Z matches no built graph days; zero rows from it are a freshness gap, not a clean hunt. For Mode B, delete the `get_date` line and keep the 2–7 day window (Rule 5, `references/entity-context-graph-guide.md`).
+   **Mode A window**: `startTime` at the scored UTC day minus 2 at `00:00:00Z` (`D-2`), `endTime` at `today 00:00:00Z` by default (or `now` in explicit `"Today So Far"` / `--today-so-far`), and the scored UTC date in the `get_date` line (`[D-32, D-2)` baseline shift disclosed). A window that starts today `00:00Z` matches no built graph days; zero rows from it are a freshness gap, not a clean hunt. For Mode B (2–3 days), anchor `startTime` at `min(anchor_day, D-2)` with `timestamp.get_date(...) >= "<anchor_day>"` (Rule 5, `references/entity-context-graph-guide.md`).
    ```yara
    // Stage 1: Measure outbound network connection activity and 30-day baseline per host and external IP
    stage host_egress {
        network.sent_bytes > 0
        network.sent_bytes < 1000000000000000
-       timestamp.get_date(metadata.event_timestamp.seconds) = "<today UTC, YYYY-MM-DD>"   // Mode A only
+       timestamp.get_date(metadata.event_timestamp.seconds) = "<scored UTC day, YYYY-MM-DD>"   // Mode A: startTime D-2 00:00Z
        principal.asset.hostname = $host
        target.ip = $dst_ip
 
@@ -1190,7 +1190,7 @@ To provide maximum analytical value without compromising mathematical integrity,
 
 ### A. The Hard Pre-Flight Clearance Gate (NO QUERY = NO CLEARANCE)
 A critical guardrail failure occurs when an agent presents a Pre-Flight Hunting Specification Card, omits the YARA-L query preview (due to probe failure or compiler hesitation), and yet proceeds to ask the Step 5 clearance question:
-> *"Would you like to run Mode A (Today vs 30-Day Baseline) or Mode B (2–7 Day Fixed-Baseline Timeline)?"* (add Mode C (Per-Day Baseline) when `run_command` is present)
+> *"Would you like to run Mode A (Last Complete UTC Day vs 30-Day Baseline) [or Mode A — Today So Far] or Mode B (2–3 Day Fixed-Baseline Timeline)?"* (add Mode C (Per-Day Baseline) when `run_command` is present)
 
 Under the **Hard Pre-Flight Clearance Gate**, this sequence is strictly prohibited:
 1. **Query Preview Is Mandatory for Clearance**: Step 5 clearance question MUST NEVER be asked unless a valid, compilable multi-stage YARA-L query has been successfully probed (200 OK via `udm_search`) and displayed in a ````yara code block under the Pre-Flight Card on that turn.
@@ -1284,7 +1284,7 @@ To operationalize advanced statistical models without tripping Chronicle's join 
   For rare binary or rare domain hunting, pair primary UDM telemetry with Entity Graph Derived Context:
   ```yara
   metadata.event_type = "PROCESS_LAUNCH"
-  timestamp.get_date(metadata.event_timestamp.seconds) = "<today UTC, YYYY-MM-DD>"   // Mode A: startTime D-2 00:00Z (Rule 5)
+  timestamp.get_date(metadata.event_timestamp.seconds) = "<scored UTC day, YYYY-MM-DD>"   // Mode A: startTime D-2 00:00Z, endTime today 00:00Z (Rule 5)
   principal.process.file.sha256 = $token
   $graph.graph.metadata.entity_type = "FILE"
   $graph.graph.metadata.source_type = "DERIVED_CONTEXT"
