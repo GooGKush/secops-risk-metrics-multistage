@@ -30,6 +30,8 @@ from .ueba_constants import (
     DEFAULT_ROBUST_THRESHOLD,
 )
 
+DEFAULT_TUKEY_EXCESS_THRESHOLD = 1.0
+
 # D8 / WS1-04: Per-metric fleet byte dispersion floors (median mature-entity stddev in bytes).
 DEFAULT_FLEET_BYTE_DISPERSION_FLOORS: Dict[str, float] = {
     "network_bytes_outbound": 44979.0,
@@ -652,9 +654,16 @@ class MultiStageTemplateRouter:
   #   {{fold_change_threshold}} fold-change gate for ratio models (Bayes Gamma, CV, ...), default 2.0
   #   {{fusion_threshold_sq}}   squared Euclidean distance D^2 for fusion / triads, default 12.25 (D >= 3.5)
   #   {{robust_threshold}}      MAD modified Z (Iglewicz-Hoaglin), default 3.5
-  GATE_PLACEHOLDERS = ("anomaly_threshold", "fold_change_threshold", "fusion_threshold_sq", "robust_threshold")
+  #   {{tukey_excess_threshold}} Quantile robust scale-excess above Bowley-adjusted Tukey fence, default 1.0
+  GATE_PLACEHOLDERS = (
+      "anomaly_threshold",
+      "fold_change_threshold",
+      "fusion_threshold_sq",
+      "robust_threshold",
+      "tukey_excess_threshold",
+  )
   _GATE_CLAUSE_RE = re.compile(
-      r"(\$[A-Za-z0-9_]+)\s*>=\s*\{\{(anomaly_threshold|fold_change_threshold|fusion_threshold_sq|robust_threshold)\}\}")
+      r"(\$[A-Za-z0-9_]+)\s*>=\s*\{\{(anomaly_threshold|fold_change_threshold|fusion_threshold_sq|robust_threshold|tukey_excess_threshold)\}\}")
   _ROOT_CONDITION_RE = re.compile(r"^condition:[ \t]*\n(.*?)(?=\n[ \t]*\n[ \t]*order:)", re.M | re.S)
 
   @classmethod
@@ -675,6 +684,7 @@ class MultiStageTemplateRouter:
       fold_change_threshold: float = DEFAULT_FOLD_CHANGE_THRESHOLD,
       fusion_threshold_sq: float = DEFAULT_FUSION_THRESHOLD_SQ,
       robust_threshold: float = DEFAULT_ROBUST_THRESHOLD,
+      tukey_excess_threshold: float = DEFAULT_TUKEY_EXCESS_THRESHOLD,
       min_threshold: Optional[float] = None,
       max_threshold: Optional[float] = None,
       condition_expression: Optional[str] = None,
@@ -716,6 +726,7 @@ class MultiStageTemplateRouter:
           "fold_change_threshold": fold_change_threshold,
           "fusion_threshold_sq": fusion_threshold_sq,
           "robust_threshold": robust_threshold,
+          "tukey_excess_threshold": tukey_excess_threshold,
       }
       for name, value in values.items():
         rendered = rendered.replace("{{" + name + "}}", str(value))
@@ -760,6 +771,7 @@ class MultiStageTemplateRouter:
         "fold_change_threshold": fold_change_threshold,
         "fusion_threshold_sq": fusion_threshold_sq,
         "robust_threshold": robust_threshold,
+        "tukey_excess_threshold": tukey_excess_threshold,
     }
     for name, value in values.items():
       rendered = rendered.replace("{{" + name + "}}", str(value))
@@ -965,6 +977,7 @@ class MultiStageTemplateRouter:
       scoring_end_date: Optional[str] = None,
       fold_change_threshold: float = DEFAULT_FOLD_CHANGE_THRESHOLD,
       robust_threshold: float = DEFAULT_ROBUST_THRESHOLD,
+      tukey_excess_threshold: float = DEFAULT_TUKEY_EXCESS_THRESHOLD,
       include_significance_gate: bool = True,
       byte_dispersion_floor: Optional[float] = None,
       identifier_coverage_payload: Optional[Any] = None,
@@ -1132,6 +1145,7 @@ class MultiStageTemplateRouter:
         anomaly_threshold=anomaly_threshold,
         fold_change_threshold=fold_change_threshold,
         robust_threshold=robust_threshold,
+        tukey_excess_threshold=tukey_excess_threshold,
         min_threshold=min_threshold,
         max_threshold=max_threshold,
         condition_expression=condition_expression,
@@ -1184,6 +1198,7 @@ class MultiStageTemplateRouter:
       identifier_field: Optional[str] = None,
       fold_change_threshold: float = DEFAULT_FOLD_CHANGE_THRESHOLD,
       fusion_threshold_sq: float = DEFAULT_FUSION_THRESHOLD_SQ,
+      tukey_excess_threshold: float = DEFAULT_TUKEY_EXCESS_THRESHOLD,
       include_significance_gate: bool = True,
       byte_dispersion_floor: Optional[float] = None,
       identifier_coverage_payload: Optional[Any] = None,
@@ -1224,6 +1239,7 @@ class MultiStageTemplateRouter:
         anomaly_threshold=anomaly_threshold,
         fold_change_threshold=fold_change_threshold,
         fusion_threshold_sq=fusion_threshold_sq,
+        tukey_excess_threshold=tukey_excess_threshold,
         min_threshold=min_threshold,
         max_threshold=max_threshold,
         condition_expression=condition_expression,

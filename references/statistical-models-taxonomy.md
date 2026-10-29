@@ -318,12 +318,12 @@ Before running a multi-stage statistical hunt, explain the approach to the secur
 
 ---
 
-## 17B. 1-Stage Non-Parametric Quantiles, Bowley Skewness & Skew-Adjusted Tukey Fence (`QUANTILE_IQR_SKEW`)
+## 17B. 1-Stage Non-Parametric Quantiles, Bowley Skewness & Skew-Adjusted Tukey Scale-Excess (`QUANTILE_IQR_SKEW`)
 * **Security Problem Solved**: Computes a 5-point empirical quantile envelope ($P_{10}, Q_{25}, Q_{50}, Q_{75}, P_{90}$) in **1 intermediate stage** (`stage quantile_envelope` via `window.percentile`) instead of the 2 stages required by `MAD` (`mad_center` $\to$ `mad_spread`), saving a full stage and join slot for Entity Context Graph (`DERIVED_CONTEXT` / `GLOBAL_CONTEXT`) or peer-cohort enrichment while adjusting the Tukey upper fence for right-skewed baselines.
-* **Mathematical Formulation** (Bowley 1920; Moors 1988; Hubert & Vandervieren 2008):
+* **Mathematical Formulation** (Bowley 1920; Moors 1988; Hubert & Vandervieren 2008 recalibrated for Bowley $B_{\text{skew}} \in [-1, +1]$):
   $$\text{IQR} = Q_{75} - Q_{25}, \quad B_{\text{skew}} = \frac{Q_{75} + Q_{25} - 2 Q_{50}}{\text{IQR}_{\text{safe}}}, \quad T_{\text{ratio}} = \frac{P_{90} - P_{10}}{\text{IQR}_{\text{safe}}}$$
-  $$\text{Fence}_{\text{adj}} = Q_{75} + 1.5 \cdot e^{3 \cdot \max(0, B_{\text{skew}})} \cdot \text{IQR}_{\text{safe}}, \quad \text{Ratio} = \frac{x}{\max(\text{Fence}_{\text{adj}}, 1.0)}$$
-* **Threat Meaning**: Flags heavy-tailed breakouts (`$tukey_fence_ratio >= 2.0`) alongside the classical 30d `metrics.*` `$personal_z` cross-check and diagnoses whether historical right-skew ($B_{\text{skew}} > 0.25$, $T_{\text{ratio}} > 2.5$) masked the entity's parametric mean/stddev.
+  $$\text{Fence}_{\text{adj}} = Q_{75} + 1.5 \cdot e^{1.35 \cdot \max(0, B_{\text{skew}})} \cdot \text{IQR}_{\text{safe}}, \quad \sigma_{\text{IQR}} = \frac{\text{IQR}_{\text{safe}}}{1.349}, \quad Z_{\text{excess}} = \frac{x - \text{Fence}_{\text{adj}}}{\sigma_{\text{IQR}}}$$
+* **Threat Meaning**: Flags heavy-tailed breakouts (`$tukey_excess_z >= 1.0`) alongside the pre-scoring raw active-day `$personal_z` cross-check (`WS1-03`) without near-zero fence-ratio blowups or uncalibrated medcouple exponential inflation.
 
 ---
 

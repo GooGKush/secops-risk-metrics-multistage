@@ -14,10 +14,11 @@
 //   IQR = Q75 - Q25,  safe_IQR = max(IQR, 0.05 * Q50 + 1.0)
 //   Bowley Quartile Skewness: B_skew = (Q75 + Q25 - 2 * Q50) / safe_IQR   in [-1, +1]
 //   Interdecile-to-Interquartile Tail-Heaviness Ratio: T_ratio = (P90 - P10) / safe_IQR   (Gaussian = 1.90)
-//   Skewness-Adjusted Tukey Upper Fence:
-//     adj_upper_fence = Q75 + 1.5 * exp(3.0 * max(0, B_skew)) * safe_IQR
-//   tukey_fence_ratio = observed / max(adj_upper_fence, 1.0)
-//   Default significance gate: tukey_fence_ratio >= 2.0 (2x the skewness-adjusted upper fence).
+//   Skewness-Adjusted Tukey Upper Fence (recalibrated for Bowley B_skew in [-1, +1]):
+//     adj_upper_fence = Q75 + 1.5 * exp(1.35 * max(0, B_skew)) * safe_IQR
+//   robust_scale = safe_IQR / 1.349
+//   tukey_excess_z = (observed - adj_upper_fence) / robust_scale
+//   Default significance gate: tukey_excess_z >= 1.0 (1+ robust-sigma scale excess above fence).
 //   WS1-03 Cross-Check: $personal_z uses pre-scoring raw active-day sample statistics ($in_scoring_window = 0).
 stage quantile_envelope {
     $entity = $stage1_extract.entity
@@ -77,13 +78,13 @@ outcome:
   $bowley_skew = ($q75_val + $q25_val - (2.0 * $q50_val)) / $safe_iqr
   $tail_heaviness = (max($quantile_envelope.p90) - max($quantile_envelope.p10)) / $safe_iqr
 
-  // 3. Hubert-Vandervieren Skewness-Adjusted Tukey Upper Fence & Fence Breakout Ratio
-  $adj_upper_fence = $q75_val + (1.5 * math.pow(2.718281828, 3.0 * if($bowley_skew > 0, $bowley_skew, 0.0)) * $safe_iqr)
-  $safe_fence = if($adj_upper_fence > 0, $adj_upper_fence, 1.0)
-  $tukey_fence_ratio = $observed / $safe_fence
+  // 3. Hubert-Vandervieren Skewness-Adjusted Tukey Upper Fence (Bowley 1.35) & Robust Scale-Excess
+  $adj_upper_fence = $q75_val + (1.5 * math.pow(2.718281828, 1.35 * if($bowley_skew > 0, $bowley_skew, 0.0)) * $safe_iqr)
+  $robust_scale = $safe_iqr / 1.349
+  $tukey_excess_z = ($observed - $adj_upper_fence) / $robust_scale
 
 condition:
-  $in_scoring_window = 1 and $raw_active_days >= {{min_baseline_days}} and $tukey_fence_ratio >= {{fold_change_threshold}}
+  $in_scoring_window = 1 and $raw_active_days >= {{min_baseline_days}} and $tukey_excess_z >= {{tukey_excess_threshold}}
 
 order:
-  $tukey_fence_ratio desc
+  $tukey_excess_z desc

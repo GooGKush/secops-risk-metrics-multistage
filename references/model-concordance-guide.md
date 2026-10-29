@@ -41,7 +41,7 @@ In multi-stage hunting workflows:
 | 15 | `MACD_MOMENTUM_VELOCITY` | Above-Historical-Max Z (Linear Peak Exceedance) | `$personal_diff`, `$safe_stddev`, `$personal_z`, `$exceed_raw`, `$exceed_pos`, `$above_max_z`, `$macd_z`, `$macd_momentum_score` | Linear peak exceedance (`$above_max_z = max(0, obs - hist_max) / safe_stddev`, `$macd_z = $personal_z + $above_max_z`) | `order: $macd_z desc` | Quadratic `* $velocity_ratio` byte overflow or dropping `$personal_z` |
 | 16 | `CIRCADIAN_VON_MISES` *(RETIRED D1)* | Retired — Hand off to `HOUR_OF_DAY_PROFILE` | — | Handed off to `secops-statistical-hunter` `HOUR_OF_DAY_PROFILE` (`PF-10` / `WS2-02`) | — | Comparing 1h counts or fixed 14:00 UTC centers against 24h `metrics.*` baselines |
 | 17 | `RELATIVE_DEVIATION` | Relative Deviation / Fold Change vs 30d Mean | `$dev`, `$safe_hist_avg`, `$ratio` | $(x-\mu)/\mu$ fold change | `order: $ratio desc` | Labelling it MAD (it is mean-anchored, 0% breakdown point) |
-| 18 | `QUANTILE_IQR_SKEW` | 1-Stage Non-Parametric Quantiles, Bowley Skewness & Skew-Adjusted Tukey Fence | `$q25_val`, `$q50_val`, `$q75_val`, `$iqr`, `$safe_iqr`, `$bowley_skew`, `$tail_heaviness`, `$adj_upper_fence`, `$tukey_fence_ratio` | `window.percentile` 5-point envelope in 1 stage, Bowley skewness, Hubert–Vandervieren fence | `order: $tukey_fence_ratio desc` | Consuming 2 stages when 1-stage quantile envelope suffices |
+| 18 | `QUANTILE_IQR_SKEW` | 1-Stage Non-Parametric Quantiles, Bowley Skewness & Skew-Adjusted Tukey Scale-Excess | `$q25_val`, `$q50_val`, `$q75_val`, `$iqr`, `$safe_iqr`, `$bowley_skew`, `$tail_heaviness`, `$adj_upper_fence`, `$robust_scale`, `$tukey_excess_z` | `window.percentile` 5-point envelope in 1 stage, Bowley `1.35` fence, `(obs - fence) / (IQR / 1.349)` | `order: $tukey_excess_z desc` | Using `e^{3.0 * B_skew}` medcouple constant on Bowley `B` or `obs / fence` near-zero ratio |
 
 ### 2.1 Default Root Significance Gate (the card's `Significance Threshold`)
 
@@ -65,7 +65,7 @@ Every query carries the model's significance gate as a root `condition:` placed 
 | `COEFFICIENT_OF_VARIATION` | `$active_days`, `$surge_ratio`, `$cv` | `$active_days >= 7 and $surge_ratio >= 2.0 and $cv <= 0.5` | fold change on a predictable entity | `>= 2.0× baseline, CV <= 0.5` | `{{fold_change_threshold}}` |
 | `RELATIVE_DEVIATION` | `$fold_change` | `$fold_change >= 2.0` (ranked by `$ratio`) | fold change | `>= 2.0× baseline` | `{{fold_change_threshold}}` |
 | `MAD` | `$modified_z` | `... and $modified_z >= 3.5` (AND-ed with the scoring-window and sample-size gates) | modified Z | `Modified Z >= 3.5` | `{{robust_threshold}}` |
-| `QUANTILE_IQR_SKEW` | `$tukey_fence_ratio` | `$in_scoring_window = 1 and $raw_active_days >= 7 and $tukey_fence_ratio >= 2.0` | fold over fence | `Skew-Adjusted Fence >= 2.0×` | `{{fold_change_threshold}}` |
+| `QUANTILE_IQR_SKEW` | `$tukey_excess_z` | `$in_scoring_window = 1 and $raw_active_days >= 7 and $tukey_excess_z >= 1.0` | robust scale-excess | `Tukey Scale-Excess >= 1.0` | `{{tukey_excess_threshold}}` |
 | `VARIANCE` (Fano) | — | **none** (`// NO-GATE`) | — | `N/A (dispersion screen)` | — |
 
 * **Why fold change for the ratio models**: their scores are not in σ, and a fold change ("2× the usual") needs no statistical background to read. The 2.0× default is a convention, not a calibrated tail probability. Tune it like any other threshold.
@@ -516,14 +516,15 @@ outcome:
   $iqr = $q75_val - $q25_val
   $bowley_skew = ($q75_val + $q25_val - (2.0 * $q50_val)) / $safe_iqr
   $tail_heaviness = (max($quantile_envelope.p90) - max($quantile_envelope.p10)) / $safe_iqr
-  $adj_upper_fence = $q75_val + (1.5 * math.pow(2.718281828, 3.0 * $pos_skew) * $safe_iqr)
-  $tukey_fence_ratio = $observed / $safe_fence
+  $adj_upper_fence = $q75_val + (1.5 * math.pow(2.718281828, 1.35 * if($bowley_skew > 0, $bowley_skew, 0.0)) * $safe_iqr)
+  $robust_scale = $safe_iqr / 1.349
+  $tukey_excess_z = ($observed - $adj_upper_fence) / $robust_scale
 
 condition:
-  $in_scoring_window = 1 and $raw_active_days >= 7 and $tukey_fence_ratio >= 2.0
+  $in_scoring_window = 1 and $raw_active_days >= 7 and $tukey_excess_z >= 1.0
 
 order:
-  $tukey_fence_ratio desc
+  $tukey_excess_z desc
 ```
 
 ---

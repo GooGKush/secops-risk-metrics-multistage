@@ -298,6 +298,7 @@ class SubmissionTestSuite:
     rendered = rendered.replace("{{fold_change_threshold}}", "2.0")
     rendered = rendered.replace("{{fusion_threshold_sq}}", "12.25")
     rendered = rendered.replace("{{robust_threshold}}", "3.5")
+    rendered = rendered.replace("{{tukey_excess_threshold}}", "1.0")
     rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
     rendered = rendered.replace(
         "{{first_scored_date}}", datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d"))
@@ -851,6 +852,7 @@ order:
         "anomaly_threshold",
         "fold_change_threshold",
         "robust_threshold",
+        "tukey_excess_threshold",
         "first_scored_date",
     }
     for p in sorted(s1_dir.glob("*.yl2")):

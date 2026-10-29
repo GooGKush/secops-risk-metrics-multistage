@@ -78,7 +78,7 @@ DEFAULT_SIGNIFICANCE_GATES: Dict["StatisticalModel", str] = {
     StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD: "Z >= context threshold",
     StatisticalModel.MACD_MOMENTUM_VELOCITY: "Above-Max Z >= 3.0σ",
     StatisticalModel.CIRCADIAN_VON_MISES: "RETIRED (D1 -> HOUR_OF_DAY_PROFILE)",
-    StatisticalModel.QUANTILE_IQR_SKEW: "Skew-Adjusted Fence >= 2.0×",
+    StatisticalModel.QUANTILE_IQR_SKEW: "Tukey Scale-Excess >= 1.0",
 }
 
 
@@ -1577,9 +1577,10 @@ class MalachiteASTValidator:
       if "$historical_stddev" in query_text and re.search(r"0\.6745\s*\*\s*\([^)]*\)\s*/\s*[^\n]*stddev", query_text):
         errors.append("MODEL_FORMULA_MISMATCH: 0.6745 * (x - mean) / stddev is a rescaled classical Z, not MAD.")
     elif model == StatisticalModel.QUANTILE_IQR_SKEW:
-      if "window.percentile(" not in clean_query:
+      if "window.percentile(" not in clean_query or "$tukey_excess_z" not in clean_query:
         errors.append(
-            "MODEL_FORMULA_MISMATCH: QUANTILE_IQR_SKEW model must compute empirical quantiles via window.percentile(...)."
+            "MODEL_FORMULA_MISMATCH: QUANTILE_IQR_SKEW model must compute empirical quantiles via "
+            "window.percentile(...) and robust scale-excess $tukey_excess_z."
         )
     elif model == StatisticalModel.RELATIVE_DEVIATION:
       if "$ratio" not in query_text:

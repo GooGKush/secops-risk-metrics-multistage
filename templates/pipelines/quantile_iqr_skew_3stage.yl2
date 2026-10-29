@@ -104,13 +104,13 @@ outcome:
   $bowley_skew = ($q75_val + $q25_val - (2.0 * $q50_val)) / $safe_iqr
   $tail_heaviness = (max($quantile_envelope.p90) - max($quantile_envelope.p10)) / $safe_iqr
 
-  // 3. Hubert-Vandervieren Skewness-Adjusted Tukey Upper Fence & Fence Breakout Ratio
-  $adj_upper_fence = $q75_val + (1.5 * math.pow(2.718281828, 3.0 * if($bowley_skew > 0, $bowley_skew, 0.0)) * $safe_iqr)
-  $safe_fence = if($adj_upper_fence > 0, $adj_upper_fence, 1.0)
-  $tukey_fence_ratio = $observed / $safe_fence
+  // 3. Hubert-Vandervieren Skewness-Adjusted Tukey Upper Fence (Bowley 1.35) & Robust Scale-Excess
+  $adj_upper_fence = $q75_val + (1.5 * math.pow(2.718281828, 1.35 * if($bowley_skew > 0, $bowley_skew, 0.0)) * $safe_iqr)
+  $robust_scale = $safe_iqr / 1.349
+  $tukey_excess_z = ($observed - $adj_upper_fence) / $robust_scale
 
 condition:
-  $in_scoring_window = 1 and $raw_active_days >= {{min_baseline_days}} and $tukey_fence_ratio >= {{fold_change_threshold}}
+  $in_scoring_window = 1 and $raw_active_days >= {{min_baseline_days}} and $tukey_excess_z >= {{tukey_excess_threshold}}
 
 order:
-  $tukey_fence_ratio desc
+  $tukey_excess_z desc
