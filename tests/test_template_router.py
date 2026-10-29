@@ -1228,6 +1228,103 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
     self.assertEqual(creeping["drift_days"], 4)
     self.assertTrue(creeping["alerts"])
 
+  def test_ws3_hurdle_awakening_volume_hist_max_and_maya_goodman_ranking(self):
+    """WS3-HURDLE: Dormant branch requires min_awakening_volume & > hist_max; maya.goodman scores 0 below charles.hardy."""
+    from scripts.preflight_validator import MalachiteASTValidator
+    from scripts.statistical_validator import StatisticalAntipatternAuditor
+    import scripts.ueba_hybrid_engine as engine_mod
+
+    q_default = self.router.build_query(
+        target_metric="auth_attempts_total",
+        entity_type=EntityType.USER,
+        statistical_model=StatisticalModel.TWO_PART_HURDLE,
+    )
+    self.assertIn("$hist_max = max($stage1_extract.historical_max)", q_default)
+    self.assertIn("$dormant_days = 30.0 - $active_days", q_default)
+    self.assertIn("$is_dormant_awakening = if($active_days < 7 and $observed >= 25 and $observed > $hist_max, 1.0, 0.0)", q_default)
+    self.assertIn("$intensity_z = if($raw_z > 0.0, $raw_z, 0.0)", q_default)
+    self.assertIn("$hurdle_threat_score = if($active_days < 7, $dormant_score, $intensity_z)", q_default)
+    self.assertEqual(MultiStageTemplateRouter.root_condition(q_default), "$hurdle_threat_score >= 3.0")
+    self.assertEqual(MalachiteASTValidator.validate_query(q_default), [])
+    self.assertEqual(MalachiteASTValidator.validate_model_concordance(q_default, StatisticalModel.TWO_PART_HURDLE), [])
+    self.assertEqual(StatisticalAntipatternAuditor.audit_query(q_default), [])
+
+    # Custom min_awakening_volume slot override via router & compile_hunt_pipeline
+    q_custom = self.router.build_query(
+        target_metric="auth_attempts_total",
+        entity_type=EntityType.USER,
+        statistical_model=StatisticalModel.TWO_PART_HURDLE,
+        min_awakening_volume=50,
+    )
+    self.assertIn("$observed >= 50 and $observed > $hist_max", q_custom)
+    compiled = engine_mod.compile_hunt_pipeline(
+        statistical_model="TWO_PART_HURDLE",
+        metrics="auth_attempts_total",
+        entity_type="USER",
+        min_awakening_volume=40,
+    )
+    self.assertTrue(compiled["ast_valid"])
+    self.assertIn("$observed >= 40 and $observed > $hist_max", compiled["compiled_query"])
+
+    # V-live maya.goodman (obs=4, n=2, hist_avg=50.5, hist_sd=65.76, hist_max=97) vs charles.hardy (obs=785, n=10, avg=164.6, sd=114.49, max=350)
+    maya_score = engine_mod.calculate_two_part_hurdle(
+        observed_val=4.0,
+        baseline_mean=50.5,
+        baseline_stddev=65.76,
+        active_days=2,
+        hist_max=97.0,
+    )
+    charles_score = engine_mod.calculate_two_part_hurdle(
+        observed_val=785.0,
+        baseline_mean=164.6,
+        baseline_stddev=114.49,
+        active_days=10,
+        hist_max=350.0,
+    )
+    self.assertEqual(maya_score, 0.0)
+    self.assertGreater(charles_score, 5.4)
+    self.assertGreater(charles_score, maya_score)
+
+    # Active entity with negative Z is rectified to 0.0
+    neg_active = engine_mod.calculate_two_part_hurdle(
+        observed_val=50.0,
+        baseline_mean=100.0,
+        baseline_stddev=15.0,
+        active_days=20,
+        hist_max=140.0,
+    )
+    self.assertEqual(neg_active, 0.0)
+
+    # Genuine dormant awakening (obs=50 >= 25 and obs=50 > hist_max=10, n=2) alerts (>= 3.0) + supports optional last_seen dormancy
+    awaken_details = engine_mod.calculate_two_part_hurdle_details(
+        observed_val=50.0,
+        baseline_mean=10.0,
+        baseline_stddev=0.0,
+        active_days=2,
+        hist_max=10.0,
+        last_seen_seconds=1700000000.0,
+        eval_timestamp_seconds=1700000000.0 + 18.0 * 86400.0,
+    )
+    self.assertTrue(awaken_details["is_dormant_awakening"])
+    self.assertGreaterEqual(awaken_details["hurdle_threat_score"], 3.0)
+    self.assertAlmostEqual(awaken_details["dormant_days"], 18.0, places=4)
+    self.assertFalse(awaken_details["is_true_sigma"])
+
+    # Dossier ranking: hurdle_threat_score is NOT formatted with sigma and charles.hardy ranks above maya.goodman
+    dossier = engine_mod.render_forensic_dossier(
+        rows=[
+            {"entity": "maya.goodman", "observed": 4, "hist_avg": 50.5, "hist_stddev": 65.76, "active_days": 2, "hurdle_threat_score": maya_score},
+            {"entity": "charles.hardy", "observed": 785, "hist_avg": 164.6, "hist_stddev": 114.49, "active_days": 10, "hurdle_threat_score": charles_score},
+        ],
+        executed_query=q_default,
+        statistical_model="TWO_PART_HURDLE",
+        metric_name="auth_attempts_total",
+        entity_type="USER",
+    )
+    self.assertEqual(dossier["outliers"][0]["entity"], "charles.hardy")
+    self.assertFalse(dossier["outliers"][0]["is_true_sigma"])
+    self.assertNotIn("σ", dossier["outliers"][0]["score_display"])
+
 
 if __name__ == "__main__":
   unittest.main()

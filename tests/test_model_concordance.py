@@ -143,9 +143,25 @@ MODEL_AST_CONTRACTS = {
     },
     StatisticalModel.TWO_PART_HURDLE: {
         "template": "two_part_hurdle.yl2",
-        "mandatory_vars": ["$is_dormant_awakening", "$raw_diff", "$safe_stddev", "$intensity_z", "$obs_plus_one", "$log_obs", "$dormant_score", "$hurdle_threat_score"],
+        "mandatory_vars": [
+            "$hist_max",
+            "$mu_cal",
+            "$dormant_days",
+            "$is_dormant_awakening",
+            "$awakening_ratio",
+            "$dormant_score",
+            "$safe_stddev",
+            "$raw_z",
+            "$intensity_z",
+            "$hurdle_threat_score",
+        ],
         "order_var": "$hurdle_threat_score",
-        "required_ops": ["$is_dormant_awakening = if($active_days <= 2 and $observed > 0", "$dormant_score = 10.0 + $log_obs", "$hurdle_threat_score = if($active_days <= 2"],
+        "required_ops": [
+            "$is_dormant_awakening = if($active_days <",
+            "$observed > $hist_max",
+            "$intensity_z = if($raw_z > 0.0, $raw_z, 0.0)",
+            "$hurdle_threat_score = if($active_days <",
+        ],
         "prohibited_substitutions": ["$personal_z"],
     },
     StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z: {

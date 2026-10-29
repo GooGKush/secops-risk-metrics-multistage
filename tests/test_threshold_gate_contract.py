@@ -50,7 +50,7 @@ EXPECTED_DEFAULT_GATES = {
     StatisticalModel.MACD_MOMENTUM_VELOCITY: "$active_days >= 7 and $macd_z >= 3.0",
     StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD: "$active_days >= 7 and $sensitivity_excess >= 0.0",
     StatisticalModel.LONGITUDINAL_CUSUM: "$active_days >= 7 and $cusum_drift_score >= 3.0 and $drift_days >= 2",
-    StatisticalModel.TWO_PART_HURDLE: "$active_days <= 2 or $intensity_z >= 3.0",
+    StatisticalModel.TWO_PART_HURDLE: "$hurdle_threat_score >= 3.0",
     StatisticalModel.BAYESIAN_GAMMA: "$bayesian_z >= 3.0",
     StatisticalModel.BAYESIAN_BETA_BINOMIAL: "$beta_binomial_z >= 3.0",
     StatisticalModel.COEFFICIENT_OF_VARIATION: "$active_days >= 7 and $surge_ratio >= 2.0 and $cv <= 0.5",
@@ -151,8 +151,10 @@ class RouterGateTest(unittest.TestCase):
         "$active_days >= 7 and ($personal_z >= 2.0 and $personal_z < 3.0)",
     )
     q = self._q(StatisticalModel.TWO_PART_HURDLE, min_threshold=2.0, max_threshold=3.0)
-    self.assertEqual(MultiStageTemplateRouter.root_condition(q),
-                     "$active_days <= 2 or ($intensity_z >= 2.0 and $intensity_z < 3.0)")
+    self.assertEqual(
+        MultiStageTemplateRouter.root_condition(q),
+        "$hurdle_threat_score >= 2.0 and $hurdle_threat_score < 3.0",
+    )
 
   def test_fold_change_override_uses_the_gate_variable(self):
     q = self._q(StatisticalModel.RELATIVE_DEVIATION, min_threshold=3.0)
