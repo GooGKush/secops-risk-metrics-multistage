@@ -309,8 +309,8 @@ order:
   $beta_binomial_z desc
 ```
 
-### 9. `LONGITUDINAL_CUSUM` (`longitudinal_cusum.yl2` & `longitudinal_cusum_2stage.yl2`)
-* **Hypothesis**: Slow, low-and-slow creeping drift that evades 3-sigma single-day thresholds. (`longitudinal_cusum.yl2` extracts per-day positive slack excess on mature entities (`$active_days >= 7`) in `stage2_daily_drift` and computes the lossless Windowed Slack Sum $W = \sum \max(0, Z_t - 0.5)$ across the multi-day window in the Root Stage (`WS6-01`); `scripts/timeline_assembler.py` computes true sequential Page's CUSUM $S_t = \max(0, S_{t-1} + Z_t - k)$.)
+### 9. `LONGITUDINAL_CUSUM` (`longitudinal_cusum.yl2`, `longitudinal_cusum_2stage.yl2` & `longitudinal_cusum_series_3stage.yl2`)
+* **Hypothesis**: Slow, low-and-slow creeping drift across multi-day horizons (**Mode A blocked** — single-day CUSUM raises an error) that evades $3\sigma$ single-day gates (`WS6-01`). `longitudinal_cusum.yl2` / `longitudinal_cusum_2stage.yl2` extracts per-day positive slack excess on mature entities (`$active_days >= 7`) and computes the lossless **Windowed Slack Sum** prefilter $W = \sum \max(0, Z_t - 0.5)$ ($S_t \le W$, so entities with $W < h$ cannot alarm). For **up to 14 days**, `longitudinal_cusum_series_3stage.yl2` emits the ungated per-day series from the same start-anchored query into `scripts/cusum_helper.py` (`calculate_page_cusum_series`, quiet `0`-event day reconstruction, $k = 0.5$, ARL-calibrated $h = 4.0$ `BALANCED` [$\text{ARL}_0 \approx 336$], $5.0$ `HIGH_PRECISION` [$\text{ARL}_0 \approx 930$], $3.0$ `HIGH_RECALL`). For **longer than 14 days**, run ungated Mode C daily shards limited to candidate entities; `scripts/cusum_helper.py` re-standardizes every day against **Shard 1's fixed calendar-day baseline** (`rebuild_calendar_day_stats`, `WS1-05`) with explicit reference reset controls (`--reset-on`, `--reset-after-alarm`, `--reset-every-days`).
 * **Mandatory AST Contract**:
 ```yara
 stage stage2_daily_drift {

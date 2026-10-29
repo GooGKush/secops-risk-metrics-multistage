@@ -1,8 +1,10 @@
 // Stage 2: Daily Standardized Slack-Excess Drift Extraction — Windowed Slack Sum Prefilter (by 1d)
-// Note: YARA-L 2.0 cannot carry recursive S_{t-1} state across time buckets; this stage computes
-// per-day positive drift excess max(0, Z_t - 0.5) for mature baselines ($active_days >= {{min_baseline_days}})
-// and the Root Stage computes the Windowed Slack Sum W = sum(max(0, Z_t - 0.5)) across the multi-day window (WS6-01).
-// True recursive Page's CUSUM (S_t = max(0, S_{t-1} + Z_t - k)) is accumulated in Python (timeline_assembler.py).
+// Note: Mode A is blocked (single-day CUSUM raises an error). YARA-L 2.0 cannot carry recursive S_{t-1}
+// state across time buckets; this stage computes per-day positive drift excess max(0, Z_t - 0.5) for mature
+// baselines ($active_days >= {{min_baseline_days}}) and the Root Stage computes the lossless Windowed Slack Sum
+// W = sum(max(0, Z_t - 0.5)) (S_t <= W, WS6-01). True recursive Page's CUSUM S_t = max(0, S_{t-1} + Z_t - k)
+// is evaluated by scripts/cusum_helper.py: <=14d via longitudinal_cusum_series_3stage.yl2 (with quiet 0-day
+// reconstruction), and >14d via ungated candidate Mode C shards re-standardized against Shard 1's fixed baseline.
 stage stage2_daily_drift {
     $entity = $stage1_extract.entity
     $day_ws = $stage1_extract.window_start

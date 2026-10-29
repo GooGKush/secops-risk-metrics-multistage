@@ -7,9 +7,11 @@
 // Theorem: Because Page's one-sided recursion S_t = max(0, S_{t-1} + Z_t - k) never exceeds
 //          W = sum(max(0, Z_t - k)) on any sequence (including quiet 0-event days where Z_t < 0),
 //          any entity with W < h is mathematically guaranteed to have max_t S_t < h.
-// Companion Helper: Pass raw udm_search JSON output + query file to scripts/cusum_helper.py,
-//          which reconstructs silent 0-event calendar days (Z_t = (0 - mu)/safe_sigma < 0)
-//          and evaluates Page's exact recursion S_t against ARL-calibrated threshold h.
+// Companion Helper: Mode A is blocked (single-day CUSUM raises an error). For <=14d, pass raw udm_search
+//          JSON output + query file to scripts/cusum_helper.py, which reconstructs silent 0-event calendar
+//          days (Z_t = (0 - mu)/safe_sigma < 0) and evaluates Page's exact recursion S_t against ARL-calibrated
+//          threshold h (4.0 BALANCED, 5.0 HIGH_PRECISION, 3.0 HIGH_RECALL). For >14d, run ungated candidate
+//          Mode C shards re-standardized against Shard 1's fixed calendar-day baseline in scripts/cusum_helper.py.
 // ============================================================================
 
 // Stage 1: Daily Standardized Deviation Extractor (1 metrics.* join)

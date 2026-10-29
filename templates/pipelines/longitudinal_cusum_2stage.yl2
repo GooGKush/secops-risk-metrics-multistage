@@ -1,11 +1,13 @@
 // ============================================================================
 // ARCHITECTURE: 2-STAGE WINDOWED SLACK SUM (LONGITUDINAL CUSUM PREFILTER) PIPELINE
 // Skill: secops-risk-metrics-multistage
-// Purpose: Detects quiet, low-and-slow behavioral drift across up to 14 days (multi-stage search limit)
-//          using the lossless Windowed Slack Sum prefilter W = sum(max(0, Z_t - 0.5)) (WS6-01).
-//          One request anchors ONE 30d baseline at its start day, so every day is scored against the
-//          same pre-window reference: the fixed reference CUSUM needs.
-// Formula: W = sum(max(0, ((x_t - mu) / safe_sigma) - 0.5)); Page's S_t <= W computed in timeline_assembler.py.
+// Purpose: Lossless Windowed Slack Sum prefilter W = sum(max(0, Z_t - 0.5)) on mature entities
+//          ($active_days >= 7) across multi-day horizons (WS6-01; Mode A blocked — single-day raises error).
+//          Because Page's S_t <= W, entities with W < h cannot alarm.
+// Execution: <=14d emits ungated per-day series from start-anchored longitudinal_cusum_series_3stage.yl2
+//          into scripts/cusum_helper.py (quiet 0-event day reconstruction, ARL-calibrated h = 4.0/5.0/3.0);
+//          >14d runs ungated candidate Mode C shards re-standardized against Shard 1's fixed calendar-day
+//          baseline (rebuild_calendar_day_stats) in scripts/cusum_helper.py with reset controls.
 // event_filter slot: the metric's "Observed event filter" lines from references/metric-sector-catalog.md, one per line.
 // Telemetry Metric Mappings:
 //   - DNS Query Volume (Counts): metrics.dns_queries_total (metric: event_count_sum, obs: count(metadata.id))
