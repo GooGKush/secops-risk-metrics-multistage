@@ -31,7 +31,7 @@ UTC throughout; `metrics.*` are `00:00Z` day buckets. `startTime`/`endTime` pick
 
 1. **Mode A: Last Complete UTC Day Snapshot (`FLEET_ROLLUP`)**: Default `[yesterday 00:00Z, today 00:00Z)` vs trailing 30d baseline (`window: 30d`, full-day vs full-day). Optional **"Today So Far"** (`today 00:00Z`→now, `--today-so-far`) is labeled `Partial UTC Day — Low-Biased vs Full-Day Baseline` on the Pre-Flight Card and Pillar 3 (never scale counts by elapsed day fraction). Target dates (e.g. "Aug 12") auto-bypass Mode B.
 2. **Mode B: Fixed-Baseline Timeline (`TIMELINE_BREAKDOWN`)**: 2–3 days, one query (`match: $entity by 1d`, default & cap 3 days; >3d redirects to Mode C when `run_command` is present), start ≤1y ago.
-3. **Mode C: Per-Day Baseline Timeline** (`run_command` present only): one query per UTC day, each vs its own trailing 30d, collated by `scripts/timeline_assembler.py`.
+3. **Mode C: Per-Day Baseline Timeline** (`run_command` present only): up to 30 days (paced in batches of ≤10 shards), one query per UTC day, each vs its own trailing 30d, collated by `scripts/timeline_assembler.py`. **Sustained-Attack Fade Caveat (D10)**: trailing 30d baselines absorb sustained attacks by inflating σ (+3σ reads ≈2.5σ on day 2; +6σ stays >3σ for ~3 days; no guard band) — never read a fading Mode C timeline as "the attack stopped"; point to `LONGITUDINAL_CUSUM` (`longitudinal_cusum.yl2`) for persistence in Pillar 3.
 * **Window Invariant**: The platform anchors ONE `period: 1d, window: 30d` baseline at start day; all scored days reuse it. Mode B: state baseline dates. No `run_command`: no Mode C (Mode B capped at 3d); per-day baselines and >3d need a client that runs local scripts. Details: `references/timeline-modes-guide.md`.
 
 ---

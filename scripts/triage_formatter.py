@@ -233,6 +233,7 @@ class CommonMarkTriageFormatter:
       evaluation_mode: str = "Mode A",
       ecg_join_filter_disclosure: Optional[str] = None,
       cohort_cap_warning: Optional[str] = None,
+      mode_c_fade_caveat: Optional[str] = None,
   ) -> str:
     """Renders the lightweight 2-pillar Clean Hunt Summary for 0-row outcomes with agentic next steps."""
     next_steps = cls.build_agentic_next_steps(
@@ -262,6 +263,8 @@ class CommonMarkTriageFormatter:
       lines.append(f"* **ECG Inner-Join Filter Disclosure**: {eff_ecg_disclosure}")
     if cohort_cap_warning:
       lines.append(f"* **Samuelson Small-Cohort Cap (PF-2 / WS1-09)**: {cohort_cap_warning}")
+    if mode_c_fade_caveat:
+      lines.append(f"* **Sustained-Attack Fade Caveat (D10 / WS1-11)**: {mode_c_fade_caveat}")
     lines.extend([
         "",
         "> [!IMPORTANT]",
@@ -281,6 +284,7 @@ class CommonMarkTriageFormatter:
       ecg_join_filter_disclosure: Optional[str] = None,
       ecg_novelty_notice: Optional[str] = None,
       cohort_cap_warning: Optional[str] = None,
+      mode_c_fade_caveat: Optional[str] = None,
   ) -> str:
     # 1. Post-Flight Audit Gate Check
     if audit_result is not None and not getattr(audit_result, "is_valid", True):
@@ -433,6 +437,11 @@ class CommonMarkTriageFormatter:
         "> [!IMPORTANT]",
         f"> **Threat Translation & Attack Scenarios: {target_metric} ({statistical_model})**",
         f"> * **The Core Finding**: Outliers detected exceeding {anomaly_threshold} significance threshold.",
+        *(
+            [f"> * **Sustained-Attack Fade Caveat (D10 / WS1-11)**: {mode_c_fade_caveat}"]
+            if mode_c_fade_caveat
+            else []
+        ),
         "> * **Security Significance**: Volume explosion or multi-vector correlation indicating anomalous breakout.",
         "> * **Potential Attack Scenarios**: Ransomware staging, credential stuffing, data exfiltration, lateral movement.",
         "> * **Legitimate False Positives**: Scheduled backup jobs, administrative bulk updates, patch deployments.",

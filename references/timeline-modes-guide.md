@@ -58,15 +58,20 @@ Offer Mode C **only** when `run_command` is present (the same signal used for `<
 * **Default cap**: 30 days. Above 30, state the shard count and estimated run time and require explicit confirmation. Practical ceiling is about one year: UDM retention, and each shard also needs the 30 days before it. Metrics retention has not been verified; if early shards return no baselines, report that instead of treating them as clean.
 * **Freshness**: a today shard dispatched before `04:00Z` gets the baseline ending yesterday `00:00Z` (§1). Say so on the card.
 
-### 3.3 Clearance card additions
-Add to the PRE-FLIGHT card (replacing the Mode A/B placeholder; never list Mode C on a card in a client without `run_command`): `• Evaluation Horizon Mode: Mode C — <N> daily shards, <first> → <last>, each vs. its own trailing 30d baseline`, plus the estimated run time (validation: 14 shards ≈ 4 minutes wall clock).
+### 3.3 Sustained-attack baseline absorption & fade caveat (D10)
+* **Trailing baseline absorption**: Because each Mode C day `D` is scored against its own trailing 30-day baseline `[D − 30d, D)`, once an attack persists across consecutive days, earlier attack days enter subsequent days' 30-day baselines and absorb the sustained shift — primarily by inflating baseline `σ` (alongside raising `μ`).
+* **Gaussian fade trajectory**: Under a Gaussian approximation over a 30-day baseline, a sustained `+3σ` shift reads `≈ 2.5σ` on day 2 (dropping below a `3.0σ` significance gate), and a sustained `+6σ` shift stays above `3.0σ` for only about `3 days` before fading below threshold.
+* **Analytical guardrail (never read fade as "the attack stopped")**: Always state this caveat in **Pillar 3** of Mode C reports. An onset spike followed by declining daily Z-scores or `empty` shards does **not** mean *"the attack stopped"* — it is the expected statistical signature of per-day baseline absorption. Point analysts to **`LONGITUDINAL_CUSUM`** (`longitudinal_cusum.yl2` / `longitudinal_cusum_2stage.yl2`, start-anchored fixed pre-window reference) to measure sustained multi-day persistence. No guard band is applied (`D10`).
 
-### 3.4 Dispatch
-* Dispatch shards through `udm_search` in parallel batches of at most 10.
+### 3.4 Clearance card additions
+Add to the PRE-FLIGHT card (replacing the Mode A/B placeholder; never list Mode C on a card in a client without `run_command`): `• Evaluation Horizon Mode: Mode C — <N> daily shards, <first> → <last>, each vs. its own trailing 30d baseline`, plus the batch pacing summary and estimated run time (validation: 14 shards ≈ 4 minutes wall clock).
+
+### 3.5 Dispatch & query pacing (D9)
+* Dispatch shards through `udm_search` in parallel batches of at most 10, with a short (`~2s`) inter-batch pause between 10-shard batches to pace up to 30 daily shards without triggering backend rate limits.
 * **Compiler, syntax, or permission error** on any shard: the query itself is bad. Stop all dispatch (Hard Stop on API Error) and surface the error.
 * **Transient error** (`RESOURCE_EXHAUSTED`, `DEADLINE_EXCEEDED`, `UNAVAILABLE`): retry that shard once after a short pause. If it fails again, record it as a failed shard and continue. A failed shard is reported, never filled in or interpolated.
 
-### 3.5 Collation (sanctioned script)
+### 3.6 Collation (sanctioned script)
 * Keep every shard result as a raw JSON file. The harness already saves large results to files; for results returned inline, write the raw JSON verbatim to `<scratch>/shard_<YYYY-MM-DD>.json`.
 * **Never read raw shard files back into context.** Run the sanctioned collator and read only its output:
 
@@ -81,10 +86,10 @@ python3 scripts/timeline_assembler.py \
 * Register `<artifact_dir>/timeline_ranked.html` via `write_file` (`ArtifactMetadata` with `UserFacing: true`, `RequestFeedback: false`) using the HTML generated at `<scratch>/timeline_ranked.html`. Subprocess writes inside `run_command` do not register Jetski artifacts and will cause `<agent-embed>` to fail with `"invalid embed"`.
 * The collator only reshapes Chronicle output (per-day counts, per-entity onset/persistence, peaks, escalation, lead/lag, sparse-baseline list). It computes no baselines or Z-scores. The one derived value is `D = √(composite_threat_norm_sq)` when a template emits only the squared norm, plus CRI via the canonical sigmoid.
 
-### 3.6 Report (5 pillars, adapted)
+### 3.7 Report (5 pillars, adapted)
 * **Pillar 1 (`#### 1. Statistical Outlier Report ... — Executive Summary & Calibrated Risk Index (CRI)`)**: Executive headline, piecewise CRI badge, and `<agent-embed src="file:///<artifact_dir>/timeline_ranked.html"></agent-embed>` plus `[Open Visual Chart](file:///<artifact_dir>/timeline_ranked.html)` (`src` MUST use the `file:///` URI scheme and an explicit closing tag `</agent-embed>`, never a bare filesystem path or self-closing `<agent-embed ... />`).
 * **Pillar 2 (`#### 2. Ranked Outlier Summary & Provenance Stamp`)**: The collator's per-day outlier summary table, provenance stamp, and the shard execution table (date, `startTime`, `endTime`, status, rows).
-* **Pillar 3 (`#### 3. Forensic Vector Breakdown`)**: Persistence, onset, escalation, sector lead/lag, the sparse-baseline list (entities with real volume but too few baseline days to score), and numbered `[1]`/`[2]`/`[3]` Agentic Next Steps.
+* **Pillar 3 (`#### 3. Forensic Vector Breakdown`)**: Persistence, onset, escalation, sector lead/lag, the sparse-baseline list (entities with real volume but too few baseline days to score), the **D10 sustained-attack fade caveat** (warning not to read a fading timeline as *"the attack stopped"* and pointing to `LONGITUDINAL_CUSUM` for persistence), and numbered `[1]`/`[2]`/`[3]` Agentic Next Steps.
 * **Pillar 4 (`#### 4. Chronicle UI Manual Pivot`)**: Manual UDM pivot for the top entity and day inside a ```` ```text ```` code block.
 * **Pillar 5 (`#### 5. Collapsible Technical Appendix (Statistical & Mathematical Appendix)`)**: Collapsible `<details>` block containing the verbatim executed multi-stage query (` ```yara `), the Mode C baseline anchoring note (`Each scored day D is compared to [D − 30d, D)`), and mathematical derivation.
 * **All shards empty**: 2-pillar Clean Hunt Report (`#### 1. Executive Summary & Baseline Status (CRI: 0 / Nominal)` and `#### 2. Telemetry Provenance, Diagnostic Coverage & Next Steps`), with the shard table and collapsible `<details>` query in Section 2.

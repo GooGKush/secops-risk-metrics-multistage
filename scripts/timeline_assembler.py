@@ -555,6 +555,13 @@ class TimelineAssembler:
         "",
         "Each scored day D is compared to its own baseline [D − 30d, D).",
         "",
+        "> [!NOTE]",
+        "> **Sustained-Attack Baseline Absorption & Fade Caveat (D10)**: Because each day `D` uses `[D − 30d, D)`, "
+        "a sustained multi-day shift enters subsequent days' trailing baselines and inflates `σ` (Gaussian approximation: "
+        "a sustained `+3σ` shift reads `≈ 2.5σ` on day 2; a sustained `+6σ` shift stays above `3σ` for ~3 days; no guard band). "
+        "Never read a fading Mode C timeline as \"the attack stopped\" — use `LONGITUDINAL_CUSUM` (`longitudinal_cusum.yl2`) "
+        "to evaluate sustained persistence.",
+        "",
     ]
     if meta["failed_days"]:
       lines += [

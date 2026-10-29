@@ -506,6 +506,24 @@ def _build_ecg_join_filter_disclosure(has_ecg: bool, ecg_72h_anchor_applied: boo
   )
 
 
+MODE_C_MAX_BATCH_SIZE: int = 10
+MODE_C_INTER_BATCH_PAUSE_SECONDS: float = 2.0
+MODE_C_MAX_RETRIES_PER_SHARD: int = 1
+MODE_C_RETRYABLE_ERRORS: Tuple[str, ...] = (
+    "RESOURCE_EXHAUSTED",
+    "DEADLINE_EXCEEDED",
+    "UNAVAILABLE",
+    "429",
+)
+MODE_C_FADE_CAVEAT: str = (
+    "In Mode C, each day D is scored against its own trailing 30-day baseline [D − 30d, D), so a sustained "
+    "multi-day attack enters subsequent days' baselines and absorbs the shift primarily by inflating σ "
+    "(Gaussian approximation: a sustained +3σ shift reads ≈ 2.5σ on day 2; a sustained +6σ shift stays above "
+    "3σ for ~3 days; no guard band). Never read a fading Mode C timeline as \"the attack stopped\" — run "
+    "LONGITUDINAL_CUSUM (longitudinal_cusum.yl2, fixed start-anchored pre-window reference) to measure persistence."
+)
+
+
 def _compute_execution_windows(
     compiled_query: str,
     mode: str = "A",
@@ -544,6 +562,7 @@ def _compute_execution_windows(
   capped_from_days: Optional[int] = None
   mode_notice: Optional[str] = None
   scored_day_window: Optional[Dict[str, str]] = None
+  shard_pacing: Optional[Dict[str, Any]] = None
 
   if mode_clean == "A":
     if statistical_model == StatisticalModel.LONGITUDINAL_CUSUM or "$cusum_drift_score" in compiled_query:
@@ -690,7 +709,18 @@ def _compute_execution_windows(
     }]
 
   elif mode_clean == "C":
-    eff_days = min(max(window_days if window_days > 1 else 7, 2), MAX_MODE_C_DAYS)
+    requested_c_days = window_days if window_days > 1 else 7
+    if requested_c_days > MAX_MODE_C_DAYS:
+      capped_from_days = requested_c_days
+      eff_days = MAX_MODE_C_DAYS
+      est_req_min = round(max(0.5, requested_c_days * (4.0 / 14.0)), 1)
+      mode_notice = (
+          f"Mode C default cap is {MAX_MODE_C_DAYS} days (requested {requested_c_days} daily shards, "
+          f"estimated ~{est_req_min} min wall clock); capped at {MAX_MODE_C_DAYS} daily shards unless "
+          "explicitly confirmed in multi-window batches."
+      )
+    else:
+      eff_days = max(requested_c_days, 2)
     first_day = today_midnight - datetime.timedelta(days=eff_days - 1)
     first_anchor = (first_day - datetime.timedelta(days=2)) if has_ecg else first_day
     if has_ecg:
@@ -701,7 +731,7 @@ def _compute_execution_windows(
     eval_label = f"Mode C: {eff_days}d Rolling Per-Day Shards"
     shards = []
     today_str = today_midnight.strftime("%Y-%m-%d")
-    for offset in range(eff_days - 1, -1, -1):
+    for shard_idx, offset in enumerate(range(eff_days - 1, -1, -1)):
       day_dt = today_midnight - datetime.timedelta(days=offset)
       day_str = day_dt.strftime("%Y-%m-%d")
       if statistical_model in (StatisticalModel.MAD, StatisticalModel.QUANTILE_IQR_SKEW):
@@ -724,11 +754,21 @@ def _compute_execution_windows(
         )
       shards.append({
           "day": day_str,
+          "batch_index": shard_idx // MODE_C_MAX_BATCH_SIZE,
           "start_time": shard_start,
           "end_time": shard_end,
           "baseline_window": f"[{b_start}, {b_anchor_dt.strftime('%Y-%m-%d')})",
           "query": shard_query,
       })
+    shard_pacing = {
+        "batch_size": MODE_C_MAX_BATCH_SIZE,
+        "shard_count": eff_days,
+        "batch_count": math.ceil(eff_days / MODE_C_MAX_BATCH_SIZE),
+        "inter_batch_pause_seconds": MODE_C_INTER_BATCH_PAUSE_SECONDS,
+        "max_retries_per_shard": MODE_C_MAX_RETRIES_PER_SHARD,
+        "retry_on": list(MODE_C_RETRYABLE_ERRORS),
+        "estimated_wall_minutes": round(max(0.5, eff_days * (4.0 / 14.0)), 1),
+    }
     scored_day_window = {
         "day": today_str,
         "start_time": f"{today_str}T00:00:00Z",
@@ -767,6 +807,7 @@ def _compute_execution_windows(
       "baseline_end_date": baseline_end,
       "ecg_72h_anchor_applied": ecg_72h_anchor_applied,
       "scored_day_window": scored_day_window,
+      "shard_pacing": shard_pacing,
       "shards": shards,
   }
 
@@ -1041,9 +1082,10 @@ def compile_hunt_pipeline(
   ):
     effective_mode = "C"
     redirected_from_mode = "B"
+    eff_redirect_shards = min(window_days, MAX_MODE_C_DAYS)
     redirect_notice = (
         f"Requested {window_days}-day Mode B timeline exceeds the {MAX_MODE_B_DAYS}-day Mode B cap; "
-        f"automatically redirected to Mode C ({window_days} per-day shards collated via scripts/timeline_assembler.py) "
+        f"automatically redirected to Mode C ({eff_redirect_shards} per-day shards collated via scripts/timeline_assembler.py) "
         "so each UTC day is scored against its own trailing 30-day baseline."
     )
   metric_list = normalize_metrics_list(metrics, ent_enum, arch_key)
@@ -1569,7 +1611,10 @@ def compile_hunt_pipeline(
       target_date=target_date,
   )
   compiled_query = window_spec["effective_query"]
-  effective_mode_notice = redirect_notice or window_spec.get("mode_notice")
+  effective_mode_notice = " ".join(
+      n for n in (redirect_notice, window_spec.get("mode_notice")) if n
+  ) or None
+  shard_pacing = window_spec.get("shard_pacing")
   has_ecg_join = bool(re.search(r"\bgraph\.(?:entity|metadata|relations)\b", compiled_query))
   ecg_source_type: Optional[str] = (
       "DERIVED_CONTEXT"
@@ -1660,6 +1705,14 @@ def compile_hunt_pipeline(
         f"{preflight_card}\n\n"
         "> [!NOTE]\n"
         f"> **⏱️ Timeline Horizon Routing (D9)**: {effective_mode_notice}"
+    )
+  if shard_pacing:
+    preflight_card = (
+        f"{preflight_card}\n\n"
+        f"* **⏱️ Mode C Query Pacing (D9 / WS1-11)**: Dispatch `{shard_pacing['shard_count']}` daily shards in "
+        f"`{shard_pacing['batch_count']}` batch(es) of at most `{shard_pacing['batch_size']}` "
+        f"(`{shard_pacing['inter_batch_pause_seconds']:.1f}s` inter-batch pause; retry transient "
+        f"`{', '.join(shard_pacing['retry_on'][:3])}` once; estimated run time `~{shard_pacing['estimated_wall_minutes']} min`)."
     )
   if ecg_join_filter_disclosure:
     preflight_card = (
@@ -1753,7 +1806,9 @@ def compile_hunt_pipeline(
           "baseline_start_date": window_spec["baseline_start_date"],
           "baseline_end_date": window_spec["baseline_end_date"],
           "ecg_72h_anchor_applied": window_spec["ecg_72h_anchor_applied"],
+          "shard_pacing": shard_pacing,
       },
+      "shard_pacing": shard_pacing,
       "shards": window_spec["shards"],
       "sector_queries": sector_queries,
       "chained_plan": chained_plan,
@@ -2662,6 +2717,7 @@ def render_forensic_dossier(
   cohort_cap_warning: Optional[str] = (
       cohort_cap_info.get("warning") if cohort_too_small and cohort_cap_info else None
   )
+  mode_c_fade_caveat: Optional[str] = MODE_C_FADE_CAVEAT if mode_clean == "C" else None
   clean_hunt_md = CommonMarkTriageFormatter.format_clean_hunt_report(
       target_metric=clean_metric,
       statistical_model=model_label,
@@ -2670,6 +2726,7 @@ def render_forensic_dossier(
       evaluation_mode=eval_mode_str,
       ecg_join_filter_disclosure=ecg_join_filter_disclosure,
       cohort_cap_warning=cohort_cap_warning,
+      mode_c_fade_caveat=mode_c_fade_caveat,
   )
 
   # Resolve UDM pivot filter for Pillar 5
@@ -2712,6 +2769,8 @@ def render_forensic_dossier(
     ecg_pillar3_lines.append(f"> * **ECG Novelty Notice**: {ecg_novelty_notice}")
   if cohort_cap_warning:
     ecg_pillar3_lines.append(f"> * **Samuelson Small-Cohort Cap**: {cohort_cap_warning}")
+  if mode_c_fade_caveat:
+    ecg_pillar3_lines.append(f"> * **Sustained-Attack Fade Caveat (D10 / WS1-11)**: {mode_c_fade_caveat}")
 
   if not outliers and not immature_entities and radar_payload is None:
     # Build 6-section zero-row dossier that preserves both Clean Hunt markers and all 6 section headers
@@ -2787,6 +2846,7 @@ def render_forensic_dossier(
         "ecg_novelty_notice": ecg_novelty_notice,
         "cohort_too_small": cohort_too_small,
         "cohort_cap_warning": cohort_cap_warning,
+        "mode_c_fade_caveat": mode_c_fade_caveat,
         "outcome_classification": outcome_class,
         "outlier_count": 0,
         "outliers": [],
@@ -2988,6 +3048,7 @@ def render_forensic_dossier(
       ecg_join_filter_disclosure=ecg_join_filter_disclosure,
       ecg_novelty_notice=ecg_novelty_notice,
       cohort_cap_warning=cohort_cap_warning,
+      mode_c_fade_caveat=mode_c_fade_caveat,
   )
 
   return {
@@ -3001,6 +3062,7 @@ def render_forensic_dossier(
       "ecg_novelty_notice": ecg_novelty_notice,
       "cohort_too_small": cohort_too_small,
       "cohort_cap_warning": cohort_cap_warning,
+      "mode_c_fade_caveat": mode_c_fade_caveat,
       "outcome_classification": outcome_class,
       "outlier_count": len(outliers),
       "outliers": outliers,
