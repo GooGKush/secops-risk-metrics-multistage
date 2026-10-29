@@ -38,6 +38,7 @@ class HandoffReason(str, Enum):
   TWO_PART_HURDLE = "TWO_PART_HURDLE"
   FLEET_PREVALENCE_NORMALIZATION = "FLEET_PREVALENCE_NORMALIZATION"
   PRIVILEGED_LATERAL_EXPANSION = "PRIVILEGED_LATERAL_EXPANSION"
+  HOUR_OF_DAY_PROFILE = "HOUR_OF_DAY_PROFILE"
   OFF_HOURS_BURST = "off_hours_activity"
 
 
@@ -57,6 +58,7 @@ SUPPORTED_INTENTS = [
     "TWO_PART_HURDLE",
     "FLEET_PREVALENCE_NORMALIZATION",
     "PRIVILEGED_LATERAL_EXPANSION",
+    "HOUR_OF_DAY_PROFILE",
 ]
 
 
@@ -112,10 +114,10 @@ def build_handoff_payload(
           "Bipartite user-to-host machine access history and destination expansion require "
           "ad-hoc bounded lookback over raw USER_LOGIN events; delegating to statistical hunter."
       )
-    elif any(kw in intent_upper for kw in ["OFF_HOURS", "CIRCADIAN"]):
+    elif any(kw in intent_upper for kw in ["HOUR_OF_DAY", "TIME_OF_DAY", "HOURLY", "OFF_HOURS", "CIRCADIAN", "VON_MISES"]):
       justification = (
-          "Macro 30-day baseline flagged off-hours activity; delegating to micro-temporal "
-          "burst analysis to isolate non-business-hour execution surges."
+          "Macro metrics.* provides only daily (period: 1d, window: 30d) baselines (PF-10); "
+          "delegating time-of-day / off-hours profiling to secops-statistical-hunter HOUR_OF_DAY_PROFILE over raw UDM telemetry."
       )
     elif any(kw in intent_upper for kw in ["ENRICHMENT", "RAW_TELEMETRY", "DUAL_PLANE"]):
       justification = (
@@ -158,6 +160,9 @@ def build_handoff_payload(
       model_params["min_distinct_targets"] = 3
     if "min_z_score" not in model_params:
       model_params["min_z_score"] = 2.0
+  elif any(kw in intent_upper for kw in ["HOUR_OF_DAY", "TIME_OF_DAY", "HOURLY", "OFF_HOURS", "CIRCADIAN", "VON_MISES"]):
+    if "window_days" not in model_params:
+      model_params["window_days"] = 14
   elif any(kw in intent_upper for kw in ["ENRICHMENT", "RAW_TELEMETRY", "DUAL_PLANE"]):
     if "enrichment_vector" not in model_params:
       model_params["enrichment_vector"] = "NETWORK_HTTP_USER_AGENT"
@@ -326,6 +331,53 @@ def _inprocess_fallback_ack(payload: Dict[str, Any]) -> Dict[str, Any]:
         "order:\n"
         "  $z_score desc\n"
     )
+  elif intent in ("HOUR_OF_DAY_PROFILE", "OFF_HOURS_ACTIVITY"):
+    model_routed = "HOUR_OF_DAY_PROFILE"
+    ent_field = "target.user.userid" if ent_type == "USER" else "principal.asset.hostname"
+    ev_type = "USER_LOGIN" if ent_type == "USER" else "NETWORK_HTTP"
+    compiled_query = (
+        f"// Goal: Per-Hour-of-Day Behavioral Profile (HOUR_OF_DAY_PROFILE) for {ent_val}\n"
+        "stage hourly_counts {\n"
+        f'  metadata.event_type = "{ev_type}"\n'
+        f'  {ent_field} = "{ent_val}"\n'
+        f"  {ent_field} = $entity\n"
+        '  $hour_of_day = timestamp.get_hour(metadata.event_timestamp.seconds, "UTC")\n'
+        "  match:\n"
+        "    $entity, $hour_of_day by 1h\n"
+        "  outcome:\n"
+        "    $obs = count(metadata.id)\n"
+        "}\n\n"
+        "stage hour_of_day_baseline {\n"
+        "  $entity = $hourly_counts.entity\n"
+        "  $hour_of_day = $hourly_counts.hour_of_day\n"
+        "  match:\n"
+        "    $entity, $hour_of_day\n"
+        "  outcome:\n"
+        "    $mean_obs = avg($hourly_counts.obs)\n"
+        "    $std_obs = stddev($hourly_counts.obs)\n"
+        "    $active_buckets = count($hourly_counts.obs)\n"
+        "}\n\n"
+        "$entity = $hourly_counts.entity\n"
+        "$entity = $hour_of_day_baseline.entity\n"
+        "$hour_of_day = $hourly_counts.hour_of_day\n"
+        "$hour_of_day = $hour_of_day_baseline.hour_of_day\n"
+        "$ws = $hourly_counts.window_start\n"
+        "match:\n"
+        "  $entity, $hour_of_day, $ws by 1h\n"
+        "outcome:\n"
+        "  $obs = max($hourly_counts.obs)\n"
+        "  $mu = max($hour_of_day_baseline.mean_obs)\n"
+        "  $sigma = max($hour_of_day_baseline.std_obs)\n"
+        "  $n_buckets = max($hour_of_day_baseline.active_buckets)\n"
+        "  $floor = math.sqrt(if($mu > 1.0, $mu, 1.0))\n"
+        "  $safe_sigma = if($sigma > $floor, $sigma, $floor)\n"
+        "  $diff = $obs - $mu\n"
+        "  $hod_z = $diff / $safe_sigma\n"
+        "condition:\n"
+        "  $n_buckets >= 7 and $hod_z >= 3.0\n"
+        "order:\n"
+        "  $hod_z desc\n"
+    )
   else:
     model_routed = intent
     ent_field = "principal.user.userid" if ent_type == "USER" else "principal.asset.hostname"
@@ -415,6 +467,12 @@ def dispatch_to_endpoint(
     }
   try:
     ack_data = json.loads(res.stdout)
+    if (
+        ack_data.get("status") == "HANDOFF_ACK_REJECTED"
+        and str(payload.get("intent", "")).upper() == "HOUR_OF_DAY_PROFILE"
+        and not explicit_dir
+    ):
+      return _inprocess_fallback_ack(payload)
     return ack_data
   except Exception:
     return {

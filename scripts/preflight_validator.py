@@ -67,7 +67,7 @@ DEFAULT_SIGNIFICANCE_GATES: Dict["StatisticalModel", str] = {
     StatisticalModel.VARIANCE: "N/A (dispersion screen)",
     StatisticalModel.POISSON: "Poisson Z >= 3.0σ",
     StatisticalModel.COEFFICIENT_OF_VARIATION: ">= 2.0× baseline, CV <= 0.5",
-    StatisticalModel.HOURLY_TEMPORAL_ZSCORE: "Hourly Z >= 3.0σ",
+    StatisticalModel.HOURLY_TEMPORAL_ZSCORE: "RETIRED (D1 -> HOUR_OF_DAY_PROFILE)",
     StatisticalModel.BAYESIAN_GAMMA: ">= 2.0× baseline (posterior)",
     StatisticalModel.BAYESIAN_BETA_BINOMIAL: ">= 2.0× prior failure rate",
     StatisticalModel.LONGITUDINAL_CUSUM: "Drift above 0.5σ slack",
@@ -77,8 +77,22 @@ DEFAULT_SIGNIFICANCE_GATES: Dict["StatisticalModel", str] = {
     StatisticalModel.FLEET_PREVALENCE_SHIELD: "Shielded Z >= 3.0σ",
     StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD: "Z >= context threshold",
     StatisticalModel.MACD_MOMENTUM_VELOCITY: "Fast Z >= 3.0σ",
-    StatisticalModel.CIRCADIAN_VON_MISES: "Circadian score >= 3.0",
+    StatisticalModel.CIRCADIAN_VON_MISES: "RETIRED (D1 -> HOUR_OF_DAY_PROFILE)",
     StatisticalModel.QUANTILE_IQR_SKEW: "Skew-Adjusted Fence >= 2.0×",
+}
+
+
+RETIRED_STATISTICAL_MODELS: Dict[StatisticalModel, str] = {
+    StatisticalModel.HOURLY_TEMPORAL_ZSCORE: (
+        "Statistical model 'HOURLY_TEMPORAL_ZSCORE' is retired (D1 / PF-10): metrics.* provides only "
+        "daily (period: 1d, window: 30d) baselines and cannot standardize 1h buckets without scale "
+        "bias; hand off to 'secops-statistical-hunter' model 'HOUR_OF_DAY_PROFILE'."
+    ),
+    StatisticalModel.CIRCADIAN_VON_MISES: (
+        "Statistical model 'CIRCADIAN_VON_MISES' is retired (D1 / PF-10): metrics.* provides only "
+        "daily (period: 1d, window: 30d) baselines and cannot profile per-hour-of-day circular "
+        "means; hand off to 'secops-statistical-hunter' model 'HOUR_OF_DAY_PROFILE'."
+    ),
 }
 
 
@@ -118,8 +132,18 @@ class PipelineArchitecture(str, Enum):
   HYBRID_METRIC_DERIVED_ASSET_AGE_2STAGE = "HYBRID_METRIC_DERIVED_ASSET_AGE_2STAGE"
   MACD_MOMENTUM_VELOCITY_2STAGE = "MACD_MOMENTUM_VELOCITY_2STAGE"
   CIRCADIAN_VON_MISES_2STAGE = "CIRCADIAN_VON_MISES_2STAGE"
+  CIRCADIAN_VON_MISES = "CIRCADIAN_VON_MISES_2STAGE"
   RARE_DESTINATION_ECG_3STAGE = "RARE_DESTINATION_ECG_3STAGE"
   FUSION_RARE_DESTINATION_3STAGE = "FUSION_RARE_DESTINATION_3STAGE"
+
+
+RETIRED_PIPELINE_ARCHITECTURES: Dict[PipelineArchitecture, str] = {
+    PipelineArchitecture.CIRCADIAN_VON_MISES_2STAGE: (
+        "Pipeline architecture 'CIRCADIAN_VON_MISES_2STAGE' is retired (D1 / PF-10): metrics.* "
+        "provides only daily (period: 1d, window: 30d) baselines; hand off to "
+        "'secops-statistical-hunter' model 'HOUR_OF_DAY_PROFILE'."
+    ),
+}
 
 
 class KillChainArchetype(str, Enum):
@@ -1484,6 +1508,10 @@ class MalachiteASTValidator:
     clean_query = re.sub(r"/\*.*?\*/", "", clean_query, flags=re.S)
     named_stages = re.findall(r"\bstage\s+([a-zA-Z0-9_]+)\s*\{", clean_query)
 
+    if model in RETIRED_STATISTICAL_MODELS:
+      errors.append(f"RETIRED_MODEL: {RETIRED_STATISTICAL_MODELS[model]}")
+      return errors
+
     # Dynamic stage count & topology validation derived from templates on disk (WS2-07)
     templates_dir = Path(__file__).resolve().parent.parent / "templates"
     try:
@@ -1554,9 +1582,6 @@ class MalachiteASTValidator:
     elif model == StatisticalModel.MACD_MOMENTUM_VELOCITY:
       if "macd" not in query_text.lower() and "slow_z" not in query_text:
         errors.append("MODEL_FORMULA_MISMATCH: MACD model must include dual-spine momentum differential ($macd_diff).")
-    elif model == StatisticalModel.CIRCADIAN_VON_MISES:
-      if "circ" not in query_text.lower() and "von_mises" not in query_text.lower():
-        errors.append("MODEL_FORMULA_MISMATCH: Circadian von Mises model must compute circular distance on 24-hour clock.")
 
     return errors
 

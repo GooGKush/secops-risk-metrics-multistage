@@ -109,7 +109,7 @@ The submission test harness automates compiler verification across 32 canonical 
 | `PIPE-08-CLOUD-SCOPE` | Pipeline Template | `resource_read_total` | Dual-branch cloud repository scope & origin outlier |
 | `PIPE-09-PREVALENCE` | Pipeline Template | `network_bytes_outbound` + Entity Graph | 2-stage IP prevalence ($\le 3$) & egress volume |
 | `PIPE-10-MACD-MOMENTUM` | Pipeline Template | `network_bytes_outbound` (Asset) | 2-stage MACD dual-spine momentum velocity |
-| `PIPE-11-CIRCADIAN-VON-MISES` | Pipeline Template | `auth_attempts_total` (User) | 2-stage Circadian von Mises temporal distance |
+| `PIPE-11-QUANTILE-IQR-3STAGE` | Pipeline Template | `network_bytes_outbound` (Asset) | 3-stage 5-point quantile envelope & skewness-adjusted Tukey fence |
 | `PIPE-12-MULTI-SECTOR-4STAGE` | Pipeline Template | Auth + Network + Fleet Norm | 4-stage multi-sector fusion (2 UDM + 1 Stage-to-Stage + Root) |
 | `RADAR-01-AUTH` | Decoupled Radar Spoke | `auth_attempts_fail` | Allowed vs failed login micro-query |
 | `RADAR-02-CLOUD` | Decoupled Radar Spoke | `resource_creation_total` | Multi-dimensional cloud CRUD tracking |
@@ -121,7 +121,7 @@ The submission test harness automates compiler verification across 32 canonical 
 | `ROUTER-04-CV` | Dynamic Router | `dns_queries_total` + CV | Relative volatility quotient |
 | `ROUTER-05-BAYES-GAMMA`| Dynamic Router | `http_queries_total` + Gamma | Prior shape ($\alpha$) & rate ($\beta$) outcomes |
 | `ROUTER-06-BETA-BINOMIAL`| Dynamic Router| `auth_attempts_total` + Beta | Success/failure conjugate updates |
-| `ROUTER-07-HOURLY-Z` | Dynamic Router | `file_executions_total` + Hourly | Temporal process launch variation |
+| `ROUTER-07-QUANTILE-IQR` | Dynamic Router | `network_bytes_outbound` + Quantile IQR | Empirical quantile envelope & Bowley skewness fence |
 | `ROUTER-08-FANO` | Dynamic Router | `auth_attempts_fail` + Fano | Variance-to-mean dispersion ratio |
 | `ROUTER-09-CUSUM` | Dynamic Router | `network_bytes_outbound` + CUSUM | Longitudinal Page CUSUM drift increment |
 | `ROUTER-10-HURDLE` | Dynamic Router | `auth_attempts_total` + Hurdle | Zero-inflated Bernoulli awakening penalty |
@@ -130,7 +130,7 @@ The submission test harness automates compiler verification across 32 canonical 
 | `ROUTER-13-FLEET-SHIELD`| Dynamic Router| `network_bytes_outbound` + Shield | Concurrency immunity discounting factor |
 | `ROUTER-14-ADAPTIVE-THRESH`| Dynamic Router| `auth_attempts_total` + Adaptive | Context-modulated off-hours thresholding |
 | `ROUTER-15-MACD-MOMENTUM`| Dynamic Router| `network_bytes_outbound` + MACD | Fast spine vs slow reference divergence |
-| `ROUTER-16-CIRCADIAN-VON-MISES`| Dynamic Router| `auth_attempts_total` + Circadian | Circular 24-hour clock quadratic distance |
+| `ROUTER-16-RELATIVE-DEV`| Dynamic Router| `auth_attempts_total` + Relative Dev | Scale-free fold change vs 30-day mean |
 
 ---
 

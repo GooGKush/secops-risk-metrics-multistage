@@ -46,7 +46,7 @@ from scripts.preflight_validator import (
     StatisticalModel,
 )
 from scripts.statistical_validator import StatisticalAntipatternAuditor
-from scripts.template_router import MultiStageTemplateRouter
+from scripts.template_router import MultiStageTemplateRouter, _apply_byte_dispersion_floor
 
 
 def iter_if_calls(query: str):
@@ -301,6 +301,7 @@ class SubmissionTestSuite:
     rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
     rendered = rendered.replace(
         "{{first_scored_date}}", datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d"))
+    rendered = _apply_byte_dispersion_floor(rendered, metric_name)
 
     return rendered
 
@@ -519,17 +520,16 @@ order:
 
     matrix.append(
         TestCase(
-            test_id="PIPE-11-CIRCADIAN-VON-MISES",
+            test_id="PIPE-11-QUANTILE-IQR-3STAGE",
             category="Pipeline Template",
-            name="2-Stage Circadian von Mises Temporal Distance Pipeline",
-            description="Evaluates hourly authentication attempts against 24-hour circular clock penalizing off-hours deviation.",
-            generator=lambda: self.router.build_pipeline_query(
-                PipelineArchitecture.CIRCADIAN_VON_MISES_2STAGE,
-                target_metric="auth_attempts_total",
-                entity_type=EntityType.USER,
-                anomaly_threshold=3.0,
+            name="3-Stage Non-Parametric Quantiles, Bowley Skewness & Skew-Adjusted Tukey Fence",
+            description="Evaluates 5-point quantile envelope and Hubert-Vandervieren skewness-adjusted Tukey upper fence.",
+            generator=lambda: self._render_pipeline(
+                "quantile_iqr_skew_3stage.yl2",
+                "network_bytes_outbound",
+                EntityType.ASSET,
             ),
-            expected_stages=["stage1_extract"],
+            expected_stages=["stage1_extract", "quantile_envelope"],
         )
     )
 
@@ -607,7 +607,7 @@ order:
         ("ROUTER-04-CV", "dns_queries_total", EntityType.ASSET, StatisticalModel.COEFFICIENT_OF_VARIATION, "Coefficient of variation on DNS queries"),
         ("ROUTER-05-BAYES-GAMMA", "http_queries_total", EntityType.USER, StatisticalModel.BAYESIAN_GAMMA, "Poisson-Gamma conjugate Bayesian model"),
         ("ROUTER-06-BETA-BINOMIAL", "auth_attempts_total", EntityType.USER, StatisticalModel.BAYESIAN_BETA_BINOMIAL, "Beta-Binomial conjugate Bayesian model"),
-        ("ROUTER-07-HOURLY-Z", "file_executions_total", EntityType.ASSET, StatisticalModel.HOURLY_TEMPORAL_ZSCORE, "Hourly temporal Z-score on process launches"),
+        ("ROUTER-07-QUANTILE-IQR", "network_bytes_outbound", EntityType.ASSET, StatisticalModel.QUANTILE_IQR_SKEW, "Quantile IQR & Bowley skewness Tukey fence on network bytes"),
         ("ROUTER-08-FANO", "auth_attempts_fail", EntityType.USER, StatisticalModel.VARIANCE, "Variance-to-mean Fano factor on auth failures"),
         ("ROUTER-09-CUSUM", "network_bytes_outbound", EntityType.ASSET, StatisticalModel.LONGITUDINAL_CUSUM, "Longitudinal CUSUM drift on egress bytes"),
         ("ROUTER-10-HURDLE", "auth_attempts_total", EntityType.USER, StatisticalModel.TWO_PART_HURDLE, "Two-part hurdle model for zero-inflated auth"),
@@ -616,7 +616,7 @@ order:
         ("ROUTER-13-FLEET-SHIELD", "network_bytes_outbound", EntityType.ASSET, StatisticalModel.FLEET_PREVALENCE_SHIELD, "Fleet prevalence concurrency discount shield"),
         ("ROUTER-14-ADAPTIVE-THRESH", "auth_attempts_total", EntityType.USER, StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD, "Adaptive context-modulated sensitivity tightening"),
         ("ROUTER-15-MACD-MOMENTUM", "network_bytes_outbound", EntityType.ASSET, StatisticalModel.MACD_MOMENTUM_VELOCITY, "MACD dual-spine momentum velocity on egress"),
-        ("ROUTER-16-CIRCADIAN-VON-MISES", "auth_attempts_total", EntityType.USER, StatisticalModel.CIRCADIAN_VON_MISES, "Circadian von Mises temporal distance on auth"),
+        ("ROUTER-16-RELATIVE-DEV", "auth_attempts_total", EntityType.USER, StatisticalModel.RELATIVE_DEVIATION, "Relative deviation fold change on auth attempts"),
     ]
 
     for rid, metric, etype, model, desc in router_cases:

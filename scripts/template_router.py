@@ -18,6 +18,8 @@ from .preflight_validator import (
     MatchMode,
     PipelineArchitecture,
     PreFlightValidator,
+    RETIRED_PIPELINE_ARCHITECTURES,
+    RETIRED_STATISTICAL_MODELS,
     StatisticalModel,
 )
 from .ueba_constants import (
@@ -518,7 +520,6 @@ class MultiStageTemplateRouter:
       StatisticalModel.VARIANCE: "variance_fano.yl2",
       StatisticalModel.POISSON: "poisson_rarity.yl2",
       StatisticalModel.COEFFICIENT_OF_VARIATION: "coefficient_of_variation.yl2",
-      StatisticalModel.HOURLY_TEMPORAL_ZSCORE: "hourly_temporal_zscore.yl2",
       StatisticalModel.BAYESIAN_GAMMA: "poisson_gamma_bayesian.yl2",
       StatisticalModel.BAYESIAN_BETA_BINOMIAL: "beta_binomial_bayesian.yl2",
       StatisticalModel.LONGITUDINAL_CUSUM: "longitudinal_cusum.yl2",
@@ -528,19 +529,15 @@ class MultiStageTemplateRouter:
       StatisticalModel.FLEET_PREVALENCE_SHIELD: "fleet_prevalence_shield.yl2",
       StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD: "adaptive_context_threshold.yl2",
       StatisticalModel.MACD_MOMENTUM_VELOCITY: "macd_momentum_velocity.yl2",
-      StatisticalModel.CIRCADIAN_VON_MISES: "circadian_von_mises.yl2",
       StatisticalModel.QUANTILE_IQR_SKEW: "quantile_iqr_skew.yl2",
       "macd_momentum": "macd_momentum_velocity.yl2",
       "macd_momentum_velocity": "macd_momentum_velocity.yl2",
-      "hourly_zscore": "hourly_temporal_zscore.yl2",
       "longitudinal_cusum": "longitudinal_cusum.yl2",
   }
 
   STAGE2_FALLBACK_TEMPLATES: Dict[str, str] = {}
 
   MODEL_DESCRIPTIONS = {
-      StatisticalModel.HOURLY_TEMPORAL_ZSCORE: "Macro-Day + Micro-Hour Burst Localization",
-      "hourly_zscore": "Macro-Day + Micro-Hour Burst Localization",
       StatisticalModel.LONGITUDINAL_CUSUM: "Multi-Day Cumulative Drift (Windowed Slack Sum)",
       "longitudinal_cusum": "Multi-Day Cumulative Drift (Windowed Slack Sum)",
       StatisticalModel.MACD_MOMENTUM_VELOCITY: "MACD Multi-Horizon Momentum & Velocity Crossover",
@@ -999,9 +996,13 @@ class MultiStageTemplateRouter:
 
     if statistical_model is None or (isinstance(statistical_model, str) and not statistical_model.strip()):
       raise ValueError(f"Unknown statistical model: '{statistical_model}'")
+    if isinstance(statistical_model, StatisticalModel) and statistical_model in RETIRED_STATISTICAL_MODELS:
+      raise ValueError(RETIRED_STATISTICAL_MODELS[statistical_model])
     if not isinstance(statistical_model, StatisticalModel):
       from .ueba_hybrid_engine import resolve_statistical_model
       statistical_model = resolve_statistical_model(statistical_model)
+    if statistical_model in RETIRED_STATISTICAL_MODELS:
+      raise ValueError(RETIRED_STATISTICAL_MODELS[statistical_model])
 
     # Enforce Local-Baseline Isolation: default STANDARD_Z_SCORE multi-database account queries
     # route to CLOUD_REPOSITORY_SCOPE_DUAL_BRANCH; explicit non-Z models render directly.
@@ -1052,16 +1053,6 @@ class MultiStageTemplateRouter:
       stage2_raw = stage2_raw.replace("$entity", primary_var)
       # Multi-stage modules (e.g. MAD's mad_center / mad_spread) reference sibling stages' match field too.
       stage2_raw = re.sub(r'(\$[a-zA-Z0-9_]+)\.entity\b', rf'\1.{entity_name}', stage2_raw)
-
-    if statistical_model == StatisticalModel.CIRCADIAN_VON_MISES:
-      if "$event_hour" not in stage1_content:
-        stage1_content = re.sub(
-            r'(outcome:\s*\n)',
-            r'\1    $event_hour = max(timestamp.get_hour(metadata.event_timestamp.seconds))\n',
-            stage1_content,
-            count=1,
-        )
-      stage1_content = re.sub(r'(\bmatch:\s*\n\s*[^\n]+?\s+by)\s+1d', r'\1 1h', stage1_content)
 
     if statistical_model in (StatisticalModel.MAD, StatisticalModel.QUANTILE_IQR_SKEW):
       # MAD needs the daily rows of the raw search window as its empirical series, so the root keeps
@@ -1191,6 +1182,12 @@ class MultiStageTemplateRouter:
     here, and min_threshold / max_threshold / condition_expression replace that default gate.
     Renderers that resolve their own gate (sector fusion, the hybrid_metric_* family) are left as is.
     """
+    if isinstance(pipeline_type, str) and not isinstance(pipeline_type, PipelineArchitecture):
+      raw_pipe = pipeline_type.strip().upper().replace("-", "_").replace(" ", "_")
+      if raw_pipe in PipelineArchitecture.__members__:
+        pipeline_type = PipelineArchitecture[raw_pipe]
+    if pipeline_type in RETIRED_PIPELINE_ARCHITECTURES:
+      raise ValueError(RETIRED_PIPELINE_ARCHITECTURES[pipeline_type])
     rendered = self._render_pipeline(
         pipeline_type,
         target_metric=target_metric,
@@ -2006,34 +2003,6 @@ class MultiStageTemplateRouter:
           identifier_field=identifier_field,
       )
       pipeline_file = self.template_dir / "pipelines" / "macd_momentum_velocity_2stage.yl2"
-      if not pipeline_file.exists():
-        raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
-      raw = pipeline_file.read_text().strip()
-      metric_type_val = audit["metric_arg"]
-      observed_agg = audit["observed_agg"]
-      rendered = _fill_event_filter(raw, "{{event_filter}}", audit["event_filter"])
-      rendered = rendered.replace("{{entity_field}}", audit["target_field"])
-      rendered = rendered.replace("{{observed_aggregation}}", observed_agg)
-      rendered = rendered.replace("{{target_metric_name}}", target_metric)
-      rendered = rendered.replace("{{metric_type_val}}", metric_type_val)
-      rendered = rendered.replace("{{dimension_key}}", audit["target_field"])
-      rendered = rendered.replace("{{extra_dimensions}}", "")
-      rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
-      rendered = _apply_byte_dispersion_floor(rendered, target_metric, byte_dispersion_floor=byte_dispersion_floor)
-      if hypothesis_goal:
-        rendered = f"// Goal: {hypothesis_goal}\n" + rendered
-      return rendered + "\n"
-
-    elif pipeline_type == PipelineArchitecture.CIRCADIAN_VON_MISES_2STAGE:
-      if not target_metric:
-        target_metric = "auth_attempts_total"
-      audit = PreFlightValidator.audit(
-          target_metric=target_metric,
-          entity_type=entity_type,
-          min_baseline_days=min_baseline_days,
-          identifier_field=identifier_field,
-      )
-      pipeline_file = self.template_dir / "pipelines" / "circadian_von_mises_2stage.yl2"
       if not pipeline_file.exists():
         raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
       raw = pipeline_file.read_text().strip()

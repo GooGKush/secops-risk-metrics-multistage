@@ -29,7 +29,7 @@ In multi-stage hunting workflows:
 | 3 | `VARIANCE` | Fano Factor / Index of Dispersion | `$variance`, `$safe_lambda`, `$fano_factor` | Variance calculation ($\sigma^2$), ratio to mean | `order: $fano_factor desc` | Omitting variance calculation |
 | 4 | `POISSON` | Discrete Poisson Rarity Z-Score | `$diff`, `$safe_lambda`, `$sqrt_lambda`, `$poisson_z` | `math.sqrt($safe_lambda)` | `order: $poisson_z desc` | Linear stddev denominator instead of square-root mean |
 | 5 | `COEFFICIENT_OF_VARIATION` | CV Predictability & Surge Ratio | `$safe_hist_avg`, `$cv`, `$surge_ratio` | Relative dispersion ($\sigma / \mu$) | `order: $surge_ratio desc` | Standard Gaussian $Z$ without CV stability factor |
-| 6 | `HOURLY_TEMPORAL_ZSCORE` | Intra-Day Hourly Temporal Z-Score | `$observed_hour`, `$avg_hourly`, `$hourly_diff`, `$safe_stddev_hourly`, `$hourly_z`, `$hourly_surge_ratio` | Match `by 1h`, intra-day fold surge ratio | `order: $hourly_z desc` | Daily aggregation (`by 1d`) when hourly profiling is declared |
+| 6 | `HOURLY_TEMPORAL_ZSCORE` *(RETIRED D1)* | Retired — Hand off to `HOUR_OF_DAY_PROFILE` | — | Handed off to `secops-statistical-hunter` `HOUR_OF_DAY_PROFILE` (`PF-10` / `WS2-02`) | — | Comparing 1h buckets against 24h daily `metrics.*` baselines |
 | 7 | `BAYESIAN_GAMMA` | Empirical Bayes Poisson-Gamma Conjugate | `$variance_raw`, `$safe_variance`, `$beta_prior`, `$alpha_prior`, `$alpha_post`, `$beta_post`, `$posterior_mean`, `$bayes_shift_ratio` | Method of Moments hyperparameters, posterior conjugate updating | `order: $bayes_shift_ratio desc` | Bare $Z$-score omitting Gamma hyperparameters ($\alpha, \beta$) |
 | 8 | `BAYESIAN_BETA_BINOMIAL` | Beta-Binomial Bayesian Ratio Regularization | `$denom_scale`, `$scaled_prior`, `$scaled_obs`, `$prior_rate`, `$obs_rate`, `$prior_alpha`, `$prior_beta`, `$post_alpha`, `$post_denom`, `$posterior_rate`, `$safe_prior`, `$posterior_lift` | Proportion normalization into `[0, 1]`, M=10 Beta prior, N=10 conjugate update | `order: $posterior_lift desc` | Unnormalized raw counts (>1.0) causing negative `1.0 - p` |
 | 9 | `LONGITUDINAL_CUSUM` | Longitudinal CUSUM Drift Accumulation | `$raw_drift`, `$safe_stddev`, `$slack_allowance`, `$slack_excess`, `$daily_excess`, `$cusum_drift`, `$cusum_drift_score`, `$drift_days` | Per-day slack excess ($Z_t - 0.5\sigma$), multi-day `sum($stage2_daily_drift.daily_excess)` across window | `order: $cusum_drift_score desc` | Single-bucket Z-score omitting multi-day drift accumulation |
@@ -39,7 +39,7 @@ In multi-stage hunting workflows:
 | 13 | `FLEET_PREVALENCE_SHIELD` | Fleet Prevalence Discounting | `$fleet_entities`, `$raw_diff`, `$safe_stddev`, `$personal_z`, `$fleet_count`, `$log_fleet`, `$prevalence_factor`, `$shielded_z` | Cross-entity `stage2_fleet_wave` (`count_distinct`), log-prevalence dampening (`1.0 + math.log($fleet_count)`) | `order: $shielded_z desc` | Per-entity `count()` always equalling 1 or lacking fleet wave stage |
 | 14 | `ADAPTIVE_CONTEXT_THRESHOLD` | Baseline-Maturity Adaptive Sensitivity | `$raw_diff`, `$safe_stddev`, `$personal_z`, `$sparse_threshold`, `$mature_threshold`, `$effective_threshold`, `$sensitivity_excess` | Baseline-maturity thresholding ($3.5\sigma$ for sparse `< 7d` vs $2.5\sigma$ for mature `>= 7d`) | `order: $sensitivity_excess desc` | Static uniform threshold or loosening threshold on noisy sparse baselines |
 | 15 | `MACD_MOMENTUM_VELOCITY` | MACD Dual-Spine Momentum Indicator | `$fast_diff`, `$safe_stddev`, `$fast_z`, `$slow_diff`, `$slow_z`, `$macd_diff`, `$safe_max`, `$velocity_ratio`, `$breakout_boost`, `$breakout_score`, `$macd_momentum_score` | Fast spine deviation, slow reference anchor, monotone ceiling breakout boost (`$fast_z + $breakout_boost`) | `order: $macd_momentum_score desc` | Non-monotone cliff at historical max or univariate Z fallback |
-| 16 | `CIRCADIAN_VON_MISES` | Circadian von Mises Temporal Distance | `$avg_hourly`, `$scaled_hourly_sd`, `$safe_stddev_hourly`, `$hourly_diff`, `$hourly_z`, `$event_hour`, `$raw_hour_diff`, `$abs_hour_diff`, `$wrap_dist`, `$circ_dist`, `$norm_dist`, `$circadian_weight`, `$pos_z`, `$circadian_threat_score` | Hourly baseline normalization (`mean/24`, `sd/4.899`), circular 24h distance, linear off-hours weight (`1.0 + d/12`) | `order: $circadian_threat_score desc` | Comparing 1h count directly against unscaled 24h daily mean |
+| 16 | `CIRCADIAN_VON_MISES` *(RETIRED D1)* | Retired — Hand off to `HOUR_OF_DAY_PROFILE` | — | Handed off to `secops-statistical-hunter` `HOUR_OF_DAY_PROFILE` (`PF-10` / `WS2-02`) | — | Comparing 1h counts or fixed 14:00 UTC centers against 24h `metrics.*` baselines |
 | 17 | `RELATIVE_DEVIATION` | Relative Deviation / Fold Change vs 30d Mean | `$dev`, `$safe_hist_avg`, `$ratio` | $(x-\mu)/\mu$ fold change | `order: $ratio desc` | Labelling it MAD (it is mean-anchored, 0% breakdown point) |
 | 18 | `QUANTILE_IQR_SKEW` | 1-Stage Non-Parametric Quantiles, Bowley Skewness & Skew-Adjusted Tukey Fence | `$q25_val`, `$q50_val`, `$q75_val`, `$iqr`, `$safe_iqr`, `$bowley_skew`, `$tail_heaviness`, `$adj_upper_fence`, `$tukey_fence_ratio` | `window.percentile` 5-point envelope in 1 stage, Bowley skewness, Hubert–Vandervieren fence | `order: $tukey_fence_ratio desc` | Consuming 2 stages when 1-stage quantile envelope suffices |
 
@@ -52,8 +52,8 @@ Every query carries the model's significance gate as a root `condition:` placed 
 | `STANDARD_Z_SCORE` | `$active_days`, `$personal_z` | `$active_days >= 7 and $personal_z >= 3.0` | σ | `Z >= 3.0σ` | `{{anomaly_threshold}}` |
 | `ASYMMETRIC_DIRECTIONAL_Z` | `$active_days`, `$upper_tail_z` | `$active_days >= 7 and $upper_tail_z >= 3.0` | σ | `Upper-tail Z >= 3.0σ` | `{{anomaly_threshold}}` |
 | `POISSON` | `$poisson_z` | `$poisson_z >= 3.0` | σ (√λ) | `Poisson Z >= 3.0σ` | `{{anomaly_threshold}}` |
-| `HOURLY_TEMPORAL_ZSCORE` | `$active_days`, `$hourly_z` | `$active_days >= 7 and $hourly_z >= 3.0` | σ (hourly) | `Hourly Z >= 3.0σ` | `{{anomaly_threshold}}` |
-| `CIRCADIAN_VON_MISES` | `$active_days`, `$circadian_threat_score` | `$active_days >= 7 and $circadian_threat_score >= 3.0` | σ × off-hours multiplier | `Circadian score >= 3.0` | `{{anomaly_threshold}}` |
+| `HOURLY_TEMPORAL_ZSCORE` | — | **retired (`D1`)** | — | `RETIRED (D1 -> HOUR_OF_DAY_PROFILE)` | — |
+| `CIRCADIAN_VON_MISES` | — | **retired (`D1`)** | — | `RETIRED (D1 -> HOUR_OF_DAY_PROFILE)` | — |
 | `MACD_MOMENTUM_VELOCITY` | `$active_days`, `$fast_z` | `$active_days >= 7 and $fast_z >= 3.0` (ranked by momentum) | σ | `Fast Z >= 3.0σ` | `{{anomaly_threshold}}` |
 | `PIECEWISE_CRI` | `$active_days`, `$clamped_z` | `$active_days >= 7 and $clamped_z >= 3.0` (ranked by CRI tier) | σ (winsorized) | `Z >= 3.0σ (CRI >= 85)` | `{{anomaly_threshold}}` |
 | `FLEET_PREVALENCE_SHIELD` | `$active_days`, `$shielded_z` | `$active_days >= 7 and $shielded_z >= 3.0` | σ (fleet-discounted) | `Shielded Z >= 3.0σ` | `{{anomaly_threshold}}` |
@@ -232,36 +232,8 @@ order:
   $surge_ratio desc
 ```
 
-### 6. `HOURLY_TEMPORAL_ZSCORE` (`hourly_temporal_zscore.yl2`)
-* **Hypothesis**: Intra-day burst localized to a 1-hour bucket (`by 1h`) compared against the 30-day macro baseline (`period: 1d, window: 30d` — the only `period`/`window` combination supported on `metrics.*`).
-* **Mandatory AST Contract**:
-<!-- yara-fragment: root-stage AST contract excerpt -->
-```yara
-match:
-  $entity, $ws by 1h
-
-outcome:
-  $observed_hour = max($stage1_extract.observed_val)
-  $active_days = max($stage1_extract.historical_active_days)
-
-  $avg_hourly = max($stage1_extract.historical_avg)
-  $stddev_hourly = max($stage1_extract.historical_stddev)
-  $max_hourly = max($stage1_extract.historical_max)
-
-  $hourly_diff = $observed_hour - $avg_hourly
-  $dispersion_floor = math.sqrt(if($avg_hourly > 1.0, $avg_hourly, 1.0))
-  $safe_stddev_hourly = if($stddev_hourly > $dispersion_floor, $stddev_hourly, $dispersion_floor)
-  $hourly_z = $hourly_diff / $safe_stddev_hourly
-
-  $safe_avg_hourly = if($avg_hourly > 0, $avg_hourly, 1.0)
-  $hourly_surge_ratio = $observed_hour / $safe_avg_hourly
-
-condition:
-  $active_days >= 7 and $hourly_z >= 3.0
-
-order:
-  $hourly_z desc
-```
+### 6. `HOURLY_TEMPORAL_ZSCORE` *(RETIRED — `D1` / `PF-10` / `WS2-02`)*
+* **Status**: Retired from `secops-risk-metrics-multistage`. Because `metrics.*` exposes only `period: 1d, window: 30d` baselines, 1-hour bucket standardization cannot be anchored to `metrics.*` without scale bias. Route intra-day / per-hour-of-day profiling to `secops-statistical-hunter` model `HOUR_OF_DAY_PROFILE`.
 
 ### 7. `BAYESIAN_GAMMA` (`poisson_gamma_bayesian.yl2`)
 * **Hypothesis**: Empirical Bayes conjugate shrinkage updating to avoid false positives on sparse history ($N < 10$).
@@ -592,41 +564,8 @@ order:
   $macd_momentum_score desc
 ```
 
-### 16. `CIRCADIAN_VON_MISES` (`circadian_von_mises.yl2`)
-* **Hypothesis**: Evaluates hourly telemetry against a 24-hour circular clock from a heuristic business-hours center (default `14:00 UTC`, yielding `1.917x` at `03:00 UTC` via $1 + 11/12$ and `2.0x` at the `02:00 UTC` antipode), after normalizing the 30-day daily baseline to 1-hour units (`mean/24.0`, `stddev/4.899`).
-* **Mandatory AST Contract**:
-```yara
-outcome:
-  $observed_hour = max($stage1_extract.observed_val)
-  $hist_avg_daily = max($stage1_extract.historical_avg)
-  $hist_stddev_daily = max($stage1_extract.historical_stddev)
-  $active_days = max($stage1_extract.historical_active_days)
-  $event_hour = max($stage1_extract.event_hour)
-
-  $avg_hourly = $hist_avg_daily / 24.0
-  $scaled_hourly_sd = $hist_stddev_daily / 4.899
-  $dispersion_floor = math.sqrt(if($avg_hourly > 1.0, $avg_hourly, 1.0))
-  $safe_stddev_hourly = if($scaled_hourly_sd > $dispersion_floor, $scaled_hourly_sd, $dispersion_floor)
-  $hourly_diff = $observed_hour - $avg_hourly
-  $hourly_z = $hourly_diff / $safe_stddev_hourly
-
-  $raw_hour_diff = $event_hour - 14.0
-  $abs_hour_diff = math.abs($raw_hour_diff)
-  $wrap_dist = 24.0 - $abs_hour_diff
-  $circ_dist = if($abs_hour_diff > 12.0, $wrap_dist, $abs_hour_diff)
-
-  $norm_dist = $circ_dist / 12.0
-  $circadian_weight = 1.0 + $norm_dist
-
-  $pos_z = if($hourly_z > 0, $hourly_z, 0.0)
-  $circadian_threat_score = $pos_z * $circadian_weight
-
-condition:
-  $active_days >= 7 and $circadian_threat_score >= 3.0
-
-order:
-  $circadian_threat_score desc
-```
+### 16. `CIRCADIAN_VON_MISES` *(RETIRED — `D1` / `PF-10` / `WS2-02`)*
+* **Status**: Retired from `secops-risk-metrics-multistage` (along with `circadian_von_mises_2stage.yl2`). Route per-hour-of-day / off-hours profiling to `secops-statistical-hunter` model `HOUR_OF_DAY_PROFILE`.
 
 ### 17. `RELATIVE_DEVIATION` (`relative_deviation.yl2`)
 * **Hypothesis**: Scale-free fold change against the 30d mean ("3.2x the usual volume"). Easy to read, but mean-anchored: one historic burst inflates the denominator. This was formerly (mis)labelled `MAD`.

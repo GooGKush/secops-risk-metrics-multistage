@@ -58,6 +58,8 @@ from scripts.preflight_validator import (
     PostFlightExecutionAuditor,
     QueryIntegrityGate,
     PreFlightValidator,
+    RETIRED_PIPELINE_ARCHITECTURES,
+    RETIRED_STATISTICAL_MODELS,
     StatisticalModel,
     default_significance_threshold,
 )
@@ -142,11 +144,6 @@ MODEL_ALIAS_MAP: Dict[str, StatisticalModel] = {
     # 6. Coefficient of Variation (CV)
     "CV": StatisticalModel.COEFFICIENT_OF_VARIATION,
     "COEFFICIENT_OF_VARIATION": StatisticalModel.COEFFICIENT_OF_VARIATION,
-    # 7. Hourly Temporal Z-Score
-    "HOURLY_TEMPORAL_ZSCORE": StatisticalModel.HOURLY_TEMPORAL_ZSCORE,
-    "HOURLY_ZSCORE": StatisticalModel.HOURLY_TEMPORAL_ZSCORE,
-    "TEMPORAL_ZSCORE": StatisticalModel.HOURLY_TEMPORAL_ZSCORE,
-    "INTRADAY_Z": StatisticalModel.HOURLY_TEMPORAL_ZSCORE,
     # 8. Bayesian Gamma-Poisson Shrinkage
     "BAYESIAN_GAMMA": StatisticalModel.BAYESIAN_GAMMA,
     "POISSON_GAMMA": StatisticalModel.BAYESIAN_GAMMA,
@@ -189,11 +186,6 @@ MODEL_ALIAS_MAP: Dict[str, StatisticalModel] = {
     "MACD": StatisticalModel.MACD_MOMENTUM_VELOCITY,
     "MOMENTUM_VELOCITY": StatisticalModel.MACD_MOMENTUM_VELOCITY,
     "EWMA_BURST": StatisticalModel.MACD_MOMENTUM_VELOCITY,
-    # 17. Circadian von Mises
-    "CIRCADIAN_VON_MISES": StatisticalModel.CIRCADIAN_VON_MISES,
-    "CIRCADIAN": StatisticalModel.CIRCADIAN_VON_MISES,
-    "VON_MISES": StatisticalModel.CIRCADIAN_VON_MISES,
-    "OFF_HOURS": StatisticalModel.CIRCADIAN_VON_MISES,
     # 18. Quantile / IQR / Bowley Skewness Tukey Fence
     "QUANTILE_IQR_SKEW": StatisticalModel.QUANTILE_IQR_SKEW,
     "QUANTILE": StatisticalModel.QUANTILE_IQR_SKEW,
@@ -274,12 +266,30 @@ HANDOFF_JITTER_ALIASES: frozenset[str] = frozenset({
     "C2_JITTER",
 })
 
+HANDOFF_TIME_OF_DAY_ALIASES: frozenset[str] = frozenset({
+    "HOURLY_TEMPORAL_ZSCORE",
+    "HOURLY_ZSCORE",
+    "TEMPORAL_ZSCORE",
+    "INTRADAY_Z",
+    "CIRCADIAN_VON_MISES",
+    "CIRCADIAN_VON_MISES_2STAGE",
+    "CIRCADIAN",
+    "VON_MISES",
+    "OFF_HOURS",
+    "OFF_HOURS_ACTIVITY",
+    "TIME_OF_DAY",
+    "HOUR_OF_DAY",
+    "HOUR_OF_DAY_PROFILE",
+})
+
 RETIRED_MODEL_ALIASES: Dict[str, str] = {}
 
 
 def resolve_statistical_model(model: Optional[Union[str, StatisticalModel]]) -> StatisticalModel:
   """Resolves a model alias or enum value to a canonical StatisticalModel."""
   if isinstance(model, StatisticalModel):
+    if model in RETIRED_STATISTICAL_MODELS:
+      raise ValueError(RETIRED_STATISTICAL_MODELS[model])
     return model
   if model is None:
     return StatisticalModel.STANDARD_Z_SCORE
@@ -300,13 +310,24 @@ def resolve_statistical_model(model: Optional[Union[str, StatisticalModel]]) -> 
         "hand off to 'secops-statistical-hunter' model 'C2_BEACONING_JITTER' instead of rendering "
         "daily COEFFICIENT_OF_VARIATION."
     )
+  if raw in HANDOFF_TIME_OF_DAY_ALIASES:
+    raise ValueError(
+        f"Statistical model '{model}' is retired (D1 / PF-10): metrics.* provides only daily "
+        "(period: 1d, window: 30d) baselines; hand off to 'secops-statistical-hunter' model "
+        "'HOUR_OF_DAY_PROFILE'."
+    )
   if raw in RETIRED_MODEL_ALIASES:
     replacement = RETIRED_MODEL_ALIASES[raw]
     raise ValueError(f"Statistical model '{raw}' is retired; use {replacement}.")
   if raw in MODEL_ALIAS_MAP:
-    return MODEL_ALIAS_MAP[raw]
+    resolved = MODEL_ALIAS_MAP[raw]
+    if resolved in RETIRED_STATISTICAL_MODELS:
+      raise ValueError(RETIRED_STATISTICAL_MODELS[resolved])
+    return resolved
   for member in StatisticalModel:
     if raw in (member.name.upper(), member.value.upper()):
+      if member in RETIRED_STATISTICAL_MODELS:
+        raise ValueError(RETIRED_STATISTICAL_MODELS[member])
       return member
   raise ValueError(f"Unknown statistical model: '{model}'")
 
@@ -1042,6 +1063,60 @@ def compile_hunt_pipeline(
         "ast_errors": [],
         "statistical_violations": [],
     }
+  if model_str_upper in HANDOFF_TIME_OF_DAY_ALIASES or arch_key in (
+      "circadian_von_mises_2stage",
+      "circadian_von_mises",
+      "hourly_temporal_zscore",
+      "hour_of_day_profile",
+  ):
+    handoff_ent_type = (
+        "USER"
+        if ent_enum == EntityType.USER
+        else ("RESOURCE" if ent_enum == EntityType.RESOURCE else "HOSTNAME")
+    )
+    handoff_ent_val = (
+        entity_value.strip()
+        if entity_value and entity_value.strip().lower() not in ("fleet", "fleet-wide", "all", "*", "unknown", "none")
+        else "fleet"
+    )
+    eff_hod_days = window_days if window_days and window_days > 1 else 14
+    lookback_str = f"{eff_hod_days}d"
+    payload = build_handoff_payload(
+        intent="HOUR_OF_DAY_PROFILE",
+        entity_type=handoff_ent_type,
+        entity_value=handoff_ent_val,
+        lookback=lookback_str,
+        sensitivity=sens_tier,
+        justification=hypothesis_goal,
+        parameters={"window_days": eff_hod_days},
+    )
+    demarcation_card = format_handoff_card(payload, ack=None)
+    return {
+        "status": "HANDOFF_REQUIRED",
+        "action": "CONSULTATIVE_DEMARCATION",
+        "protocol": SUPPORTED_PROTOCOL,
+        "request_id": payload["request_id"],
+        "source_skill": "secops-risk-metrics-multistage",
+        "target_skill": "secops-statistical-hunter",
+        "intent": "HOUR_OF_DAY_PROFILE",
+        "model_routed": "HOUR_OF_DAY_PROFILE",
+        "statistical_model": "HOUR_OF_DAY_PROFILE",
+        "entity_type": ent_enum.value,
+        "entity_value": entity_value or "Fleet-Wide",
+        "sensitivity": sens_tier,
+        "handoff_payload": payload,
+        "payload": payload,
+        "handoff_card": demarcation_card,
+        "handoff_card_markdown": demarcation_card,
+        "demarcation_card_markdown": demarcation_card,
+        "preflight_card": demarcation_card,
+        "preflight_card_markdown": demarcation_card,
+        "compiled_query": "",
+        "query": "",
+        "ast_valid": True,
+        "ast_errors": [],
+        "statistical_violations": [],
+    }
   if arch_key in ("single_metric", "local_2stage", "2stage") and model_str_upper in MODEL_IMPLIED_ARCHITECTURE:
     arch_key = MODEL_IMPLIED_ARCHITECTURE[model_str_upper]
 
@@ -1467,7 +1542,6 @@ def compile_hunt_pipeline(
       "hybrid_metric_derived_asset_age_2stage",
       "http_target_surge_2stage",
       "macd_momentum_velocity_2stage",
-      "circadian_von_mises_2stage",
   ):
     hybrid_arch_map = {
         "hybrid_enrichment": PipelineArchitecture.HYBRID_METRIC_RAW_ENRICHMENT_2STAGE,
@@ -1490,7 +1564,6 @@ def compile_hunt_pipeline(
         "hybrid_metric_derived_asset_age_2stage": PipelineArchitecture.HYBRID_METRIC_DERIVED_ASSET_AGE_2STAGE,
         "http_target_surge_2stage": PipelineArchitecture.HTTP_TARGET_SURGE_2STAGE,
         "macd_momentum_velocity_2stage": PipelineArchitecture.MACD_MOMENTUM_VELOCITY_2STAGE,
-        "circadian_von_mises_2stage": PipelineArchitecture.CIRCADIAN_VON_MISES_2STAGE,
     }
     pipe_enum = hybrid_arch_map[arch_key]
     plane_upper = "HYBRID" if "HYBRID" in pipe_enum.value else plane_upper
@@ -2324,8 +2397,6 @@ _MATURITY_GATED_MODELS: frozenset[StatisticalModel] = frozenset({
     StatisticalModel.STANDARD_Z_SCORE,
     StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z,
     StatisticalModel.COEFFICIENT_OF_VARIATION,
-    StatisticalModel.HOURLY_TEMPORAL_ZSCORE,
-    StatisticalModel.CIRCADIAN_VON_MISES,
     StatisticalModel.MACD_MOMENTUM_VELOCITY,
     StatisticalModel.PIECEWISE_CRI,
     StatisticalModel.FLEET_PREVALENCE_SHIELD,
@@ -3145,10 +3216,10 @@ def get_metric_catalog_summary(
 SECTOR_HYBRID_MODELS: Dict[str, List[str]] = {
     "USER_CREDENTIAL_SIGNALS": [
         "standard_z_score",
-        "circadian_von_mises",
         "two_part_hurdle",
         "asymmetric_directional_z",
         "adaptive_context_threshold",
+        "bayesian_beta_binomial",
     ],
     "HOST_ENDPOINT_HEALTH": [
         "standard_z_score",
