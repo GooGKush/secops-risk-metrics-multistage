@@ -184,6 +184,7 @@ MODEL_ALIAS_MAP: Dict[str, StatisticalModel] = {
     "DYNAMIC_THRESHOLD": StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD,
     # 16. MACD Momentum Velocity
     "MACD_MOMENTUM_VELOCITY": StatisticalModel.MACD_MOMENTUM_VELOCITY,
+    "MACD_MOMENTUM": StatisticalModel.MACD_MOMENTUM_VELOCITY,
     "MACD": StatisticalModel.MACD_MOMENTUM_VELOCITY,
     "MOMENTUM_VELOCITY": StatisticalModel.MACD_MOMENTUM_VELOCITY,
     "EWMA_BURST": StatisticalModel.MACD_MOMENTUM_VELOCITY,
@@ -192,6 +193,11 @@ MODEL_ALIAS_MAP: Dict[str, StatisticalModel] = {
     "CIRCADIAN": StatisticalModel.CIRCADIAN_VON_MISES,
     "VON_MISES": StatisticalModel.CIRCADIAN_VON_MISES,
     "OFF_HOURS": StatisticalModel.CIRCADIAN_VON_MISES,
+    # 18. Quantile / IQR / Bowley Skewness Tukey Fence
+    "QUANTILE_IQR_SKEW": StatisticalModel.QUANTILE_IQR_SKEW,
+    "BOWLEY_SKEW": StatisticalModel.QUANTILE_IQR_SKEW,
+    "TUKEY_FENCE": StatisticalModel.QUANTILE_IQR_SKEW,
+    "TUKEY_SKEW_FENCE": StatisticalModel.QUANTILE_IQR_SKEW,
 }
 
 # Models that automatically imply an advanced multi-stage pipeline architecture
@@ -266,12 +272,20 @@ HANDOFF_JITTER_ALIASES: frozenset[str] = frozenset({
     "C2_JITTER",
 })
 
+RETIRED_MODEL_ALIASES: Dict[str, str] = {}
 
-def resolve_statistical_model(model: Union[str, StatisticalModel]) -> StatisticalModel:
+
+def resolve_statistical_model(model: Optional[Union[str, StatisticalModel]]) -> StatisticalModel:
   """Resolves a model alias or enum value to a canonical StatisticalModel."""
   if isinstance(model, StatisticalModel):
     return model
-  raw = (model or "STANDARD_Z_SCORE").strip().upper().replace("-", "_").replace(" ", "_")
+  if model is None:
+    return StatisticalModel.STANDARD_Z_SCORE
+  if not isinstance(model, str):
+    raise ValueError(f"Unknown statistical model: '{model}'")
+  if not model.strip():
+    return StatisticalModel.STANDARD_Z_SCORE
+  raw = model.strip().upper().replace("-", "_").replace(" ", "_")
   if raw in UNSUPPORTED_SILENCE_ALIASES:
     raise ValueError(
         f"Statistical model '{model}' (silence / drop-out detection) is not supported: "
@@ -284,12 +298,15 @@ def resolve_statistical_model(model: Union[str, StatisticalModel]) -> Statistica
         "hand off to 'secops-statistical-hunter' model 'C2_BEACONING_JITTER' instead of rendering "
         "daily COEFFICIENT_OF_VARIATION."
     )
+  if raw in RETIRED_MODEL_ALIASES:
+    replacement = RETIRED_MODEL_ALIASES[raw]
+    raise ValueError(f"Statistical model '{raw}' is retired; use {replacement}.")
   if raw in MODEL_ALIAS_MAP:
     return MODEL_ALIAS_MAP[raw]
   for member in StatisticalModel:
     if raw in (member.name.upper(), member.value.upper()):
       return member
-  return StatisticalModel.STANDARD_Z_SCORE
+  raise ValueError(f"Unknown statistical model: '{model}'")
 
 
 def normalize_metrics_list(
@@ -551,7 +568,8 @@ def _build_micro_raw_query(
   ent_field = "principal.user.userid" if entity_type == EntityType.USER else "principal.asset.hostname"
   ent_var = "$user" if entity_type == EntityType.USER else "$host"
   ent_name = ent_var.lstrip("$")
-  model_upper = (statistical_model or "ZSCORE").strip().upper().replace("-", "_")
+  resolved_micro_model = resolve_statistical_model(statistical_model)
+  model_upper = resolved_micro_model.value
   goal = hypothesis_goal or f"Micro-Raw Statistical Outlier Hunt ({model_upper})"
 
   ent_filter_line = ""
@@ -767,7 +785,14 @@ def compile_hunt_pipeline(
   if plane_upper == "HYBRID" and arch_key in ("single_metric", "local_2stage", "2stage"):
     arch_key = "hybrid_enrichment"
 
-  stat_model_enum = resolve_statistical_model(statistical_model)
+  if model_str_upper in RETIRED_MODEL_ALIASES:
+    replacement = RETIRED_MODEL_ALIASES[model_str_upper]
+    raise ValueError(f"Statistical model '{model_str_upper}' is retired; use {replacement}.")
+  stat_model_enum = (
+      StatisticalModel.STANDARD_Z_SCORE
+      if model_str_upper in MODEL_IMPLIED_ARCHITECTURE
+      else resolve_statistical_model(statistical_model)
+  )
   metric_list = normalize_metrics_list(metrics, ent_enum, arch_key)
   if len(metric_list) >= 2 and arch_key in ("single_metric", "local_2stage", "2stage"):
     arch_key = "multi_sector_fusion_4stage" if len(metric_list) >= 3 else "dual_sector_fusion_3stage"
@@ -782,7 +807,7 @@ def compile_hunt_pipeline(
   # 1. Compile the query according to plane and architecture
   if plane_upper == "MICRO_RAW":
     compiled_query = _build_micro_raw_query(
-        statistical_model=model_str_upper,
+        statistical_model=stat_model_enum.value,
         entity_type=ent_enum,
         entity_value=entity_value,
         anomaly_threshold=eff_anomaly,
@@ -1224,7 +1249,7 @@ def compile_hunt_pipeline(
       )
       canonical_arch = (
           PipelineArchitecture.CLOUD_REPOSITORY_SCOPE_DUAL_BRANCH.value
-          if (primary_metric.startswith("resource_") and ent_enum == EntityType.USER and stat_model_enum != StatisticalModel.MAD)
+          if (primary_metric.startswith("resource_") and ent_enum == EntityType.USER and stat_model_enum == StatisticalModel.STANDARD_Z_SCORE)
           else PipelineArchitecture.LOCAL_2STAGE.value
       )
     compiled_query = _inject_stage1_filters(compiled_query, entity_value=entity_value, custom_filter=custom_filter)

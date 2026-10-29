@@ -89,18 +89,13 @@ class MultiStageTemplateRouter:
       StatisticalModel.MACD_MOMENTUM_VELOCITY: "macd_momentum_velocity.yl2",
       StatisticalModel.CIRCADIAN_VON_MISES: "circadian_von_mises.yl2",
       StatisticalModel.QUANTILE_IQR_SKEW: "quantile_iqr_skew.yl2",
-      "diversity_deficit": "diversity_deficit_entropy.yl2",
-      "diversity_deficit_entropy": "diversity_deficit_entropy.yl2",
-      "macd_momentum": "macd_momentum.yl2",
+      "macd_momentum": "macd_momentum_velocity.yl2",
       "macd_momentum_velocity": "macd_momentum_velocity.yl2",
       "hourly_zscore": "hourly_temporal_zscore.yl2",
       "longitudinal_cusum": "longitudinal_cusum.yl2",
   }
 
-  STAGE2_FALLBACK_TEMPLATES = {
-      "diversity_deficit_entropy.yl2": "coefficient_of_variation.yl2",
-      "macd_momentum.yl2": "macd_momentum_velocity.yl2",
-  }
+  STAGE2_FALLBACK_TEMPLATES: Dict[str, str] = {}
 
   MODEL_DESCRIPTIONS = {
       StatisticalModel.HOURLY_TEMPORAL_ZSCORE: "Macro-Day + Micro-Hour Burst Localization",
@@ -506,25 +501,19 @@ class MultiStageTemplateRouter:
         identifier_field=identifier_field,
     )
 
-    if isinstance(statistical_model, str):
-      norm_model = statistical_model.strip().upper().replace("-", "_").replace(" ", "_")
-      if norm_model in ("SILENCE_DETECTION", "DROP_OUT", "SILENCE", "DROPOUT"):
-        raise ValueError(
-            f"Statistical model '{statistical_model}' (silence / drop-out detection) is not supported: "
-            "metrics.* and match ... by 1d emit no zero-count buckets, so lower-tail silence "
-            "detection is not supported until a zero-day-aware lower-tail detector exists."
-        )
-      if norm_model in ("BEACON_REGULARITY", "JITTER", "BEACON", "C2_BEACONING_JITTER", "C2_JITTER"):
-        raise ValueError(
-            f"Statistical model '{statistical_model}' requires sub-hour inter-arrival timing on raw UDM telemetry; "
-            "hand off to 'secops-statistical-hunter' model 'C2_BEACONING_JITTER' instead of rendering "
-            "daily COEFFICIENT_OF_VARIATION."
-        )
+    if statistical_model is None or (isinstance(statistical_model, str) and not statistical_model.strip()):
+      raise ValueError(f"Unknown statistical model: '{statistical_model}'")
+    if not isinstance(statistical_model, StatisticalModel):
+      from .ueba_hybrid_engine import resolve_statistical_model
+      statistical_model = resolve_statistical_model(statistical_model)
 
-    # Enforce Local-Baseline Isolation: multi-database account queries must route to CLOUD_REPOSITORY_SCOPE_DUAL_BRANCH.
-    # An explicit MAD request is exempt: MAD groups by the full (user, vendor, product, resource) baseline tuple,
-    # which already isolates each repository's baseline.
-    if target_metric.startswith("resource_") and entity_type == EntityType.USER and statistical_model not in (StatisticalModel.MAD, StatisticalModel.QUANTILE_IQR_SKEW):
+    # Enforce Local-Baseline Isolation: default STANDARD_Z_SCORE multi-database account queries
+    # route to CLOUD_REPOSITORY_SCOPE_DUAL_BRANCH; explicit non-Z models render directly.
+    if (
+        target_metric.startswith("resource_")
+        and entity_type == EntityType.USER
+        and statistical_model == StatisticalModel.STANDARD_Z_SCORE
+    ):
       return self.build_pipeline_query(
           PipelineArchitecture.CLOUD_REPOSITORY_SCOPE_DUAL_BRANCH,
           target_metric=target_metric,
@@ -544,53 +533,10 @@ class MultiStageTemplateRouter:
         self._strip_identifier_swap_note(stage1_path.read_text().strip()), target_metric, audit["target_field"])
 
     model_key = statistical_model
-    if isinstance(statistical_model, str):
-      raw_key = statistical_model.strip()
-      lower_key = raw_key.lower()
-      alias_enum_map = {
-          "hourly_zscore": StatisticalModel.HOURLY_TEMPORAL_ZSCORE,
-          "hourly_temporal_zscore": StatisticalModel.HOURLY_TEMPORAL_ZSCORE,
-          "longitudinal_cusum": StatisticalModel.LONGITUDINAL_CUSUM,
-          "macd_momentum": StatisticalModel.MACD_MOMENTUM_VELOCITY,
-          "macd_momentum_velocity": StatisticalModel.MACD_MOMENTUM_VELOCITY,
-          "standard_z_score": StatisticalModel.STANDARD_Z_SCORE,
-          "mad": StatisticalModel.MAD,
-          "poisson": StatisticalModel.POISSON,
-          "variance": StatisticalModel.VARIANCE,
-          "relative_deviation": StatisticalModel.RELATIVE_DEVIATION,
-          "coefficient_of_variation": StatisticalModel.COEFFICIENT_OF_VARIATION,
-          "bayesian_gamma": StatisticalModel.BAYESIAN_GAMMA,
-          "bayesian_beta_binomial": StatisticalModel.BAYESIAN_BETA_BINOMIAL,
-          "two_part_hurdle": StatisticalModel.TWO_PART_HURDLE,
-          "asymmetric_directional_z": StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z,
-          "piecewise_cri": StatisticalModel.PIECEWISE_CRI,
-          "fleet_prevalence_shield": StatisticalModel.FLEET_PREVALENCE_SHIELD,
-          "adaptive_context_threshold": StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD,
-          "circadian_von_mises": StatisticalModel.CIRCADIAN_VON_MISES,
-          "quantile_iqr_skew": StatisticalModel.QUANTILE_IQR_SKEW,
-          "bowley_skew": StatisticalModel.QUANTILE_IQR_SKEW,
-          "tukey_fence": StatisticalModel.QUANTILE_IQR_SKEW,
-          "tukey_skew_fence": StatisticalModel.QUANTILE_IQR_SKEW,
-      }
-      if lower_key in alias_enum_map:
-        statistical_model = alias_enum_map[lower_key]
-        model_key = statistical_model
-      else:
-        for m_enum in StatisticalModel:
-          if raw_key in (m_enum.name, m_enum.value) or lower_key == m_enum.name.lower():
-            statistical_model = m_enum
-            model_key = m_enum
-            break
-        else:
-          model_key = lower_key
-
-    stage2_file = self.STAGE2_TEMPLATES.get(model_key) or self.STAGE2_TEMPLATES.get(statistical_model)
+    stage2_file = self.STAGE2_TEMPLATES.get(statistical_model)
     if not stage2_file:
-      raise ValueError(f"Unsupported statistical model: {statistical_model}")
+      raise ValueError(f"Unknown statistical model: '{statistical_model}'")
     stage2_path = self.template_dir / "stage2_math_models" / stage2_file
-    if not stage2_path.exists() and stage2_file in self.STAGE2_FALLBACK_TEMPLATES:
-      stage2_file = self.STAGE2_FALLBACK_TEMPLATES[stage2_file]
-      stage2_path = self.template_dir / "stage2_math_models" / stage2_file
     if not stage2_path.exists():
       raise FileNotFoundError(f"Missing Stage 2 template: {stage2_path}")
     stage2_raw = stage2_path.read_text().strip()
