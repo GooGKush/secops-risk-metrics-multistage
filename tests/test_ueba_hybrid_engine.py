@@ -443,24 +443,105 @@ class TestUEBAHybridEngineDossier(unittest.TestCase):
     self.assertIn("Sparse Baseline Caution", res_sparse["dossier_markdown"])
 
   def test_render_with_360_radar_scores_and_mode_c_shards(self):
-    """Tests 360° radar score integration and Mode C shard tuple collation."""
+    """WS4 / D6-G1..G3: 360° radar integration requires raw udm_search sector payloads and prints provenance."""
     shards = [
         ("2026-10-15", [{"user": "alex.smith", "observed_val": 25, "historical_avg": 10, "historical_stddev": 2, "z_score": 7.5}]),
         ("2026-10-16", [{"user": "alex.smith", "observed_val": 40, "historical_avg": 10, "historical_stddev": 2, "z_score": 15.0}]),
     ]
+    raw_sector_payloads = {
+        "auth": {
+            "stats": {
+                "results": [
+                    {"column": "user", "values": [{"value": {"stringVal": "alex.smith"}}]},
+                    {"column": "observed", "values": [{"value": {"int64Val": "23"}}]},
+                    {"column": "baseline", "values": [{"value": {"doubleVal": 10.0}}]},
+                    {"column": "dispersion", "values": [{"value": {"doubleVal": 2.0}}]},
+                    {"column": "z", "values": [{"value": {"doubleVal": 6.5}}]},
+                ]
+            }
+        },
+        "cloud": {
+            "stats": {
+                "results": [
+                    {"column": "user", "values": [{"value": {"stringVal": "alex.smith"}}]},
+                    {"column": "observed", "values": [{"value": {"int64Val": "52"}}]},
+                    {"column": "baseline", "values": [{"value": {"doubleVal": 10.0}}]},
+                    {"column": "dispersion", "values": [{"value": {"doubleVal": 10.0}}]},
+                    {"column": "z", "values": [{"value": {"doubleVal": 4.2}}]},
+                ]
+            }
+        },
+        "workspace": {},
+        "network": {},
+        "dns": {},
+        "web": {},
+    }
     res = render_forensic_dossier(
         rows=shards,
         executed_query=self.sample_query,
         metric_name="auth_attempts_total",
         entity_type="USER",
         mode="C",
-        radar_scores="auth:6.5,cloud:4.2,workspace:1.1,network:0.5,dns:0.2,web:0.8",
+        radar_sector_payloads=raw_sector_payloads,
     )
     self.assertFalse(res["is_zero_row"])
     self.assertIsNotNone(res["radar_payload"])
     self.assertGreater(res["radar_payload"]["composite_risk_distance"], 7.0)
+    self.assertIn("provenance", res["radar_payload"])
+    prov = res["radar_payload"]["provenance"]
+    self.assertEqual(prov["helper_version"], "2.3.0")
+    self.assertEqual(len(prov["payload_sha256"]), 64)
+    self.assertEqual(len(prov["query_sha256"]), 64)
     self.assertIn("360° Multi-Sector Behavioral Risk Radar Summary", res["dossier_markdown"])
     self.assertIn("Multi-Day Timeline Breakdown", res["dossier_markdown"])
+    self.assertIn(prov["payload_sha256"], res["dossier_markdown"])
+    self.assertIn(prov["query_sha256"], res["dossier_markdown"])
+
+    # Also verify backward-compatible radar_scores parameter accepts raw sector payload dicts
+    res_compat = render_forensic_dossier(
+        rows=shards,
+        executed_query=self.sample_query,
+        metric_name="auth_attempts_total",
+        entity_type="USER",
+        mode="C",
+        radar_scores=raw_sector_payloads,
+    )
+    self.assertGreater(res_compat["radar_payload"]["composite_risk_distance"], 7.0)
+
+  def test_render_forensic_dossier_rejects_g1_typed_radar_scores(self):
+    """WS4 / D6-G1: render_forensic_dossier rejects string or float-dict radar_scores and raw event dumps."""
+    sample_rows = [
+        {"entity": "alex.smith", "observed": 25, "hist_avg": 10, "hist_stddev": 2, "z_score": 7.5}
+    ]
+    with self.assertRaises(ValueError) as str_ctx:
+      render_forensic_dossier(
+          rows=sample_rows,
+          executed_query=self.sample_query,
+          metric_name="auth_attempts_total",
+          entity_type="USER",
+          radar_scores="auth:6.5,cloud:4.2,workspace:1.1,network:0.5,dns:0.2,web:0.8",
+      )
+    self.assertIn("G1", str(str_ctx.exception))
+
+    with self.assertRaises(ValueError) as dict_ctx:
+      render_forensic_dossier(
+          rows=sample_rows,
+          executed_query=self.sample_query,
+          metric_name="auth_attempts_total",
+          entity_type="USER",
+          radar_scores={"auth": 6.5, "cloud": 4.2},
+      )
+    self.assertIn("G1", str(dict_ctx.exception))
+
+    with self.assertRaises(ValueError) as dump_ctx:
+      render_forensic_dossier(
+          rows=sample_rows,
+          executed_query=self.sample_query,
+          metric_name="auth_attempts_total",
+          entity_type="USER",
+          radar_sector_payloads={"auth": {"events": [{"metadata": {"id": "evt-1"}}]}},
+      )
+    self.assertIn("RAW_LOG_DUMP_DETECTED", str(dump_ctx.exception))
 
   def test_postflight_audit_blocks_raw_log_dump(self):
     """Passing raw UDM events without stats must trigger RAW_LOG_DUMP_DETECTED."""

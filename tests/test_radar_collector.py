@@ -3,10 +3,31 @@
 Author: Greg Kushmerek
 """
 
+import hashlib
+import json
 import math
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
 import unittest
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from scripts import radar_collector
 from scripts.preflight_validator import MalachiteASTValidator
 from scripts.radar_collector import EntityRadarCollector, MetricSpoke
+
+
+def _make_stats_payload(columns: dict) -> dict:
+  """Builds a Chronicle udm_search stats.results columnar response dict."""
+  results = []
+  for col_name, cells in columns.items():
+    results.append({
+        "column": col_name,
+        "values": [{"value": {kind: val}} for kind, val in cells],
+    })
+  return {"stats": {"results": results}}
 
 
 class TestRadarCollector(unittest.TestCase):
@@ -264,7 +285,7 @@ class TestRadarCollector(unittest.TestCase):
     self.assertIn("tim.smith@altostrat.com", html_widget)
 
   def test_canonical_nominal_spokes(self):
-    """Canonical nominal spokes must return 6 spokes at 0.00σ baseline for both USER and ASSET."""
+    """Canonical nominal spokes must return 6 spokes at 0.00σ baseline for both USER and ASSET (WS4 / D6-G1)."""
     user_spokes = EntityRadarCollector.get_canonical_nominal_spokes("USER")
     self.assertEqual(len(user_spokes), 6)
     for s in user_spokes:
@@ -278,25 +299,237 @@ class TestRadarCollector(unittest.TestCase):
     self.assertEqual(asset_spokes[4].metric_table, "metrics.alert_event_name_count")
     self.assertEqual(asset_spokes[5].metric_table, "metrics.file_executions_total")
 
-    parsed_asset = EntityRadarCollector.parse_scores_argument("alert=4.5,proc=3.2", "ASSET")
+    # WS4 / D6-G1: ASSET alerts & endpoint spokes must parse from raw udm_search stats payloads,
+    # never from LLM-typed score strings with fabricated Z*10 / 5.0 / 2.0 values.
+    raw_asset_payloads = {
+        "alerts": _make_stats_payload({
+            "asset": [("stringVal", "wrk-01")],
+            "alerts_obs": [("int64Val", "19")],
+            "alerts_avg": [("doubleVal", 5.5)],
+            "alerts_std": [("doubleVal", 3.0)],
+            "z_alerts": [("doubleVal", 4.5)],
+        }),
+        "endpoint": _make_stats_payload({
+            "host": [("stringVal", "wrk-01")],
+            "observed": [("int64Val", "84")],
+            "historical_avg": [("doubleVal", 20.0)],
+            "historical_stddev": [("doubleVal", 20.0)],
+            "personal_z": [("doubleVal", 3.2)],
+        }),
+    }
+    parsed_asset, _ = EntityRadarCollector.parse_raw_sector_payloads(
+        raw_asset_payloads, entity_type="ASSET"
+    )
     self.assertEqual(parsed_asset[4].z_score, 4.5)
+    self.assertEqual(parsed_asset[4].observed, 19.0)
+    self.assertEqual(parsed_asset[4].baseline_mean, 5.5)
+    self.assertEqual(parsed_asset[4].baseline_stddev, 3.0)
     self.assertEqual(parsed_asset[5].z_score, 3.2)
+    self.assertEqual(parsed_asset[5].observed, 84.0)
+    self.assertEqual(parsed_asset[5].baseline_mean, 20.0)
+    self.assertEqual(parsed_asset[5].baseline_stddev, 20.0)
 
-  def test_parse_scores_argument(self):
-    """parse_scores_argument must parse key-value pairs into calibrated MetricSpoke instances."""
-    spokes = EntityRadarCollector.parse_scores_argument("auth=0.0,cloud=3.8,workspace=3.2,net=0.8,dns=10.8,web=4.2", "USER")
+  def test_parse_scores_argument_removed_and_cli_scores_rejected_g1(self):
+    """WS4 / D6-G1: parse_scores_argument is removed and --scores on CLI fails closed with G1 error."""
+    self.assertFalse(
+        hasattr(EntityRadarCollector, "parse_scores_argument"),
+        "G1 violation: EntityRadarCollector.parse_scores_argument must be removed.",
+    )
+    proc = subprocess.run(
+        [
+            sys.executable,
+            radar_collector.__file__,
+            "--entity",
+            "alex.smith",
+            "--scores",
+            "auth=0.0,cloud=3.8,workspace=3.2,net=0.8,dns=10.8,web=4.2",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    self.assertNotEqual(proc.returncode, 0)
+    self.assertIn("G1", proc.stderr + proc.stdout)
+
+  def test_parse_raw_sector_payloads_real_stats_and_zero_row_sectors(self):
+    """WS4 / D6-G1..G3: parse_raw_sector_payloads parses raw udm_search stats, preserves 0-row sectors, and emits SHA-256 provenance."""
+    sector_payloads = {
+        "IAM & Authentication": _make_stats_payload({
+            "user": [("stringVal", "alex.smith")],
+            "fail_obs": [("int64Val", "17")],
+            "fail_avg": [("doubleVal", 2.0)],
+            "fail_std": [("doubleVal", 3.0)],
+            "z_fail": [("doubleVal", 5.0)],
+            "z_succ": [("doubleVal", 0.4)],
+        }),
+        "cloud": _make_stats_payload({
+            "user": [("stringVal", "alex.smith")],
+            "observed": [("int64Val", "640")],
+            "baseline": [("doubleVal", 21.3)],
+            "dispersion": [("doubleVal", 2.1)],
+            "z": [("doubleVal", 3.8)],
+        }),
+        "workspace": {},
+        "network": {"stats": {}},
+        "dns": _make_stats_payload({
+            "user": [("stringVal", "alex.smith")],
+            "dns_obs": [("int64Val", "124")],
+            "dns_avg": [("doubleVal", 16.0)],
+            "dns_std": [("doubleVal", 10.0)],
+            "z_dns_fail": [("doubleVal", 10.8)],
+        }),
+        "web": _make_stats_payload({
+            "user": [("stringVal", "alex.smith")],
+            "observed": [("int64Val", "310")],
+            "d_mu": [("doubleVal", 100.0)],
+            "d_sigma": [("doubleVal", 50.0)],
+            "personal_z": [("doubleVal", 4.2)],
+        }),
+    }
+    query_texts = {
+        "IAM & Authentication": EntityRadarCollector.USER_SECTOR_QUERIES["IAM & Authentication"] % {"entity_id": "alex.smith"},
+        "cloud": EntityRadarCollector.USER_SECTOR_QUERIES["Cloud Infrastructure"] % {"entity_id": "alex.smith"},
+    }
+
+    spokes, provenance = EntityRadarCollector.parse_raw_sector_payloads(
+        sector_payloads,
+        entity_type="USER",
+        query_texts=query_texts,
+    )
     self.assertEqual(len(spokes), 6)
-    spoke_map = {s.spoke_name: s.z_score for s in spokes}
-    self.assertEqual(spoke_map["Authentication Attempts"], 0.0)
-    self.assertEqual(spoke_map["Cloud Resource CRUD"], 3.8)
-    self.assertEqual(spoke_map["Workspace & SaaS Exfil"], 3.2)
-    self.assertEqual(spoke_map["Network Egress"], 0.8)
-    self.assertEqual(spoke_map["DNS Resolution"], 10.8)
-    self.assertEqual(spoke_map["Web & Proxy Requests"], 4.2)
+    by_name = {s.spoke_name: s for s in spokes}
 
-    # Backward-compatible proc/endpoint alias
-    proc_spokes = EntityRadarCollector.parse_scores_argument("proc=5.5", "USER")
-    self.assertEqual(proc_spokes[4].z_score, 5.5)
+    self.assertEqual(by_name["Authentication Attempts"].z_score, 5.0)
+    self.assertEqual(by_name["Authentication Attempts"].observed, 17.0)
+    self.assertEqual(by_name["Authentication Attempts"].baseline_mean, 2.0)
+    self.assertEqual(by_name["Authentication Attempts"].baseline_stddev, 3.0)
+
+    self.assertEqual(by_name["Cloud Resource CRUD"].z_score, 3.8)
+    self.assertEqual(by_name["Cloud Resource CRUD"].observed, 640.0)
+    self.assertEqual(by_name["Cloud Resource CRUD"].baseline_mean, 21.3)
+    self.assertEqual(by_name["Cloud Resource CRUD"].baseline_stddev, 2.1)
+
+    # Clean 0-row raw payloads ({} and {"stats": {}}) map to 0.0 nominal
+    self.assertEqual(by_name["Workspace & SaaS Exfil"].z_score, 0.0)
+    self.assertEqual(by_name["Workspace & SaaS Exfil"].observed, 0.0)
+    self.assertEqual(by_name["Network Egress"].z_score, 0.0)
+    self.assertEqual(by_name["Network Egress"].observed, 0.0)
+
+    self.assertEqual(by_name["DNS Resolution"].z_score, 10.8)
+    self.assertEqual(by_name["DNS Resolution"].observed, 124.0)
+    self.assertEqual(by_name["Web & Proxy Requests"].z_score, 4.2)
+    self.assertEqual(by_name["Web & Proxy Requests"].baseline_mean, 100.0)
+    self.assertEqual(by_name["Web & Proxy Requests"].baseline_stddev, 50.0)
+
+    # D6-G3 provenance checks
+    expected_payload_hash = hashlib.sha256(
+        json.dumps(sector_payloads, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+    expected_query_hash = hashlib.sha256(
+        json.dumps(query_texts, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+    self.assertEqual(provenance["helper_version"], "2.3.0")
+    self.assertEqual(provenance["payload_sha256"], expected_payload_hash)
+    self.assertEqual(provenance["query_sha256"], expected_query_hash)
+
+    _, prov_no_queries = EntityRadarCollector.parse_raw_sector_payloads(sector_payloads, entity_type="USER")
+    self.assertEqual(prov_no_queries["query_sha256"], "N/A")
+
+    built = self.collector.build_radar_payload(
+        "alex.smith", "USER", spokes, provenance=provenance
+    )
+    self.assertEqual(built["provenance"], provenance)
+    self.assertIn(expected_payload_hash, built["markdown_table"])
+    self.assertIn(expected_query_hash, built["markdown_table"])
+    self.assertIn("2.3.0", built["markdown_table"])
+
+  def test_g1_rejects_typed_numbers_strings_and_raw_event_dumps(self):
+    """WS4 / D6-G1: parse_raw_sector_payloads rejects LLM-typed numbers, hand-typed dicts, and raw event dumps."""
+    for bad_payload in (
+        {"auth": 3.8},
+        {"auth": "3.8"},
+        "auth=3.8,cloud=2.1",
+        {"auth": {"z_score": 3.8, "observed": 38}},
+        {"auth": {"stats": {"results": [{"z_score": 3.8}]}}},
+    ):
+      with self.assertRaises(ValueError) as ctx:
+        EntityRadarCollector.parse_raw_sector_payloads(bad_payload, entity_type="USER")  # type: ignore[arg-type]
+      self.assertIn("G1", str(ctx.exception))
+
+    with self.assertRaises(ValueError) as raw_ctx:
+      EntityRadarCollector.parse_raw_sector_payloads(
+          {"auth": {"events": [{"metadata": {"id": "evt-1"}}]}},
+          entity_type="USER",
+      )
+    self.assertIn("RAW_LOG_DUMP_DETECTED", str(raw_ctx.exception))
+
+  def test_g2_cli_fails_closed_on_missing_or_malformed_payload_and_accepts_raw_payload(self):
+    """WS4 / D6-G2: CLI fails closed when --raw-payload/--data is missing or malformed, and succeeds on raw udm_search JSON."""
+    # 1. Missing --data / --raw-payload (without --execute) MUST fail closed
+    proc_missing = subprocess.run(
+        [sys.executable, radar_collector.__file__, "--entity", "alex.smith"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    self.assertNotEqual(proc_missing.returncode, 0)
+    self.assertIn("G2", proc_missing.stderr + proc_missing.stdout)
+
+    # 2. Malformed JSON MUST fail closed
+    proc_bad_json = subprocess.run(
+        [sys.executable, radar_collector.__file__, "--entity", "alex.smith", "--data", "{not-json"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    self.assertNotEqual(proc_bad_json.returncode, 0)
+    self.assertIn("G2", proc_bad_json.stderr + proc_bad_json.stdout)
+
+    # 3. Hand-typed Z-score dict without stats MUST fail closed under G1
+    proc_typed = subprocess.run(
+        [sys.executable, radar_collector.__file__, "--entity", "alex.smith", "--data", '{"auth": 3.8}'],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    self.assertNotEqual(proc_typed.returncode, 0)
+    self.assertIn("G1", proc_typed.stderr + proc_typed.stdout)
+
+    # 4. Valid raw udm_search payload file via --raw-payload succeeds and emits provenance
+    raw_file_payload = {
+        "auth": _make_stats_payload({
+            "user": [("stringVal", "alex.smith")],
+            "observed": [("int64Val", "42")],
+            "baseline": [("doubleVal", 6.0)],
+            "dispersion": [("doubleVal", 6.0)],
+            "z": [("doubleVal", 6.0)],
+        }),
+        "cloud": {},
+    }
+    with tempfile.TemporaryDirectory() as tmpdir:
+      payload_path = f"{tmpdir}/raw_sectors.json"
+      with open(payload_path, "w", encoding="utf-8") as f:
+        json.dump(raw_file_payload, f)
+      proc_ok = subprocess.run(
+          [
+              sys.executable,
+              radar_collector.__file__,
+              "--entity",
+              "alex.smith",
+              "--raw-payload",
+              payload_path,
+              "--format",
+              "json",
+          ],
+          capture_output=True,
+          text=True,
+          check=False,
+      )
+      self.assertEqual(proc_ok.returncode, 0, msg=proc_ok.stderr)
+      out_json = json.loads(proc_ok.stdout)
+      self.assertEqual(out_json["provenance"]["helper_version"], "2.3.0")
+      self.assertEqual(len(out_json["provenance"]["payload_sha256"]), 64)
+      self.assertEqual(out_json["top_outlier_z"], 6.0)
 
   def test_generate_dual_surface_embed(self):
     """Jetski embed must emit <agent-embed> and a direct file link, and must never emit a
