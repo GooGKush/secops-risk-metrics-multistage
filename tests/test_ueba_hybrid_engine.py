@@ -1114,9 +1114,58 @@ class TestUEBAHybridEngineCLIAndCatalog(unittest.TestCase):
       norm_fz, _ = _extract_and_normalize_rows([{"user": "charles.hardy", "observed": 785, "personal_z": 0.45, "fence_z": 3.88}])
       self.assertAlmostEqual(norm_fz[0]["z_score"], 3.88, places=2)
 
+      norm_tez, _ = _extract_and_normalize_rows([{"user": "charles.hardy", "observed": 785, "personal_z": 0.45, "tukey_excess_z": 3.66}])
+      self.assertAlmostEqual(norm_tez[0]["z_score"], 3.66, places=2)
+
     for alias in ("QUANTILE_IQR_SKEW", "QUANTILE", "IQR_FENCE", "TUKEY_FENCE", "BOWLEY_SKEW"):
       with self.subTest(alias=alias):
         self.assertEqual(resolve_statistical_model(alias), StatisticalModel.QUANTILE_IQR_SKEW)
+
+  def test_ws3_quantile_bowley_135_and_scale_excess_z(self):
+    """WS3-QUANTILE: Bowley constant recalibrated from 3.0 to 1.35 and obs/fence ratio replaced by robust scale-excess."""
+    import math
+    from pathlib import Path
+    from scripts.preflight_validator import MalachiteASTValidator
+
+    res = compile_hunt_pipeline(
+        statistical_model="QUANTILE_IQR_SKEW",
+        metrics="auth_attempts_total",
+        entity_type="USER",
+        mode="A",
+        reference_time=datetime.datetime(2026, 10, 28, 8, 0, 0, tzinfo=datetime.timezone.utc),
+    )
+    query = res["compiled_query"]
+    self.assertIn("1.35 *", query)
+    self.assertNotIn("3.0 * if($bowley_skew", query)
+    self.assertIn("$robust_scale = $safe_iqr / 1.349", query)
+    self.assertIn("$tukey_excess_z = ($observed - $adj_upper_fence) / $robust_scale", query)
+    self.assertIn("$in_scoring_window = 1 and $raw_active_days >= 7 and $tukey_excess_z >= 1.0", query)
+    self.assertIn("order:\n  $tukey_excess_z desc", query)
+    self.assertEqual(MalachiteASTValidator.validate_query(query), [])
+
+    pipe_raw = (Path(__file__).resolve().parent.parent / "templates" / "pipelines" / "quantile_iqr_skew_3stage.yl2").read_text(encoding="utf-8")
+    self.assertIn("1.35 *", pipe_raw)
+    self.assertIn("$tukey_excess_z = ($observed - $adj_upper_fence) / $robust_scale", pipe_raw)
+    self.assertIn("$tukey_excess_z >= {{tukey_excess_threshold}}", pipe_raw)
+
+    def _eval_tukey_excess_z(observed: float, q25: float, q50: float, q75: float) -> float:
+      iqr = q75 - q25
+      q50_floor = q50 * 0.05 + 1.0
+      safe_iqr = iqr if iqr > 0 else q50_floor
+      bowley = (q75 + q25 - 2.0 * q50) / safe_iqr
+      pos_skew = bowley if bowley > 0 else 0.0
+      adj_fence = q75 + 1.5 * math.exp(1.35 * pos_skew) * safe_iqr
+      robust_scale = safe_iqr / 1.349
+      return (observed - adj_fence) / robust_scale
+
+    # Right-skewed baseline (B_skew = +1.0): obs=200 exceeds recalibrated fence (~145.72) with excess >= 1.0
+    # whereas old exp(3.0 * 1.0) inflated fence to ~632.57 and blinded the breakout.
+    skew_excess = _eval_tukey_excess_z(observed=200.0, q25=10.0, q50=10.0, q75=30.0)
+    self.assertGreaterEqual(skew_excess, 3.5)
+
+    # Near-zero baseline (Q25=0, Q50=1, Q75=2): quiet day obs=3 stays negative; real spike obs=10 alerts cleanly.
+    self.assertLess(_eval_tukey_excess_z(observed=3.0, q25=0.0, q50=1.0, q75=2.0), 0.0)
+    self.assertAlmostEqual(_eval_tukey_excess_z(observed=10.0, q25=0.0, q50=1.0, q75=2.0), 3.3725, places=3)
 
   def test_ws1_01_mode_a_defaults_to_last_complete_utc_day_and_labels_today_so_far(self):
     """WS1-01 / D3: Default Mode A scores last complete UTC day; Today So Far is an explicit low-bias-labeled option."""

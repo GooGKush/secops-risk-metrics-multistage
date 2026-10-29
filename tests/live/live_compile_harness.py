@@ -421,6 +421,7 @@ def _render_standalone_slot_pipeline(
   rendered = rendered.replace("{{fold_change_threshold}}", "2.0")
   rendered = rendered.replace("{{fusion_threshold_sq}}", "12.25")
   rendered = rendered.replace("{{robust_threshold}}", "3.5")
+  rendered = rendered.replace("{{tukey_excess_threshold}}", "1.0")
   rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
   rendered = rendered.replace("{{first_scored_date}}", target_date)
   if not re.search(r"//\s*(?:Goal:|ARCHITECTURE:|Sector:|Stage\s*\d*:)", rendered, re.I):
