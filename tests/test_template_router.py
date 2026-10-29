@@ -546,6 +546,67 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
         self.assertIn("secops-statistical-hunter", str(ctx.exception))
         self.assertIn("C2_BEACONING_JITTER", str(ctx.exception))
 
+  def test_ws2_06_router_rejects_unknown_models_and_preserves_non_z_on_resource_user(self):
+    """WS2-06: build_query rejects unknown/invalid models everywhere and keeps non-Z models on (resource_*, USER)."""
+    from unittest.mock import patch
+    from scripts import ueba_hybrid_engine as engine_mod
+    from scripts.preflight_validator import MalachiteASTValidator
+
+    for bad_model in ("MADE_UP_MODEL", "BOGUS_Z", "", "   ", "diversity_deficit", None, 123):
+      for metric in ("auth_attempts_total", "resource_read_total"):
+        with self.subTest(bad_model=bad_model, metric=metric):
+          with self.assertRaises(ValueError):
+            self.router.build_query(
+                target_metric=metric,
+                entity_type=EntityType.USER,
+                statistical_model=bad_model,  # type: ignore[arg-type]
+            )
+
+    if hasattr(engine_mod, "RETIRED_MODEL_ALIASES"):
+      with patch.dict(engine_mod.RETIRED_MODEL_ALIASES, {"LEGACY_TEST_MODEL": "STANDARD_Z_SCORE"}, clear=False):
+        with self.assertRaises(ValueError) as ctx_ret:
+          self.router.build_query(
+              target_metric="resource_read_total",
+              entity_type=EntityType.USER,
+              statistical_model="legacy-test-model",  # type: ignore[arg-type]
+          )
+        self.assertIn("is retired; use STANDARD_Z_SCORE.", str(ctx_ret.exception))
+
+    # STANDARD_Z_SCORE (enum or string alias) on (resource_read_total, USER) keeps CLOUD_REPOSITORY_SCOPE_DUAL_BRANCH
+    for z_arg in (StatisticalModel.STANDARD_Z_SCORE, "STANDARD_Z_SCORE", "zscore"):
+      q_z = self.router.build_query(
+          target_metric="resource_read_total",
+          entity_type=EntityType.USER,
+          statistical_model=z_arg,  # type: ignore[arg-type]
+      )
+      self.assertIn("order:\n  $composite_risk desc", q_z)
+
+    # Non-Z models on (resource_read_total, USER) must render the requested model, NOT redirect to CLOUD_REPOSITORY_SCOPE
+    non_z_expectations = [
+        (StatisticalModel.POISSON, "$poisson_z"),
+        (StatisticalModel.COEFFICIENT_OF_VARIATION, "$cv"),
+        (StatisticalModel.LONGITUDINAL_CUSUM, "$cusum_drift_score"),
+        (StatisticalModel.RELATIVE_DEVIATION, "$fold_change"),
+    ]
+    for model_enum, expected_var in non_z_expectations:
+      with self.subTest(model=model_enum.value):
+        q = self.router.build_query(
+            target_metric="resource_read_total",
+            entity_type=EntityType.USER,
+            statistical_model=model_enum,
+        )
+        self.assertIn(expected_var, q)
+        self.assertNotIn("$observed_reads", q)
+        self.assertNotIn("order:\n  $composite_risk desc", q)
+        self.assertEqual(MalachiteASTValidator.validate_query(q), [])
+        res_engine = engine_mod.compile_hunt_plan(
+            statistical_model=model_enum.value,
+            metrics="resource_read_total",
+            entity_type="USER",
+        )
+        self.assertEqual(res_engine["architecture"], PipelineArchitecture.LOCAL_2STAGE.value)
+        self.assertIn(expected_var, res_engine["compiled_query"])
+
 
 if __name__ == "__main__":
   unittest.main()

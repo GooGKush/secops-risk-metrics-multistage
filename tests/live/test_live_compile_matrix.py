@@ -122,13 +122,13 @@ class TestOfflineFullMatrixRenderer(unittest.TestCase):
         r for r in self.records
         if any("RESOURCE_USER_MODEL_REDIRECT" in w for w in r.structural_warnings)
     ]
-    # Multi-key extractors (file_executions_* x 2 entities + alert_event_name_count x 1 + resource_* x RESOURCE)
-    # x 2 MatchModes = (6 + 1 + 12) * 2 = 38 cells.
-    self.assertEqual(len(circadian_warnings), 38)
+    # Multi-key extractors (file_executions_* x 2 entities + alert_event_name_count x 1 + resource_* x (USER + RESOURCE))
+    # x 2 MatchModes = (6 + 1 + 24) * 2 = 62 cells (previously 38 when 24 (resource_*, USER, CIRCADIAN) cells were masked by redirect).
+    self.assertEqual(len(circadian_warnings), 62)
     # 12 resource_* metrics on EntityType.RESOURCE across the 16 non-MAD/non-Quantile models x 2 modes = 384 cells.
     self.assertEqual(len(resource_warnings), 384)
-    # 12 resource_* metrics on EntityType.USER across the 15 non-Z/non-MAD/non-Quantile models x 2 modes = 360 cells.
-    self.assertEqual(len(redirect_warnings), 360)
+    # WS2-06: build_query no longer redirects non-Z models on (resource_*, EntityType.USER) to CLOUD_REPOSITORY_SCOPE_DUAL_BRANCH.
+    self.assertEqual(len(redirect_warnings), 0)
 
 
 class TestCoveringLiveCompileSuite(unittest.TestCase):

@@ -155,6 +155,68 @@ class TestUEBAHybridEngineCompile(unittest.TestCase):
     self.assertEqual(res_plan["status"], "HANDOFF_REQUIRED")
     self.assertEqual(res_plan["model_routed"], "C2_BEACONING_JITTER")
 
+  def test_ws2_06_unknown_and_retired_models_raise_value_error(self):
+    """WS2-06: Unknown models raise ValueError (no silent STANDARD_Z_SCORE fallback); retired aliases raise clear error."""
+    from scripts import ueba_hybrid_engine as engine_mod
+    from scripts.ueba_hybrid_engine import resolve_statistical_model
+
+    # Empty / None still defaults cleanly to STANDARD_Z_SCORE
+    self.assertEqual(resolve_statistical_model(None), StatisticalModel.STANDARD_Z_SCORE)  # type: ignore[arg-type]
+    self.assertEqual(resolve_statistical_model(""), StatisticalModel.STANDARD_Z_SCORE)
+    self.assertEqual(resolve_statistical_model("   "), StatisticalModel.STANDARD_Z_SCORE)
+
+    # Quantile aliases resolve cleanly
+    for q_alias in ("QUANTILE_IQR_SKEW", "bowley_skew", "tukey_fence", "tukey_skew_fence"):
+      self.assertEqual(resolve_statistical_model(q_alias), StatisticalModel.QUANTILE_IQR_SKEW)
+
+    # Unknown model strings raise ValueError everywhere
+    for bad_model in ("MADE_UP_MODEL", "BOGUS_Z", "NOT_A_MODEL", "UNKNOWN_ALGO"):
+      with self.subTest(bad_model=bad_model, fn="resolve_statistical_model"):
+        with self.assertRaises(ValueError) as ctx:
+          resolve_statistical_model(bad_model)
+        self.assertIn("Unknown statistical model", str(ctx.exception))
+        self.assertIn(bad_model, str(ctx.exception))
+
+      with self.subTest(bad_model=bad_model, fn="compile_hunt_plan"):
+        with self.assertRaises(ValueError) as ctx_plan:
+          engine_mod.compile_hunt_plan(
+              statistical_model=bad_model,
+              metrics="auth_attempts_total",
+              entity_type="USER",
+          )
+        self.assertIn("Unknown statistical model", str(ctx_plan.exception))
+
+      with self.subTest(bad_model=bad_model, fn="compile_hunt_plan_micro_raw"):
+        with self.assertRaises(ValueError):
+          engine_mod.compile_hunt_plan(
+              statistical_model=bad_model,
+              plane="MICRO_RAW",
+              entity_type="ASSET",
+          )
+
+      with self.subTest(bad_model=bad_model, fn="render_forensic_dossier"):
+        with self.assertRaises(ValueError):
+          render_forensic_dossier(
+              rows=[],
+              executed_query="",
+              statistical_model=bad_model,
+              skip_postflight_audit=True,
+          )
+
+    # Retired model registry raises clear "is retired; use <replacement>." error
+    self.assertTrue(hasattr(engine_mod, "RETIRED_MODEL_ALIASES"))
+    self.assertIsInstance(engine_mod.RETIRED_MODEL_ALIASES, dict)
+    with patch.dict(engine_mod.RETIRED_MODEL_ALIASES, {"LEGACY_TEST_MODEL": "STANDARD_Z_SCORE"}, clear=False):
+      with self.assertRaises(ValueError) as ctx_ret:
+        resolve_statistical_model("legacy-test-model")
+      self.assertEqual(
+          str(ctx_ret.exception),
+          "Statistical model 'LEGACY_TEST_MODEL' is retired; use STANDARD_Z_SCORE.",
+      )
+      with self.assertRaises(ValueError) as ctx_ret_plan:
+        engine_mod.compile_hunt_plan(statistical_model="LEGACY_TEST_MODEL", entity_type="USER")
+      self.assertIn("is retired; use STANDARD_Z_SCORE.", str(ctx_ret_plan.exception))
+
   def test_compile_all_38_catalog_metrics(self):
     """All 38 metrics in METRIC_CATALOG must compile cleanly via compile_hunt_pipeline."""
     self.assertEqual(len(METRIC_CATALOG), 38)
