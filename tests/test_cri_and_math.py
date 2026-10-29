@@ -1,18 +1,15 @@
 """Unit tests for statistical math formulations and Calibrated Risk Index (CRI)."""
 
 import math
+import os
+import sys
 import unittest
 
+REPO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if REPO_DIR not in sys.path:
+  sys.path.insert(0, REPO_DIR)
 
-def calculate_cri(z_score: float) -> int:
-  """Calibrated Risk Index logistic sigmoid function [0-100].
-
-  Mirrors scripts/radar_collector.py: the score is clamped at zero, then passed
-  through the sigmoid. The sigmoid never reaches 0, so a fully nominal entity
-  floors at CRI = 14 rather than 0. Short-circuiting non-positive scores to 0
-  would introduce a 15-point cliff between S = 0.0 and S = 0.05.
-  """
-  return round(100.0 / (1.0 + math.exp(-0.6 * (max(0.0, z_score) - 3.0))))
+from scripts.ueba_constants import calculate_cri
 
 
 def calculate_cusum_drift(daily_z_scores: list[float], slack: float = 0.5) -> list[float]:
@@ -76,13 +73,11 @@ def calculate_adaptive_excess(z_score: float, active_days: int) -> float:
 class TestStatisticalModels(unittest.TestCase):
 
   def test_cri_nominal_baseline(self):
-    """Zero or negative deviations clamp to S = 0 and yield the nominal floor CRI = 14."""
-    self.assertEqual(calculate_cri(0.0), 14)
-    self.assertEqual(calculate_cri(-1.5), 14)
-
-    # No cliff at the origin: a hair above zero must not jump by more than a point.
-    # A short-circuit to CRI = 0 would make this delta 15.
-    self.assertLessEqual(abs(calculate_cri(0.05) - calculate_cri(0.0)), 1)
+    """WS7-01 / D5: Zero or negative deviations yield CRI = 0; missing/NaN inputs return None."""
+    self.assertEqual(calculate_cri(0.0), 0)
+    self.assertEqual(calculate_cri(-1.5), 0)
+    self.assertIsNone(calculate_cri(None))
+    self.assertIsNone(calculate_cri(float("nan")))
 
   def test_cri_medium_outlier_boundary(self):
     """Z = 3.0σ must strictly map to CRI = 50 (Medium Outlier boundary)."""
