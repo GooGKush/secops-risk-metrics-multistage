@@ -31,6 +31,83 @@ from .ueba_constants import (
 )
 
 DEFAULT_TUKEY_EXCESS_THRESHOLD = 1.0
+DEFAULT_GAMMA_PRIOR_ALPHA0 = 0.5
+DEFAULT_GAMMA_PRIOR_BETA0 = 0.1
+
+
+def _iter_payload_rows(payload: Any) -> List[Dict[str, Any]]:
+  """Extracts flat row dicts from either a list of dicts or a Chronicle udm_search stats envelope."""
+  if isinstance(payload, list):
+    return [r for r in payload if isinstance(r, dict)]
+  if isinstance(payload, dict):
+    if isinstance(payload.get("rows"), list):
+      return [r for r in payload["rows"] if isinstance(r, dict)]
+    results = payload.get("stats", {}).get("results")
+    if isinstance(results, list) and results:
+      cols: Dict[str, List[Any]] = {}
+      max_len = 0
+      for col in results:
+        if not isinstance(col, dict):
+          continue
+        cname = str(col.get("column", "")).lstrip("$")
+        vals = []
+        for cell in col.get("values", []) or []:
+          vdict = cell.get("value", cell) if isinstance(cell, dict) else cell
+          if isinstance(vdict, dict):
+            val = next(iter(vdict.values()), None) if vdict else None
+          else:
+            val = vdict
+          vals.append(val)
+        cols[cname] = vals
+        max_len = max(max_len, len(vals))
+      out: List[Dict[str, Any]] = []
+      for idx in range(max_len):
+        out.append({k: (v[idx] if idx < len(v) else None) for k, v in cols.items()})
+      return out
+  return []
+
+
+def fit_gamma_prior_from_fleet(
+    payload: Any,
+    default_alpha0: float = DEFAULT_GAMMA_PRIOR_ALPHA0,
+    default_beta0: float = DEFAULT_GAMMA_PRIOR_BETA0,
+) -> Tuple[float, float]:
+  """Fits Empirical Bayes Gamma(alpha0, beta0) hyperparameters to fleet entity daily rates (S / 30)."""
+  rows = _iter_payload_rows(payload)
+  rates: List[float] = []
+  for row in rows:
+    rate: Optional[float] = None
+    for sum_key in ("hist_sum", "historical_sum", "sum_30d", "s"):
+      if row.get(sum_key) is not None:
+        try:
+          rate = float(row[sum_key]) / 30.0
+          break
+        except (TypeError, ValueError):
+          pass
+    if rate is None:
+      for rate_key in ("mu_cal", "rate", "daily_rate"):
+        if row.get(rate_key) is not None:
+          try:
+            rate = float(row[rate_key])
+            break
+          except (TypeError, ValueError):
+            pass
+    if rate is None and row.get("active_days") is not None and row.get("hist_avg") is not None:
+      try:
+        rate = (float(row["active_days"]) * float(row["hist_avg"])) / 30.0
+      except (TypeError, ValueError):
+        pass
+    if rate is not None and math.isfinite(rate) and rate >= 0.0:
+      rates.append(rate)
+  if len(rates) < 2:
+    return (float(default_alpha0), float(default_beta0))
+  mean_r = statistics.mean(rates)
+  var_r = statistics.variance(rates)
+  if mean_r <= 0.0 or var_r <= 0.0 or not math.isfinite(var_r):
+    return (float(default_alpha0), float(default_beta0))
+  beta0 = max(round(mean_r / var_r, 6), 0.01)
+  alpha0 = max(round(mean_r * beta0, 6), 0.01)
+  return (alpha0, beta0)
 
 # D8 / WS1-04: Per-metric fleet byte dispersion floors (median mature-entity stddev in bytes).
 DEFAULT_FLEET_BYTE_DISPERSION_FLOORS: Dict[str, float] = {
@@ -540,6 +617,8 @@ class MultiStageTemplateRouter:
   MODEL_DESCRIPTIONS = {
       StatisticalModel.VARIANCE: "Baseline Dispersion Screen (30-Day Fano Factor)",
       "variance": "Baseline Dispersion Screen (30-Day Fano Factor)",
+      StatisticalModel.BAYESIAN_GAMMA: "Empirical Bayes Poisson-Gamma (Fleet Prior & NB Predictive Residual Z)",
+      "bayesian_gamma": "Empirical Bayes Poisson-Gamma (Fleet Prior & NB Predictive Residual Z)",
       StatisticalModel.COEFFICIENT_OF_VARIATION: "Regular-Volume Surge (Low-CV Predictable Baseline)",
       "coefficient_of_variation": "Regular-Volume Surge (Low-CV Predictable Baseline)",
       StatisticalModel.LONGITUDINAL_CUSUM: "Multi-Day Cumulative Drift (Windowed Slack Sum)",
@@ -983,6 +1062,9 @@ class MultiStageTemplateRouter:
       include_significance_gate: bool = True,
       byte_dispersion_floor: Optional[float] = None,
       identifier_coverage_payload: Optional[Any] = None,
+      prior_alpha0: Optional[float] = None,
+      prior_beta0: Optional[float] = None,
+      fleet_prior_payload: Optional[Any] = None,
   ) -> str:
     """Renders stage1 extractor + stage2 math model.
 
@@ -1142,6 +1224,18 @@ class MultiStageTemplateRouter:
       stage2_raw = self._expand_mad_keys(stage2_raw, primary_var, group_keys[1:])
 
     stage2_rendered = stage2_raw.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
+    if "{{prior_alpha0}}" in stage2_rendered or "{{prior_beta0}}" in stage2_rendered:
+      if prior_alpha0 is not None or prior_beta0 is not None:
+        eff_a0 = float(prior_alpha0 if prior_alpha0 is not None else DEFAULT_GAMMA_PRIOR_ALPHA0)
+        eff_b0 = float(prior_beta0 if prior_beta0 is not None else DEFAULT_GAMMA_PRIOR_BETA0)
+        if eff_a0 <= 0.0 or eff_b0 <= 0.0:
+          raise ValueError(f"Empirical Bayes prior hyperparameters must be positive, got ({eff_a0}, {eff_b0}).")
+      elif fleet_prior_payload is not None:
+        eff_a0, eff_b0 = fit_gamma_prior_from_fleet(fleet_prior_payload)
+      else:
+        eff_a0, eff_b0 = (DEFAULT_GAMMA_PRIOR_ALPHA0, DEFAULT_GAMMA_PRIOR_BETA0)
+      stage2_rendered = stage2_rendered.replace("{{prior_alpha0}}", str(eff_a0))
+      stage2_rendered = stage2_rendered.replace("{{prior_beta0}}", str(eff_b0))
     stage2_rendered = _apply_byte_dispersion_floor(
         stage2_rendered,
         target_metric,
@@ -1213,6 +1307,9 @@ class MultiStageTemplateRouter:
       include_significance_gate: bool = True,
       byte_dispersion_floor: Optional[float] = None,
       identifier_coverage_payload: Optional[Any] = None,
+      prior_alpha0: Optional[float] = None,
+      prior_beta0: Optional[float] = None,
+      fleet_prior_payload: Optional[Any] = None,
   ) -> str:
     """Renders 3-Stage and 4-Stage advanced DAG pipelines, then resolves the root significance gate.
 

@@ -68,7 +68,7 @@ DEFAULT_SIGNIFICANCE_GATES: Dict["StatisticalModel", str] = {
     StatisticalModel.POISSON: "Poisson Z >= 3.0σ",
     StatisticalModel.COEFFICIENT_OF_VARIATION: ">= 2.0× baseline, CV <= 0.5",
     StatisticalModel.HOURLY_TEMPORAL_ZSCORE: "RETIRED (D1 -> HOUR_OF_DAY_PROFILE)",
-    StatisticalModel.BAYESIAN_GAMMA: ">= 2.0× baseline (posterior)",
+    StatisticalModel.BAYESIAN_GAMMA: "Bayesian Z >= 3.0σ",
     StatisticalModel.BAYESIAN_BETA_BINOMIAL: ">= 2.0× prior failure rate",
     StatisticalModel.LONGITUDINAL_CUSUM: "Drift above 0.5σ slack",
     StatisticalModel.TWO_PART_HURDLE: "Dormant awakening OR Z >= 3.0σ",
@@ -1593,6 +1593,12 @@ class MalachiteASTValidator:
         errors.append(
             "MODEL_FORMULA_MISMATCH: Discrete Poisson model must check calendar Fano dispersion ($fano_cal) "
             "and scale via $safe_poisson_sd."
+        )
+    elif model == StatisticalModel.BAYESIAN_GAMMA:
+      if "$posterior_rate" not in query_text or "$safe_pred_sd" not in query_text or "$bayesian_z" not in query_text:
+        errors.append(
+            "MODEL_FORMULA_MISMATCH: Empirical Bayes BAYESIAN_GAMMA must compute fleet-prior $posterior_rate, "
+            "posterior-predictive $safe_pred_sd, and $bayesian_z."
         )
     elif model in (StatisticalModel.STANDARD_Z_SCORE, StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z):
       if "+ 1.0" not in query_text and "if(" not in query_text and "stddev" not in query_text.lower():

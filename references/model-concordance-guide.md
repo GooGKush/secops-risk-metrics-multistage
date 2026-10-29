@@ -30,7 +30,7 @@ In multi-stage hunting workflows:
 | 4 | `POISSON` | Discrete Poisson / NB Rarity Z-Score | `$diff`, `$safe_lambda`, `$fano_cal`, `$safe_poisson_sd`, `$sqrt_lambda`, `$poisson_z` | $\lambda = S/30$, calendar Fano dispersion check ($F_{\text{cal}} \le 2.0$ uses $\sqrt{\lambda}$; $F_{\text{cal}} > 2.0$ uses NB $\sqrt{\sigma_{\text{cal}}^2}$); blocked on `value_sum` byte metrics | `order: $poisson_z desc` | Applying Poisson to `value_sum` bytes or ignoring overdispersion ($F_{\text{cal}} > 2.0$) |
 | 5 | `COEFFICIENT_OF_VARIATION` | Regular-Volume Surge (Low-CV Predictable Baseline) | `$safe_hist_avg`, `$cv`, `$surge_ratio` | Fold-change surge gated on low relative dispersion ($\sigma / \mu \le 0.5$) | `order: $surge_ratio desc` | Standard Gaussian $Z$ without CV stability filter |
 | 6 | `HOURLY_TEMPORAL_ZSCORE` *(RETIRED D1)* | Retired — Hand off to `HOUR_OF_DAY_PROFILE` | — | Handed off to `secops-statistical-hunter` `HOUR_OF_DAY_PROFILE` (`PF-10` / `WS2-02`) | — | Comparing 1h buckets against 24h daily `metrics.*` baselines |
-| 7 | `BAYESIAN_GAMMA` | Empirical Bayes Poisson-Gamma Conjugate | `$variance_raw`, `$safe_variance`, `$beta_prior`, `$alpha_prior`, `$alpha_post`, `$beta_post`, `$posterior_mean`, `$bayes_shift_ratio` | Method of Moments hyperparameters, posterior conjugate updating | `order: $bayes_shift_ratio desc` | Bare $Z$-score omitting Gamma hyperparameters ($\alpha, \beta$) |
+| 7 | `BAYESIAN_GAMMA` | Empirical Bayes Poisson-Gamma (Fleet Prior & NB Predictive Z) | `$mu_cal`, `$var_cal`, `$excess_var`, `$posterior_rate`, `$post_rate_var`, `$cred_w`, `$pred_var`, `$safe_pred_sd`, `$bayesian_z` | Fleet-fitted `Gamma(alpha0, beta0)` slots, posterior rate $(\alpha_0 + S)/(\beta_0 + 30)$, NB posterior-predictive residual Z without double-counting $\mu$ (`B-E10`) | `order: $bayesian_z desc` | Self-estimated per-entity $\beta_0 = \mu/\sigma^2$ or posterior/mean fold-change ratio |
 | 8 | `BAYESIAN_BETA_BINOMIAL` | Beta-Binomial Bayesian Ratio Regularization | `$denom_scale`, `$scaled_prior`, `$scaled_obs`, `$prior_rate`, `$obs_rate`, `$prior_alpha`, `$prior_beta`, `$post_alpha`, `$post_denom`, `$posterior_rate`, `$safe_prior`, `$posterior_lift` | Proportion normalization into `[0, 1]`, M=10 Beta prior, N=10 conjugate update | `order: $posterior_lift desc` | Unnormalized raw counts (>1.0) causing negative `1.0 - p` |
 | 9 | `LONGITUDINAL_CUSUM` | Longitudinal CUSUM Drift Accumulation | `$raw_drift`, `$safe_stddev`, `$slack_allowance`, `$slack_excess`, `$daily_excess`, `$cusum_drift`, `$cusum_drift_score`, `$drift_days` | Per-day slack excess ($Z_t - 0.5\sigma$), multi-day `sum($stage2_daily_drift.daily_excess)` across window | `order: $cusum_drift_score desc` | Single-bucket Z-score omitting multi-day drift accumulation |
 | 10 | `TWO_PART_HURDLE` | Two-Part Hurdle Model (Zero-Inflated) | `$is_dormant_awakening`, `$raw_diff`, `$safe_stddev`, `$intensity_z`, `$obs_plus_one`, `$log_obs`, `$dormant_score`, `$hurdle_threat_score` | Bernoulli hurdle trigger (`10.0 + math.log($obs_plus_one)`), conditional continuous intensity | `order: $hurdle_threat_score desc` | Single-equation continuous model without dormant penalty |
@@ -60,7 +60,7 @@ Every query carries the model's significance gate as a root `condition:` placed 
 | `TWO_PART_HURDLE` | `$active_days`, `$intensity_z` | `$active_days <= 2 or $intensity_z >= 3.0` | dormancy break or σ | `Dormant awakening OR Z >= 3.0σ` | `{{anomaly_threshold}}` |
 | `ADAPTIVE_CONTEXT_THRESHOLD` | `$active_days`, `$sensitivity_excess` | `$active_days >= 7 and $sensitivity_excess >= 0.0` | σ above the context threshold (1.75σ / 3.00σ) | `Z >= context threshold` | none (built into the score) |
 | `LONGITUDINAL_CUSUM` | `$active_days`, `$cusum_drift_score`, `$drift_days` | `$active_days >= 7 and $cusum_drift_score >= 3.0 and $drift_days >= 2` | cumulative σ excess over 0.5σ slack | `Drift above 0.5σ slack` | `{{anomaly_threshold}}` |
-| `BAYESIAN_GAMMA` | `$bayes_shift_ratio` | `$bayes_shift_ratio >= 2.0` | fold change (posterior / 30d mean) | `>= 2.0× baseline (posterior)` | `{{fold_change_threshold}}` |
+| `BAYESIAN_GAMMA` | `$bayesian_z` | `$bayesian_z >= 3.0` | σ (NB posterior-predictive) | `Bayesian Z >= 3.0σ` | `{{anomaly_threshold}}` |
 | `BAYESIAN_BETA_BINOMIAL` | `$posterior_lift` | `$posterior_lift >= 2.0` | fold change (posterior / prior) | `>= 2.0× prior failure rate` | `{{fold_change_threshold}}` |
 | `COEFFICIENT_OF_VARIATION` | `$active_days`, `$surge_ratio`, `$cv` | `$active_days >= 7 and $surge_ratio >= 2.0 and $cv <= 0.5` | fold change on a predictable entity | `>= 2.0× baseline, CV <= 0.5` | `{{fold_change_threshold}}` |
 | `RELATIVE_DEVIATION` | `$fold_change` | `$fold_change >= 2.0` (ranked by `$ratio`) | fold change | `>= 2.0× baseline` | `{{fold_change_threshold}}` |
@@ -239,40 +239,39 @@ order:
 * **Status**: Retired from `secops-risk-metrics-multistage`. Because `metrics.*` exposes only `period: 1d, window: 30d` baselines, 1-hour bucket standardization cannot be anchored to `metrics.*` without scale bias. Route intra-day / per-hour-of-day profiling to `secops-statistical-hunter` model `HOUR_OF_DAY_PROFILE`.
 
 ### 7. `BAYESIAN_GAMMA` (`poisson_gamma_bayesian.yl2`)
-* **Hypothesis**: Empirical Bayes conjugate shrinkage updating to avoid false positives on sparse history ($N < 10$).
+* **Hypothesis**: Fleet Empirical Bayes `Gamma(alpha0, beta0)` conjugate shrinkage (`fit_gamma_prior_from_fleet`) scored by the posterior-predictive Negative-Binomial residual (`$bayesian_z`), shrinking sparse baselines toward the fleet prior while ensuring acute spikes (`+10σ`) on mature hosts still fire (`WS3-BAYES`, `B-E10`).
 * **Mandatory AST Contract**:
 ```yara
 outcome:
-  $observed_24h = max($stage1_extract.observed_val)
-  $avg_30d = max($stage1_extract.historical_avg)
-  $stddev_30d = max($stage1_extract.historical_stddev)
+  $observed = max($stage1_extract.observed_val)
+  $hist_sum = max($stage1_extract.historical_sum)
+  $hist_avg = max($stage1_extract.historical_avg)
+  $hist_stddev = max($stage1_extract.historical_stddev)
   $active_days = max($stage1_extract.historical_active_days)
-  $max_30d = max($stage1_extract.historical_max)
 
-  $variance_raw = math.pow($stddev_30d, 2)
-  $safe_variance = if($variance_raw > 0, $variance_raw, 1.0)
-  $beta_prior = $avg_30d / $safe_variance
-  $alpha_prior = $avg_30d * $beta_prior
+  $mu_cal = $hist_sum / 30.0
+  $df_minus_one = if($active_days > 1, $active_days, 1) - 1
+  $sum_x2 = ($df_minus_one * $hist_stddev * $hist_stddev) + ($active_days * $hist_avg * $hist_avg)
+  $raw_var_cal = ($sum_x2 / 30.0) - ($mu_cal * $mu_cal)
+  $var_cal = if($raw_var_cal > 0.0, $raw_var_cal, 0.0)
+  $raw_excess_var = $var_cal - $mu_cal
+  $excess_var = if($active_days >= 2 and $raw_excess_var > 0.0, $raw_excess_var, 0.0)
 
-  $alpha_post = $alpha_prior + $observed_24h
-  $beta_post = $beta_prior + 1.0
+  $post_alpha_pre = 0.5 + $hist_sum
+  $post_beta_pre = 0.1 + 30.0
+  $posterior_rate = $post_alpha_pre / $post_beta_pre
+  $post_rate_var = $post_alpha_pre / ($post_beta_pre * $post_beta_pre)
 
-  $posterior_mean = $alpha_post / $beta_post
-
-  $prior_weight = $beta_prior / $beta_post
-  $evidence_weight = 1.0 / $beta_post
-
-  $diff = $observed_24h - $avg_30d
-  $safe_stddev = if($stddev_30d > 0, $stddev_30d, 1.0)
-  $z_score = $diff / $safe_stddev
-  $safe_avg = if($avg_30d > 0, $avg_30d, 1.0)
-  $bayes_shift_ratio = $posterior_mean / $safe_avg
+  $cred_w = $active_days / ($active_days + 0.1)
+  $pred_var = $posterior_rate + $post_rate_var + ($cred_w * $excess_var)
+  $safe_pred_sd = math.sqrt(if($pred_var > 1.0, $pred_var, 1.0))
+  $bayesian_z = ($observed - $posterior_rate) / $safe_pred_sd
 
 condition:
-  $bayes_shift_ratio >= 2.0
+  $bayesian_z >= 3.0
 
 order:
-  $bayes_shift_ratio desc
+  $bayesian_z desc
 ```
 
 ### 8. `BAYESIAN_BETA_BINOMIAL` (`beta_binomial_bayesian.yl2`)

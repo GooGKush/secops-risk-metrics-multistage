@@ -173,18 +173,18 @@ Before running a multi-stage statistical hunt, explain the approach to the secur
 
 ---
 
-## 7. Poisson-Gamma Bayesian Conjugacy (`BAYESIAN_GAMMA`)
-* **Security Problem Solved**: Regularizes sparse arrival counts on low-volume service accounts, adjusting today's observed count using 30-day prior stability to eliminate false alarms.
-* **Mathematical Derivation via Method of Moments**:
-  $$\beta_0 = \frac{\mu}{\sigma^2_{\text{safe}}}, \quad \alpha_0 = \mu \cdot \beta_0$$
-  $$\alpha_{\text{post}} = \alpha_0 + k, \quad \beta_{\text{post}} = \beta_0 + 1.0, \quad \mathbb{E}[\lambda \mid k] = \frac{\alpha_{\text{post}}}{\beta_{\text{post}}}$$
+## 7. Empirical Bayes Poisson-Gamma Shrinkage (`BAYESIAN_GAMMA`)
+* **Security Problem Solved**: Regularizes sparse arrival counts on low-volume accounts using a fleet-fitted `Gamma(α₀, β₀)` Empirical Bayes prior (`fit_gamma_prior_from_fleet`), while scoring today's count via the posterior-predictive Negative-Binomial residual so a `+10σ` breakout on a mature stable host still fires (`WS3-BAYES`).
+* **Mathematical Formulation**:
+  $$\hat{\lambda}_{\text{post}} = \frac{\alpha_0 + S_{30}}{\beta_0 + 30}, \quad \sigma^2_{\text{rate}} = \frac{\alpha_0 + S_{30}}{(\beta_0 + 30)^2}, \quad \sigma^2_{\text{excess}} = \max(0, \sigma^2_{\text{cal}} - \mu_{\text{cal}})$$
+  $$\sigma^2_{\text{pred}} = \hat{\lambda}_{\text{post}} + \sigma^2_{\text{rate}} + \frac{n}{n + \beta_0}\sigma^2_{\text{excess}}, \quad Z_{\text{Bayes}} = \frac{k - \hat{\lambda}_{\text{post}}}{\sqrt{\max(\sigma^2_{\text{pred}}, 1.0)}}$$
 * **Post-Hunt Plain-English Cyber Impact Statement Template**:
 ```markdown
 > [!IMPORTANT]
-> **Bayesian Threat Impact Verdict: Poisson-Gamma Shrinkage (`[target_metric]`)**
-> * **Prior Credibility**: Baseline rate was $\mu \approx [avg_30d]\text{ actions/day}$. Prior credibility weight: **[prior_weight]%**; today's evidence weight: **[evidence_weight]%**.
-> * **Adjusted Bayesian Rate**: Today's raw count of **[observed_24h]** regularized to expected posterior rate of **[posterior_mean]** (a **[bayes_shift_ratio]× belief shift**).
-> * **Investigative Meaning**: Verified operational breakout backed by historical baseline stability.
+> **Bayesian Threat Impact Verdict: Empirical Bayes Gamma-Poisson (`[target_metric]`)**
+> * **Posterior Baseline Rate**: Entity `[entity]` regularized rate is **[posterior_rate]/day** (30-day sum $S_{30} = [hist_sum]$, credibility weight **[cred_w]**).
+> * **Posterior-Predictive Residual**: Today's count of **[observed]** scored **[bayesian_z]σ** against predictive scale **[safe_pred_sd]**.
+> * **Investigative Meaning**: Statistically significant breakout above the Empirical Bayes posterior-predictive distribution.
 ```
 
 ---

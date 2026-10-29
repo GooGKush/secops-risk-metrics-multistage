@@ -854,6 +854,8 @@ order:
         "robust_threshold",
         "tukey_excess_threshold",
         "first_scored_date",
+        "prior_alpha0",
+        "prior_beta0",
     }
     for p in sorted(s1_dir.glob("*.yl2")):
       raw = p.read_text(encoding="utf-8")

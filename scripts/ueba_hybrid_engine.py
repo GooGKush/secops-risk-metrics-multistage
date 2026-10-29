@@ -983,6 +983,9 @@ def compile_hunt_pipeline(
     has_run_command: bool = True,
     byte_dispersion_floor: Optional[float] = None,
     identifier_coverage_payload: Optional[Any] = None,
+    prior_alpha0: Optional[float] = None,
+    prior_beta0: Optional[float] = None,
+    fleet_prior_payload: Optional[Any] = None,
     start_time: Optional[str] = None,
     end_time: Optional[str] = None,
     target_date: Optional[str] = None,
@@ -1708,6 +1711,9 @@ def compile_hunt_pipeline(
           fold_change_threshold=eff_fold,
           robust_threshold=eff_robust,
           byte_dispersion_floor=byte_dispersion_floor,
+          prior_alpha0=prior_alpha0,
+          prior_beta0=prior_beta0,
+          fleet_prior_payload=fleet_prior_payload,
       )
       audit_info = PreFlightValidator.audit(
           target_metric=primary_metric,
@@ -3433,6 +3439,55 @@ def calculate_macd_momentum(
   personal_z = (obs - avg) / safe_std
   above_max_z = max(0.0, obs - hmax) / safe_std
   return round(personal_z + above_max_z, 4)
+
+
+def calculate_bayesian_gamma_posterior(
+    observed: float,
+    hist_sum: float,
+    active_days: int = 0,
+    hist_avg: float = 0.0,
+    hist_stddev: float = 0.0,
+    prior_alpha0: float = 0.5,
+    prior_beta0: float = 0.1,
+) -> Dict[str, float]:
+  """Computes fleet-prior Empirical Bayes Gamma-Poisson posterior rate and NB predictive residual Z (WS3-BAYES)."""
+  obs = float(observed)
+  s30 = float(hist_sum)
+  n = float(active_days)
+  avg = float(hist_avg)
+  sd = float(hist_stddev)
+  a0 = float(prior_alpha0)
+  b0 = float(prior_beta0)
+  if a0 <= 0.0 or b0 <= 0.0:
+    raise ValueError(f"Empirical Bayes prior hyperparameters must be positive, got ({a0}, {b0}).")
+
+  mu_cal = s30 / 30.0
+  df_minus_one = (n if n > 1.0 else 1.0) - 1.0
+  sum_x2 = (df_minus_one * sd * sd) + (n * avg * avg)
+  raw_var_cal = (sum_x2 / 30.0) - (mu_cal * mu_cal)
+  var_cal = raw_var_cal if raw_var_cal > 0.0 else 0.0
+  raw_excess_var = var_cal - mu_cal
+  excess_var = raw_excess_var if (n >= 2.0 and raw_excess_var > 0.0) else 0.0
+
+  post_alpha_pre = a0 + s30
+  post_beta_pre = b0 + 30.0
+  posterior_rate = post_alpha_pre / post_beta_pre
+  post_rate_var = post_alpha_pre / (post_beta_pre * post_beta_pre)
+  cred_w = n / (n + b0)
+  pred_var = posterior_rate + post_rate_var + (cred_w * excess_var)
+  safe_pred_sd = math.sqrt(pred_var if pred_var > 1.0 else 1.0)
+  bayesian_z = (obs - posterior_rate) / safe_pred_sd
+  return {
+      "mu_cal": round(mu_cal, 6),
+      "var_cal": round(var_cal, 6),
+      "excess_var": round(excess_var, 6),
+      "posterior_rate": round(posterior_rate, 6),
+      "post_rate_var": round(post_rate_var, 6),
+      "cred_w": round(cred_w, 6),
+      "pred_var": round(pred_var, 6),
+      "safe_pred_sd": round(safe_pred_sd, 6),
+      "bayesian_z": round(bayesian_z, 4),
+  }
 
 
 def calculate_poisson_rarity_z(
