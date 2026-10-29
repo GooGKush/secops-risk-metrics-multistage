@@ -39,12 +39,28 @@ class TestUEBAHybridEngineCompile(unittest.TestCase):
   def test_compile_all_17_statistical_models_ast_valid(self):
     """Every StatisticalModel enum value must compile cleanly with 0 AST or statistical errors."""
     for model in StatisticalModel:
-      res = compile_hunt_pipeline(
-          statistical_model=model.value,
-          metrics="network_bytes_outbound",
-          entity_type="ASSET",
-          mode="A",
-      )
+      if model == StatisticalModel.LONGITUDINAL_CUSUM:
+        with self.assertRaisesRegex(ValueError, "LONGITUDINAL_CUSUM cannot run in single-day Mode A"):
+          compile_hunt_pipeline(
+              statistical_model=model.value,
+              metrics="network_bytes_outbound",
+              entity_type="ASSET",
+              mode="A",
+          )
+        res = compile_hunt_pipeline(
+            statistical_model=model.value,
+            metrics="network_bytes_outbound",
+            entity_type="ASSET",
+            mode="B",
+            window_days=3,
+        )
+      else:
+        res = compile_hunt_pipeline(
+            statistical_model=model.value,
+            metrics="network_bytes_outbound",
+            entity_type="ASSET",
+            mode="A",
+        )
       self.assertEqual(res["status"], "COMPILED", f"Failed for {model}: {res['ast_errors']}")
       self.assertTrue(res["ast_valid"], f"AST errors for {model}: {res['ast_errors']}")
       self.assertEqual(res["ast_errors"], [])
@@ -74,10 +90,12 @@ class TestUEBAHybridEngineCompile(unittest.TestCase):
         ("circadian", StatisticalModel.CIRCADIAN_VON_MISES.value),
     ]
     for alias, expected_model in aliases:
+      mode_kwargs = {"mode": "B", "window_days": 3} if expected_model == StatisticalModel.LONGITUDINAL_CUSUM.value else {}
       res = compile_hunt_pipeline(
           statistical_model=alias,
           metrics="auth_attempts_total",
           entity_type="USER",
+          **mode_kwargs,
       )
       self.assertEqual(res["statistical_model"], expected_model)
       self.assertTrue(res["ast_valid"], f"Alias {alias} failed AST: {res['ast_errors']}")
@@ -738,11 +756,19 @@ class TestUEBAHybridEngineCLIAndCatalog(unittest.TestCase):
 
   def test_compile_cusum_and_mad_mode_b_window_alignment(self):
     """Verifies LONGITUDINAL_CUSUM multi-day gate and MAD Mode B scoring window alignment."""
+    with self.assertRaisesRegex(ValueError, "LONGITUDINAL_CUSUM cannot run in single-day Mode A"):
+      compile_hunt_pipeline(
+          statistical_model="LONGITUDINAL_CUSUM",
+          metrics="network_bytes_outbound",
+          entity_type="ASSET",
+          mode="A",
+      )
     res_cusum = compile_hunt_pipeline(
         statistical_model="LONGITUDINAL_CUSUM",
         metrics="network_bytes_outbound",
         entity_type="ASSET",
-        mode="A",
+        mode="B",
+        window_days=3,
     )
     self.assertTrue(res_cusum["ast_valid"])
     self.assertIn("stage stage2_daily_drift", res_cusum["compiled_query"])
@@ -759,6 +785,58 @@ class TestUEBAHybridEngineCLIAndCatalog(unittest.TestCase):
     )
     self.assertTrue(res_mad_b["ast_valid"])
     self.assertIn("$in_scoring_window = 1", res_mad_b["compiled_query"])
+
+  def test_ws6_01_cusum_blocked_in_mode_a_and_allowed_in_modes_b_c(self):
+    """WS6-01: LONGITUDINAL_CUSUM / CUSUM / longitudinal_cusum_2stage must raise ValueError in Mode A and succeed in Mode B/C."""
+    from scripts.ueba_hybrid_engine import _compute_execution_windows
+
+    expected_msg = (
+        "LONGITUDINAL_CUSUM cannot run in single-day Mode A; "
+        "sequential drift requires a multi-day Mode B or Mode C window."
+    )
+
+    for call_kwargs in (
+        {"statistical_model": "CUSUM", "metrics": "auth_attempts_total", "entity_type": "USER", "mode": "A"},
+        {"statistical_model": "LONGITUDINAL_CUSUM", "metrics": "network_bytes_outbound", "entity_type": "ASSET", "mode": "A"},
+        {"architecture": "longitudinal_cusum_2stage", "metrics": "auth_attempts_total", "entity_type": "USER", "mode": "A"},
+        {"statistical_model": "CUSUM", "metrics": "auth_attempts_total", "entity_type": "USER"},
+    ):
+      with self.subTest(call_kwargs=call_kwargs):
+        with self.assertRaises(ValueError) as ctx:
+          compile_hunt_pipeline(**call_kwargs)
+        self.assertEqual(str(ctx.exception), expected_msg)
+
+    with self.subTest("window_helper_mode_a"):
+      with self.assertRaises(ValueError) as ctx:
+        _compute_execution_windows(
+            mode="A",
+            window_days=1,
+            compiled_query="",
+            statistical_model=StatisticalModel.LONGITUDINAL_CUSUM,
+        )
+      self.assertEqual(str(ctx.exception), expected_msg)
+
+    with self.subTest("mode_b_allowed"):
+      res_b = compile_hunt_pipeline(
+          statistical_model="CUSUM",
+          metrics="auth_attempts_total",
+          entity_type="USER",
+          mode="B",
+          window_days=3,
+      )
+      self.assertEqual(res_b["status"], "COMPILED")
+      self.assertTrue(res_b["ast_valid"])
+
+    with self.subTest("mode_c_allowed"):
+      res_c = compile_hunt_pipeline(
+          statistical_model="LONGITUDINAL_CUSUM",
+          metrics="auth_attempts_total",
+          entity_type="USER",
+          mode="C",
+          window_days=5,
+      )
+      self.assertEqual(res_c["status"], "COMPILED")
+      self.assertTrue(res_c["ast_valid"])
 
   def test_ws2_01_resource_entity_filter_injection_and_composite_grouping(self):
     """WS2-01: compile_hunt_plan binds $resource on EntityType.RESOURCE and preserves composite Root match keys."""

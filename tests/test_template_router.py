@@ -599,11 +599,28 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
         self.assertNotIn("$observed_reads", q)
         self.assertNotIn("order:\n  $composite_risk desc", q)
         self.assertEqual(MalachiteASTValidator.validate_query(q), [])
-        res_engine = engine_mod.compile_hunt_plan(
-            statistical_model=model_enum.value,
-            metrics="resource_read_total",
-            entity_type="USER",
-        )
+        if model_enum == StatisticalModel.LONGITUDINAL_CUSUM:
+          with self.assertRaises(ValueError) as ctx_cusum_a:
+            engine_mod.compile_hunt_plan(
+                statistical_model=model_enum.value,
+                metrics="resource_read_total",
+                entity_type="USER",
+                mode="A",
+            )
+          self.assertIn("LONGITUDINAL_CUSUM cannot run in single-day Mode A", str(ctx_cusum_a.exception))
+          res_engine = engine_mod.compile_hunt_plan(
+              statistical_model=model_enum.value,
+              metrics="resource_read_total",
+              entity_type="USER",
+              mode="B",
+              window_days=3,
+          )
+        else:
+          res_engine = engine_mod.compile_hunt_plan(
+              statistical_model=model_enum.value,
+              metrics="resource_read_total",
+              entity_type="USER",
+          )
         self.assertEqual(res_engine["architecture"], PipelineArchitecture.LOCAL_2STAGE.value)
         self.assertIn(expected_var, res_engine["compiled_query"])
 
