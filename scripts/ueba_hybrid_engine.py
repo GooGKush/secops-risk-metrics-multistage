@@ -155,11 +155,15 @@ MODEL_ALIAS_MAP: Dict[str, StatisticalModel] = {
     "BAYESIAN_BETA_BINOMIAL": StatisticalModel.BAYESIAN_BETA_BINOMIAL,
     "BETA_BINOMIAL": StatisticalModel.BAYESIAN_BETA_BINOMIAL,
     "FAILURE_RATE_SHRINKAGE": StatisticalModel.BAYESIAN_BETA_BINOMIAL,
-    # 10. Longitudinal CUSUM Drift
+    # 10. Longitudinal CUSUM Drift (and explicit stateless Windowed Slack Sum prefilter)
     "LONGITUDINAL_CUSUM": StatisticalModel.LONGITUDINAL_CUSUM,
+    "PAGE_CUSUM": StatisticalModel.LONGITUDINAL_CUSUM,
     "CUSUM": StatisticalModel.LONGITUDINAL_CUSUM,
     "CUSUM_DRIFT": StatisticalModel.LONGITUDINAL_CUSUM,
     "LOW_AND_SLOW": StatisticalModel.LONGITUDINAL_CUSUM,
+    "WINDOWED_SLACK_SUM": StatisticalModel.LONGITUDINAL_CUSUM,
+    "SLACK_SUM": StatisticalModel.LONGITUDINAL_CUSUM,
+    "STATELESS_SLACK_SUM": StatisticalModel.LONGITUDINAL_CUSUM,
     # 11. Two-Part Hurdle (Dormant Awakening)
     "TWO_PART_HURDLE": StatisticalModel.TWO_PART_HURDLE,
     "HURDLE": StatisticalModel.TWO_PART_HURDLE,
@@ -1103,6 +1107,7 @@ def compile_hunt_pipeline(
     reference_time: Optional[datetime.datetime] = None,
     today_so_far: bool = False,
     has_run_command: bool = True,
+    local_execution_available: bool = True,
     byte_dispersion_floor: Optional[float] = None,
     identifier_coverage_payload: Optional[Any] = None,
     prior_alpha0: Optional[float] = None,
@@ -1283,10 +1288,33 @@ def compile_hunt_pipeline(
     stat_model_enum = StatisticalModel.QUANTILE_IQR_SKEW
   elif arch_key in ("mad_robust", "mad_robust_3stage"):
     stat_model_enum = StatisticalModel.MAD
-  elif arch_key in ("longitudinal_cusum", "longitudinal_cusum_2stage"):
+  elif arch_key in (
+      "longitudinal_cusum",
+      "longitudinal_cusum_2stage",
+      "longitudinal_cusum_series_3stage",
+      "cusum_series_3stage",
+      "windowed_slack_sum",
+      "windowed_slack_sum_2stage",
+  ):
     stat_model_enum = StatisticalModel.LONGITUDINAL_CUSUM
   elif arch_key in ("first_seen_novelty", "first_seen_novelty_2stage"):
     stat_model_enum = StatisticalModel.FIRST_SEEN_NOVELTY
+
+  is_explicit_stateless_slack_sum = (
+      model_str_upper in ("WINDOWED_SLACK_SUM", "SLACK_SUM", "STATELESS_SLACK_SUM")
+      or arch_key in ("windowed_slack_sum", "windowed_slack_sum_2stage")
+  )
+  if (
+      stat_model_enum == StatisticalModel.LONGITUDINAL_CUSUM
+      and not is_explicit_stateless_slack_sum
+      and (not local_execution_available or not has_run_command)
+  ):
+    raise ValueError(
+        "G5 violation: Page CUSUM (LONGITUDINAL_CUSUM) cannot run statelessly in YARA-L alone — "
+        "this model needs a client that can run local scripts (scripts/cusum_helper.py). "
+        "Request statistical_model='WINDOWED_SLACK_SUM' explicitly if you want the stateless "
+        "Windowed Slack Sum prefilter."
+    )
 
   mode_norm_early = (mode or "A").strip().upper()
   if mode_norm_early.startswith("MODE"):
@@ -1819,8 +1847,36 @@ def compile_hunt_pipeline(
       entity_graph_dim = "GLOBAL_CONTEXT WHOIS Domain Registration Lifecycle (NRD <= 30d)"
     canonical_arch = pipe_enum.value
 
+  elif arch_key in ("longitudinal_cusum_series_3stage", "cusum_series_3stage"):
+    if ent_enum not in METRIC_CATALOG[primary_metric].supported_entity_types:
+      ent_enum = METRIC_CATALOG[primary_metric].supported_entity_types[0]
+    cusum_tier_map = {"HIGH_RECALL": 3.0, "BALANCED": 4.0, "HIGH_PRECISION": 5.0}
+    eff_cusum_h = float(anomaly_threshold) if anomaly_threshold is not None else cusum_tier_map.get(sens_tier, 4.0)
+    compiled_query = router.build_longitudinal_cusum_series_query(
+        target_metric=primary_metric,
+        entity_type=ent_enum,
+        cusum_h_threshold=eff_cusum_h,
+        min_baseline_days=min_baseline_days,
+        hypothesis_goal=hypothesis_goal,
+        identifier_field=identifier_field,
+        byte_dispersion_floor=byte_dispersion_floor,
+        min_threshold=min_threshold,
+        max_threshold=max_threshold,
+        condition_expression=condition_expression,
+        local_execution_available=(local_execution_available and has_run_command),
+    )
+    compiled_query = _inject_stage1_filters(
+        compiled_query, entity_value=entity_value, custom_filter=custom_filter, entity_type=ent_enum
+    )
+    audit_info = PreFlightValidator.audit(
+        target_metric=primary_metric,
+        entity_type=ent_enum,
+        min_baseline_days=min_baseline_days,
+        identifier_field=identifier_field,
+    )
+    canonical_arch = PipelineArchitecture.LONGITUDINAL_CUSUM_SERIES_3STAGE.value
+
   else:
-    # Default: 2-Stage Single Metric + Stage 2 Mathematical Model (or auto-routed composite/cloud scope)
     if (
         primary_metric == "alert_event_name_count"
         and stat_model_enum != StatisticalModel.FIRST_SEEN_NOVELTY
@@ -2010,10 +2066,44 @@ def compile_hunt_pipeline(
   else:
     sig_label = root_gate or default_significance_threshold(stat_model_enum.value) or f"Z >= {eff_anomaly}σ (CRI >= 50)"
 
+  cusum_series_query: Optional[str] = None
+  helper_script: Optional[str] = None
+  if stat_model_enum == StatisticalModel.LONGITUDINAL_CUSUM and not is_explicit_stateless_slack_sum:
+    helper_script = "scripts/cusum_helper.py"
+    if canonical_arch == PipelineArchitecture.LONGITUDINAL_CUSUM_SERIES_3STAGE.value:
+      cusum_series_query = compiled_query
+    elif primary_metric in METRIC_CATALOG:
+      cusum_tier_map = {"HIGH_RECALL": 3.0, "BALANCED": 4.0, "HIGH_PRECISION": 5.0}
+      eff_cusum_h = float(anomaly_threshold) if anomaly_threshold is not None else cusum_tier_map.get(sens_tier, 4.0)
+      cusum_ent = (
+          ent_enum
+          if ent_enum in METRIC_CATALOG[primary_metric].supported_entity_types
+          else METRIC_CATALOG[primary_metric].supported_entity_types[0]
+      )
+      sq_raw = router.build_longitudinal_cusum_series_query(
+          target_metric=primary_metric,
+          entity_type=cusum_ent,
+          cusum_h_threshold=eff_cusum_h,
+          min_baseline_days=min_baseline_days,
+          hypothesis_goal=hypothesis_goal,
+          identifier_field=identifier_field,
+          byte_dispersion_floor=byte_dispersion_floor,
+          local_execution_available=True,
+      )
+      cusum_series_query = _inject_stage1_filters(
+          sq_raw, entity_value=entity_value, custom_filter=custom_filter, entity_type=cusum_ent
+      )
+
+  model_card_label = (
+      "WINDOWED_SLACK_SUM (Windowed Slack Sum — Stateless Prefilter)"
+      if is_explicit_stateless_slack_sum
+      else f"{stat_model_enum.value} ({canonical_arch})"
+  )
+
   preflight_card = PreFlightValidator.render_preflight_card(
       target_scope=target_scope_label,
       peer_cohort=peer_cohort_label,
-      statistical_model=f"{stat_model_enum.value} ({canonical_arch})",
+      statistical_model=model_card_label,
       entity_graph_dimension=entity_graph_dim,
       evaluation_mode=window_spec["evaluation_mode_label"],
       significance_threshold=sig_label,
@@ -2117,6 +2207,8 @@ def compile_hunt_pipeline(
       "min_baseline_days": audit_info.get("min_baseline_days", 7),
       "compiled_query": compiled_query,
       "query": compiled_query,
+      "cusum_series_query": cusum_series_query,
+      "helper_script": helper_script,
       "probe_query": probe_query,
       "probe_start_time": window_spec["probe_start_time"],
       "probe_end_time": window_spec["probe_end_time"],
@@ -4180,6 +4272,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
   p_compile.add_argument("--start-time", dest="start_time", default=None, help="UTC ISO-8601 query startTime (hour-aligned when --intraday-hourly)")
   p_compile.add_argument("--end-time", dest="end_time", default=None, help="UTC ISO-8601 query endTime")
   p_compile.add_argument("--no-run-command", dest="has_run_command", action="store_false", default=True, help="Simulate MCP-only client without local script execution (caps Mode B at 3 days)")
+  p_compile.add_argument("--no-local-execution", dest="local_execution_available", action="store_false", default=True, help="Simulate environment without local Python helper execution (D6-G5)")
   p_compile.add_argument("--window-days", dest="window_days", type=int, default=1)
   p_compile.add_argument("--sensitivity", default="BALANCED")
   p_compile.add_argument("--threshold", dest="anomaly_threshold", type=float, default=None)
@@ -4270,6 +4363,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         chained_path=args.chained_path,
         today_so_far=args.today_so_far,
         has_run_command=args.has_run_command,
+        local_execution_available=args.local_execution_available,
         intraday_hourly=args.intraday_hourly,
         allow_short_intraday_window=args.allow_short_intraday_window,
         start_time=args.start_time,

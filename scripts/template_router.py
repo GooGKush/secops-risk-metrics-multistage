@@ -3262,6 +3262,20 @@ class MultiStageTemplateRouter:
         rendered = f"// Goal: {hypothesis_goal}\n" + rendered
       return rendered + "\n"
 
+    elif pipeline_type == PipelineArchitecture.LONGITUDINAL_CUSUM_SERIES_3STAGE:
+      return self.build_longitudinal_cusum_series_query(
+          target_metric=target_metric or "network_bytes_outbound",
+          entity_type=entity_type,
+          cusum_h_threshold=anomaly_threshold if anomaly_threshold != 3.0 else 4.0,
+          min_baseline_days=min_baseline_days,
+          hypothesis_goal=hypothesis_goal,
+          identifier_field=identifier_field,
+          byte_dispersion_floor=byte_dispersion_floor,
+          min_threshold=min_threshold,
+          max_threshold=max_threshold,
+          condition_expression=condition_expression,
+      )
+
     elif pipeline_type == PipelineArchitecture.LOCAL_2STAGE:
       return self.build_query(
           target_metric=target_metric or "network_bytes_outbound",
@@ -3591,6 +3605,62 @@ class MultiStageTemplateRouter:
     )
     if not include_significance_gate and "// Significance Gate: NONE" not in out:
       out = "// Significance Gate: NONE (NO-GATE Windowed Slack Sum series prefilter)\n" + out
+    return out
+
+  def build_longitudinal_cusum_series_query(
+      self,
+      target_metric: str = "network_bytes_outbound",
+      entity_type: EntityType = EntityType.ASSET,
+      cusum_h_threshold: float = 4.0,
+      min_baseline_days: Optional[int] = None,
+      hypothesis_goal: Optional[str] = None,
+      identifier_field: Optional[str] = None,
+      include_significance_gate: bool = True,
+      byte_dispersion_floor: Optional[float] = None,
+      min_threshold: Optional[float] = None,
+      max_threshold: Optional[float] = None,
+      condition_expression: Optional[str] = None,
+      local_execution_available: bool = True,
+  ) -> str:
+    """Renders longitudinal_cusum_series_3stage.yl2 (ungated active-day series for W >= h prefilter survivors)."""
+    if not local_execution_available:
+      raise ValueError(
+          "G5 violation: Page CUSUM series extraction cannot complete in YARA-L alone — "
+          "this model needs a client that can run local scripts (scripts/cusum_helper.py). "
+          "Use build_longitudinal_cusum_pipeline_query for the stateless Windowed Slack Sum prefilter."
+      )
+    audit = PreFlightValidator.audit(
+        target_metric=target_metric,
+        entity_type=entity_type,
+        min_baseline_days=min_baseline_days,
+        identifier_field=identifier_field,
+    )
+    pipeline_file = self.template_dir / "pipelines" / "longitudinal_cusum_series_3stage.yl2"
+    if not pipeline_file.exists():
+      raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
+    raw = pipeline_file.read_text(encoding="utf-8").strip()
+    rendered = _fill_event_filter(raw, "{{event_filter}}", audit["event_filter"])
+    rendered = rendered.replace("{{entity_field}}", audit["target_field"])
+    rendered = rendered.replace("{{observed_aggregation}}", audit["observed_agg"])
+    rendered = rendered.replace("{{target_metric_name}}", target_metric)
+    rendered = rendered.replace("{{metric_type_val}}", audit["metric_arg"])
+    rendered = rendered.replace("{{dimension_key}}", audit["target_field"])
+    rendered = rendered.replace("{{extra_dimensions}}", "")
+    rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
+    rendered = rendered.replace("{{cusum_h}}", str(float(cusum_h_threshold)))
+    rendered = _apply_byte_dispersion_floor(rendered, target_metric, byte_dispersion_floor=byte_dispersion_floor)
+    if hypothesis_goal:
+      rendered = f"// Goal: {hypothesis_goal}\n" + rendered
+    out = self._apply_significance_gate(
+        rendered + "\n",
+        anomaly_threshold=cusum_h_threshold,
+        min_threshold=min_threshold,
+        max_threshold=max_threshold,
+        condition_expression=condition_expression,
+        include_significance_gate=include_significance_gate,
+    )
+    if not include_significance_gate and "// Significance Gate: NONE" not in out:
+      out = "// Significance Gate: NONE (NO-GATE ungated CUSUM series extractor)\n" + out
     return out
 
   def build_alert_surge_query(

@@ -520,9 +520,9 @@ class TimelineAssembler:
           if value is not None and float(value) > 0:
             onsets[field] = c["day"]
             break
-      # Sequential Page one-sided CUSUM (S_t = max(0.0, S_{t-1} + z_t - k), k = 0.5)
-      cusum_s = 0.0
-      peak_cusum_s = 0.0
+      # Gated slack sum over threshold-passing shard cells ONLY (NOT Page CUSUM: unflagged and 0-event days are censored)
+      gated_slack = 0.0
+      peak_gated_slack = 0.0
       cum_z = 0.0
       flagged_by_day = {
           c["day"]: float(c["z_equiv"])
@@ -532,8 +532,8 @@ class TimelineAssembler:
       for d in sorted(self.shards):
         z_t = flagged_by_day.get(d, 0.0)
         cum_z += z_t
-        cusum_s = max(0.0, cusum_s + z_t - 0.5)
-        peak_cusum_s = max(peak_cusum_s, cusum_s)
+        gated_slack = max(0.0, gated_slack + z_t - 0.5)
+        peak_gated_slack = max(peak_gated_slack, gated_slack)
 
       entities[entity] = {
           "days_flagged": len(flagged),
@@ -543,8 +543,8 @@ class TimelineAssembler:
           "peak_score": round(peak["score"], 2),
           "peak_day": peak["day"],
           "peak_cri": peak["cri"],
-          "cusum_pos": round(cusum_s, 2),
-          "peak_cusum_pos": round(peak_cusum_s, 2),
+          "gated_slack_sum": round(gated_slack, 2),
+          "peak_gated_slack_sum": round(peak_gated_slack, 2),
           "cumulative_z": round(cum_z, 2),
           "escalating": escalating,
           "sector_onsets": onsets,
@@ -820,10 +820,15 @@ def calculate_page_cusum_series(z_scores: Sequence[Any], slack_k: float = 0.5) -
 def format_markdown_table(
     series_or_points: Union[EntityTimelineSeries, Sequence[Any], Dict[str, Any]],
     slack_k: float = 0.5,
+    *,
+    gated: bool = False,
 ) -> str:
   """Formats an EntityTimelineSeries, list of TimelinePoint/dicts, or assembler summary dict into Markdown."""
   if isinstance(series_or_points, dict) and "meta" in series_or_points and "days" in series_or_points:
     return TimelineAssembler.render_markdown(series_or_points)
+  if isinstance(series_or_points, dict) and series_or_points.get("gated"):
+    gated = True
+    series_or_points = series_or_points.get("points", [])
 
   if isinstance(series_or_points, EntityTimelineSeries):
     series_or_points.recompute(slack_k=slack_k)
@@ -859,6 +864,23 @@ def format_markdown_table(
 
   if not points:
     return entity_header + "*(No timeline points)*"
+
+  if gated:
+    lines = [
+        entity_header.rstrip() if entity_header else "",
+        "| Date (UTC) | Observed | Flagged Z-Score | Gated Slack Sum | CRI (0-100) |",
+        "| :--- | ---: | ---: | ---: | ---: |",
+    ]
+    lines = [ln for ln in lines if ln != ""]
+    for pt in points:
+      z_num = _coerce_finite_float(pt.z_score)
+      z_cell = "N/A" if z_num is None else f"{z_num:+.2f}σ"
+      cri_cell = format_cri(pt.cri)
+      lines.append(
+          f"| `{pt.day}` | `{pt.observed:.2f}` | `{z_cell}` | "
+          f"`{pt.cusum_pos:.2f}` | **`{cri_cell}`** |"
+      )
+    return "\n".join(lines)
 
   lines = [
       entity_header.rstrip() if entity_header else "",

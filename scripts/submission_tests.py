@@ -299,6 +299,7 @@ class SubmissionTestSuite:
     rendered = rendered.replace("{{fusion_threshold_sq}}", "12.25")
     rendered = rendered.replace("{{robust_threshold}}", "3.5")
     rendered = rendered.replace("{{tukey_excess_threshold}}", "1.0")
+    rendered = rendered.replace("{{cusum_h}}", "4.0")
     rendered = rendered.replace("{{min_awakening_volume}}", "25")
     rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
     rendered = rendered.replace("{{min_active_days}}", str(audit["min_baseline_days"]))
