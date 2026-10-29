@@ -5,6 +5,7 @@ Author: Greg Kushmerek
 
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
 import re
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -1333,26 +1334,56 @@ class MalachiteASTValidator:
   @staticmethod
   def validate_model_concordance(query_text: str, model: StatisticalModel) -> List[str]:
     errors = []
-    stage_blocks = re.findall(r"(?:stage\s+([a-zA-Z0-9_]+)\s*\{)", query_text)
-    named_stages = [s for s in stage_blocks if s]
+    clean_query = re.sub(r"//[^\n]*", "", query_text)
+    clean_query = re.sub(r"/\*.*?\*/", "", clean_query, flags=re.S)
+    named_stages = re.findall(r"\bstage\s+([a-zA-Z0-9_]+)\s*\{", clean_query)
 
-    # Stage count & topology validation
-    if model == StatisticalModel.MAD:
-      # True MAD: stage1 extractor + mad_center (median) + mad_spread (MAD) + root.
-      for required in ("mad_center", "mad_spread"):
-        if required not in named_stages:
-          errors.append(f"STAGE_TOPOLOGY_MISMATCH: Model MAD requires named stage '{required}' (median -> MAD chain). Found {named_stages}.")
-    elif model in [StatisticalModel.STANDARD_Z_SCORE, StatisticalModel.RELATIVE_DEVIATION, StatisticalModel.POISSON,
-                 StatisticalModel.VARIANCE, StatisticalModel.COEFFICIENT_OF_VARIATION,
-                 StatisticalModel.HOURLY_TEMPORAL_ZSCORE, StatisticalModel.LONGITUDINAL_CUSUM,
-                 StatisticalModel.TWO_PART_HURDLE, StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z,
-                 StatisticalModel.PIECEWISE_CRI, StatisticalModel.FLEET_PREVALENCE_SHIELD,
-                 StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD, StatisticalModel.MACD_MOMENTUM_VELOCITY,
-                 StatisticalModel.CIRCADIAN_VON_MISES]:
-      if len(named_stages) != 1:
-        errors.append(f"STAGE_TOPOLOGY_MISMATCH: Model {model.value} requires a 2-stage DAG (1 named extractor + root stage). Found {len(named_stages)} named stage(s).")
-    elif "3STAGE" in model.value or model in [StatisticalModel.BAYESIAN_GAMMA, StatisticalModel.BAYESIAN_BETA_BINOMIAL]:
-      pass
+    # Dynamic stage count & topology validation derived from templates on disk (WS2-07)
+    templates_dir = Path(__file__).resolve().parent.parent / "templates"
+    try:
+      from .template_router import MultiStageTemplateRouter
+    except ImportError:
+      from template_router import MultiStageTemplateRouter  # type: ignore[no-redef]
+
+    if (
+        model == StatisticalModel.STANDARD_Z_SCORE
+        and "stage2_origin_rollup" in named_stages
+        and "metrics.resource_" in clean_query
+    ):
+      pipe_path = templates_dir / "pipelines" / "cloud_repository_scope_dual_branch.yl2"
+      if pipe_path.exists():
+        clean_pipe = re.sub(r"//[^\n]*", "", pipe_path.read_text(encoding="utf-8"))
+        clean_pipe = re.sub(r"/\*.*?\*/", "", clean_pipe, flags=re.S)
+        expected_pipe_stages = re.findall(r"\bstage\s+([a-zA-Z0-9_]+)\s*\{", clean_pipe)
+        for req_stage in expected_pipe_stages:
+          if req_stage not in named_stages:
+            errors.append(
+                f"STAGE_TOPOLOGY_MISMATCH: Cloud repository scope query requires named stage '{req_stage}'. Found {named_stages}."
+            )
+        if len(named_stages) != len(expected_pipe_stages):
+          errors.append(
+              f"STAGE_TOPOLOGY_MISMATCH: Cloud repository scope query requires {len(expected_pipe_stages)} named stage(s). Found {len(named_stages)}: {named_stages}."
+          )
+    else:
+      stage2_file = MultiStageTemplateRouter.STAGE2_TEMPLATES.get(model)
+      if stage2_file:
+        stage2_path = templates_dir / "stage2_math_models" / stage2_file
+        if stage2_path.exists():
+          clean_stage2 = re.sub(r"//[^\n]*", "", stage2_path.read_text(encoding="utf-8"))
+          clean_stage2 = re.sub(r"/\*.*?\*/", "", clean_stage2, flags=re.S)
+          expected_stage2_stages = re.findall(r"\bstage\s+([a-zA-Z0-9_]+)\s*\{", clean_stage2)
+          expected_total_named = 1 + len(expected_stage2_stages)
+          for req_stage in expected_stage2_stages:
+            if req_stage not in named_stages:
+              errors.append(
+                  f"STAGE_TOPOLOGY_MISMATCH: Model {model.value} requires named stage '{req_stage}' per template '{stage2_file}'. Found {named_stages}."
+              )
+          if len(named_stages) != expected_total_named:
+            errors.append(
+                f"STAGE_TOPOLOGY_MISMATCH: Model {model.value} requires {expected_total_named} named stage(s) "
+                f"(1 extractor + {len(expected_stage2_stages)} model stage(s) from '{stage2_file}'). "
+                f"Found {len(named_stages)} named stage(s): {named_stages}."
+            )
 
     # Mathematical formulation signature validation
     if model == StatisticalModel.MAD:
@@ -1360,6 +1391,11 @@ class MalachiteASTValidator:
         errors.append("MODEL_FORMULA_MISMATCH: MAD model must compute a true median and MAD via window.median(...) and scale by 0.6745 (MAD/0.6745 robust sigma).")
       if "$historical_stddev" in query_text and re.search(r"0\.6745\s*\*\s*\([^)]*\)\s*/\s*[^\n]*stddev", query_text):
         errors.append("MODEL_FORMULA_MISMATCH: 0.6745 * (x - mean) / stddev is a rescaled classical Z, not MAD.")
+    elif model == StatisticalModel.QUANTILE_IQR_SKEW:
+      if "window.percentile(" not in clean_query:
+        errors.append(
+            "MODEL_FORMULA_MISMATCH: QUANTILE_IQR_SKEW model must compute empirical quantiles via window.percentile(...)."
+        )
     elif model == StatisticalModel.RELATIVE_DEVIATION:
       if "$ratio" not in query_text:
         errors.append("MODEL_FORMULA_MISMATCH: Relative deviation model must compute $ratio = $dev / $safe_hist_avg.")
