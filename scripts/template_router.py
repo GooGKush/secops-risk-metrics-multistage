@@ -203,6 +203,159 @@ def parse_byte_dispersion_floor_probe(
   return float(fallback)
 
 
+def build_identifier_coverage_probe(
+    target_metric: str,
+    entity_type: EntityType = EntityType.ASSET,
+) -> str:
+  """Builds a read-only 2-stage YARA-L probe measuring hostname vs IP (or userid vs email) coverage (D4 / WS1-07)."""
+  if target_metric not in METRIC_CATALOG:
+    raise ValueError(f"Unknown risk metric: {target_metric}")
+  sem = mc.baseline_semantics(target_metric)
+  filter_block = "\n    ".join(sem.observed_filter)
+  if entity_type == EntityType.USER:
+    primary_field = PreFlightValidator.resolve_identifier_field(target_metric, EntityType.USER, "userid")
+    alt_field = PreFlightValidator.resolve_identifier_field(target_metric, EntityType.USER, "email_addresses")
+    return (
+        f"// Goal: Per-tenant D4 identifier coverage probe for {target_metric} (userid vs email_addresses)\n"
+        "stage stage1_coverage_probe {\n"
+        f"    {filter_block}\n"
+        '    $bucket = "coverage"\n\n'
+        "  match:\n"
+        "    $bucket by 1d\n\n"
+        "  outcome:\n"
+        "    $total_events = count(metadata.id)\n"
+        f'    $userid_events = sum(if({primary_field} != "", 1, 0))\n'
+        f"    $distinct_userids = count_distinct({primary_field})\n"
+        f"    $distinct_emails = count_distinct({alt_field})\n"
+        "}\n\n"
+        "$bucket = $stage1_coverage_probe.bucket\n\n"
+        "match:\n"
+        "  $bucket\n\n"
+        "outcome:\n"
+        "  $total_events = sum($stage1_coverage_probe.total_events)\n"
+        "  $userid_events = sum($stage1_coverage_probe.userid_events)\n"
+        "  $distinct_userids = max($stage1_coverage_probe.distinct_userids)\n"
+        "  $distinct_emails = max($stage1_coverage_probe.distinct_emails)\n\n"
+        "order:\n"
+        "  $total_events desc\n"
+    )
+
+  primary_field = PreFlightValidator.resolve_identifier_field(target_metric, EntityType.ASSET, "hostname")
+  alt_field = PreFlightValidator.resolve_identifier_field(target_metric, EntityType.ASSET, "ip")
+  return (
+      f"// Goal: Per-tenant D4 identifier coverage probe for {target_metric} (hostname vs IP)\n"
+      "stage stage1_coverage_probe {\n"
+      f"    {filter_block}\n"
+      '    $bucket = "coverage"\n\n'
+      "  match:\n"
+      "    $bucket by 1d\n\n"
+      "  outcome:\n"
+      "    $total_events = count(metadata.id)\n"
+      f'    $hostname_events = sum(if({primary_field} != "", 1, 0))\n'
+      f"    $distinct_hostnames = count_distinct({primary_field})\n"
+      f"    $distinct_ips = count_distinct({alt_field})\n"
+      "}\n\n"
+      "$bucket = $stage1_coverage_probe.bucket\n\n"
+      "match:\n"
+      "  $bucket\n\n"
+      "outcome:\n"
+      "  $total_events = sum($stage1_coverage_probe.total_events)\n"
+      "  $hostname_events = sum($stage1_coverage_probe.hostname_events)\n"
+      "  $distinct_hostnames = max($stage1_coverage_probe.distinct_hostnames)\n"
+      "  $distinct_ips = max($stage1_coverage_probe.distinct_ips)\n\n"
+      "order:\n"
+      "  $total_events desc\n"
+  )
+
+
+def _udm_path_populated(obj: Any, dotted_path: str) -> bool:
+  """Returns True if dotted_path resolves to a non-empty string or non-empty list inside a UDM dict."""
+  cur = obj
+  for part in dotted_path.split("."):
+    if not isinstance(cur, dict) or part not in cur:
+      return False
+    cur = cur[part]
+  if isinstance(cur, list):
+    return any(isinstance(v, str) and bool(v.strip()) or (not isinstance(v, str) and v is not None) for v in cur)
+  if isinstance(cur, str):
+    return bool(cur.strip())
+  return cur is not None
+
+
+def select_identifier_from_coverage(
+    coverage_payload: Any,
+    target_metric: str,
+    entity_type: EntityType = EntityType.ASSET,
+    min_primary_ratio: float = 0.20,
+) -> str:
+  """Selects the populated identifier UDM path (hostname vs IP, or userid vs email_addresses) from a D4 probe."""
+  import json as _json
+
+  if isinstance(coverage_payload, Path):
+    coverage_payload = _json.loads(coverage_payload.read_text(encoding="utf-8"))
+  elif isinstance(coverage_payload, str):
+    raw_str = coverage_payload.strip()
+    if raw_str.startswith("{") or raw_str.startswith("["):
+      coverage_payload = _json.loads(raw_str)
+    elif Path(raw_str).exists():
+      coverage_payload = _json.loads(Path(raw_str).read_text(encoding="utf-8"))
+
+  if entity_type == EntityType.USER:
+    primary = PreFlightValidator.resolve_identifier_field(target_metric, EntityType.USER, "userid")
+    alternate = PreFlightValidator.resolve_identifier_field(target_metric, EntityType.USER, "email_addresses")
+    ev_key, dp_key, da_key = "userid_events", "distinct_userids", "distinct_emails"
+  else:
+    primary = PreFlightValidator.resolve_identifier_field(target_metric, EntityType.ASSET, "hostname")
+    alternate = PreFlightValidator.resolve_identifier_field(target_metric, EntityType.ASSET, "ip")
+    ev_key, dp_key, da_key = "hostname_events", "distinct_hostnames", "distinct_ips"
+
+  rows = _extract_probe_rows(coverage_payload)
+  if not rows and isinstance(coverage_payload, dict) and any(
+      k in coverage_payload for k in ("total_events", ev_key, dp_key, da_key)
+  ):
+    rows = [coverage_payload]
+
+  if rows:
+    total_events = 0.0
+    primary_events: Optional[float] = None
+    distinct_primary: Optional[float] = None
+    distinct_alt: Optional[float] = None
+    for row in rows:
+      if row.get("total_events") is not None:
+        total_events += float(row["total_events"])
+      if row.get(ev_key) is not None:
+        primary_events = (primary_events or 0.0) + float(row[ev_key])
+      if row.get(dp_key) is not None:
+        distinct_primary = max(distinct_primary or 0.0, float(row[dp_key]))
+      if row.get(da_key) is not None:
+        distinct_alt = max(distinct_alt or 0.0, float(row[da_key]))
+
+    if total_events > 0.0 and primary_events is not None:
+      ratio = primary_events / total_events
+      if ratio < min_primary_ratio and (distinct_alt is None or distinct_alt > (distinct_primary or 0.0)):
+        return alternate
+      return primary
+    if distinct_primary is not None or distinct_alt is not None:
+      dp = distinct_primary or 0.0
+      da = distinct_alt or 0.0
+      if dp == 0.0 and da > 0.0:
+        return alternate
+      if da > 0.0 and (dp / max(dp + da, 1.0)) < min_primary_ratio:
+        return alternate
+      return primary
+
+  if isinstance(coverage_payload, dict) and isinstance(coverage_payload.get("events"), list):
+    events = [ev for ev in coverage_payload["events"] if isinstance(ev, dict)]
+    if events:
+      primary_hits = sum(1 for ev in events if _udm_path_populated(ev.get("udm", ev), primary))
+      alt_hits = sum(1 for ev in events if _udm_path_populated(ev.get("udm", ev), alternate))
+      if (primary_hits / float(len(events))) < min_primary_ratio and alt_hits > primary_hits:
+        return alternate
+      return primary
+
+  return primary
+
+
 def _fill_event_filter(rendered: str, slot: str, lines: Sequence[str], indent: str = "    ") -> str:
   """Fills a stand-alone filter slot line with one predicate per line (or drops the line)."""
   if lines:
@@ -710,6 +863,7 @@ class MultiStageTemplateRouter:
       robust_threshold: float = DEFAULT_ROBUST_THRESHOLD,
       include_significance_gate: bool = True,
       byte_dispersion_floor: Optional[float] = None,
+      identifier_coverage_payload: Optional[Any] = None,
   ) -> str:
     """Renders stage1 extractor + stage2 math model.
 
@@ -724,6 +878,12 @@ class MultiStageTemplateRouter:
     default: 7), ending at scoring_end_date (UTC YYYY-MM-DD; default today). The gate is a date
     string rendered into stage1 ($in_scoring_window), never wall-clock time or an epoch literal.
     """
+    if identifier_field is None and identifier_coverage_payload is not None:
+      identifier_field = select_identifier_from_coverage(
+          identifier_coverage_payload,
+          target_metric=target_metric,
+          entity_type=entity_type,
+      )
     audit = PreFlightValidator.audit(
         target_metric=target_metric,
         entity_type=entity_type,
@@ -918,6 +1078,7 @@ class MultiStageTemplateRouter:
       fusion_threshold_sq: float = DEFAULT_FUSION_THRESHOLD_SQ,
       include_significance_gate: bool = True,
       byte_dispersion_floor: Optional[float] = None,
+      identifier_coverage_payload: Optional[Any] = None,
   ) -> str:
     """Renders 3-Stage and 4-Stage advanced DAG pipelines, then resolves the root significance gate.
 
@@ -942,6 +1103,7 @@ class MultiStageTemplateRouter:
         identifier_field=identifier_field,
         fusion_threshold_sq=fusion_threshold_sq,
         byte_dispersion_floor=byte_dispersion_floor,
+        identifier_coverage_payload=identifier_coverage_payload,
     )
     out = self._apply_significance_gate(
         rendered,
@@ -976,8 +1138,17 @@ class MultiStageTemplateRouter:
       identifier_field: Optional[str] = None,
       fusion_threshold_sq: float = DEFAULT_FUSION_THRESHOLD_SQ,
       byte_dispersion_floor: Optional[float] = None,
+      identifier_coverage_payload: Optional[Any] = None,
   ) -> str:
     """Renders 3-Stage and 4-Stage advanced DAG pipelines (gate placeholders left for build_pipeline_query)."""
+    if identifier_field is None and identifier_coverage_payload is not None:
+      probe_metric = target_metric or ((target_metrics or [None])[0]) or "http_queries_total"
+      if probe_metric in METRIC_CATALOG and entity_type in METRIC_CATALOG[probe_metric].supported_entity_types:
+        identifier_field = select_identifier_from_coverage(
+            identifier_coverage_payload,
+            target_metric=probe_metric,
+            entity_type=entity_type,
+        )
     if pipeline_type in (PipelineArchitecture.MULTI_SECTOR_FUSION_4STAGE, PipelineArchitecture.DUAL_SECTOR_FUSION_3STAGE):
       metrics = list(target_metrics or self.DEFAULT_FUSION_METRICS)
       if len(metrics) != 2:
@@ -1017,6 +1188,13 @@ class MultiStageTemplateRouter:
       if not pipeline_file.exists():
         raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
       raw = pipeline_file.read_text().strip()
+      if identifier_field:
+        ent_field = PreFlightValidator.resolve_identifier_field("http_queries_total", entity_type, identifier_field)
+        if ent_field != "principal.asset.hostname":
+          raw = raw.replace("principal.asset.hostname = $entity", f"{ent_field} = $entity")
+          raw = raw.replace("principal.asset.hostname: principal.asset.hostname", f"{ent_field}: {ent_field}")
+          raw = raw.replace("count_distinct(principal.asset.hostname)", f"count_distinct({ent_field})")
+          raw = raw.replace("array_distinct(principal.asset.hostname)", f"array_distinct({ent_field})")
       if hypothesis_goal:
         raw = f"// Goal: {hypothesis_goal}\n" + raw
       rendered = raw
@@ -1033,9 +1211,14 @@ class MultiStageTemplateRouter:
       return rendered + "\n"
 
     elif pipeline_type == PipelineArchitecture.HTTP_ERROR_RATIO_SURGE_2STAGE:
-      if target_metric and not (target_metric == "http_queries_fail" and entity_type == EntityType.ASSET and not identifier_field):
+      eff_fail_metric = target_metric or "http_queries_fail"
+      if (target_metric or identifier_field) and not (
+          eff_fail_metric == "http_queries_fail"
+          and entity_type == EntityType.ASSET
+          and (not identifier_field or identifier_field == "principal.asset.hostname")
+      ):
         return self.build_failure_ratio_surge_query(
-            fail_metric=target_metric,
+            fail_metric=eff_fail_metric,
             entity_type=entity_type,
             anomaly_threshold=anomaly_threshold,
             hypothesis_goal=hypothesis_goal,
@@ -1054,6 +1237,12 @@ class MultiStageTemplateRouter:
       if not pipeline_file.exists():
         raise FileNotFoundError(f"Missing pipeline template: {pipeline_file}")
       raw = pipeline_file.read_text().strip()
+      if identifier_field:
+        ent_field = PreFlightValidator.resolve_identifier_field("http_queries_total", entity_type, identifier_field)
+        if ent_field != "principal.asset.hostname":
+          raw = raw.replace("principal.asset.hostname = $host", f"{ent_field} = $host")
+          raw = raw.replace("principal.asset.hostname: principal.asset.hostname", f"{ent_field}: {ent_field}")
+          raw = raw.replace("count_distinct(principal.asset.hostname)", f"count_distinct({ent_field})")
       if hypothesis_goal:
         raw = f"// Goal: {hypothesis_goal}\n" + raw
       return raw + "\n"
@@ -1460,14 +1649,14 @@ class MultiStageTemplateRouter:
       raw = pipeline_file.read_text().strip()
       metric_type_arg = "metric: event_count_sum"
 
-      macro_entity_field = "principal.asset.hostname" if entity_type == EntityType.ASSET else "principal.user.userid"
+      macro_entity_field = audit["target_field"]
       macro_token_field = "principal.process.file.sha256"
       macro_observed_agg = audit["observed_agg"]
 
       raw_event_type = "PROCESS_LAUNCH"
       raw_token_field = "principal.process.file.sha256"
       raw_event_filter = ""
-      fleet_entity_field = "principal.asset.hostname"
+      fleet_entity_field = audit["target_field"] if entity_type == EntityType.ASSET else "principal.asset.hostname"
 
       rendered = raw.replace("{{macro_entity_field}}", macro_entity_field)
       rendered = rendered.replace("{{macro_token_field}}", macro_token_field)
@@ -1586,17 +1775,24 @@ class MultiStageTemplateRouter:
       metric_type_arg = f"metric: {audit['metric_arg']}"
       rendered = _fill_event_filter(raw, "{{event_filter}}", audit["event_filter"])
       rendered = rendered.replace("{{domain_field}}", domain_field)
+      if audit["target_field"] != "principal.asset.hostname":
+        ent_var = "$user" if entity_type == EntityType.USER else "$host"
+        ent_name = ent_var.lstrip("$")
+        rendered = rendered.replace("principal.asset.hostname = $host", f"{audit['target_field']} = {ent_var}")
+        rendered = rendered.replace("    $host != \"\"", f"    {ent_var} != \"\"")
+        rendered = rendered.replace("$host, $domain by 1d", f"{ent_var}, $domain by 1d")
+        rendered = rendered.replace("$host = $stage1_query_baseline.host", f"{ent_var} = $stage1_query_baseline.{ent_name}")
       rendered = rendered.replace(
           "{{target_metric_func_avg}}",
-          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: avg, principal.asset.hostname: principal.asset.hostname, {domain_field}: {domain_field})"
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: avg, {audit['target_field']}: {audit['target_field']}, {domain_field}: {domain_field})"
       )
       rendered = rendered.replace(
           "{{target_metric_func_stddev}}",
-          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: stddev, principal.asset.hostname: principal.asset.hostname, {domain_field}: {domain_field})"
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: stddev, {audit['target_field']}: {audit['target_field']}, {domain_field}: {domain_field})"
       )
       rendered = rendered.replace(
           "{{target_metric_func_active_days}}",
-          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: num_metric_periods, principal.asset.hostname: principal.asset.hostname, {domain_field}: {domain_field})"
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: num_metric_periods, {audit['target_field']}: {audit['target_field']}, {domain_field}: {domain_field})"
       )
       rendered = rendered.replace("{{anomaly_threshold}}", str(anomaly_threshold))
       rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
@@ -1623,17 +1819,24 @@ class MultiStageTemplateRouter:
       metric_type_arg = f"metric: {audit['metric_arg']}"
       rendered = _fill_event_filter(raw, "{{event_filter}}", audit["event_filter"])
       rendered = rendered.replace("{{domain_field}}", domain_field)
+      if audit["target_field"] != "principal.asset.hostname":
+        ent_var = "$user" if entity_type == EntityType.USER else "$host"
+        ent_name = ent_var.lstrip("$")
+        rendered = rendered.replace("principal.asset.hostname = $host", f"{audit['target_field']} = {ent_var}")
+        rendered = rendered.replace("    $host != \"\"", f"    {ent_var} != \"\"")
+        rendered = rendered.replace("$host, $domain by 1d", f"{ent_var}, $domain by 1d")
+        rendered = rendered.replace("$host = $stage1_egress_baseline.host", f"{ent_var} = $stage1_egress_baseline.{ent_name}")
       rendered = rendered.replace(
           "{{target_metric_func_avg}}",
-          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: avg, principal.asset.hostname: principal.asset.hostname, {domain_field}: {domain_field})"
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: avg, {audit['target_field']}: {audit['target_field']}, {domain_field}: {domain_field})"
       )
       rendered = rendered.replace(
           "{{target_metric_func_stddev}}",
-          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: stddev, principal.asset.hostname: principal.asset.hostname, {domain_field}: {domain_field})"
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: stddev, {audit['target_field']}: {audit['target_field']}, {domain_field}: {domain_field})"
       )
       rendered = rendered.replace(
           "{{target_metric_func_active_days}}",
-          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: num_metric_periods, principal.asset.hostname: principal.asset.hostname, {domain_field}: {domain_field})"
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: num_metric_periods, {audit['target_field']}: {audit['target_field']}, {domain_field}: {domain_field})"
       )
       rendered = rendered.replace("{{anomaly_threshold}}", str(anomaly_threshold))
       rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
@@ -1659,17 +1862,21 @@ class MultiStageTemplateRouter:
       observed_agg = audit["observed_agg"]
       rendered = _fill_event_filter(raw, "{{event_filter}}", audit["event_filter"])
       rendered = rendered.replace("{{observed_agg}}", observed_agg)
+      if audit["target_field"] != "principal.asset.hostname":
+        rendered = rendered.replace("principal.asset.hostname = $host", f"{audit['target_field']} = $host")
+        if audit["target_field"].endswith(".ip"):
+          rendered = rendered.replace("$asset.graph.entity.asset.hostname = $host", "$asset.graph.entity.asset.ip = $host")
       rendered = rendered.replace(
           "{{target_metric_func_avg}}",
-          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: avg, principal.asset.hostname: principal.asset.hostname)"
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: avg, {audit['target_field']}: {audit['target_field']})"
       )
       rendered = rendered.replace(
           "{{target_metric_func_stddev}}",
-          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: stddev, principal.asset.hostname: principal.asset.hostname)"
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: stddev, {audit['target_field']}: {audit['target_field']})"
       )
       rendered = rendered.replace(
           "{{target_metric_func_active_days}}",
-          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: num_metric_periods, principal.asset.hostname: principal.asset.hostname)"
+          f"metrics.{target_metric}(period: 1d, window: 30d, {metric_type_arg}, agg: num_metric_periods, {audit['target_field']}: {audit['target_field']})"
       )
       rendered = rendered.replace("{{anomaly_threshold}}", str(anomaly_threshold))
       rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
@@ -1850,6 +2057,7 @@ class MultiStageTemplateRouter:
           condition_expression=condition_expression,
           identifier_field=identifier_field,
           byte_dispersion_floor=byte_dispersion_floor,
+          identifier_coverage_payload=identifier_coverage_payload,
       )
     else:
       raise ValueError(f"Unsupported pipeline type: {pipeline_type}")
@@ -2319,6 +2527,8 @@ class MultiStageTemplateRouter:
       entity_type: EntityType = EntityType.ASSET,
       anomaly_threshold: float = 3.0,
       hypothesis_goal: Optional[str] = None,
+      identifier_field: Optional[str] = None,
+      identifier_coverage_payload: Optional[Any] = None,
   ) -> str:
     """Builds a verified 2-Stage Derived Context Domain Prevalence pipeline."""
     return self.build_pipeline_query(
@@ -2327,6 +2537,8 @@ class MultiStageTemplateRouter:
         entity_type=entity_type,
         anomaly_threshold=anomaly_threshold,
         hypothesis_goal=hypothesis_goal,
+        identifier_field=identifier_field,
+        identifier_coverage_payload=identifier_coverage_payload,
     )
 
   def build_hybrid_whois_domain_lifecycle_query(
@@ -2335,6 +2547,8 @@ class MultiStageTemplateRouter:
       entity_type: EntityType = EntityType.ASSET,
       anomaly_threshold: float = 3.0,
       hypothesis_goal: Optional[str] = None,
+      identifier_field: Optional[str] = None,
+      identifier_coverage_payload: Optional[Any] = None,
   ) -> str:
     """Builds a verified 2-Stage WHOIS Domain Lifecycle pipeline (NRD age & expiration)."""
     return self.build_pipeline_query(
@@ -2343,6 +2557,8 @@ class MultiStageTemplateRouter:
         entity_type=entity_type,
         anomaly_threshold=anomaly_threshold,
         hypothesis_goal=hypothesis_goal,
+        identifier_field=identifier_field,
+        identifier_coverage_payload=identifier_coverage_payload,
     )
 
   def build_hybrid_derived_asset_age_query(
@@ -2351,6 +2567,8 @@ class MultiStageTemplateRouter:
       entity_type: EntityType = EntityType.ASSET,
       anomaly_threshold: float = 3.0,
       hypothesis_goal: Optional[str] = None,
+      identifier_field: Optional[str] = None,
+      identifier_coverage_payload: Optional[Any] = None,
   ) -> str:
     """Builds a verified 2-Stage Derived Context Infant Asset Age pipeline."""
     return self.build_pipeline_query(
@@ -2359,6 +2577,8 @@ class MultiStageTemplateRouter:
         entity_type=entity_type,
         anomaly_threshold=anomaly_threshold,
         hypothesis_goal=hypothesis_goal,
+        identifier_field=identifier_field,
+        identifier_coverage_payload=identifier_coverage_payload,
     )
 
   def build_macd_momentum_velocity_query(
@@ -2399,6 +2619,8 @@ class MultiStageTemplateRouter:
       entity_type: EntityType = EntityType.ASSET,
       anomaly_threshold: float = 3.0,
       hypothesis_goal: Optional[str] = None,
+      identifier_field: Optional[str] = None,
+      identifier_coverage_payload: Optional[Any] = None,
   ) -> str:
     """Builds a verified 3-Stage Rare Destination ECG Filter pipeline."""
     return self.build_pipeline_query(
@@ -2407,6 +2629,8 @@ class MultiStageTemplateRouter:
         entity_type=entity_type,
         anomaly_threshold=anomaly_threshold,
         hypothesis_goal=hypothesis_goal,
+        identifier_field=identifier_field,
+        identifier_coverage_payload=identifier_coverage_payload,
     )
 
   def build_fusion_rare_destination_query(
@@ -2415,6 +2639,8 @@ class MultiStageTemplateRouter:
       entity_type: EntityType = EntityType.ASSET,
       fusion_threshold_sq: float = 12.25,
       hypothesis_goal: Optional[str] = None,
+      identifier_field: Optional[str] = None,
+      identifier_coverage_payload: Optional[Any] = None,
   ) -> str:
     """Builds a verified 3-Stage Sector Fusion + Rare Destination ECG Filter pipeline."""
     return self.build_pipeline_query(
@@ -2423,7 +2649,102 @@ class MultiStageTemplateRouter:
         entity_type=entity_type,
         fusion_threshold_sq=fusion_threshold_sq,
         hypothesis_goal=hypothesis_goal,
+        identifier_field=identifier_field,
+        identifier_coverage_payload=identifier_coverage_payload,
     )
+
+  def build_bridged_host_ip_fusion_query(
+      self,
+      hostname_metric: str = "auth_attempts_total",
+      ip_metric: str = "dns_queries_total",
+      min_baseline_days: int = DEFAULT_MIN_BASELINE_DAYS,
+      fusion_threshold_sq: float = DEFAULT_FUSION_THRESHOLD_SQ,
+      hypothesis_goal: Optional[str] = None,
+      analysis_date: Optional[str] = None,
+  ) -> str:
+    """Builds a 3-stage cross-identifier fusion query bridging hostname-keyed and IP-keyed sectors via ASSET ECG context (D4 / WS1-07)."""
+    host_field = PreFlightValidator.resolve_identifier_field(hostname_metric, EntityType.ASSET, "hostname")
+    ip_field = PreFlightValidator.resolve_identifier_field(ip_metric, EntityType.ASSET, "ip")
+    sem_h = mc.baseline_semantics(hostname_metric)
+    sem_i = mc.baseline_semantics(ip_metric)
+    date_pin = analysis_date or _today_date()
+
+    def _sector_block(stage_name: str, metric: str, ent_field: str, ent_var: str, sem: mc.MetricSemantics, floor_var: str) -> str:
+      filter_lines = "\n    ".join(sem.observed_filter)
+      if mc.is_composite_only(metric):
+        plan = mc.rollup_plan(metric, ent_field)
+        comp_lines = "\n    ".join(plan.companion_bindings())
+        extra_events = f"\n    {comp_lines}" if comp_lines else ""
+        match_keys = ", ".join([ent_var] + [mc.companion_var(d) for d in plan.companions])
+        m_filters = plan.metric_filters()
+      else:
+        extra_events = ""
+        match_keys = ent_var
+        m_filters = f"{ent_field}: {ent_field}"
+      block = (
+          f"stage {stage_name} {{\n"
+          f"    {filter_lines}\n"
+          f'    timestamp.get_date(metadata.event_timestamp.seconds) = "{date_pin}"\n'
+          f"    {ent_field} = {ent_var}\n"
+          f'    {ent_var} != ""{extra_events}\n\n'
+          "  match:\n"
+          f"    {match_keys} by 1d\n\n"
+          "  outcome:\n"
+          f"    $obs = {sem.observed_agg}\n"
+          f"    $avg = max(metrics.{metric}(period: 1d, window: 30d, metric: {sem.metric_arg}, agg: avg, {m_filters}))\n"
+          f"    $std = max(metrics.{metric}(period: 1d, window: 30d, metric: {sem.metric_arg}, agg: stddev, {m_filters}))\n"
+          f"    $days = max(metrics.{metric}(period: 1d, window: 30d, metric: {sem.metric_arg}, agg: num_metric_periods, {m_filters}))\n"
+          f"    {floor_var} = math.sqrt(if($avg > 1.0, $avg, 1.0))\n"
+          f"    $raw_z = ($obs - $avg) / if($std > {floor_var}, $std, {floor_var})\n"
+          f"    $z = if($days >= {int(min_baseline_days)}, $raw_z, 0.0)\n"
+          "}"
+      )
+      return _apply_byte_dispersion_floor(block, metric, floor_vars=(floor_var,))
+
+    host_stage = _sector_block("sector_host", hostname_metric, host_field, "$host", sem_h, "$h_floor")
+    ip_stage = _sector_block("sector_ip", ip_metric, ip_field, "$ip", sem_i, "$i_floor")
+    goal_text = hypothesis_goal or f"Cross-identifier ASSET-bridged fusion ({hostname_metric} on hostname + {ip_metric} on IP)"
+    rendered = (
+        f"// Goal: {goal_text}\n"
+        "// ARCHITECTURE: 3-STAGE ASSET-BRIDGED HOSTNAME-TO-IP SECTOR FUSION (D4 / WS1-07)\n\n"
+        f"{host_stage}\n\n"
+        f"{ip_stage}\n\n"
+        "stage asset_bridge {\n"
+        '    $asset.graph.metadata.source_type = "DERIVED_CONTEXT"\n'
+        '    $asset.graph.metadata.entity_type = "ASSET"\n'
+        "    $asset.graph.entity.asset.hostname = $host\n"
+        "    $asset.graph.entity.asset.ip = $ip\n"
+        '    $host != ""\n'
+        '    $ip != ""\n\n'
+        "  match:\n"
+        "    $host, $ip\n\n"
+        "  outcome:\n"
+        "    $asset_records = count($asset.graph.metadata.entity_type)\n"
+        "}\n\n"
+        "$host = $sector_host.host\n"
+        "$host = $asset_bridge.host\n"
+        "$ip = $sector_ip.ip\n"
+        "$ip = $asset_bridge.ip\n\n"
+        "match:\n"
+        "  $host by 1d\n\n"
+        "outcome:\n"
+        "  $host_observed = max($sector_host.obs)\n"
+        "  $ip_observed = max($sector_ip.obs)\n"
+        "  $bridged_ips = array_distinct($sector_ip.ip)\n"
+        "  $z_host = max($sector_host.z)\n"
+        "  $z_ip = max($sector_ip.z)\n"
+        "  $z_host_pos = if($z_host > 0, $z_host, 0.0)\n"
+        "  $z_ip_pos = if($z_ip > 0, $z_ip, 0.0)\n"
+        "  $composite_threat_norm_sq = ($z_host_pos * $z_host_pos) + ($z_ip_pos * $z_ip_pos)\n\n"
+        "condition:\n"
+        f"  $composite_threat_norm_sq >= {fusion_threshold_sq}\n\n"
+        "order:\n"
+        "  $composite_threat_norm_sq desc\n"
+    )
+    errs = MalachiteASTValidator.validate_query(rendered)
+    if errs:
+      raise ValueError("Rendered bridged host-to-IP fusion query failed validation: " + " | ".join(errs))
+    return rendered
 
   # Canonical MITRE ATT&CK Multi-Stage Kill-Chain Archetypes
   KILLCHAIN_CATALOG: Dict[KillChainArchetype, Dict[str, Any]] = {

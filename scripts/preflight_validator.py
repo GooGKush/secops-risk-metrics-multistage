@@ -1193,6 +1193,95 @@ class MalachiteASTValidator:
             f"STAGE PARITY ERROR: Stage count ({len(named_stages)}) does not match required telemetry sectors ({min_required_stages})."
         )
 
+    # 5. D4 / WS1-07 Cross-Identifier Hostname-to-IP Join Check
+    if stage1_matches:
+      errors.extend(MalachiteASTValidator._check_cross_identifier_joins(stage1_matches, root_body))
+
+    return errors
+
+  @staticmethod
+  def _check_cross_identifier_joins(
+      stage1_matches: List[Tuple[str, str]],
+      root_body: str,
+  ) -> List[str]:
+    """Rejects direct equality joins equating a hostname-bound stage key with an IP-bound stage key without ASSET context."""
+    hostname_stage_refs: Set[str] = set()
+    ip_stage_refs: Set[str] = set()
+    host_udm_re = re.compile(r"^(?:principal|target|src|about|observer|intermediary)\.asset\.hostname$")
+    ip_udm_re = re.compile(r"^(?:principal|target|src|about|observer|intermediary)\.(?:asset\.)?ip$")
+
+    def _event_section(body: str) -> str:
+      no_comments = re.sub(r"//[^\n]*", "", body)
+      no_comments = re.sub(r"/\*.*?\*/", "", no_comments, flags=re.S)
+      m_sec = re.search(r"\b(?:match|outcome|condition|order)\s*:", no_comments)
+      return no_comments[:m_sec.start()] if m_sec else no_comments
+
+    for sname, sbody in stage1_matches:
+      ev = _event_section(sbody)
+      if ".graph." in ev:
+        continue
+      for raw_line in ev.splitlines():
+        line = raw_line.strip()
+        if not line or "=" not in line:
+          continue
+        eq = re.split(r"(?<![!<>])==?(?!=)", line, maxsplit=1)
+        if len(eq) != 2:
+          continue
+        lhs, rhs = eq[0].strip(), eq[1].strip()
+        if lhs.startswith("$") and not rhs.startswith("$"):
+          var_tok, field_tok = lhs, rhs
+        elif rhs.startswith("$") and not lhs.startswith("$"):
+          var_tok, field_tok = rhs, lhs
+        else:
+          continue
+        if not re.match(r"^\$[a-zA-Z0-9_]+$", var_tok):
+          continue
+        vname = var_tok.lstrip("$")
+        if host_udm_re.match(field_tok):
+          hostname_stage_refs.add(f"${sname}.{vname}")
+        elif ip_udm_re.match(field_tok):
+          ip_stage_refs.add(f"${sname}.{vname}")
+
+    if not hostname_stage_refs or not ip_stage_refs:
+      return []
+
+    errors: List[str] = []
+    token_re = re.compile(r"^\$[a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)?$")
+    for loc_name, body in [*(stage1_matches), ("root stage", root_body)]:
+      ev = _event_section(body)
+      adj: Dict[str, Set[str]] = {}
+      for raw_line in ev.splitlines():
+        line = raw_line.strip()
+        if not line or "=" not in line:
+          continue
+        eq = re.split(r"(?<![!<>])==?(?!=)", line, maxsplit=1)
+        if len(eq) != 2:
+          continue
+        lhs, rhs = eq[0].strip(), eq[1].strip()
+        if token_re.match(lhs) and token_re.match(rhs):
+          adj.setdefault(lhs, set()).add(rhs)
+          adj.setdefault(rhs, set()).add(lhs)
+      visited: Set[str] = set()
+      for node in adj:
+        if node in visited:
+          continue
+        comp: Set[str] = set()
+        stack = [node]
+        while stack:
+          cur = stack.pop()
+          if cur in visited:
+            continue
+          visited.add(cur)
+          comp.add(cur)
+          stack.extend(adj.get(cur, ()) - visited)
+        h_hits = sorted(comp & hostname_stage_refs)
+        i_hits = sorted(comp & ip_stage_refs)
+        if h_hits and i_hits:
+          errors.append(
+              f"UNBRIDGED_CROSS_IDENTIFIER_JOIN in {loc_name}: Direct join between hostname identifier ({h_hits[0]}) "
+              f"and IP identifier ({i_hits[0]}) compares hostnames to IP strings and yields 0 rows; "
+              "join hostnames to IPs only through Entity Graph ASSET context (entity.asset.hostname + entity.asset.ip)."
+          )
     return errors
 
   @staticmethod

@@ -68,8 +68,10 @@ from scripts.template_router import (
     ChainedHuntRouter,
     MultiStageTemplateRouter,
     build_byte_dispersion_floor_probe,
+    build_identifier_coverage_probe,
     parse_byte_dispersion_floor_probe,
     resolve_byte_dispersion_floor,
+    select_identifier_from_coverage,
 )
 from scripts.timeline_assembler import TimelineAssembler, cri_from_score, parse_stats_payload
 from scripts.triage_formatter import CommonMarkTriageFormatter
@@ -788,6 +790,7 @@ def compile_hunt_pipeline(
     today_so_far: bool = False,
     has_run_command: bool = True,
     byte_dispersion_floor: Optional[float] = None,
+    identifier_coverage_payload: Optional[Any] = None,
     **kwargs: Any,
 ) -> Dict[str, Any]:
   """Compiles a multi-stage YARA-L 2.0 hunt pipeline, pre-flight specification card, and time windows.
@@ -917,6 +920,18 @@ def compile_hunt_pipeline(
   if len(metric_list) >= 2 and arch_key in ("single_metric", "local_2stage", "2stage"):
     arch_key = "multi_sector_fusion_4stage" if len(metric_list) >= 3 else "dual_sector_fusion_3stage"
   primary_metric = metric_list[0]
+  if (
+      identifier_field is None
+      and identifier_coverage_payload is not None
+      and plane_upper != "MICRO_RAW"
+      and primary_metric in METRIC_CATALOG
+  ):
+    probe_ent = ent_enum if ent_enum in METRIC_CATALOG[primary_metric].supported_entity_types else METRIC_CATALOG[primary_metric].supported_entity_types[0]
+    identifier_field = select_identifier_from_coverage(
+        identifier_coverage_payload,
+        target_metric=primary_metric,
+        entity_type=probe_ent,
+    )
 
   router = MultiStageTemplateRouter()
   sector_queries: Optional[Dict[str, str]] = None
@@ -1182,9 +1197,10 @@ def compile_hunt_pipeline(
         entity_type=ent_enum,
         anomaly_threshold=eff_anomaly,
         hypothesis_goal=hypothesis_goal,
+        identifier_field=identifier_field,
     )
     compiled_query = _inject_stage1_filters(compiled_query, entity_value=entity_value, custom_filter=custom_filter, entity_type=ent_enum)
-    audit_info = PreFlightValidator.audit(target_metric=primary_metric, entity_type=ent_enum, min_baseline_days=min_baseline_days)
+    audit_info = PreFlightValidator.audit(target_metric=primary_metric, entity_type=ent_enum, min_baseline_days=min_baseline_days, identifier_field=identifier_field)
     entity_graph_dim = "DERIVED_CONTEXT Domain Prevalence (rolling_max <= 3, day_count = 10)"
     canonical_arch = PipelineArchitecture.RARE_DESTINATION_ECG_3STAGE.value
 
@@ -1194,9 +1210,10 @@ def compile_hunt_pipeline(
         entity_type=ent_enum,
         fusion_threshold_sq=eff_fusion_sq,
         hypothesis_goal=hypothesis_goal,
+        identifier_field=identifier_field,
     )
     compiled_query = _inject_stage1_filters(compiled_query, entity_value=entity_value, custom_filter=custom_filter)
-    audit_info = PreFlightValidator.audit(target_metric=metric_list[0], entity_type=ent_enum, min_baseline_days=min_baseline_days)
+    audit_info = PreFlightValidator.audit(target_metric=metric_list[0], entity_type=ent_enum, min_baseline_days=min_baseline_days, identifier_field=identifier_field)
     entity_graph_dim = "DERIVED_CONTEXT Domain Prevalence (rolling_max <= 3, day_count = 10)"
     canonical_arch = PipelineArchitecture.FUSION_RARE_DESTINATION_3STAGE.value
 
@@ -1213,7 +1230,7 @@ def compile_hunt_pipeline(
     )
     compiled_query = _inject_stage1_filters(compiled_query, entity_value=entity_value, custom_filter=custom_filter)
     primary_metric = fail_m
-    audit_info = PreFlightValidator.audit(target_metric=primary_metric, entity_type=ent_enum, min_baseline_days=min_baseline_days)
+    audit_info = PreFlightValidator.audit(target_metric=primary_metric, entity_type=ent_enum, min_baseline_days=min_baseline_days, identifier_field=identifier_field)
     canonical_arch = PipelineArchitecture.HTTP_ERROR_RATIO_SURGE_2STAGE.value
 
   elif arch_key == "c2_beacon_flow":
@@ -1229,7 +1246,7 @@ def compile_hunt_pipeline(
     )
     compiled_query = _inject_stage1_filters(compiled_query, entity_value=entity_value, custom_filter=custom_filter)
     primary_metric = flow_m
-    audit_info = PreFlightValidator.audit(target_metric=primary_metric, entity_type=ent_enum, min_baseline_days=min_baseline_days)
+    audit_info = PreFlightValidator.audit(target_metric=primary_metric, entity_type=ent_enum, min_baseline_days=min_baseline_days, identifier_field=identifier_field)
     canonical_arch = "C2_BEACON_FLOW_2STAGE"
 
   elif arch_key == "alert_surge":
@@ -1320,7 +1337,7 @@ def compile_hunt_pipeline(
         identifier_field=identifier_field,
     )
     compiled_query = _inject_stage1_filters(compiled_query, entity_value=entity_value, custom_filter=custom_filter, entity_type=ent_enum)
-    audit_info = PreFlightValidator.audit(target_metric=primary_metric, entity_type=ent_enum, min_baseline_days=min_baseline_days)
+    audit_info = PreFlightValidator.audit(target_metric=primary_metric, entity_type=ent_enum, min_baseline_days=min_baseline_days, identifier_field=identifier_field)
     if "DERIVED" in pipe_enum.value:
       entity_graph_dim = "DERIVED_CONTEXT Prevalence / Asset Age (rolling_max <= 3, day_count = 10)"
     elif "WHOIS" in pipe_enum.value:
@@ -2955,6 +2972,8 @@ class UEBAHybridEngine:
   calculate_macd_momentum = staticmethod(calculate_macd_momentum)
   calculate_hourly_zscore = staticmethod(calculate_hourly_zscore)
   rebuild_calendar_day_stats = staticmethod(rebuild_calendar_day_stats)
+  build_identifier_coverage_probe = staticmethod(build_identifier_coverage_probe)
+  select_identifier_from_coverage = staticmethod(select_identifier_from_coverage)
 
 
 # ---------------------------------------------------------------------------
@@ -2987,6 +3006,12 @@ def _build_arg_parser() -> argparse.ArgumentParser:
   p_compile.add_argument("--min-baseline-days", dest="min_baseline_days", type=int, default=None)
   p_compile.add_argument("--goal", dest="hypothesis_goal", default=None)
   p_compile.add_argument("--identifier-field", dest="identifier_field", default=None)
+  p_compile.add_argument(
+      "--identifier-coverage",
+      dest="identifier_coverage",
+      default=None,
+      help="JSON string or path to D4 identifier coverage probe payload (hostname vs IP)",
+  )
   p_compile.add_argument("--cohort", dest="cohort_entities", default=None, help="Comma-separated cohort entity IDs")
   p_compile.add_argument("--service-account", dest="service_account", default=None)
   p_compile.add_argument("--killchain", dest="killchain_archetype", default=None)
@@ -3055,6 +3080,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         min_baseline_days=args.min_baseline_days,
         hypothesis_goal=args.hypothesis_goal,
         identifier_field=args.identifier_field,
+        identifier_coverage_payload=args.identifier_coverage,
         cohort_entities=cohort,
         service_account=args.service_account,
         killchain_archetype=args.killchain_archetype,
