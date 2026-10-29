@@ -828,6 +828,93 @@ stage stage_dns {
     self.assertEqual(asset_payload["composite_distance_d"], 6.86)
     self.assertTrue(asset_payload["is_anomalous"])
 
+  def test_ws4_auth_spoke_single_stage_union_preserves_zero_success_bruteforce(self):
+    """WS4-RADAR-COHORT: Auth radar spoke must use a single-stage union instead of inner-joining s1/s2."""
+    auth_query = EntityRadarCollector.USER_SECTOR_QUERIES["IAM & Authentication"] % {"entity_id": "brute.target"}
+    self.assertIn("stage s1 {", auth_query)
+    self.assertNotIn("stage s2", auth_query)
+    self.assertNotIn("$s2.", auth_query)
+    self.assertIn('sum(if(security_result.action = "ALLOW", 0, 1))', auth_query)
+    self.assertIn('sum(if(security_result.action = "ALLOW", 1, 0))', auth_query)
+    self.assertIn("$fail_obs = max($s1.fail_obs)", auth_query)
+    self.assertIn("$succ_obs = max($s1.succ_obs)", auth_query)
+    self.assertEqual(MalachiteASTValidator.validate_query("// Goal: Auth Spoke\n" + auth_query), [])
+
+  def test_ws4_cloud_crud_spoke_no_million_divisor_and_maturity_floor(self):
+    """WS4-RADAR-COHORT: Cloud CRUD spoke and guide must avoid 1,000,000 divisor and enforce >= 7 days + sqrt floor."""
+    cloud_query = EntityRadarCollector.USER_SECTOR_QUERIES["Cloud Infrastructure"] % {"entity_id": "cloud.admin"}
+    self.assertNotIn("1000000", cloud_query)
+    self.assertIn(">= 7", cloud_query)
+    self.assertIn("math.sqrt(if(", cloud_query)
+    repo_root = Path(__file__).resolve().parent.parent
+    guide_text = (repo_root / "references" / "360-behavioral-radar-guide.md").read_text(encoding="utf-8")
+    self.assertNotIn("1000000.0", guide_text)
+    self.assertNotIn("if($read_std > 0, $read_std, 1.0)", guide_text)
+    self.assertIn("if($read_days >= 7", guide_text)
+
+  def test_ws4_network_spokes_clamp_branches_and_use_1mib_floor(self):
+    """WS4-RADAR-COHORT: Network spokes must clamp each byte branch < 1e15 before summing and enforce >= 1 MiB floor."""
+    user_net = EntityRadarCollector.USER_SECTOR_QUERIES["Network Egress & Web"] % {"entity_id": "alex.smith"}
+    asset_net = EntityRadarCollector.ASSET_SECTOR_QUERIES["Network Traffic Volume"] % {"entity_id": "wrk-01"}
+    self.assertIn("1048576.0", user_net)
+    self.assertIn("1048576.0", asset_net)
+    self.assertNotIn("$bytes_floor = 44979.0", user_net)
+    self.assertNotIn("$out_floor = 44979.0", asset_net)
+    self.assertNotIn("sum(network.sent_bytes)", asset_net)
+    self.assertNotIn("sum(network.received_bytes)", asset_net)
+    self.assertIn(
+        "sum(if(network.sent_bytes > 0 and network.sent_bytes < 1000000000000000, 1.0, 0.0) * network.sent_bytes)",
+        asset_net,
+    )
+    self.assertIn(
+        "sum(if(network.received_bytes > 0 and network.received_bytes < 1000000000000000, 1.0, 0.0) * network.received_bytes)",
+        asset_net,
+    )
+    # Fallback dispersion floor in _extract_spoke_metrics_from_rows when z_val is absent on byte sector
+    spokes, _ = EntityRadarCollector.parse_raw_sector_payloads(
+        {
+            "network": _make_stats_payload({
+                "user": [("stringVal", "alex.smith")],
+                "observed": [("int64Val", str(2 * 1048576))],
+                "baseline": [("doubleVal", float(1048576))],
+                "dispersion": [("doubleVal", 0.0)],
+            })
+        },
+        entity_type="USER",
+    )
+    net_spoke = [s for s in spokes if "Network" in s.sector][0]
+    self.assertAlmostEqual(net_spoke.z_score, 1.0, places=4)
+
+  def test_ws4_radar_360_templates_active_days_and_rule_keyed_alerts(self):
+    """WS4-RADAR-COHORT: Web HTTP template emits $active_days and Alert spoke preserves rule-keyed tuple integrity."""
+    repo_root = Path(__file__).resolve().parent.parent
+    web_tpl = (repo_root / "templates" / "pipelines" / "radar_360_sector_web_http.yl2").read_text(encoding="utf-8")
+    self.assertIn("$active_days = max($web_http_risk.days)", web_tpl)
+
+    alert_tpl = (repo_root / "templates" / "pipelines" / "radar_360_sector_alert.yl2").read_text(encoding="utf-8")
+    self.assertIn("$rule_name = $alerts_risk.rule_name", alert_tpl)
+    self.assertIn("$host, $rule_name by 1d", alert_tpl)
+    self.assertIn("$active_days = max($alerts_risk.days)", alert_tpl)
+    self.assertIn("sqrt(2 * ln(K))", alert_tpl)
+
+    asset_alert = EntityRadarCollector.ASSET_SECTOR_QUERIES["Security & EDR Alerts"] % {"entity_id": "wrk-01"}
+    self.assertIn("$rule_name = $alerts_risk.rule_name", asset_alert)
+    self.assertIn("$asset, $rule_name by 1d", asset_alert)
+    self.assertIn("$alerts_days = max($alerts_risk.days)", asset_alert)
+
+  def test_ws4_radar_composite_threshold_aligned_to_3_5(self):
+    """WS4-RADAR-COHORT: Radar composite D anomaly threshold must be 3.5 (matching D^2 >= 12.25 docs)."""
+    self.assertEqual(getattr(radar_collector, "RADAR_COMPOSITE_D_THRESHOLD", None), 3.5)
+    spokes_3_2 = [MetricSpoke("IAM & Authentication", "Auth", "metrics.auth_attempts_fail", 32, 10, 5, 3.20)]
+    payload_below = self.collector.build_radar_payload("user.below", "USER", spokes_3_2)
+    self.assertEqual(payload_below["composite_distance_d"], 3.20)
+    self.assertFalse(payload_below["is_anomalous"])
+
+    spokes_3_6 = [MetricSpoke("IAM & Authentication", "Auth", "metrics.auth_attempts_fail", 36, 10, 5, 3.60)]
+    payload_above = self.collector.build_radar_payload("user.above", "USER", spokes_3_6)
+    self.assertEqual(payload_above["composite_distance_d"], 3.60)
+    self.assertTrue(payload_above["is_anomalous"])
+
 
 if __name__ == "__main__":
 

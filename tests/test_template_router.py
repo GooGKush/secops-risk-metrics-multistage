@@ -1714,6 +1714,57 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
     )
     self.assertEqual(MultiStageTemplateRouter.root_condition(q_triad_min), "$d_vs_fleet_sq >= 12.25")
 
+  def test_ws4_part_of_the_whole_loo_service_account_exclusion_and_rectified_triad(self):
+    """WS4-RADAR-COHORT: Part-of-the-whole templates exclude machine/system accounts, compute LOO stats, and rectify triad Zs."""
+    from scripts.preflight_validator import MalachiteASTValidator
+    q_user_multi = self.router.build_pipeline_query(
+        PipelineArchitecture.PART_OF_THE_WHOLE_MULTILEVEL,
+        target_metric="auth_attempts_total",
+        entity_type=EntityType.USER,
+        cohort_entities=["charles.hardy", "jacob.smith", "maya.goodman"],
+        target_entity="charles.hardy",
+    )
+    self.assertIn(
+        "not re.regex($user, `(?i)^(system|local service|network service|.*\\$$)`)",
+        q_user_multi,
+    )
+    self.assertIn("$fleet_sum = sum($all_entities.obs)", q_user_multi)
+    self.assertIn("$team_sum = sum($all_entities.obs)", q_user_multi)
+    self.assertIn("$e_loo_avg = (max($enterprise_stats.fleet_sum) - $observed) / max($enterprise_stats.fleet_peer_n)", q_user_multi)
+    self.assertIn("$t_loo_avg = (max($team_cohort_stats.team_sum) - $observed) / max($team_cohort_stats.team_peer_n)", q_user_multi)
+    self.assertEqual(MalachiteASTValidator.validate_query(q_user_multi), [])
+    self.assertEqual(StatisticalAntipatternAuditor.audit_query(q_user_multi), [])
+
+    # Asset cohorts must NOT filter $host with the Windows user service-account regex
+    q_asset_multi = self.router.build_pipeline_query(
+        PipelineArchitecture.PART_OF_THE_WHOLE_MULTILEVEL,
+        target_metric="network_bytes_outbound",
+        entity_type=EntityType.ASSET,
+    )
+    self.assertNotIn("local service", q_asset_multi)
+    self.assertEqual(MalachiteASTValidator.validate_query(q_asset_multi), [])
+
+    # Triad with cohort: machine/service exclusion + LOO + positive rectification before squaring
+    q_user_triad = self.router.build_pipeline_query(
+        PipelineArchitecture.PART_OF_THE_WHOLE_TRIAD_MULTILEVEL,
+        entity_type=EntityType.USER,
+        target_metrics=["auth_attempts_total", "auth_attempts_fail", "auth_attempts_success"],
+        cohort_entities=["charles.hardy", "jacob.smith"],
+        target_entity="charles.hardy",
+    )
+    self.assertIn(
+        "not re.regex($user, `(?i)^(system|local service|network service|.*\\$$)`)",
+        q_user_triad,
+    )
+    self.assertIn("$m1_fleet_sum = sum($all_entities.m1_obs)", q_user_triad)
+    self.assertIn("$m1_team_sum = sum($all_entities.m1_obs)", q_user_triad)
+    self.assertIn("if($z1_vs_enterprise > 0.0, $z1_vs_enterprise, 0.0)", q_user_triad)
+    self.assertIn("if($z1_vs_team > 0.0, $z1_vs_team, 0.0)", q_user_triad)
+    self.assertNotIn("$d_vs_fleet_sq = ($z1_vs_enterprise * $z1_vs_enterprise)", q_user_triad)
+    self.assertNotIn("$d_vs_team_sq = ($z1_vs_team * $z1_vs_team)", q_user_triad)
+    self.assertEqual(MalachiteASTValidator.validate_query(q_user_triad), [])
+    self.assertEqual(StatisticalAntipatternAuditor.audit_query(q_user_triad), [])
+
 
 if __name__ == "__main__":
   unittest.main()

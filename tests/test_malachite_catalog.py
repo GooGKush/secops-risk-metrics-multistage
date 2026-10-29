@@ -491,10 +491,10 @@ class TestSiblingTriads(unittest.TestCase):
     section = guide.split("### 4. Intra-Event Metric Triad Breakouts", 1)[1].split("### ", 1)[0]
     self.assertNotIn("Endpoint Process Triad", section)
     self.assertNotIn("dns_bytes_outbound", section)
-    self.assertNotIn("max(0, Z", section, "the template's triad norm is two-sided")
+    self.assertIn("max(0, Z", section, "WS4-RADAR-COHORT: triad norm rectifies negative Zs before squaring")
     self.assertIn("metric-sector-catalog.md", section)
     tpl = (SKILL_ROOT / "templates" / "pipelines" / "part_of_the_whole_triad_multilevel.yl2").read_text(encoding="utf-8")
-    self.assertIn("$d_vs_team_sq = ($z1_vs_team * $z1_vs_team)", tpl)
+    self.assertIn("if($z1_vs_team > 0.0, $z1_vs_team, 0.0)", tpl)
     self.assertIn("Sibling triads", tpl)
     self.assertIn("Peer group is optional (default = fleet only)", section)
 
@@ -502,9 +502,9 @@ class TestSiblingTriads(unittest.TestCase):
     tpl = (SKILL_ROOT / "templates" / "pipelines" / "part_of_the_whole_triad_multilevel.yl2").read_text(encoding="utf-8")
     opens = [ln for ln in tpl.splitlines() if ln.strip().startswith("// >>> TEAM COHORT")]
     closes = [ln for ln in tpl.splitlines() if ln.strip().startswith("// <<< TEAM COHORT")]
-    self.assertEqual(len(opens), 3)
-    self.assertEqual(len(closes), 3)
-    self.assertIn("$d_vs_fleet_sq = ($z1_vs_enterprise * $z1_vs_enterprise)", tpl)
+    self.assertEqual(len(opens), 4)
+    self.assertEqual(len(closes), 4)
+    self.assertIn("if($z1_vs_enterprise > 0.0, $z1_vs_enterprise, 0.0)", tpl)
     self.assertTrue(tpl.rstrip().endswith("order:\n  $d_vs_fleet_sq desc"))
     # Every team reference sits inside a marked block, so deleting the blocks leaves no dangling refs.
     from scripts.template_router import _apply_team_cohort_blocks
