@@ -205,6 +205,69 @@ class CardAndDocConcordanceTest(unittest.TestCase):
       text = (SKILL_ROOT / rel).read_text(encoding="utf-8")
       self.assertNotRegex(text, r"`or` is rejected in root `condition:`", rel)
 
+  def test_ws3_fano_baseline_dispersion_screen_no_spray_claims(self):
+    from scripts.triage_formatter import CommonMarkTriageFormatter
+    from scripts.ueba_hybrid_engine import render_forensic_dossier
+
+    self.assertEqual(
+        DEFAULT_SIGNIFICANCE_GATES[StatisticalModel.VARIANCE],
+        "N/A (baseline dispersion screen)",
+    )
+    self.assertIn(
+        "Baseline Dispersion Screen",
+        MultiStageTemplateRouter.MODEL_DESCRIPTIONS.get(StatisticalModel.VARIANCE, ""),
+    )
+
+    router = MultiStageTemplateRouter()
+    q = router.build_query(
+        target_metric="auth_attempts_fail",
+        entity_type=EntityType.USER,
+        statistical_model=StatisticalModel.VARIANCE,
+    )
+    self.assertIsNone(MultiStageTemplateRouter.root_condition(q))
+    self.assertIn("Baseline Dispersion Screen", q)
+    self.assertIn("$fano_factor = $variance / $safe_lambda", q)
+
+    taxonomy = (SKILL_ROOT / "references" / "statistical-models-taxonomy.md").read_text(encoding="utf-8")
+    self.assertIn("baseline dispersion screen", taxonomy.lower())
+    self.assertIn("poisson_burst_clustering", taxonomy.lower())
+    self.assertNotIn("automated script iteration", taxonomy.lower())
+    self.assertNotIn("distinguishes automated credential sprays", taxonomy.lower())
+
+    sample_rows = [
+        {
+            "entity": "alice",
+            "observed": 4,
+            "hist_avg": 10.0,
+            "hist_stddev": 8.0,
+            "active_days": 20,
+            "fano_factor": 6.4,
+        }
+    ]
+    triage_md = CommonMarkTriageFormatter.format_report(
+        reduced_data={"outlier_count": 1, "top_outliers": sample_rows, "primary_score_metric": "fano_factor"},
+        target_metric="auth_attempts_fail",
+        statistical_model="VARIANCE",
+        anomaly_threshold=3.0,
+        executed_query=q,
+    )
+    self.assertIn("baseline dispersion screen", triage_md.lower())
+    self.assertIn("poisson_burst_clustering", triage_md.lower())
+    self.assertNotIn("automated script iteration", triage_md.lower())
+
+    dossier = render_forensic_dossier(
+        rows=sample_rows,
+        target_metric="auth_attempts_fail",
+        entity_type="USER",
+        statistical_model="VARIANCE",
+        executed_query=q,
+        skip_postflight_audit=True,
+    )
+    self.assertIn("baseline dispersion screen", dossier["dossier_markdown"].lower())
+    self.assertIn("poisson_burst_clustering", dossier["dossier_markdown"].lower())
+    self.assertNotIn("automated script iteration", dossier["dossier_markdown"].lower())
+
+
 
 if __name__ == "__main__":
   unittest.main()
