@@ -11,7 +11,7 @@ The Google SecOps Multi-Stage Risk Analytics Engine provides 12 distinct categor
 | Anomaly Archetype | Built-In Mathematical Models | Target Telemetry Vectors | Primary Security Outcome & Use Case |
 | :--- | :--- | :--- | :--- |
 | **1. 📈 Volumetric Surges** | `STANDARD_Z_SCORE`, `MAD`, `QUANTILE_IQR_SKEW` | Network Egress, File Touches, HTTP Queries | Detects data exfiltration spikes and ransomware staging while insulating against skewed distributions. |
-| **2. ⚡ Automated Script Bursts** | `VARIANCE` (Fano Factor $F = \sigma^2/\mu$) | Authentication Attempts, API Calls | Distinguishes automated credential sprays and brute-force waves ($F > 4.0$) from random human typos ($F \approx 1.0$). |
+| **2. 📊 Baseline Dispersion Screen** | `VARIANCE` (Fano Factor $F = \sigma^2/\mu$) | Count-Based Baselines (`event_count_sum`) | 30-day **baseline dispersion screen** (`NO-GATE`, independent of today's value) testing Poisson ($F \approx 1.0$) vs overdispersed ($F > 2.0$) baselines. Active spray hunts belong in `secops-statistical-hunter` `POISSON_BURST_CLUSTERING`. |
 | **3. 🎯 Rare & Discrete Inceptions** | `POISSON_RARITY` ($Z_P = (k-\lambda)/\sqrt{\lambda}$) | Process Launches, Admin LOLBins | Flags executions of rare tools (`powershell`, `vssadmin`) on quiet servers with near-zero expected rates ($\lambda \le 2.0$). |
 | **4. 🧠 Sparse Activity Regularization** | `BAYESIAN_GAMMA`, `BAYESIAN_BETA_BINOMIAL` | Low-Volume Service Accounts, Auth Ratios | Regularizes sparse observations via 30-day prior stability, preventing false alarms on quiet accounts with low sample sizes. |
 | **5. 💧 Sub-Threshold Drift Accumulation** | `LONGITUDINAL_CUSUM` ($S_t^+ = \max(0, S_{t-1}^+ + Z_t - k)$) | Network Bytes, Cloud Resource CRUD | Uncovers low-and-slow data exfiltration or privilege creeping that stays below daily $3\sigma$ alerting hurdles but accumulates massive multi-day drift. |
@@ -105,21 +105,21 @@ Before running a multi-stage statistical hunt, explain the approach to the secur
 
 ---
 
-## 3. Poisson Dispersion & Fano Factor (`VARIANCE` / `FANO_FACTOR`)
-* **Security Problem Solved**: Distinguishes automated brute-force attacks and credential spraying from normal, bursty, or accidental human behavior.
+## 3. 30-Day Baseline Dispersion Screen (`VARIANCE` / `FANO_FACTOR`)
+* **Purpose**: Provides a `NO-GATE` **baseline dispersion screen** over the 30-day pre-computed baseline ($F = \sigma^2 / \mu$, independent of today's `$observed` count) to verify whether an entity's daily baseline satisfies Poisson dispersion ($F \le 2.0$) or requires an overdispersed / robust model (`MAD`, `QUANTILE_IQR_SKEW`, or negative-binomial scaling). Active credential spray and brute-force hunts belong in `secops-statistical-hunter` `POISSON_BURST_CLUSTERING`.
 * **Mathematical Formulation**:
   $$F = \frac{\sigma^2}{\lambda_{\text{safe}}}, \quad \lambda_{\text{safe}} = \text{if}(\lambda > 0, \lambda, 1.0)$$
-* **Threat Meaning**:
-  * $F \approx 1.0$: Memoryless random arrival (normal human typos or isolated network drops).
-  * $F > 4.0$: Super-Poisson **burst clustering** (automated password sprays, botnet sweeps, brute force waves).
-  * $F < 1.0$: Sub-Poisson periodic polling (robotic heartbeat / beaconing cadence).
-* **Post-Hunt Plain-English Cyber Impact Statement Template**:
+* **Baseline Interpretation**:
+  * $F \approx 1.0$: Poisson-compatible historical arrival variance (appropriate for `POISSON`).
+  * $F > 2.0$: Overdispersed multi-day baseline (clumpy batch workloads or volatile daily totals; prefer negative-binomial scaling, `MAD`, or `QUANTILE_IQR_SKEW`).
+  * $F < 1.0$: Underdispersed regular daily baseline (candidate for `COEFFICIENT_OF_VARIATION` regular-volume surge).
+* **Post-Hunt Plain-English Baseline Screen Statement Template**:
 ```markdown
 > [!IMPORTANT]
-> **Automated Dispersion Verdict: Fano Factor (`[target_metric]`)**
-> * **Dispersion Index (F)**: **[fano_factor]** (Historical arrival rate $\lambda \approx [lambda]$, variance $\sigma^2 \approx [variance]$).
-> * **Behavioral Pattern**: Arrived in tightly synchronized, clumpy waves ($F \gg 1.0$) rather than memoryless human activity.
-> * **Investigative Meaning**: Indicates automated script iteration, programmatic credential stuffing, or synchronized bot exploitation.
+> **Baseline Dispersion Screen: 30-Day Fano Factor (`[target_metric]`)**
+> * **Dispersion Index (F)**: **[fano_factor]** (30-day baseline mean $\lambda \approx [lambda]$, variance $\sigma^2 \approx [variance]$; `NO-GATE` baseline screen independent of today's count).
+> * **Baseline Regime**: Historical daily totals exhibit overdispersion ($F > 2.0$) rather than unit-ratio Poisson variance ($F \approx 1.0$).
+> * **Operational Routing**: Use `MAD` or `QUANTILE_IQR_SKEW` for volumetric anomaly scoring on overdispersed entities; route active credential spray or sub-hour burst hunts to `secops-statistical-hunter` `POISSON_BURST_CLUSTERING`.
 ```
 
 ---

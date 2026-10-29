@@ -436,16 +436,33 @@ class CommonMarkTriageFormatter:
         "",
         "> [!IMPORTANT]",
         f"> **Threat Translation & Attack Scenarios: {target_metric} ({statistical_model})**",
-        f"> * **The Core Finding**: Outliers detected exceeding {anomaly_threshold} significance threshold.",
         *(
-            [f"> * **Sustained-Attack Fade Caveat (D10 / WS1-11)**: {mode_c_fade_caveat}"]
-            if mode_c_fade_caveat
-            else []
+            [
+                "> * **The Core Finding**: 30-day **baseline dispersion screen** (`F = σ² / μ` computed from the 30-day baseline only; independent of today's observed value — `NO-GATE`).",
+                *(
+                    [f"> * **Sustained-Attack Fade Caveat (D10 / WS1-11)**: {mode_c_fade_caveat}"]
+                    if mode_c_fade_caveat
+                    else []
+                ),
+                "> * **Security Significance**: Ranks entities by historical day-to-day baseline dispersion (`F ≈ 1.0` Poisson vs `F > 2.0` overdispersed) to guide model selection (`POISSON` vs negative-binomial / `MAD`), not day-level breakout alerting.",
+                "> * **Active Spray / Burst Routing**: This screen does not detect active credential sprays or sub-hour bursts; route spray hunts to `secops-statistical-hunter` `POISSON_BURST_CLUSTERING`.",
+                "> * **Legitimate High Dispersion**: Batch jobs, weekly administrative runs, or multi-tenant jump hosts naturally exhibit `F > 2.0`.",
+                "> * **SOC Action Playbook**: 1. Use `F <= 2.0` to validate Poisson assumptions, 2. Use `MAD` or `QUANTILE_IQR_SKEW` on `F > 2.0` entities, 3. Pivot active spray hypotheses to `secops-statistical-hunter` `POISSON_BURST_CLUSTERING`.",
+            ]
+            if any(tok in statistical_model.upper() for tok in ("VARIANCE", "FANO"))
+            else [
+                f"> * **The Core Finding**: Outliers detected exceeding {anomaly_threshold} significance threshold.",
+                *(
+                    [f"> * **Sustained-Attack Fade Caveat (D10 / WS1-11)**: {mode_c_fade_caveat}"]
+                    if mode_c_fade_caveat
+                    else []
+                ),
+                "> * **Security Significance**: Volume explosion or multi-vector correlation indicating anomalous breakout.",
+                "> * **Potential Attack Scenarios**: Ransomware staging, credential stuffing, data exfiltration, lateral movement.",
+                "> * **Legitimate False Positives**: Scheduled backup jobs, administrative bulk updates, patch deployments.",
+                "> * **SOC Action Playbook**: 1. Inspect affected entity, 2. Check process tree, 3. Validate egress network destinations.",
+            ]
         ),
-        "> * **Security Significance**: Volume explosion or multi-vector correlation indicating anomalous breakout.",
-        "> * **Potential Attack Scenarios**: Ransomware staging, credential stuffing, data exfiltration, lateral movement.",
-        "> * **Legitimate False Positives**: Scheduled backup jobs, administrative bulk updates, patch deployments.",
-        "> * **SOC Action Playbook**: 1. Inspect affected entity, 2. Check process tree, 3. Validate egress network destinations.",
         CommonMarkTriageFormatter.build_agentic_next_steps(
             reduced_data, target_metric, statistical_model, anomaly_threshold
         ),

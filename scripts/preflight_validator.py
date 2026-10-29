@@ -64,7 +64,7 @@ DEFAULT_SIGNIFICANCE_GATES: Dict["StatisticalModel", str] = {
     StatisticalModel.STANDARD_Z_SCORE: "Z >= 3.0σ",
     StatisticalModel.MAD: "Modified Z >= 3.5",
     StatisticalModel.RELATIVE_DEVIATION: ">= 2.0× baseline",
-    StatisticalModel.VARIANCE: "N/A (dispersion screen)",
+    StatisticalModel.VARIANCE: "N/A (baseline dispersion screen)",
     StatisticalModel.POISSON: "Poisson Z >= 3.0σ",
     StatisticalModel.COEFFICIENT_OF_VARIATION: ">= 2.0× baseline, CV <= 0.5",
     StatisticalModel.HOURLY_TEMPORAL_ZSCORE: "RETIRED (D1 -> HOUR_OF_DAY_PROFILE)",

@@ -538,6 +538,8 @@ class MultiStageTemplateRouter:
   STAGE2_FALLBACK_TEMPLATES: Dict[str, str] = {}
 
   MODEL_DESCRIPTIONS = {
+      StatisticalModel.VARIANCE: "Baseline Dispersion Screen (30-Day Fano Factor)",
+      "variance": "Baseline Dispersion Screen (30-Day Fano Factor)",
       StatisticalModel.COEFFICIENT_OF_VARIATION: "Regular-Volume Surge (Low-CV Predictable Baseline)",
       "coefficient_of_variation": "Regular-Volume Surge (Low-CV Predictable Baseline)",
       StatisticalModel.LONGITUDINAL_CUSUM: "Multi-Day Cumulative Drift (Windowed Slack Sum)",

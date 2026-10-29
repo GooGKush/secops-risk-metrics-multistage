@@ -26,7 +26,7 @@ In multi-stage hunting workflows:
 |---|---|---|---|---|---|---|
 | 1 | `STANDARD_Z_SCORE` | Parametric Historical Z-Score | `$personal_diff`, `$dispersion_floor`, `$safe_stddev`, `$personal_z` | Linear deviation, D8 count/byte dispersion floor (`sqrt(max(avg, 1.0))` or fleet byte floor), `$active_days >= 7` gate | `order: $personal_z desc` | Missing dispersion floor (`1.0` fallback) or missing `$active_days >= 7` gate |
 | 2 | `MAD` | True Median Absolute Deviation / Modified $Z$ (with 30d $Z$ cross-check) | `$median_val`, `$mad`, `$mean_abs_dev`, `$robust_scale`, `$safe_robust_scale`, `$modified_z`, `$personal_z`, `$z_gap`, `$raw_active_days`, `$in_scoring_window` | `window.median` over stage1 daily rows (`mad_center` → `mad_spread`), $\text{MAD}/0.6745$, Iglewicz-Hoaglin $1.253314\cdot\text{meanAD}$ fallback | `order: $modified_z desc` | `0.6745 * (x - mean) / stddev` (a rescaled classical $Z$, not MAD) |
-| 3 | `VARIANCE` | Fano Factor / Index of Dispersion | `$variance`, `$safe_lambda`, `$fano_factor` | Variance calculation ($\sigma^2$), ratio to mean | `order: $fano_factor desc` | Omitting variance calculation |
+| 3 | `VARIANCE` | Baseline Dispersion Screen (30-Day Fano Factor) | `$variance`, `$safe_lambda`, `$fano_factor` | 30d baseline dispersion screen ($\sigma^2 / \mu$, independent of `$observed`); spray hunts route to `secops-statistical-hunter` `POISSON_BURST_CLUSTERING` | `order: $fano_factor desc` | Claiming day-level spray detection or omitting variance calculation |
 | 4 | `POISSON` | Discrete Poisson Rarity Z-Score | `$diff`, `$safe_lambda`, `$sqrt_lambda`, `$poisson_z` | `math.sqrt($safe_lambda)` | `order: $poisson_z desc` | Linear stddev denominator instead of square-root mean |
 | 5 | `COEFFICIENT_OF_VARIATION` | Regular-Volume Surge (Low-CV Predictable Baseline) | `$safe_hist_avg`, `$cv`, `$surge_ratio` | Fold-change surge gated on low relative dispersion ($\sigma / \mu \le 0.5$) | `order: $surge_ratio desc` | Standard Gaussian $Z$ without CV stability filter |
 | 6 | `HOURLY_TEMPORAL_ZSCORE` *(RETIRED D1)* | Retired — Hand off to `HOUR_OF_DAY_PROFILE` | — | Handed off to `secops-statistical-hunter` `HOUR_OF_DAY_PROFILE` (`PF-10` / `WS2-02`) | — | Comparing 1h buckets against 24h daily `metrics.*` baselines |
@@ -66,7 +66,7 @@ Every query carries the model's significance gate as a root `condition:` placed 
 | `RELATIVE_DEVIATION` | `$fold_change` | `$fold_change >= 2.0` (ranked by `$ratio`) | fold change | `>= 2.0× baseline` | `{{fold_change_threshold}}` |
 | `MAD` | `$modified_z` | `... and $modified_z >= 3.5` (AND-ed with the scoring-window and sample-size gates) | modified Z | `Modified Z >= 3.5` | `{{robust_threshold}}` |
 | `QUANTILE_IQR_SKEW` | `$tukey_excess_z` | `$in_scoring_window = 1 and $raw_active_days >= 7 and $tukey_excess_z >= 1.0` | robust scale-excess | `Tukey Scale-Excess >= 1.0` | `{{tukey_excess_threshold}}` |
-| `VARIANCE` (Fano) | — | **none** (`// NO-GATE`) | — | `N/A (dispersion screen)` | — |
+| `VARIANCE` (Fano) | — | **none** (`// NO-GATE`) | — | `N/A (baseline dispersion screen)` | — |
 
 * **Why fold change for the ratio models**: their scores are not in σ, and a fold change ("2× the usual") needs no statistical background to read. The 2.0× default is a convention, not a calibrated tail probability. Tune it like any other threshold.
 * **Why Fano has no gate**: $\sigma^2/\mu$ is computed from the 30-day baseline only, so it does not change with the scored day's value. It ranks historical burstiness (a screen for choosing Poisson vs Gaussian), not a day-level anomaly.
@@ -160,7 +160,7 @@ order:
 * **Caveats**: zero-activity days produce no stage1 row (median over ACTIVE days, biased upward for sparse entities; `$raw_active_days` is the sample size); the scored day sits inside its own baseline (tolerated by the 50% breakdown point).
 
 ### 3. `VARIANCE` (`variance_fano.yl2`)
-* **Hypothesis**: Overdispersed behavioral burstiness indicating automated batching or scripting ($Var / \mu > 1.0$).
+* **Hypothesis**: 30-day **baseline dispersion screen** ($F = \sigma^2 / \mu$, independent of the scored day's `$observed` value) used to test Poisson vs overdispersed historical baselines. Active credential spray and sub-hour burst hunts route to `secops-statistical-hunter` `POISSON_BURST_CLUSTERING`.
 * **Mandatory AST Contract**:
 ```yara
 outcome:

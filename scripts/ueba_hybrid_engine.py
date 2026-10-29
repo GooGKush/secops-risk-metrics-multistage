@@ -3116,10 +3116,21 @@ def render_forensic_dossier(
       core_finding_line,
       *partial_day_pillar3_lines,
       *ecg_pillar3_lines,
-      "> * **Security Significance**: Statistically significant departure from historical entity behavior indicating potential credential compromise, automated staging, or anomalous data movement.",
-      "> * **Potential Attack Scenarios**: Credential stuffing, lateral expansion, living-off-the-land execution, or staged exfiltration.",
-      "> * **Legitimate False Positives**: Scheduled enterprise backups, administrative batch jobs, or fleet patch rollouts.",
-      "> * **SOC Action Playbook**: 1. Verify entity identity & change tickets, 2. Inspect companion process/network stages, 3. Pivot via Agentic Next Steps below.",
+      *(
+          [
+              "> * **Security Significance**: 30-day **baseline dispersion screen** (`F = σ² / μ` computed from the 30-day baseline only; independent of today's observed value — `NO-GATE`) used to distinguish Poisson (`F ≈ 1.0`) from overdispersed (`F > 2.0`) baselines.",
+              "> * **Active Spray / Burst Routing**: Does not measure day-level breakouts or sub-hour sprays; route active credential spray or brute-force hunts to `secops-statistical-hunter` `POISSON_BURST_CLUSTERING`.",
+              "> * **Legitimate High Dispersion**: Scheduled administrative batches, weekly scans, or shared jump hosts naturally exhibit `F > 2.0`.",
+              "> * **SOC Action Playbook**: 1. Use `F <= 2.0` to validate Poisson assumptions, 2. Use `MAD` or `QUANTILE_IQR_SKEW` on `F > 2.0` entities, 3. Pivot active spray hypotheses to `secops-statistical-hunter` `POISSON_BURST_CLUSTERING`.",
+          ]
+          if stat_model_enum == StatisticalModel.VARIANCE
+          else [
+              "> * **Security Significance**: Statistically significant departure from historical entity behavior indicating potential credential compromise, automated staging, or anomalous data movement.",
+              "> * **Potential Attack Scenarios**: Credential stuffing, lateral expansion, living-off-the-land execution, or staged exfiltration.",
+              "> * **Legitimate False Positives**: Scheduled enterprise backups, administrative batch jobs, or fleet patch rollouts.",
+              "> * **SOC Action Playbook**: 1. Verify entity identity & change tickets, 2. Inspect companion process/network stages, 3. Pivot via Agentic Next Steps below.",
+          ]
+      ),
       next_steps_md,
       "",
       "---",

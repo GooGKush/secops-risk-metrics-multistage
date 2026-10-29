@@ -1,5 +1,5 @@
 // Domain note: count-based model (metric: event_count_sum); do not apply to byte-volume metrics (value_sum) where variance scales quadratically.
-// Root Stage: Fano Factor (Variance-to-Mean Ratio) (Preserving Daily Timeline)
+// Root Stage: Baseline Dispersion Screen — 30-Day Fano Factor (NO-GATE, Preserving Daily Timeline)
 $entity = $stage1_extract.entity
 $ws = $stage1_extract.window_start
 
