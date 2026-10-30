@@ -1,0 +1,99 @@
+// ============================================================================
+// ARCHITECTURE: CANONICAL 360° RADAR SECTOR 2 (USER) — Cloud Infrastructure & IAM CRUD
+// Copy verbatim; substitute only {{entity_id}} with the verified user.userid.
+// ============================================================================
+
+stage cloud_risk {
+    (
+        metadata.event_type = "RESOURCE_READ" or
+        metadata.event_type = "USER_RESOURCE_ACCESS" or
+        metadata.event_type = "RESOURCE_WRITTEN" or
+        metadata.event_type = "USER_RESOURCE_UPDATE_CONTENT" or
+        metadata.event_type = "RESOURCE_CREATION" or
+        metadata.event_type = "USER_RESOURCE_CREATION" or
+        metadata.event_type = "RESOURCE_DELETION" or
+        metadata.event_type = "USER_RESOURCE_DELETION"
+    )
+    principal.user.userid = "{{entity_id}}"
+    $user = principal.user.userid
+    metadata.vendor_name = $v
+    metadata.product_name = $p
+
+  match:
+    $user, $v, $p by 1d
+
+  outcome:
+    $read_obs = sum(if(metadata.event_type = "RESOURCE_READ" or metadata.event_type = "USER_RESOURCE_ACCESS", 1, 0))
+    $read_avg = max(metrics.resource_read_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
+    $read_std = max(metrics.resource_read_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
+    $read_days = max(metrics.resource_read_total(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
+    $write_obs = sum(if(metadata.event_type = "RESOURCE_WRITTEN" or metadata.event_type = "USER_RESOURCE_UPDATE_CONTENT", 1, 0))
+    $write_avg = max(metrics.resource_written_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
+    $write_std = max(metrics.resource_written_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
+    $write_days = max(metrics.resource_written_total(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
+    $create_obs = sum(if(metadata.event_type = "RESOURCE_CREATION" or metadata.event_type = "USER_RESOURCE_CREATION", 1, 0))
+    $create_avg = max(metrics.resource_creation_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
+    $create_std = max(metrics.resource_creation_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
+    $create_days = max(metrics.resource_creation_total(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
+    $delete_obs = sum(if(metadata.event_type = "RESOURCE_DELETION" or metadata.event_type = "USER_RESOURCE_DELETION", 1, 0))
+    $delete_avg = max(metrics.resource_deletion_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
+    $delete_std = max(metrics.resource_deletion_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
+    $delete_days = max(metrics.resource_deletion_total(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
+}
+
+stage cloud_rollup {
+    $user = $cloud_risk.user
+
+  match:
+    $user by 1d
+
+  outcome:
+    $r_obs = max($cloud_risk.read_obs)
+    $r_avg = max($cloud_risk.read_avg)
+    $r_std = max($cloud_risk.read_std)
+    $r_days = max($cloud_risk.read_days)
+    $r_flr = math.sqrt(if($r_avg > 1.0, $r_avg, 1.0))
+    $r_sd = if($r_std > $r_flr, $r_std, $r_flr)
+    $zr_u = ($r_obs - $r_avg) / $r_sd
+    $z_read = if($r_days >= 7, $zr_u, 0.0)
+    $w_obs = max($cloud_risk.write_obs)
+    $w_avg = max($cloud_risk.write_avg)
+    $w_std = max($cloud_risk.write_std)
+    $w_days = max($cloud_risk.write_days)
+    $w_flr = math.sqrt(if($w_avg > 1.0, $w_avg, 1.0))
+    $w_sd = if($w_std > $w_flr, $w_std, $w_flr)
+    $zw_u = ($w_obs - $w_avg) / $w_sd
+    $z_write = if($w_days >= 7, $zw_u, 0.0)
+}
+
+$user = $cloud_risk.user
+$user = $cloud_rollup.user
+
+match:
+  $user by 1d
+
+outcome:
+  $c_avg = max($cloud_risk.create_avg)
+  $c_std = max($cloud_risk.create_std)
+  $c_days = max($cloud_risk.create_days)
+  $c_flr = math.sqrt(if($c_avg > 1.0, $c_avg, 1.0))
+  $c_sd = if($c_std > $c_flr, $c_std, $c_flr)
+  $zc_u = (max($cloud_risk.create_obs) - $c_avg) / $c_sd
+  $z_create = if($c_days >= 7, $zc_u, 0.0)
+  $d_avg = max($cloud_risk.delete_avg)
+  $d_std = max($cloud_risk.delete_std)
+  $d_days = max($cloud_risk.delete_days)
+  $d_flr = math.sqrt(if($d_avg > 1.0, $d_avg, 1.0))
+  $d_sd = if($d_std > $d_flr, $d_std, $d_flr)
+  $zd_u = (max($cloud_risk.delete_obs) - $d_avg) / $d_sd
+  $z_delete = if($d_days >= 7, $zd_u, 0.0)
+  $z_read = max($cloud_rollup.z_read)
+  $z_write = max($cloud_rollup.z_write)
+  $z_rw = if($z_read >= $z_write, $z_read, $z_write)
+  $z_cd = if($z_create >= $z_delete, $z_create, $z_delete)
+  $z = if($z_rw >= $z_cd, $z_rw, $z_cd)
+  $observed = sum($cloud_risk.read_obs) + sum($cloud_risk.write_obs) + sum($cloud_risk.create_obs) + sum($cloud_risk.delete_obs)
+
+// NO-GATE: 360 radar sector micro-query; every sector is reported and fused client-side.
+order:
+  $z desc

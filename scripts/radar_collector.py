@@ -348,7 +348,7 @@ class EntityRadarCollector:
   USER_SECTOR_QUERIES = {
       "IAM & Authentication": _RadarQueryTemplate("""
 // Sector: IAM & Authentication (Single-Stage Union: preserves 0-success brute-force targets)
-stage s1 {
+stage auth_risk {
     metadata.event_type = "USER_LOGIN"
     target.user.userid = "%(entity_id)s"
     $user = target.user.userid
@@ -364,21 +364,21 @@ stage s1 {
     $succ_std = max(metrics.auth_attempts_success(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, target.user.userid: target.user.userid))
     $succ_days = max(metrics.auth_attempts_success(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, target.user.userid: target.user.userid))
 }
-$user = $s1.user
+$user = $auth_risk.user
 match: $user by 1d
 outcome:
-  $fail_obs = max($s1.fail_obs)
-  $fail_avg = max($s1.fail_avg)
-  $fail_std = max($s1.fail_std)
-  $fail_days = max($s1.fail_days)
+  $fail_obs = max($auth_risk.fail_obs)
+  $fail_avg = max($auth_risk.fail_avg)
+  $fail_std = max($auth_risk.fail_std)
+  $fail_days = max($auth_risk.fail_days)
   $fail_floor = math.sqrt(if($fail_avg > 1.0, $fail_avg, 1.0))
   $safe_fail_std = if($fail_std > $fail_floor, $fail_std, $fail_floor)
   $raw_z_fail = ($fail_obs - $fail_avg) / $safe_fail_std
   $z_fail = if($fail_days >= 7, $raw_z_fail, 0.0)
-  $succ_obs = max($s1.succ_obs)
-  $succ_avg = max($s1.succ_avg)
-  $succ_std = max($s1.succ_std)
-  $succ_days = max($s1.succ_days)
+  $succ_obs = max($auth_risk.succ_obs)
+  $succ_avg = max($auth_risk.succ_avg)
+  $succ_std = max($auth_risk.succ_std)
+  $succ_days = max($auth_risk.succ_days)
   $succ_floor = math.sqrt(if($succ_avg > 1.0, $succ_avg, 1.0))
   $safe_succ_std = if($succ_std > $succ_floor, $succ_std, $succ_floor)
   $raw_z_succ = ($succ_obs - $succ_avg) / $safe_succ_std
@@ -386,7 +386,7 @@ outcome:
 """),
       "Cloud Infrastructure": _RadarQueryTemplate("""
 // Sector: Cloud Infrastructure CRUD
-stage s1 {
+stage cloud_risk {
     (
         metadata.event_type = "RESOURCE_READ" or
         metadata.event_type = "USER_RESOURCE_ACCESS" or
@@ -421,55 +421,55 @@ stage s1 {
     $delete_std = max(metrics.resource_deletion_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
     $delete_days = max(metrics.resource_deletion_total(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
 }
-stage s2 {
-    $user = $s1.user
+stage cloud_rollup {
+    $user = $cloud_risk.user
   match:
     $user by 1d
   outcome:
-    $r_obs = max($s1.read_obs)
-    $r_avg = max($s1.read_avg)
-    $r_std = max($s1.read_std)
-    $r_days = max($s1.read_days)
+    $r_obs = max($cloud_risk.read_obs)
+    $r_avg = max($cloud_risk.read_avg)
+    $r_std = max($cloud_risk.read_std)
+    $r_days = max($cloud_risk.read_days)
     $r_flr = math.sqrt(if($r_avg > 1.0, $r_avg, 1.0))
     $r_sd = if($r_std > $r_flr, $r_std, $r_flr)
     $zr_u = ($r_obs - $r_avg) / $r_sd
     $z_read = if($r_days >= 7, $zr_u, 0.0)
-    $w_obs = max($s1.write_obs)
-    $w_avg = max($s1.write_avg)
-    $w_std = max($s1.write_std)
-    $w_days = max($s1.write_days)
+    $w_obs = max($cloud_risk.write_obs)
+    $w_avg = max($cloud_risk.write_avg)
+    $w_std = max($cloud_risk.write_std)
+    $w_days = max($cloud_risk.write_days)
     $w_flr = math.sqrt(if($w_avg > 1.0, $w_avg, 1.0))
     $w_sd = if($w_std > $w_flr, $w_std, $w_flr)
     $zw_u = ($w_obs - $w_avg) / $w_sd
     $z_write = if($w_days >= 7, $zw_u, 0.0)
 }
-$user = $s1.user
-$user = $s2.user
+$user = $cloud_risk.user
+$user = $cloud_rollup.user
 match: $user by 1d
 outcome:
-  $c_avg = max($s1.create_avg)
-  $c_std = max($s1.create_std)
-  $c_days = max($s1.create_days)
+  $c_avg = max($cloud_risk.create_avg)
+  $c_std = max($cloud_risk.create_std)
+  $c_days = max($cloud_risk.create_days)
   $c_flr = math.sqrt(if($c_avg > 1.0, $c_avg, 1.0))
   $c_sd = if($c_std > $c_flr, $c_std, $c_flr)
-  $zc_u = (max($s1.create_obs) - $c_avg) / $c_sd
+  $zc_u = (max($cloud_risk.create_obs) - $c_avg) / $c_sd
   $z_create = if($c_days >= 7, $zc_u, 0.0)
-  $d_avg = max($s1.delete_avg)
-  $d_std = max($s1.delete_std)
-  $d_days = max($s1.delete_days)
+  $d_avg = max($cloud_risk.delete_avg)
+  $d_std = max($cloud_risk.delete_std)
+  $d_days = max($cloud_risk.delete_days)
   $d_flr = math.sqrt(if($d_avg > 1.0, $d_avg, 1.0))
   $d_sd = if($d_std > $d_flr, $d_std, $d_flr)
-  $zd_u = (max($s1.delete_obs) - $d_avg) / $d_sd
+  $zd_u = (max($cloud_risk.delete_obs) - $d_avg) / $d_sd
   $z_delete = if($d_days >= 7, $zd_u, 0.0)
-  $z_read = max($s2.z_read)
-  $z_write = max($s2.z_write)
+  $z_read = max($cloud_rollup.z_read)
+  $z_write = max($cloud_rollup.z_write)
   $z_rw = if($z_read >= $z_write, $z_read, $z_write)
   $z_cd = if($z_create >= $z_delete, $z_create, $z_delete)
   $z = if($z_rw >= $z_cd, $z_rw, $z_cd)
 """),
       "Workspace Data Hoarding": _RadarQueryTemplate("""
 // Sector: Workspace & Drive Data
-stage s1 {
+stage workspace_risk {
     metadata.vendor_name = "Google Workspace"
     principal.user.userid = "%(entity_id)s"
     $user = principal.user.userid
@@ -485,27 +485,27 @@ stage s1 {
     $ch_std = max(metrics.workspace_total_change_actions(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: principal.user.userid))
     $ch_days = max(metrics.workspace_total_change_actions(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.user.userid: principal.user.userid))
 }
-$user = $s1.user
+$user = $workspace_risk.user
 match: $user by 1d
 outcome:
-  $dl_avg = max($s1.dl_avg)
-  $dl_std = max($s1.dl_std)
-  $dl_days = max($s1.dl_days)
+  $dl_avg = max($workspace_risk.dl_avg)
+  $dl_std = max($workspace_risk.dl_std)
+  $dl_days = max($workspace_risk.dl_days)
   $dl_flr = math.sqrt(if($dl_avg > 1.0, $dl_avg, 1.0))
   $safe_dl_std = if($dl_std > $dl_flr, $dl_std, $dl_flr)
-  $raw_z_dl = (max($s1.dl_obs) - $dl_avg) / $safe_dl_std
+  $raw_z_dl = (max($workspace_risk.dl_obs) - $dl_avg) / $safe_dl_std
   $z_download = if($dl_days >= 7, $raw_z_dl, 0.0)
-  $ch_avg = max($s1.ch_avg)
-  $ch_std = max($s1.ch_std)
-  $ch_days = max($s1.ch_days)
+  $ch_avg = max($workspace_risk.ch_avg)
+  $ch_std = max($workspace_risk.ch_std)
+  $ch_days = max($workspace_risk.ch_days)
   $ch_flr = math.sqrt(if($ch_avg > 1.0, $ch_avg, 1.0))
   $safe_ch_std = if($ch_std > $ch_flr, $ch_std, $ch_flr)
-  $raw_z_ch = (max($s1.ch_obs) - $ch_avg) / $safe_ch_std
+  $raw_z_ch = (max($workspace_risk.ch_obs) - $ch_avg) / $safe_ch_std
   $z_change = if($ch_days >= 7, $raw_z_ch, 0.0)
 """),
       "Network Egress & Web": _RadarQueryTemplate("""
 // Sector: Network Egress Volume
-stage s1 {
+stage egress_risk {
     network.sent_bytes > 0
     network.sent_bytes < 1000000000000000
     principal.user.userid = "%(entity_id)s"
@@ -518,13 +518,13 @@ stage s1 {
     $bytes_std = max(metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: stddev, principal.user.userid: principal.user.userid))
     $bytes_days = max(metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: num_metric_periods, principal.user.userid: principal.user.userid))
 }
-$user = $s1.user
+$user = $egress_risk.user
 match: $user by 1d
 outcome:
-  $bytes_obs = max($s1.bytes_obs)
-  $bytes_avg = max($s1.bytes_avg)
-  $bytes_std = max($s1.bytes_std)
-  $bytes_days = max($s1.bytes_days)
+  $bytes_obs = max($egress_risk.bytes_obs)
+  $bytes_avg = max($egress_risk.bytes_avg)
+  $bytes_std = max($egress_risk.bytes_std)
+  $bytes_days = max($egress_risk.bytes_days)
   $bytes_floor = 1048576.0
   $safe_bytes_std = if($bytes_std > $bytes_floor, $bytes_std, $bytes_floor)
   $raw_z_egress = ($bytes_obs - $bytes_avg) / $safe_bytes_std
@@ -532,7 +532,7 @@ outcome:
 """),
       "DNS Resolution": _RadarQueryTemplate("""
 // Sector: DNS Failures
-stage s1 {
+stage dns_risk {
     (network.dns.questions.name != "" or network.dns.answers.name != "" or network.dns.id != 0)
     network.dns.response_code != 0
     principal.user.userid = "%(entity_id)s"
@@ -545,20 +545,20 @@ stage s1 {
     $dns_std = max(metrics.dns_queries_fail(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: principal.user.userid))
     $dns_days = max(metrics.dns_queries_fail(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.user.userid: principal.user.userid))
 }
-$user = $s1.user
+$user = $dns_risk.user
 match: $user by 1d
 outcome:
-  $dns_avg = max($s1.dns_avg)
-  $dns_std = max($s1.dns_std)
-  $dns_days = max($s1.dns_days)
+  $dns_avg = max($dns_risk.dns_avg)
+  $dns_std = max($dns_risk.dns_std)
+  $dns_days = max($dns_risk.dns_days)
   $dns_floor = math.sqrt(if($dns_avg > 1.0, $dns_avg, 1.0))
   $safe_dns_std = if($dns_std > $dns_floor, $dns_std, $dns_floor)
-  $raw_z_dns = (max($s1.dns_obs) - $dns_avg) / $safe_dns_std
+  $raw_z_dns = (max($dns_risk.dns_obs) - $dns_avg) / $safe_dns_std
   $z_dns_fail = if($dns_days >= 7, $raw_z_dns, 0.0)
 """),
       "Web & Proxy Activity": _RadarQueryTemplate("""
 // Sector: Web & Proxy Activity
-stage s1 {
+stage web_risk {
     (network.http.method != "" or network.http.user_agent != "" or network.http.response_code != 0 or network.http.referral_url != "")
     principal.user.userid = "%(entity_id)s"
     $user = principal.user.userid
@@ -570,15 +570,15 @@ stage s1 {
     $http_std = max(metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: principal.user.userid))
     $http_days = max(metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.user.userid: principal.user.userid))
 }
-$user = $s1.user
+$user = $web_risk.user
 match: $user by 1d
 outcome:
-  $http_avg = max($s1.http_avg)
-  $http_std = max($s1.http_std)
-  $http_days = max($s1.http_days)
+  $http_avg = max($web_risk.http_avg)
+  $http_std = max($web_risk.http_std)
+  $http_days = max($web_risk.http_days)
   $http_floor = math.sqrt(if($http_avg > 1.0, $http_avg, 1.0))
   $safe_http_std = if($http_std > $http_floor, $http_std, $http_floor)
-  $raw_z_http = (max($s1.http_obs) - $http_avg) / $safe_http_std
+  $raw_z_http = (max($web_risk.http_obs) - $http_avg) / $safe_http_std
   $z_http = if($http_days >= 7, $raw_z_http, 0.0)
 """),
   }

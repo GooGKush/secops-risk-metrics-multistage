@@ -1,0 +1,48 @@
+// ============================================================================
+// ARCHITECTURE: CANONICAL 360° RADAR SECTOR 1 (USER) — IAM & Authentication
+// Copy verbatim; substitute only {{entity_id}} with the verified user.userid.
+// ============================================================================
+
+stage auth_risk {
+    metadata.event_type = "USER_LOGIN"
+    target.user.userid = "{{entity_id}}"
+    $user = target.user.userid
+
+  match:
+    $user by 1d
+
+  outcome:
+    $obs = count(metadata.id)
+    $avg = max(metrics.auth_attempts_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+        target.user.userid: target.user.userid
+    ))
+    $std = max(metrics.auth_attempts_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+        target.user.userid: target.user.userid
+    ))
+    $days = max(metrics.auth_attempts_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+        target.user.userid: target.user.userid
+    ))
+    $floor = math.sqrt(if($avg > 1.0, $avg, 1.0))
+    $safe_std = if($std > $floor, $std, $floor)
+    $raw_z = ($obs - $avg) / $safe_std
+    $z = if($days >= 7, $raw_z, 0.0)
+}
+
+$user = $auth_risk.user
+
+match:
+  $user by 1d
+
+outcome:
+  $z = max($auth_risk.z)
+  $observed = max($auth_risk.obs)
+  $baseline = max($auth_risk.avg)
+  $dispersion = max($auth_risk.std)
+  $active_days = max($auth_risk.days)
+
+// NO-GATE: 360 radar sector micro-query; every sector is reported and fused client-side.
+order:
+  $z desc

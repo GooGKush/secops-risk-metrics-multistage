@@ -1,0 +1,49 @@
+// ============================================================================
+// ARCHITECTURE: CANONICAL 360° RADAR SECTOR 4 (USER) — Network Egress Volume
+// Copy verbatim; substitute only {{entity_id}} with the verified user.userid.
+// ============================================================================
+
+stage egress_risk {
+    network.sent_bytes > 0
+    network.sent_bytes < 1000000000000000
+    principal.user.userid = "{{entity_id}}"
+    $user = principal.user.userid
+
+  match:
+    $user by 1d
+
+  outcome:
+    $obs = sum(if(network.sent_bytes > 0 and network.sent_bytes < 1000000000000000, 1.0, 0.0) * network.sent_bytes)
+    $avg = max(metrics.network_bytes_outbound(
+        period: 1d, window: 30d, metric: value_sum, agg: avg,
+        principal.user.userid: principal.user.userid
+    ))
+    $std = max(metrics.network_bytes_outbound(
+        period: 1d, window: 30d, metric: value_sum, agg: stddev,
+        principal.user.userid: principal.user.userid
+    ))
+    $days = max(metrics.network_bytes_outbound(
+        period: 1d, window: 30d, metric: value_sum, agg: num_metric_periods,
+        principal.user.userid: principal.user.userid
+    ))
+    $bytes_floor = 1048576.0
+    $safe_std = if($std > $bytes_floor, $std, $bytes_floor)
+    $raw_z = ($obs - $avg) / $safe_std
+    $z = if($days >= 7, $raw_z, 0.0)
+}
+
+$user = $egress_risk.user
+
+match:
+  $user by 1d
+
+outcome:
+  $z = max($egress_risk.z)
+  $observed = max($egress_risk.obs)
+  $baseline = max($egress_risk.avg)
+  $dispersion = max($egress_risk.std)
+  $active_days = max($egress_risk.days)
+
+// NO-GATE: 360 radar sector micro-query; every sector is reported and fused client-side.
+order:
+  $z desc
