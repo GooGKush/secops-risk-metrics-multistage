@@ -4,7 +4,7 @@
 **Author**: Greg Kushmerek  
 **Target Platform**: Google Security Operations (Chronicle SIEM & SOAR)  
 **Specification**: YARA-L 2.0 Multi-Stage Directed Acyclic Graph (DAG) Pipeline Engine  
-**Latest Version**: v2.3.0 (Major Point Release) — October 29, 2026  
+**Latest Version**: v2.3.0 (Major Point Release) — October 30, 2026  
 
 ---
 
@@ -28,6 +28,7 @@
 * **Explicit Labeled Today-So-Far & `(1h, today)` Intraday Context (`D3`, `WS1-13`)**: Keeps `"Today So Far"` (`--today-so-far`) as an explicit partial-day option labeled `Partial UTC Day — Low-Biased vs Full-Day Baseline`, and adds opt-in hour-aligned intraday context (`--intraday-hourly`, $\ge 4\text{h}$ scored window) pairing `(period: 1h, window: today)` earlier-today totals/first-seen/max with the `(period: 1d, window: 30d)` baseline (`PF-10b`) — never scaling baselines by `daily_mean / 24` or elapsed UTC day fraction (`WS5-HOD` in `secops-statistical-hunter` handles learned 24-bin hour-of-day comparisons).
 * **Entity Context Graph Mode A Window (`D3`, `WS1-08`, `WS9-07`)**: ECG-joined Mode A queries run `startTime = D-2 00:00:00Z`, `endTime = D 00:00:00Z` and pin event stages to `<scored UTC day, YYYY-MM-DD>` (`D-1` by default; `D` with `endTime = now` only for explicit `--today-so-far`), paired with `build_day0_companion_query` for Day-0 unindexed artifacts and `first_seen_time = 0` novelty suppression.
 * **Mode B `3d` Cap (`D9`, `WS1-10`, `WS9-07`) & Mode C `30d` Horizon (`D9`, `D10`, `WS1-11`)**: Defaulted and capped Mode B at **2–3 days (3-day ceiling)** — redirecting $>3\text{d}$ requests to Mode C when `run_command` is available or capping at 3 days with an explicit explanation when `run_command` is unavailable — and raised Mode C (`scripts/timeline_assembler.py`) to **30 days** with batch shard pacing (`batch_size=10`) and the `D10` sustained-attack fade caveat pointing to `LONGITUDINAL_CUSUM` for persistence.
+* **Daily Rollup Cutoff & Late-Log Non-Backfill Clarity (`references/timeline-modes-guide.md`)**: Clarified that while the query engine admits the `D-1` bucket after `04:00Z`, individual metric daily rollups publish asynchronously across staggered UTC schedules without backfilling late-ingested historical logs.
 
 ### 4. Unified Sequential Page CUSUM & Windowed Slack Sum Architecture (`D5`, `WS6-01`, `WS9-01`)
 * **Two-Tier CUSUM Architecture (`D5`, `WS6-01`, `WS9-01`)**:
@@ -43,8 +44,8 @@
 ### 6. CRI Calibration, Multi-Sector Fusion Correlation & Frozen Bilateral Interfaces (`D7`, `D8`, `WS7-01`..`03`, `WS8-02`..`05`)
 * **CRI Calibration & Monotonicity (`WS7-01`, `WS7-02`)**: Verified piecewise logistic CRI ($\text{CRI}(Z) = 0$ for $Z \le 0$; $3.0\sigma \mapsto \text{CRI } 50$) monotonicity, documented heuristic mapping boundaries for non-Gaussian ratios/scores, and unified metric-vs-raw semantic disclosures.
 * **Multi-Sector Fusion Correlation & Gaussian Expected-Maximum Baseline (`WS7-03`)**: Disclosed positive inter-sector correlation ($\text{Cov}(Z_i, Z_j) > 0$ inflating $\sqrt{\sum \max(0, Z_i)^2}$ relative to orthogonal $\chi^2_k$) across `SKILL.md`, `references/`, and `rollup_sector_fusion_{4,5}stage.yl2`, and labeled $\sqrt{2 \ln N}$ accurately as the first-order asymptotic **expected maximum of $N$ independent standard normals** ($E[\max Z_i] \approx \sqrt{2 \ln N}$).
-* **Canonical Routing Table, Frozen `D7` Write-Back & `%ueba_hunt_bridge.entity` (`D7`, `D8`, `WS8-02`..`05`)**: Locked byte-identical `<!-- CANONICAL_SKILL_ROUTING_TABLE_START/END -->` parity (`WS8-02`) and IQR/MAD handoff envelopes (`WS8-04`) with `secops-statistical-hunter`, froze the `D7` `CUSTOM_SECURITY_DATA_ANALYTICS` write-back schema and `scripts/chronicle_ingest.py` (`WS8-03`) for `agentic_ueba`, and standardized `in %ueba_hunt_bridge.entity` across all two-phase cross-entity bridges (`WS8-05`).
-* **Verification**: **634/634 offline unit tests** (+1,040 subtests, plus 1 opt-in `SECOPS_LIVE_TESTS=1` compile runner) across 48 test modules (`WS2-01`..`WS2-08`, `WS0-01`..`WS0-05`); **32/32 submission tests** (`scripts/submission_tests.py`); `SKILL.md` within the `28,672`-byte / `275`-line progressive-loading budget.
+* **Canonical Routing Table, Scheduled Exfiltration Two-Answer Rule, 6-Sector `templates/radar_360/` Suite & Frozen `D7` Write-Back (`D7`, `D8`, `WS8-02`..`05`)**: Locked byte-identical `<!-- CANONICAL_SKILL_ROUTING_TABLE_START/END -->` parity (`WS8-02`, qualifying sub-day cron vs. nightly/multi-day **Scheduled Exfiltration** two-answer execution), added 6 self-contained canonical user 360° Radar templates under `templates/radar_360/` (`user_1_auth_risk.yl2` through `user_6_web_risk.yl2`, aligned with `scripts/radar_collector.py` and verified within Chronicle's 20-outcome-variable ceiling across all doc examples), locked IQR/MAD handoff envelopes (`WS8-04`) with `secops-statistical-hunter`, froze the `D7` `CUSTOM_SECURITY_DATA_ANALYTICS` write-back schema and `scripts/chronicle_ingest.py` (`WS8-03`) for `agentic_ueba`, and standardized `in %ueba_hunt_bridge.entity` across all two-phase cross-entity bridges (`WS8-05`).
+* **Verification**: **642/642 offline unit tests** (+1,050+ subtests, plus 1 opt-in `SECOPS_LIVE_TESTS=1` compile runner) across 54 test modules (`WS2-01`..`WS2-08`, `WS0-01`..`WS0-05`, Phase A–C guards); **32/32 submission tests** (`scripts/submission_tests.py`); **60/60 (`100.0%`)** live `AgentAPI` regression pass on `gus-sdl`; `SKILL.md` within the `28,672`-byte / `275`-line progressive-loading budget.
 
 ---
 

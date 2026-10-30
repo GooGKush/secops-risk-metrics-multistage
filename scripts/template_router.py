@@ -1,7 +1,7 @@
 # Template Router for Multi-Stage YARA-L Queries (.yl2)
 
 __author__ = "Greg Kushmerek"
-__version__ = "2.1.1"
+__version__ = "2.3.0"
 
 import datetime
 import math
