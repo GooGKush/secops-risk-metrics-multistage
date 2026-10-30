@@ -10,9 +10,10 @@ A `metrics.*(period: 1d, window: 30d, ...)` call resolves to **one baseline wind
 
 * **Rule** (Malachite query engine, `query_engine/qesql/ueba.go`: `metricWindowRange` → `dailyMetricWindowEnd`; bound once as `@thirty_day_ueba_metric_window_start` / `_end` in `daywindowedFromWhere`):
   1. `D0` = the request `startTime`, truncated to `00:00Z`.
-  2. If `endTime − D0 < 4h`, move `D0` back one day (daily metrics are built after midnight and take about 4 hours).
+  2. If `endTime − D0 < 4h`, move `D0` back one day (`04:00Z` is the query engine's fixed cutoff; tenant daily rollups run on staggered UTC schedules across the day, so a `"Today So Far"` query run after `04:00Z` may temporarily reflect 29 of 30 baseline days until yesterday's rollup completes—leaving `agg: avg` unaffected while `historical_sum / 30` under-reads by ~3.3%, and leaving default Mode A unaffected).
   3. Baseline = `[D0 − 30d, D0)`.
 * **Consequence**: every daily bucket in one request is scored against the same baseline. The search window decides **how many days are scored**, never which baseline a day receives.
+* **Event-time bucketing & late-ingested logs**: `metrics.*` buckets by UTC event timestamp and does not recompute closed historical days (`D − 2` and older) when late or back-dated logs arrive, so hunts over delayed forwarder batches or log replays score raw `$observed_val` events normally while historical `metrics.*` baselines remain pre-replay.
 * **Custom metrics** follow the same single-window pattern, anchored at the raw `startTime` (no day truncation, no 4-hour shift).
 * **Fleet normalization stages stay per-day correct**: they group by `window_start`, so `fleet_sector_norm`-style means are computed per scored day even inside one request.
 * **Search limit**: multi-stage searches accept at most 14 days per request (`multi-stage-metrics-guide.md` §9). One-day requests are well inside it.
