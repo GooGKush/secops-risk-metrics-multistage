@@ -1,4 +1,4 @@
-// Stage 2 (Root Stage): Baseline-Maturity Adaptive Context Thresholding
+// Stage 2 (Root Stage): Off-Hours & Weekend Adaptive Context Thresholding (WS3-ADAPTIVE / D1c)
 $entity = $stage1_extract.entity
 $ws = $stage1_extract.window_start
 
@@ -7,28 +7,29 @@ match:
 
 outcome:
   $observed = max($stage1_extract.observed_val)
+  $off_hours_obs = max($stage1_extract.off_hours_obs)
   $hist_avg = max($stage1_extract.historical_avg)
   $hist_stddev = max($stage1_extract.historical_stddev)
   $active_days = max($stage1_extract.historical_active_days)
 
-  // 1. Base Parametric Z-Score with Conditional Zero-Variance Safeguard
+  // 1. Base Parametric Z-Score with D8 Dispersion Floor
   $raw_diff = $observed - $hist_avg
-  $safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)
+  $dispersion_floor = math.sqrt(if($hist_avg > 1.0, $hist_avg, 1.0))
+  $safe_stddev = if($hist_stddev > $dispersion_floor, $hist_stddev, $dispersion_floor)
   $personal_z = $raw_diff / $safe_stddev
 
-  // 2. Baseline-Maturity Adaptive Threshold
-  // Sparse baselines ($active_days < 7) require a stricter 3.5-sigma threshold to suppress cold-start noise;
-  // mature baselines ($active_days >= 7) use a 2.5-sigma sensitivity threshold.
-  $sparse_threshold = 3.5
-  $mature_threshold = 2.5
-  $effective_threshold = if($active_days < 7, $sparse_threshold, $mature_threshold)
+  // 2. Off-Hours / Weekend Schedule Share & Concordance-Aligned Gate (1.75σ off-hours vs 3.0σ business hours)
+  $safe_obs = if($observed > 0, $observed, 1)
+  $off_hours_share = (1.0 * $off_hours_obs) / $safe_obs
+  $effective_gate = if($off_hours_share >= 0.5, 1.75, 3.0)
 
-  // 3. Threshold Excess Score (Positive values indicate threshold breach)
-  $sensitivity_excess = $personal_z - $effective_threshold
+  // 3. Z-Equivalent Adaptive Score (maps 1.75σ off-hours and 3.0σ in-hours onto the canonical 3.0 threshold)
+  $adaptive_z = ($personal_z * 3.0) / $effective_gate
+  $sensitivity_excess = $personal_z - $effective_gate
 
 // Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
 condition:
-  $sensitivity_excess >= 0.0
+  $active_days >= {{min_baseline_days}} and $adaptive_z >= {{anomaly_threshold}}
 
 order:
-  $sensitivity_excess desc
+  $adaptive_z desc

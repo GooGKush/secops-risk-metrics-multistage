@@ -9,14 +9,12 @@ stage stage1_extract {
     $event_type = metadata.event_type
     principal.asset.hostname = $entity
     $entity != ""
-    $sent = network.sent_bytes
-    $received = network.received_bytes
 
   match:
     $entity by 1d
 
   outcome:
-    $observed_val = sum($sent) + sum($received)
+    $observed_val = sum(if(network.sent_bytes > 0 and network.sent_bytes < 1000000000000000, 1.0, 0.0) * network.sent_bytes) + sum(if(network.received_bytes > 0 and network.received_bytes < 1000000000000000, 1.0, 0.0) * network.received_bytes)
     $observed_connections = count(metadata.id)
 
     $historical_avg = max(metrics.network_bytes_total(

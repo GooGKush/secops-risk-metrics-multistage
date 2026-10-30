@@ -1,4 +1,4 @@
-// Stage 2 Module: TRUE Median Absolute Deviation (MAD) / Modified Z-Score + 30d Metrics Z Cross-Check
+// Stage 2 Module: TRUE Median Absolute Deviation (MAD) / Modified Z-Score + Pre-Scoring Raw Z Cross-Check
 // Attaches to ANY stage1 extractor (stage1_extract emitting $observed_val per $entity per 1d bucket).
 // Multi-key extractors: the router adds every baseline-dimension match key next to $entity in each
 // stage's bindings and match (e.g. $sa, $vendor, $product, $resource) and drops non-dimension keys.
@@ -16,31 +16,27 @@
 //                = 5% of median + 1          when both = 0  (perfectly flat history; tunable floor)
 //   Default significance: modified_z >= 3.5.
 //
-// CROSS-CHECK: $personal_z uses the precomputed 30d metrics.* mean/stddev. $z_gap = modified_z - personal_z.
-//   Large positive gap => the 30d mean/stddev were inflated by historic bursts (masking) and the
-//   robust score sees an anomaly the classical Z hides.
-//   MAD itself never reads metrics.*. The router drops stage1 lookups this root does not read
-//   (historical_max / historical_sum), so a MAD query makes 3 metrics lookups per entity-day, not 5.
+// CROSS-CHECK (WS1-03): Because a 30d raw search window anchors metrics.* 29d earlier ([D0-59d, D0-29d)),
+//   $personal_z is computed from the pre-scoring raw active days ($in_scoring_window = 0) using sample SD
+//   (N - 1), dispersion floor, and maturity gate ($active_days >= {{min_baseline_days}}).
+//   $z_gap = modified_z - personal_z reveals historic-burst masking without stale-anchor drift.
+//   Only 1 lightweight metrics.* lookup ($historical_active_days) is retained in stage1_extract.
 //
 // CAVEATS
-//   - Active-day sample semantics: Zero-activity days produce no stage1 row, so median/MAD are computed
-//     over ACTIVE days only ($raw_active_days), whereas the 30d metrics.* cross-check ($personal_z)
-//     uses the pre-computed 30d Malachite baseline (biased upward
-//     for sparse entities). $raw_active_days reports the sample size.
-//   - The scored day(s) are included in their own median/MAD (robust to this up to 50% contamination).
+//   - Active-day sample semantics: Zero-activity days produce no stage1 row, so median/MAD and the
+//     pre-scoring Z cross-check ($personal_z) are computed over ACTIVE days only ($raw_active_days / $pre_n).
+//   - The scored day(s) are included in their own median/MAD (robust to this up to 50% contamination),
+//     while excluded from the classical $personal_z baseline ($in_scoring_window = 0).
 //   - Saturation: if the history is flat except the scored day, MAD = 0 and meanAD = |x - median| / N,
 //     so modified_z = N / 1.253314 (~23.9 for 30 active days). Still a strong flag, but magnitudes in
 //     that regime rank by sample size, not by size of the jump -- read $observed vs $median_val.
-//   - REQUIRES stage1_extract to emit the scoring-window flag (the router injects it; add it by hand
-//     when composing manually). Date string, never an epoch literal; deterministic, works for
-//     historical end dates. first_scored_date = end date minus (scoring_days - 1), UTC YYYY-MM-DD:
-//       $in_scoring_window = max(if(timestamp.get_date(metadata.event_timestamp.seconds) >= "{{first_scored_date}}", 1, 0))
+//   - REQUIRES stage1_extract to emit $in_scoring_window, $obs_float, $pre_obs, $pre_obs_sq, and $pre_day
+//     (the router injects them; add them when composing manually).
 //   - window.median(values, should_ignore_zero_values): the 2nd argument MUST be false. `true`
 //     discards zero values, and in the MAD stage every day sitting exactly on the median has
 //     deviation 0 -- dropping them inflates MAD (live gus-sdl: 29 zeros + one 4 returned MAD=4, not 0).
-//     With an even count SecOps returns one of the two middle values (no interpolation).
 //   - if() branches must be plain variables/literals (compound arithmetic inside if() is rejected by
-//     the compiler), hence the precomputed $scale_from_* variables.
+//     the compiler), hence the precomputed $scale_from_* and $pre_* variables.
 stage mad_center {
     $entity = $stage1_extract.entity
 
@@ -50,6 +46,10 @@ stage mad_center {
   outcome:
     $median_val = window.median($stage1_extract.observed_val, false)
     $raw_active_days = count_distinct($stage1_extract.window_start)
+    $pre_n = sum($stage1_extract.pre_day)
+    $pre_sum = sum($stage1_extract.pre_obs)
+    $pre_sum_sq = sum($stage1_extract.pre_obs_sq)
+    $historical_active_days = max($stage1_extract.historical_active_days)
 }
 
 stage mad_spread {
@@ -64,9 +64,20 @@ stage mad_spread {
     $mean_abs_dev = avg(math.abs($stage1_extract.observed_val - $mad_center.median_val))
     $median_val = max($mad_center.median_val)
     $raw_active_days = max($mad_center.raw_active_days)
+    $pre_n = max($mad_center.pre_n)
+    $pre_sum = max($mad_center.pre_sum)
+    $pre_sum_sq = max($mad_center.pre_sum_sq)
+    $safe_pre_n = if($pre_n > 0, $pre_n, 1.0)
+    $pre_avg = $pre_sum / $safe_pre_n
+    $pre_df_raw = $pre_n - 1.0
+    $safe_pre_df = if($pre_n > 1, $pre_df_raw, 1.0)
+    $raw_var_num = $pre_sum_sq - ($pre_n * $pre_avg * $pre_avg)
+    $pre_sd = math.sqrt(if($raw_var_num > 0, $raw_var_num, 0.0) / $safe_pre_df)
+    $dispersion_floor = math.sqrt(if($pre_avg > 1.0, $pre_avg, 1.0))
+    $safe_pre_sd = if($pre_sd > $dispersion_floor, $pre_sd, $dispersion_floor)
 }
 
-// Root Stage: Robust Modified Z (MAD) vs Classical 30d Metrics Z, scored from {{first_scored_date}} onward
+// Root Stage: Robust Modified Z (MAD) vs Pre-Scoring Classical Z, scored from {{first_scored_date}} onward
 $entity = $stage1_extract.entity
 $entity = $mad_spread.entity
 $ws = $stage1_extract.window_start
@@ -76,18 +87,19 @@ match:
 
 outcome:
   $observed = max($stage1_extract.observed_val)
-  $hist_avg = max($stage1_extract.historical_avg)
-  $hist_stddev = max($stage1_extract.historical_stddev)
-  $active_days = max($stage1_extract.historical_active_days)
+  $hist_avg = max($mad_spread.pre_avg)
+  $hist_stddev = max($mad_spread.pre_sd)
+  $active_days = max($mad_spread.pre_n)
   $median_val = max($mad_spread.median_val)
   $mad = max($mad_spread.mad)
   $mean_abs_dev = max($mad_spread.mean_abs_dev)
   $raw_active_days = max($mad_spread.raw_active_days)
   $in_scoring_window = max($stage1_extract.in_scoring_window)
 
-  // 1. Classical 30d metrics Z (cross-check)
-  $safe_stddev = if($hist_stddev > 0, $hist_stddev, 1.0)
-  $personal_z = ($observed - $hist_avg) / $safe_stddev
+  // 1. Pre-scoring raw active-day Z (cross-check without [D0-59d, D0-29d) stale-anchor shift)
+  $safe_stddev = max($mad_spread.safe_pre_sd)
+  $raw_personal_z = ($observed - $hist_avg) / $safe_stddev
+  $personal_z = if($active_days >= {{min_baseline_days}}, $raw_personal_z, 0.0)
 
   // 2. Robust scale with Iglewicz-Hoaglin MAD=0 fallback and flat-history floor
   $scale_from_mad = $mad / 0.6745

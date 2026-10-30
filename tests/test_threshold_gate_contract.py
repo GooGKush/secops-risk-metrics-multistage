@@ -31,25 +31,34 @@ NO_GATE_TEMPLATES = {
     "pipelines/radar_360_sector_web_http.yl2",
 }
 
-# Default root gate each model renders with router defaults (sigma 3.0, fold change 2.0, MAD 3.5).
+RETIRED_GATE_MODELS = {
+    StatisticalModel.HOURLY_TEMPORAL_ZSCORE: "HOUR_OF_DAY_PROFILE",
+    StatisticalModel.CIRCADIAN_VON_MISES: "HOUR_OF_DAY_PROFILE",
+    StatisticalModel.PIECEWISE_CRI: "ueba_constants.calculate_cri",
+    StatisticalModel.FLEET_PREVALENCE_SHIELD: "hybrid_metric_fleet_prevalence_2stage.yl2",
+}
+
+RETIRED_GATE_PIPELINES = {
+    PipelineArchitecture.CIRCADIAN_VON_MISES_2STAGE: "HOUR_OF_DAY_PROFILE",
+    PipelineArchitecture.HYBRID_METRIC_ORTHOGONAL_SPACE_2STAGE: "DUAL_SECTOR_FUSION_3STAGE",
+}
+
+# Default root gate each active model renders with router defaults (sigma 3.0, fold change 2.0, MAD 3.5).
 EXPECTED_DEFAULT_GATES = {
-    StatisticalModel.STANDARD_Z_SCORE: "$personal_z >= 3.0",
-    StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z: "$upper_tail_z >= 3.0",
+    StatisticalModel.STANDARD_Z_SCORE: "$active_days >= 7 and $personal_z >= 3.0",
+    StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z: "$active_days >= 7 and $personal_z >= 3.0",
     StatisticalModel.POISSON: "$poisson_z >= 3.0",
-    StatisticalModel.HOURLY_TEMPORAL_ZSCORE: "$hourly_z >= 3.0",
-    StatisticalModel.CIRCADIAN_VON_MISES: "$circadian_threat_score >= 3.0",
-    StatisticalModel.MACD_MOMENTUM_VELOCITY: "$fast_z >= 3.0",
-    StatisticalModel.PIECEWISE_CRI: "$clamped_z >= 3.0",
-    StatisticalModel.FLEET_PREVALENCE_SHIELD: "$shielded_z >= 3.0",
-    StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD: "$sensitivity_excess >= 0.0",
-    StatisticalModel.LONGITUDINAL_CUSUM: "$cusum_drift_score >= 3.0 and $drift_days >= 2",
-    StatisticalModel.TWO_PART_HURDLE: "$active_days <= 2 or $intensity_z >= 3.0",
-    StatisticalModel.BAYESIAN_GAMMA: "$bayes_shift_ratio >= 2.0",
-    StatisticalModel.BAYESIAN_BETA_BINOMIAL: "$posterior_lift >= 2.0",
-    StatisticalModel.COEFFICIENT_OF_VARIATION: "$surge_ratio >= 2.0 and $cv <= 0.5",
+    StatisticalModel.MACD_MOMENTUM_VELOCITY: "$active_days >= 7 and $macd_z >= 3.0",
+    StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD: "$active_days >= 7 and $adaptive_z >= 3.0",
+    StatisticalModel.LONGITUDINAL_CUSUM: "$active_days >= 7 and $cusum_drift_score >= 3.0 and $drift_days >= 2",
+    StatisticalModel.TWO_PART_HURDLE: "$hurdle_threat_score >= 3.0",
+    StatisticalModel.BAYESIAN_GAMMA: "$bayesian_z >= 3.0",
+    StatisticalModel.BAYESIAN_BETA_BINOMIAL: "$beta_binomial_z >= 3.0",
+    StatisticalModel.COEFFICIENT_OF_VARIATION: "$active_days >= 7 and $surge_ratio >= 2.0 and $cv <= 0.5",
     StatisticalModel.RELATIVE_DEVIATION: "$fold_change >= 2.0",
     StatisticalModel.MAD: "$in_scoring_window = 1 and $raw_active_days >= 7 and $modified_z >= 3.5",
-    StatisticalModel.QUANTILE_IQR_SKEW: "$in_scoring_window = 1 and $raw_active_days >= 7 and $tukey_fence_ratio >= 2.0",
+    StatisticalModel.QUANTILE_IQR_SKEW: "$in_scoring_window = 1 and $raw_active_days >= 7 and $tukey_excess_z >= 1.0",
+    StatisticalModel.FIRST_SEEN_NOVELTY: "$novelty_flag = 1",
     StatisticalModel.VARIANCE: None,
 }
 
@@ -97,12 +106,35 @@ class RouterGateTest(unittest.TestCase):
     self.router = MultiStageTemplateRouter()
 
   def _q(self, model, **kw):
+    if model in (StatisticalModel.POISSON, StatisticalModel.BAYESIAN_BETA_BINOMIAL):
+      return self.router.build_query(
+          target_metric="auth_attempts_total",
+          entity_type=EntityType.USER,
+          statistical_model=model,
+          **kw,
+      )
     return self.router.build_query(target_metric="network_bytes_outbound", entity_type=EntityType.ASSET,
                                    statistical_model=model, **kw)
 
   def test_every_model_renders_its_default_gate(self):
+    with self.assertRaisesRegex(ValueError, r"POISSON.*event_count_sum|value_sum|byte"):
+      self.router.build_query(
+          target_metric="network_bytes_outbound",
+          entity_type=EntityType.ASSET,
+          statistical_model=StatisticalModel.POISSON,
+      )
+    with self.assertRaisesRegex(ValueError, r"BAYESIAN_BETA_BINOMIAL.*paired|unpaired|_fail"):
+      self.router.build_query(
+          target_metric="network_bytes_outbound",
+          entity_type=EntityType.ASSET,
+          statistical_model=StatisticalModel.BAYESIAN_BETA_BINOMIAL,
+      )
     for model in StatisticalModel:
       with self.subTest(model=model.value):
+        if model in RETIRED_GATE_MODELS:
+          with self.assertRaisesRegex(ValueError, rf"retired.*{RETIRED_GATE_MODELS[model]}"):
+            self._q(model)
+          continue
         q = self._q(model)
         self.assertEqual(MultiStageTemplateRouter.root_condition(q), EXPECTED_DEFAULT_GATES[model])
         self.assertNotIn("{{", _code(q))
@@ -116,22 +148,38 @@ class RouterGateTest(unittest.TestCase):
 
   def test_threshold_override_replaces_the_default_gate(self):
     q = self._q(StatisticalModel.STANDARD_Z_SCORE, min_threshold=2.0, max_threshold=3.0)
-    self.assertEqual(MultiStageTemplateRouter.root_condition(q), "$personal_z >= 2.0 and $personal_z < 3.0")
+    self.assertEqual(
+        MultiStageTemplateRouter.root_condition(q),
+        "$active_days >= 7 and ($personal_z >= 2.0 and $personal_z < 3.0)",
+    )
     q = self._q(StatisticalModel.TWO_PART_HURDLE, min_threshold=2.0, max_threshold=3.0)
-    self.assertEqual(MultiStageTemplateRouter.root_condition(q),
-                     "$active_days <= 2 or ($intensity_z >= 2.0 and $intensity_z < 3.0)")
+    self.assertEqual(
+        MultiStageTemplateRouter.root_condition(q),
+        "$hurdle_threat_score >= 2.0 and $hurdle_threat_score < 3.0",
+    )
 
   def test_fold_change_override_uses_the_gate_variable(self):
     q = self._q(StatisticalModel.RELATIVE_DEVIATION, min_threshold=3.0)
     self.assertEqual(MultiStageTemplateRouter.root_condition(q), "$fold_change >= 3.0")
-    q = self._q(StatisticalModel.BAYESIAN_GAMMA, fold_change_threshold=1.5)
-    self.assertEqual(MultiStageTemplateRouter.root_condition(q), "$bayes_shift_ratio >= 1.5")
+    q = self._q(StatisticalModel.COEFFICIENT_OF_VARIATION, fold_change_threshold=1.5)
+    self.assertEqual(
+        MultiStageTemplateRouter.root_condition(q),
+        "$active_days >= 7 and $surge_ratio >= 1.5 and $cv <= 0.5",
+    )
+    q = self._q(StatisticalModel.BAYESIAN_GAMMA, anomaly_threshold=3.5)
+    self.assertEqual(MultiStageTemplateRouter.root_condition(q), "$bayesian_z >= 3.5")
+    q = self._q(StatisticalModel.BAYESIAN_BETA_BINOMIAL, anomaly_threshold=3.5)
+    self.assertEqual(MultiStageTemplateRouter.root_condition(q), "$beta_binomial_z >= 3.5")
 
   def test_pipelines_resolve_every_gate_placeholder(self):
     for arch in PipelineArchitecture:
       if arch == PipelineArchitecture.LOCAL_2STAGE:
         continue  # rendered through build_query, not build_pipeline_query
       with self.subTest(pipeline=arch.value):
+        if arch in RETIRED_GATE_PIPELINES:
+          with self.assertRaisesRegex(ValueError, rf"retired.*{RETIRED_GATE_PIPELINES[arch]}"):
+            self.router.build_pipeline_query(arch)
+          continue
         q = self.router.build_pipeline_query(arch)
         self.assertNotIn("{{", _code(q))
         self.assertLessEqual(q.count("\ncondition:"), 1)
@@ -166,6 +214,9 @@ class CardAndDocConcordanceTest(unittest.TestCase):
       row = next((ln for ln in table.splitlines() if ln.startswith(f"| `{model.value}`")), None)
       self.assertIsNotNone(row, f"§2.1 has no row for {model.value}")
       self.assertIn(DEFAULT_SIGNIFICANCE_GATES[model], row, model.value)
+      if model in RETIRED_GATE_MODELS:
+        self.assertIn("RETIRED", row.upper(), model.value)
+        continue
       gate = EXPECTED_DEFAULT_GATES[model]
       if gate and model != StatisticalModel.MAD:
         self.assertIn(f"`{gate}", row, model.value)
@@ -183,6 +234,69 @@ class CardAndDocConcordanceTest(unittest.TestCase):
     for rel in ("SKILL.md", "references/multi-stage-metrics-guide.md"):
       text = (SKILL_ROOT / rel).read_text(encoding="utf-8")
       self.assertNotRegex(text, r"`or` is rejected in root `condition:`", rel)
+
+  def test_ws3_fano_baseline_dispersion_screen_no_spray_claims(self):
+    from scripts.triage_formatter import CommonMarkTriageFormatter
+    from scripts.ueba_hybrid_engine import render_forensic_dossier
+
+    self.assertEqual(
+        DEFAULT_SIGNIFICANCE_GATES[StatisticalModel.VARIANCE],
+        "N/A (baseline dispersion screen)",
+    )
+    self.assertIn(
+        "Baseline Dispersion Screen",
+        MultiStageTemplateRouter.MODEL_DESCRIPTIONS.get(StatisticalModel.VARIANCE, ""),
+    )
+
+    router = MultiStageTemplateRouter()
+    q = router.build_query(
+        target_metric="auth_attempts_fail",
+        entity_type=EntityType.USER,
+        statistical_model=StatisticalModel.VARIANCE,
+    )
+    self.assertIsNone(MultiStageTemplateRouter.root_condition(q))
+    self.assertIn("Baseline Dispersion Screen", q)
+    self.assertIn("$fano_factor = $variance / $safe_lambda", q)
+
+    taxonomy = (SKILL_ROOT / "references" / "statistical-models-taxonomy.md").read_text(encoding="utf-8")
+    self.assertIn("baseline dispersion screen", taxonomy.lower())
+    self.assertIn("poisson_burst_clustering", taxonomy.lower())
+    self.assertNotIn("automated script iteration", taxonomy.lower())
+    self.assertNotIn("distinguishes automated credential sprays", taxonomy.lower())
+
+    sample_rows = [
+        {
+            "entity": "alice",
+            "observed": 4,
+            "hist_avg": 10.0,
+            "hist_stddev": 8.0,
+            "active_days": 20,
+            "fano_factor": 6.4,
+        }
+    ]
+    triage_md = CommonMarkTriageFormatter.format_report(
+        reduced_data={"outlier_count": 1, "top_outliers": sample_rows, "primary_score_metric": "fano_factor"},
+        target_metric="auth_attempts_fail",
+        statistical_model="VARIANCE",
+        anomaly_threshold=3.0,
+        executed_query=q,
+    )
+    self.assertIn("baseline dispersion screen", triage_md.lower())
+    self.assertIn("poisson_burst_clustering", triage_md.lower())
+    self.assertNotIn("automated script iteration", triage_md.lower())
+
+    dossier = render_forensic_dossier(
+        rows=sample_rows,
+        target_metric="auth_attempts_fail",
+        entity_type="USER",
+        statistical_model="VARIANCE",
+        executed_query=q,
+        skip_postflight_audit=True,
+    )
+    self.assertIn("baseline dispersion screen", dossier["dossier_markdown"].lower())
+    self.assertIn("poisson_burst_clustering", dossier["dossier_markdown"].lower())
+    self.assertNotIn("automated script iteration", dossier["dossier_markdown"].lower())
+
 
 
 if __name__ == "__main__":

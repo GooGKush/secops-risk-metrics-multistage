@@ -1,10 +1,10 @@
 // ============================================================================
-// ARCHITECTURE: 2-STAGE DUAL-PLANE HYBRID ENTROPY & CONCENTRATION PIPELINE
+// ARCHITECTURE: 2-STAGE DUAL-PLANE DESTINATION DIVERSITY & CONCENTRATION SCREEN (DESTINATION_DIVERSITY_CONCENTRATION)
 // Skill: secops-risk-metrics-multistage
 // Common Compiler Conformance: YARA-L 2.0 Multi-Stage DAG Engine
 // Models Supported:
-//   1. Information-Theoretic Diversity Deficit (Entropy Proxy)
-//   2. Concentration Index & "Elephant Flow" Isolation (HHI / Gini Proxy)
+//   1. Linear Destination Diversity Ratio Screen: k / (N + 1.0)
+//   2. Linear Single-Transfer Peak Concentration Screen ("Elephant Flow" Ratio): Peak / (Sum + 1.0)
 // Join Budget: 1 metric lookup (Stage 1) + 1 stage join (Root) = 2 joins total (<= 4).
 // Match Topology: Symmetrical entity match ($entity by 1d).
 //
@@ -38,7 +38,8 @@ stage stage1_macro_baseline {
     $hist_stddev = max({{target_metric_func_stddev}})
     $hist_active_days = max({{target_metric_func_active_days}})
 
-    $z_score = ($observed_val - $hist_mean) / if($hist_stddev > 0, $hist_stddev, 1.0)
+    $dispersion_floor = math.sqrt(if($hist_mean > 1.0, $hist_mean, 1.0))
+    $z_score = ($observed_val - $hist_mean) / if($hist_stddev > $dispersion_floor, $hist_stddev, $dispersion_floor)
 }
 
 // Stage 2: Parallel Micro-Forensics Telemetry on Raw Event Cardinality & Peak

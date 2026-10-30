@@ -54,59 +54,64 @@ from scripts.preflight_validator import (
     METRIC_CATALOG,
     MalachiteASTValidator,
     MatchMode,
+    PF10_SUPPORTED_HOURLY_TODAY_METRICS,
     PipelineArchitecture,
     PostFlightExecutionAuditor,
     QueryIntegrityGate,
     PreFlightValidator,
+    RETIRED_PIPELINE_ARCHITECTURES,
+    RETIRED_STATISTICAL_MODELS,
     StatisticalModel,
     default_significance_threshold,
+    validate_intraday_hourly_window,
 )
 from scripts.radar_collector import EntityRadarCollector, MetricSpoke
 from scripts.statistical_validator import StatisticalAntipatternAuditor
-from scripts.template_router import ChainedHuntRouter, MultiStageTemplateRouter
+from scripts.template_router import (
+    DEFAULT_FLEET_BYTE_DISPERSION_FLOORS,
+    ChainedHuntRouter,
+    MultiStageTemplateRouter,
+    build_byte_dispersion_floor_probe,
+    build_identifier_coverage_probe,
+    evaluate_samuelson_cohort_cap,
+    extract_query_cohort_cap_info,
+    parse_byte_dispersion_floor_probe,
+    resolve_byte_dispersion_floor,
+    samuelson_max_z,
+    samuelson_min_cohort_size,
+    samuelson_triad_max_d_sq,
+    samuelson_triad_min_cohort_size,
+    select_identifier_from_coverage,
+)
 from scripts.timeline_assembler import TimelineAssembler, cri_from_score, parse_stats_payload
 from scripts.triage_formatter import CommonMarkTriageFormatter
+from scripts.ueba_constants import (
+    DEFAULT_MIN_BASELINE_DAYS,
+    LOOPBACK_COMPOSITE_SUM_Z_SQ_THRESHOLD,
+    LOOPBACK_MIN_DISTINCT_HITS,
+    MAX_CUSUM_MODE_B_DAYS_MACRO,
+    MAX_MODE_B_DAYS_MACRO,
+    MAX_MODE_C_DAYS_MACRO,
+    SENSITIVITY_ALIASES,
+    SENSITIVITY_THRESHOLD_MAP,
+    WRITEBACK_CRI_THRESHOLD,
+    _coerce_finite_float,
+    calculate_cri,
+    coerce_cri_int,
+    cri_from_model_score,
+    format_cri,
+    format_score_with_unit,
+    get_cri_band_metadata,
+    is_inverted_score_key,
+    is_true_sigma_key,
+    resolve_sensitivity_thresholds,
+    score_to_z_equivalent,
+)
 
 
 # ---------------------------------------------------------------------------
 # Sensitivity, Model, and Architecture Resolution Maps
 # ---------------------------------------------------------------------------
-
-SENSITIVITY_THRESHOLD_MAP: Dict[str, Dict[str, float]] = {
-    "HIGH_RECALL": {
-        "anomaly_threshold": 2.0,
-        "fold_change_threshold": 1.5,
-        "fusion_threshold_sq": 6.25,
-        "robust_threshold": 2.5,
-    },
-    "BALANCED": {
-        "anomaly_threshold": 3.0,
-        "fold_change_threshold": 2.0,
-        "fusion_threshold_sq": 12.25,
-        "robust_threshold": 3.5,
-    },
-    "HIGH_PRECISION": {
-        "anomaly_threshold": 4.0,
-        "fold_change_threshold": 3.0,
-        "fusion_threshold_sq": 20.25,
-        "robust_threshold": 4.5,
-    },
-}
-
-SENSITIVITY_ALIASES: Dict[str, str] = {
-    "HIGH_RECALL": "HIGH_RECALL",
-    "LOW": "HIGH_RECALL",
-    "BROAD": "HIGH_RECALL",
-    "SENSITIVE": "HIGH_RECALL",
-    "BALANCED": "BALANCED",
-    "MEDIUM": "BALANCED",
-    "DEFAULT": "BALANCED",
-    "STANDARD": "BALANCED",
-    "HIGH_PRECISION": "HIGH_PRECISION",
-    "HIGH": "HIGH_PRECISION",
-    "STRICT": "HIGH_PRECISION",
-    "CONSERVATIVE": "HIGH_PRECISION",
-}
 
 MODEL_ALIAS_MAP: Dict[str, StatisticalModel] = {
     # 1. Standard Z-Score
@@ -141,13 +146,6 @@ MODEL_ALIAS_MAP: Dict[str, StatisticalModel] = {
     # 6. Coefficient of Variation (CV)
     "CV": StatisticalModel.COEFFICIENT_OF_VARIATION,
     "COEFFICIENT_OF_VARIATION": StatisticalModel.COEFFICIENT_OF_VARIATION,
-    "BEACON_REGULARITY": StatisticalModel.COEFFICIENT_OF_VARIATION,
-    "JITTER": StatisticalModel.COEFFICIENT_OF_VARIATION,
-    # 7. Hourly Temporal Z-Score
-    "HOURLY_TEMPORAL_ZSCORE": StatisticalModel.HOURLY_TEMPORAL_ZSCORE,
-    "HOURLY_ZSCORE": StatisticalModel.HOURLY_TEMPORAL_ZSCORE,
-    "TEMPORAL_ZSCORE": StatisticalModel.HOURLY_TEMPORAL_ZSCORE,
-    "INTRADAY_Z": StatisticalModel.HOURLY_TEMPORAL_ZSCORE,
     # 8. Bayesian Gamma-Poisson Shrinkage
     "BAYESIAN_GAMMA": StatisticalModel.BAYESIAN_GAMMA,
     "POISSON_GAMMA": StatisticalModel.BAYESIAN_GAMMA,
@@ -157,28 +155,28 @@ MODEL_ALIAS_MAP: Dict[str, StatisticalModel] = {
     "BAYESIAN_BETA_BINOMIAL": StatisticalModel.BAYESIAN_BETA_BINOMIAL,
     "BETA_BINOMIAL": StatisticalModel.BAYESIAN_BETA_BINOMIAL,
     "FAILURE_RATE_SHRINKAGE": StatisticalModel.BAYESIAN_BETA_BINOMIAL,
-    # 10. Longitudinal CUSUM Drift
+    # 10. Longitudinal CUSUM Drift (and explicit stateless Windowed Slack Sum prefilter)
     "LONGITUDINAL_CUSUM": StatisticalModel.LONGITUDINAL_CUSUM,
+    "PAGE_CUSUM": StatisticalModel.LONGITUDINAL_CUSUM,
     "CUSUM": StatisticalModel.LONGITUDINAL_CUSUM,
     "CUSUM_DRIFT": StatisticalModel.LONGITUDINAL_CUSUM,
     "LOW_AND_SLOW": StatisticalModel.LONGITUDINAL_CUSUM,
+    "WINDOWED_SLACK_SUM": StatisticalModel.LONGITUDINAL_CUSUM,
+    "SLACK_SUM": StatisticalModel.LONGITUDINAL_CUSUM,
+    "STATELESS_SLACK_SUM": StatisticalModel.LONGITUDINAL_CUSUM,
     # 11. Two-Part Hurdle (Dormant Awakening)
     "TWO_PART_HURDLE": StatisticalModel.TWO_PART_HURDLE,
     "HURDLE": StatisticalModel.TWO_PART_HURDLE,
     "DORMANT_AWAKENING": StatisticalModel.TWO_PART_HURDLE,
     "COLD_START": StatisticalModel.TWO_PART_HURDLE,
-    # 12. Asymmetric Directional Z (Silence / Drop-out)
-    "ASYMMETRIC_DIRECTIONAL_Z": StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z,
-    "ASYMMETRIC_Z": StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z,
-    "DIRECTIONAL_Z": StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z,
-    "SILENCE_DETECTION": StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z,
-    "DROP_OUT": StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z,
-    # 13. Piecewise Sigmoid CRI
+    # 12. Asymmetric Directional Z (Merged into STANDARD_Z_SCORE under D1)
+    "ASYMMETRIC_DIRECTIONAL_Z": StatisticalModel.STANDARD_Z_SCORE,
+    # 13. Piecewise Sigmoid CRI (Retired under D1 -> ueba_constants.calculate_cri)
     "PIECEWISE_CRI": StatisticalModel.PIECEWISE_CRI,
     "CRI": StatisticalModel.PIECEWISE_CRI,
     "CALIBRATED_RISK_INDEX": StatisticalModel.PIECEWISE_CRI,
     "SIGMOID_CRI": StatisticalModel.PIECEWISE_CRI,
-    # 14. Fleet Prevalence Shield
+    # 14. Fleet Prevalence Shield (Retired under D1 -> hybrid_metric_fleet_prevalence_2stage.yl2)
     "FLEET_PREVALENCE_SHIELD": StatisticalModel.FLEET_PREVALENCE_SHIELD,
     "PATCH_TUESDAY_SHIELD": StatisticalModel.FLEET_PREVALENCE_SHIELD,
     "PREVALENCE_SHIELD": StatisticalModel.FLEET_PREVALENCE_SHIELD,
@@ -186,16 +184,28 @@ MODEL_ALIAS_MAP: Dict[str, StatisticalModel] = {
     "ADAPTIVE_CONTEXT_THRESHOLD": StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD,
     "ADAPTIVE_THRESHOLD": StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD,
     "DYNAMIC_THRESHOLD": StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD,
-    # 16. MACD Momentum Velocity
+    # 16. Above-Historical-Max Z (formerly MACD Momentum Velocity)
     "MACD_MOMENTUM_VELOCITY": StatisticalModel.MACD_MOMENTUM_VELOCITY,
+    "MACD_MOMENTUM": StatisticalModel.MACD_MOMENTUM_VELOCITY,
     "MACD": StatisticalModel.MACD_MOMENTUM_VELOCITY,
     "MOMENTUM_VELOCITY": StatisticalModel.MACD_MOMENTUM_VELOCITY,
     "EWMA_BURST": StatisticalModel.MACD_MOMENTUM_VELOCITY,
-    # 17. Circadian von Mises
-    "CIRCADIAN_VON_MISES": StatisticalModel.CIRCADIAN_VON_MISES,
-    "CIRCADIAN": StatisticalModel.CIRCADIAN_VON_MISES,
-    "VON_MISES": StatisticalModel.CIRCADIAN_VON_MISES,
-    "OFF_HOURS": StatisticalModel.CIRCADIAN_VON_MISES,
+    "ABOVE_HISTORICAL_MAX_Z": StatisticalModel.MACD_MOMENTUM_VELOCITY,
+    "ABOVE_MAX_Z": StatisticalModel.MACD_MOMENTUM_VELOCITY,
+    # 18. Quantile / IQR / Bowley Skewness Tukey Fence
+    "QUANTILE_IQR_SKEW": StatisticalModel.QUANTILE_IQR_SKEW,
+    "QUANTILE": StatisticalModel.QUANTILE_IQR_SKEW,
+    "QUANTILE_IQR": StatisticalModel.QUANTILE_IQR_SKEW,
+    "IQR_FENCE": StatisticalModel.QUANTILE_IQR_SKEW,
+    "BOWLEY_SKEW": StatisticalModel.QUANTILE_IQR_SKEW,
+    "TUKEY_FENCE": StatisticalModel.QUANTILE_IQR_SKEW,
+    "TUKEY_SKEW_FENCE": StatisticalModel.QUANTILE_IQR_SKEW,
+    # 19. First-Seen 30-Day Novelty Flag (PF-11 / WS1-12; primary novelty path ahead of ECG)
+    "FIRST_SEEN_NOVELTY": StatisticalModel.FIRST_SEEN_NOVELTY,
+    "FIRST_SEEN": StatisticalModel.FIRST_SEEN_NOVELTY,
+    "NOVELTY": StatisticalModel.FIRST_SEEN_NOVELTY,
+    "UNSEEN": StatisticalModel.FIRST_SEEN_NOVELTY,
+    "NEW_ACTIVITY": StatisticalModel.FIRST_SEEN_NOVELTY,
 }
 
 # Models that automatically imply an advanced multi-stage pipeline architecture
@@ -226,9 +236,7 @@ MODEL_IMPLIED_ARCHITECTURE: Dict[str, str] = {
 
 def resolve_sensitivity(sensitivity: str) -> Tuple[str, Dict[str, float]]:
   """Resolves a sensitivity tier string to its canonical tier name and thresholds."""
-  key = (sensitivity or "BALANCED").strip().upper().replace("-", "_")
-  tier = SENSITIVITY_ALIASES.get(key, "BALANCED")
-  return tier, dict(SENSITIVITY_THRESHOLD_MAP[tier])
+  return resolve_sensitivity_thresholds(sensitivity, strict=False)
 
 
 def resolve_entity_type(entity_type: Union[str, EntityType]) -> EntityType:
@@ -255,17 +263,88 @@ def resolve_entity_type(entity_type: Union[str, EntityType]) -> EntityType:
   return EntityType.USER
 
 
-def resolve_statistical_model(model: Union[str, StatisticalModel]) -> StatisticalModel:
+UNSUPPORTED_SILENCE_ALIASES: frozenset[str] = frozenset({
+    "SILENCE_DETECTION",
+    "DROP_OUT",
+    "SILENCE",
+    "DROPOUT",
+})
+
+HANDOFF_JITTER_ALIASES: frozenset[str] = frozenset({
+    "BEACON_REGULARITY",
+    "JITTER",
+    "BEACON",
+    "C2_BEACONING_JITTER",
+    "C2_JITTER",
+})
+
+HANDOFF_TIME_OF_DAY_ALIASES: frozenset[str] = frozenset({
+    "HOURLY_TEMPORAL_ZSCORE",
+    "HOURLY_ZSCORE",
+    "TEMPORAL_ZSCORE",
+    "INTRADAY_Z",
+    "CIRCADIAN_VON_MISES",
+    "CIRCADIAN_VON_MISES_2STAGE",
+    "CIRCADIAN",
+    "VON_MISES",
+    "OFF_HOURS",
+    "OFF_HOURS_ACTIVITY",
+    "TIME_OF_DAY",
+    "HOUR_OF_DAY",
+    "HOUR_OF_DAY_PROFILE",
+})
+
+RETIRED_MODEL_ALIASES: Dict[str, str] = {
+    "ASYMMETRIC_Z": "STANDARD_Z_SCORE (merged under D1)",
+    "DIRECTIONAL_Z": "STANDARD_Z_SCORE (merged under D1)",
+}
+
+
+def resolve_statistical_model(model: Optional[Union[str, StatisticalModel]]) -> StatisticalModel:
   """Resolves a model alias or enum value to a canonical StatisticalModel."""
   if isinstance(model, StatisticalModel):
+    if model in RETIRED_STATISTICAL_MODELS:
+      raise ValueError(RETIRED_STATISTICAL_MODELS[model])
     return model
-  raw = (model or "STANDARD_Z_SCORE").strip().upper().replace("-", "_").replace(" ", "_")
+  if model is None:
+    return StatisticalModel.STANDARD_Z_SCORE
+  if not isinstance(model, str):
+    raise ValueError(f"Unknown statistical model: '{model}'")
+  if not model.strip():
+    return StatisticalModel.STANDARD_Z_SCORE
+  raw = model.strip().upper().replace("-", "_").replace(" ", "_")
+  if raw in UNSUPPORTED_SILENCE_ALIASES:
+    raise ValueError(
+        f"Statistical model '{model}' (silence / drop-out detection) is not supported: "
+        "metrics.* and match ... by 1d emit no zero-count buckets, so lower-tail silence "
+        "detection is not supported until a zero-day-aware lower-tail detector exists."
+    )
+  if raw in HANDOFF_JITTER_ALIASES:
+    raise ValueError(
+        f"Statistical model '{model}' requires sub-hour inter-arrival timing on raw UDM telemetry; "
+        "hand off to 'secops-statistical-hunter' model 'C2_BEACONING_JITTER' instead of rendering "
+        "daily COEFFICIENT_OF_VARIATION."
+    )
+  if raw in HANDOFF_TIME_OF_DAY_ALIASES:
+    raise ValueError(
+        f"Statistical model '{model}' is retired (D1 / PF-10): metrics.* provides only daily "
+        "(period: 1d, window: 30d) baselines; hand off to 'secops-statistical-hunter' model "
+        "'HOUR_OF_DAY_PROFILE'."
+    )
+  if raw in RETIRED_MODEL_ALIASES:
+    replacement = RETIRED_MODEL_ALIASES[raw]
+    raise ValueError(f"Statistical model '{raw}' is retired; use {replacement}.")
   if raw in MODEL_ALIAS_MAP:
-    return MODEL_ALIAS_MAP[raw]
+    resolved = MODEL_ALIAS_MAP[raw]
+    if resolved in RETIRED_STATISTICAL_MODELS:
+      raise ValueError(RETIRED_STATISTICAL_MODELS[resolved])
+    return resolved
   for member in StatisticalModel:
     if raw in (member.name.upper(), member.value.upper()):
+      if member in RETIRED_STATISTICAL_MODELS:
+        raise ValueError(RETIRED_STATISTICAL_MODELS[member])
       return member
-  return StatisticalModel.STANDARD_Z_SCORE
+  raise ValueError(f"Unknown statistical model: '{model}'")
 
 
 def normalize_metrics_list(
@@ -306,11 +385,15 @@ def normalize_metrics_list(
       return ["http_queries_total"]
     if arch in ("failure_ratio", "http_error_ratio_surge_2stage"):
       return ["http_queries_fail"]
-    if arch == "c2_beacon_flow":
+    if arch in ("outbound_flow_surge", "outbound_flow_surge_2stage", "c2_beacon_flow", "c2_beacon_flow_frequency_2stage"):
       return ["network_flows_outbound"]
     if arch == "alert_surge":
       return ["alert_event_name_count"]
-    return ["auth_attempts_total"] if entity_type == EntityType.USER else ["network_bytes_outbound"]
+    if entity_type == EntityType.USER:
+      return ["auth_attempts_total"]
+    if entity_type == EntityType.RESOURCE:
+      return ["resource_read_total"]
+    return ["network_bytes_outbound"]
 
   if isinstance(metrics, str):
     items = [m.strip() for m in metrics.split(",") if m.strip()]
@@ -322,18 +405,25 @@ def normalize_metrics_list(
     if item.startswith("metrics."):
       item = item[len("metrics."):]
     cleaned.append(item)
-  return cleaned or (["auth_attempts_total"] if entity_type == EntityType.USER else ["network_bytes_outbound"])
+  if cleaned:
+    return cleaned
+  if entity_type == EntityType.USER:
+    return ["auth_attempts_total"]
+  if entity_type == EntityType.RESOURCE:
+    return ["resource_read_total"]
+  return ["network_bytes_outbound"]
 
 
 def _inject_stage1_filters(
     query: str,
     entity_value: Optional[str] = None,
     custom_filter: Optional[Union[str, Sequence[str]]] = None,
+    entity_type: Optional[EntityType] = None,
 ) -> str:
   """Safely injects an entity_value constraint and/or custom UDM filters into Stage 1 extractor(s).
 
   Preserves all MalachiteASTValidator invariants:
-  - Binds to the stage's existing entity placeholder variable ($user, $host, $entity, $sa)
+  - Binds to the stage's existing entity placeholder variable ($user, $host, $entity, $sa, $resource)
     so no duplicate UDM event source alias is introduced.
   - Strips any leading `$e.` alias from custom_filter lines so unprefixed UDM stages remain 1 source.
   """
@@ -371,15 +461,20 @@ def _inject_stage1_filters(
   extra_predicates: List[str] = []
 
   if has_specific_entity:
-    # Identify the primary entity placeholder bound in stage_events ($user, $host, $entity, $sa)
-    var_match = re.search(r"(\$[a-zA-Z0-9_]+)\s*!=\s*\"\"", stage_events)
-    if not var_match:
-      var_match = re.search(
-          r"(?:principal|target)\.(?:user|asset)\.[a-zA-Z0-9_.]+\s*=\s*(\$[a-zA-Z0-9_]+)",
-          stage_events,
-      )
-    if var_match:
-      ent_var = var_match.group(1)
+    ent_var: Optional[str] = None
+    if entity_type == EntityType.RESOURCE and re.search(r"\$resource\b", stage_events):
+      ent_var = "$resource"
+    else:
+      # Identify the primary entity placeholder bound in stage_events ($user, $host, $entity, $sa)
+      var_match = re.search(r"(\$[a-zA-Z0-9_]+)\s*!=\s*\"\"", stage_events)
+      if not var_match:
+        var_match = re.search(
+            r"(?:principal|target)\.(?:user|asset|resource)\.[a-zA-Z0-9_.]+\s*=\s*(\$[a-zA-Z0-9_]+)",
+            stage_events,
+        )
+      if var_match:
+        ent_var = var_match.group(1)
+    if ent_var:
       extra_predicates.append(f'    {ent_var} = "{clean_entity}"')
 
   for fl in filter_lines:
@@ -393,97 +488,440 @@ def _inject_stage1_filters(
   return query[:stage_match.start()] + stage_open + injected_events + match_header + query[stage_match.end():]
 
 
+MAX_MODE_B_DAYS = MAX_MODE_B_DAYS_MACRO
+MAX_CUSUM_MODE_B_DAYS = MAX_CUSUM_MODE_B_DAYS_MACRO
+MAX_MODE_C_DAYS = MAX_MODE_C_DAYS_MACRO
+
+
+def _rewrite_ecg_event_date(compiled_query: str, date_str: str) -> str:
+  """Pins timestamp.get_date(...) equality predicates in ECG event stages to date_str."""
+  return re.sub(
+      r'(timestamp\.get_date\([^)]+\)\s*=\s*)"\d{4}-\d{2}-\d{2}"',
+      rf'\1"{date_str}"',
+      compiled_query,
+  )
+
+
+def _rewrite_ecg_event_date_gte(compiled_query: str, date_str: str) -> str:
+  """Rewrites timestamp.get_date(...) equality predicates in ECG event stages to >= date_str for multi-day Mode B."""
+  return re.sub(
+      r'(timestamp\.get_date\([^)]+\))\s*=\s*"\d{4}-\d{2}-\d{2}"',
+      rf'\1 >= "{date_str}"',
+      compiled_query,
+  )
+
+
+def _parse_iso_utc(ts_str: str) -> datetime.datetime:
+  """Parses an ISO-8601 UTC timestamp or YYYY-MM-DD date string into an aware UTC datetime."""
+  clean = ts_str.strip()
+  if len(clean) == 10 and re.match(r"^\d{4}-\d{2}-\d{2}$", clean):
+    return datetime.datetime.strptime(clean, "%Y-%m-%d").replace(tzinfo=datetime.timezone.utc)
+  if clean.endswith("Z"):
+    clean = clean[:-1] + "+00:00"
+  dt = datetime.datetime.fromisoformat(clean)
+  if dt.tzinfo is None:
+    dt = dt.replace(tzinfo=datetime.timezone.utc)
+  return dt.astimezone(datetime.timezone.utc)
+
+
+def _build_ecg_join_filter_disclosure(has_ecg: bool, ecg_72h_anchor_applied: bool = False) -> Optional[str]:
+  """Builds the canonical PF-8 / WS1-08 Entity Context Graph inner-join filter disclosure."""
+  if not has_ecg:
+    return None
+  anchor_note = (
+      " Because startTime is anchored at D-2 00:00:00Z to overlap built DERIVED_CONTEXT intervals, "
+      "the 30-day metrics.* baseline window shifts to [D-32, D-2)."
+      if ecg_72h_anchor_applied
+      else ""
+  )
+  return (
+      "Entity Context Graph stages execute as an inner join (active filter): entities, hashes, domains, or IPs "
+      "with no matching graph record drop out silently (absent from the graph != benign or common; DERIVED_CONTEXT "
+      "daily records lag 24-48h and WHOIS coverage has gaps). Run the Day-0 companion query (without graph.*) to "
+      f"inspect newly observed Day-0 artifacts.{anchor_note}"
+  )
+
+
+MODE_C_MAX_BATCH_SIZE: int = 10
+MODE_C_INTER_BATCH_PAUSE_SECONDS: float = 2.0
+MODE_C_MAX_RETRIES_PER_SHARD: int = 1
+MODE_C_RETRYABLE_ERRORS: Tuple[str, ...] = (
+    "RESOURCE_EXHAUSTED",
+    "DEADLINE_EXCEEDED",
+    "UNAVAILABLE",
+    "429",
+)
+MODE_C_FADE_CAVEAT: str = (
+    "In Mode C, each day D is scored against its own trailing 30-day baseline [D − 30d, D), so a sustained "
+    "multi-day attack enters subsequent days' baselines and absorbs the shift primarily by inflating σ "
+    "(Gaussian approximation: a sustained +3σ shift reads ≈ 2.5σ on day 2; a sustained +6σ shift stays above "
+    "3σ for ~3 days; no guard band). Never read a fading Mode C timeline as \"the attack stopped\" — run "
+    "LONGITUDINAL_CUSUM (longitudinal_cusum.yl2, fixed start-anchored pre-window reference) to measure persistence."
+)
+
+
+def evaluate_intraday_today_so_far(
+    earlier_today_sum: float,
+    raw_observed: float,
+    hist_avg: float,
+    hist_stddev: float,
+    *,
+    threshold_sigma: float = 3.0,
+    dispersion_floor: Optional[float] = None,
+) -> Dict[str, Any]:
+  """Evaluates WS1-13 / R4 partial-day upper-tail breach vs cannot-clear semantics (never dividing 30d by 24)."""
+  e_sum = float(earlier_today_sum)
+  r_obs = float(raw_observed)
+  full_today = e_sum + r_obs
+  mu = float(hist_avg)
+  sd = float(hist_stddev)
+  eff_floor = float(dispersion_floor) if dispersion_floor is not None else math.sqrt(max(mu, 1.0))
+  safe_sd = max(sd, eff_floor)
+  upper_tail_cutoff = mu + float(threshold_sigma) * safe_sd
+  z_today_so_far = (full_today - mu) / safe_sd
+  guaranteed_breach = bool(full_today >= upper_tail_cutoff)
+  verdict = (
+      "GUARANTEED_FULL_DAY_BREACH"
+      if guaranteed_breach
+      else "PARTIAL_UTC_DAY_CANNOT_CLEAR"
+  )
+  status_label = (
+      "Guaranteed full-day upper-tail breach (full_today_so_far >= 30d upper tail)"
+      if guaranteed_breach
+      else "today so far (partial UTC day) — cannot clear entity until 24h complete"
+  )
+  return {
+      "earlier_today_sum": e_sum,
+      "raw_observed": r_obs,
+      "full_today_so_far": full_today,
+      "hist_avg": mu,
+      "hist_stddev": sd,
+      "safe_stddev": safe_sd,
+      "threshold_sigma": float(threshold_sigma),
+      "upper_tail_cutoff": upper_tail_cutoff,
+      "z_today_so_far": z_today_so_far,
+      "guaranteed_full_day_breach": guaranteed_breach,
+      "verdict": verdict,
+      "status_label": status_label,
+  }
+
+
 def _compute_execution_windows(
     compiled_query: str,
     mode: str = "A",
     window_days: int = 1,
     statistical_model: Optional[StatisticalModel] = None,
     reference_time: Optional[datetime.datetime] = None,
+    today_so_far: bool = False,
+    start_time: Optional[str] = None,
+    end_time: Optional[str] = None,
+    target_date: Optional[str] = None,
+    intraday_hourly: bool = False,
+    allow_short_intraday_window: bool = False,
 ) -> Dict[str, Any]:
   """Computes UTC ISO-8601 execution windows, baseline horizon dates, and Mode C shards."""
   now = reference_time or datetime.datetime.now(datetime.timezone.utc)
   if now.tzinfo is None:
     now = now.replace(tzinfo=datetime.timezone.utc)
   today_midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
-  end_iso = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+  end_iso = _parse_iso_utc(end_time).strftime("%Y-%m-%dT%H:%M:%SZ") if end_time else now.strftime("%Y-%m-%dT%H:%M:%SZ")
 
   probe_start_iso = (now - datetime.timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
-  probe_end_iso = end_iso
+  probe_end_iso = now.strftime("%Y-%m-%dT%H:%M:%SZ")
 
   mode_clean = (mode or "A").strip().upper()
   if mode_clean.startswith("MODE"):
     mode_clean = mode_clean.replace("MODE", "").strip()
-  if mode_clean not in ("A", "B", "C", "D"):
+  eff_today_so_far = bool(today_so_far)
+  if mode_clean in ("A_TODAY", "A_PARTIAL"):
+    mode_clean = "A"
+    eff_today_so_far = True
+  elif mode_clean not in ("A", "B", "C", "D"):
     mode_clean = "A"
 
   has_ecg = bool(re.search(r"\bgraph\.(?:entity|metadata|relations)\b", compiled_query))
   ecg_72h_anchor_applied = False
+  is_partial_day = False
+  partial_day_warning: Optional[str] = None
+  capped_from_days: Optional[int] = None
+  mode_notice: Optional[str] = None
+  scored_day_window: Optional[Dict[str, str]] = None
+  shard_pacing: Optional[Dict[str, Any]] = None
+  intraday_window_meta: Optional[Dict[str, Any]] = None
 
-  if mode_clean == "A":
+  if intraday_hourly and mode_clean != "A":
+    raise ValueError(
+        f"R3 / PF-10 violation: intraday_hourly=True (period: 1h, window: today) is supported only in "
+        f"single-UTC-day Mode A, got Mode '{mode_clean}'."
+    )
+
+  if mode_clean == "A" and intraday_hourly:
     eff_days = 1
-    if statistical_model == StatisticalModel.MAD:
-      # MAD requires 30d raw search window for window.median(...) while $in_scoring_window gates to today
-      start_dt = today_midnight - datetime.timedelta(days=29)
-    elif has_ecg:
-      # ECG snapshot freshness requires UTC date -2d at 00:00:00Z while event stage filters to today
-      start_dt = today_midnight - datetime.timedelta(days=2)
-      ecg_72h_anchor_applied = True
+    if end_time:
+      eff_end_dt = _parse_iso_utc(end_time)
+    elif (now - today_midnight) >= datetime.timedelta(hours=4):
+      eff_end_dt = now
     else:
-      start_dt = today_midnight
-    start_iso = start_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-    baseline_start = (today_midnight - datetime.timedelta(days=30)).strftime("%Y-%m-%d")
-    baseline_end = (today_midnight - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
-    eval_label = "Mode A: Today (Default)"
-    shards = [{
-        "day": today_midnight.strftime("%Y-%m-%d"),
+      eff_end_dt = today_midnight
+    if start_time:
+      eff_start_dt = _parse_iso_utc(start_time)
+    else:
+      end_day_midnight = (
+          (eff_end_dt - datetime.timedelta(days=1))
+          if (eff_end_dt.hour == 0 and eff_end_dt.minute == 0 and eff_end_dt.second == 0)
+          else eff_end_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+      )
+      candidate_start = (eff_end_dt - datetime.timedelta(hours=5)).replace(minute=0, second=0, microsecond=0)
+      if candidate_start < end_day_midnight:
+        candidate_start = end_day_midnight
+      eff_start_dt = candidate_start
+    start_iso = eff_start_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    end_iso = eff_end_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    intraday_window_meta = validate_intraday_hourly_window(
+        start_iso,
+        end_iso,
+        allow_short_window=allow_short_intraday_window,
+    )
+    scored_day = eff_start_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+    scored_day_str = scored_day.strftime("%Y-%m-%d")
+    is_partial_day = True
+    eval_label = (
+        "Mode A: Intra-Day Stitched — today so far (partial UTC day) — cannot clear entity until 24h complete"
+    )
+    partial_day_warning = (
+        f"Intra-day (1h, today) stitched Mode A ({intraday_window_meta['earlier_today_interval_note']}): "
+        "today so far (partial UTC day) — cannot clear entity until 24h complete. "
+        "Upper-tail breaches (full_today_so_far >= 30d upper tail) are guaranteed full-day outliers; "
+        "hand off sub-hour burst timing to secops-statistical-hunter."
+    )
+    if intraday_window_meta.get("short_window_warning"):
+      partial_day_warning = f"{partial_day_warning} {intraday_window_meta['short_window_warning']}"
+    baseline_start = (scored_day - datetime.timedelta(days=30)).strftime("%Y-%m-%d")
+    baseline_end = (scored_day - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+    baseline_end_open = scored_day.strftime("%Y-%m-%d")
+    scored_day_window = {
+        "day": scored_day_str,
         "start_time": start_iso,
         "end_time": end_iso,
-        "baseline_window": f"[{baseline_start}, {today_midnight.strftime('%Y-%m-%d')})",
+    }
+    shards = [{
+        "day": scored_day_str,
+        "start_time": start_iso,
+        "end_time": end_iso,
+        "baseline_window": f"[{baseline_start}, {baseline_end_open})",
+        "query": compiled_query,
+    }]
+
+  elif mode_clean == "A":
+    if statistical_model == StatisticalModel.LONGITUDINAL_CUSUM or "$cusum_drift_score" in compiled_query:
+      raise ValueError(
+          "LONGITUDINAL_CUSUM cannot run in single-day Mode A; "
+          "sequential drift requires a multi-day Mode B or Mode C window."
+      )
+    eff_days = 1
+    explicit_start_dt = _parse_iso_utc(start_time) if start_time else None
+    explicit_end_dt = _parse_iso_utc(end_time) if end_time else None
+
+    if target_date:
+      scored_day = _parse_iso_utc(target_date).replace(hour=0, minute=0, second=0, microsecond=0)
+      scored_day_str = scored_day.strftime("%Y-%m-%d")
+      end_iso_out = (
+          explicit_end_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+          if explicit_end_dt is not None
+          else (scored_day + datetime.timedelta(days=1)).strftime("%Y-%m-%dT00:00:00Z")
+      )
+      if explicit_end_dt is not None and explicit_end_dt < (scored_day + datetime.timedelta(days=1)):
+        is_partial_day = True
+      eval_label = f"Mode A: Target UTC Day ({scored_day_str})"
+    elif explicit_start_dt is not None and explicit_end_dt is not None:
+      start_day = explicit_start_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+      end_day = explicit_end_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+      is_midnight_end = (
+          explicit_end_dt.hour == 0
+          and explicit_end_dt.minute == 0
+          and explicit_end_dt.second == 0
+      )
+      if has_ecg and not is_midnight_end and (end_day - start_day).days in (0, 1, 2):
+        scored_day = end_day
+        is_partial_day = True
+      elif has_ecg and is_midnight_end and (end_day - start_day).days == 3:
+        scored_day = end_day - datetime.timedelta(days=1)
+      elif start_day == end_day and not is_midnight_end:
+        scored_day = start_day
+        is_partial_day = True
+      else:
+        scored_day = end_day - datetime.timedelta(days=1) if is_midnight_end and end_day > start_day else start_day
+      scored_day_str = scored_day.strftime("%Y-%m-%d")
+      end_iso_out = explicit_end_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+      eval_label = (
+          "Mode A: Today So Far (Partial UTC Day — Low-Biased vs Full-Day Baseline)"
+          if is_partial_day and scored_day == today_midnight
+          else f"Mode A: Last Complete UTC Day ({scored_day_str})"
+      )
+      if is_partial_day:
+        partial_day_warning = (
+            f"Partial UTC day ([{scored_day_str}T00:00:00Z -> {end_iso_out}]) compared against a "
+            "full-day (period: 1d, window: 30d) baseline without elapsed-fraction scaling; "
+            "sub-full-day Z-scores are systematically low-biased and may miss active breakouts."
+        )
+    elif eff_today_so_far:
+      scored_day = today_midnight
+      scored_day_str = scored_day.strftime("%Y-%m-%d")
+      end_iso_out = end_iso
+      eval_label = "Mode A: Today So Far (Partial UTC Day — Low-Biased vs Full-Day Baseline)"
+      is_partial_day = True
+      partial_day_warning = (
+          f"Partial UTC day ([{scored_day_str}T00:00:00Z -> {end_iso_out}]) compared against a "
+          "full-day (period: 1d, window: 30d) baseline without elapsed-fraction scaling; "
+          "sub-full-day Z-scores are systematically low-biased and may miss active breakouts."
+      )
+    else:
+      scored_day = today_midnight - datetime.timedelta(days=1)
+      scored_day_str = scored_day.strftime("%Y-%m-%d")
+      end_iso_out = today_midnight.strftime("%Y-%m-%dT00:00:00Z")
+      eval_label = f"Mode A: Last Complete UTC Day ({scored_day_str})"
+
+    if statistical_model in (StatisticalModel.MAD, StatisticalModel.QUANTILE_IQR_SKEW):
+      # MAD and Quantile require 30d raw search window for empirical quantiles/median while $in_scoring_window gates to the scored day
+      start_dt = scored_day - datetime.timedelta(days=29)
+    elif has_ecg:
+      # ECG snapshot freshness requires scored UTC date -2d at 00:00:00Z while event stage filters to the scored day
+      start_dt = scored_day - datetime.timedelta(days=2)
+      ecg_72h_anchor_applied = True
+      compiled_query = _rewrite_ecg_event_date(compiled_query, scored_day_str)
+    else:
+      start_dt = scored_day
+    start_iso = start_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    end_iso = end_iso_out
+    baseline_anchor = start_dt if has_ecg else scored_day
+    baseline_start = (baseline_anchor - datetime.timedelta(days=30)).strftime("%Y-%m-%d")
+    baseline_end = (baseline_anchor - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+    baseline_end_open = baseline_anchor.strftime("%Y-%m-%d")
+    scored_day_window = {
+        "day": scored_day_str,
+        "start_time": f"{scored_day_str}T00:00:00Z",
+        "end_time": end_iso,
+    }
+    shards = [{
+        "day": scored_day_str,
+        "start_time": start_iso,
+        "end_time": end_iso,
+        "baseline_window": f"[{baseline_start}, {baseline_end_open})",
         "query": compiled_query,
     }]
 
   elif mode_clean == "B":
-    eff_days = max(window_days if window_days > 1 else 7, 2)
-    if statistical_model == StatisticalModel.MAD:
-      start_dt = today_midnight - datetime.timedelta(days=max(29, eff_days - 1))
+    is_cusum = (
+        statistical_model == StatisticalModel.LONGITUDINAL_CUSUM
+        or "$cusum_drift_score" in compiled_query
+    )
+    max_b_days = MAX_CUSUM_MODE_B_DAYS if is_cusum else MAX_MODE_B_DAYS
+    requested_days = window_days if window_days > 1 else MAX_MODE_B_DAYS
+    if requested_days > max_b_days:
+      capped_from_days = requested_days
+      eff_days = max_b_days
+      if not is_cusum:
+        mode_notice = (
+            f"Mode B is capped at {MAX_MODE_B_DAYS} days (requested {requested_days} days) to bound "
+            f"start-anchored fixed-baseline staleness; per-day trailing baselines and timelines beyond "
+            f"{MAX_MODE_B_DAYS} days (Mode C) require run_command and scripts/timeline_assembler.py."
+        )
     else:
-      start_dt = today_midnight - datetime.timedelta(days=eff_days - 1)
-    start_iso = start_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+      eff_days = max(requested_days, 2)
     anchor_day = today_midnight - datetime.timedelta(days=eff_days - 1)
-    baseline_start = (anchor_day - datetime.timedelta(days=30)).strftime("%Y-%m-%d")
-    baseline_end = (anchor_day - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+    if statistical_model in (StatisticalModel.MAD, StatisticalModel.QUANTILE_IQR_SKEW):
+      start_dt = today_midnight - datetime.timedelta(days=max(29, eff_days - 1))
+    elif has_ecg:
+      d_minus_2 = today_midnight - datetime.timedelta(days=2)
+      start_dt = min(anchor_day, d_minus_2)
+      ecg_72h_anchor_applied = True
+      compiled_query = _rewrite_ecg_event_date_gte(compiled_query, anchor_day.strftime("%Y-%m-%d"))
+    else:
+      start_dt = anchor_day
+    start_iso = start_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    baseline_anchor_b = start_dt if has_ecg else anchor_day
+    baseline_start = (baseline_anchor_b - datetime.timedelta(days=30)).strftime("%Y-%m-%d")
+    baseline_end = (baseline_anchor_b - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
     eval_label = f"Mode B: {eff_days}d Fixed-Baseline ({baseline_start}..{baseline_end})"
+    scored_day_window = {
+        "day": f"{anchor_day.strftime('%Y-%m-%d')}..{today_midnight.strftime('%Y-%m-%d')}",
+        "start_time": anchor_day.strftime("%Y-%m-%dT00:00:00Z"),
+        "end_time": end_iso,
+    }
     shards = [{
         "day": f"{anchor_day.strftime('%Y-%m-%d')}..{today_midnight.strftime('%Y-%m-%d')}",
         "start_time": start_iso,
         "end_time": end_iso,
-        "baseline_window": f"[{baseline_start}, {anchor_day.strftime('%Y-%m-%d')})",
+        "baseline_window": f"[{baseline_start}, {baseline_anchor_b.strftime('%Y-%m-%d')})",
         "query": compiled_query,
     }]
 
   elif mode_clean == "C":
-    eff_days = min(max(window_days if window_days > 1 else 7, 2), 7)
+    requested_c_days = window_days if window_days > 1 else 7
+    if requested_c_days > MAX_MODE_C_DAYS:
+      capped_from_days = requested_c_days
+      eff_days = MAX_MODE_C_DAYS
+      est_req_min = round(max(0.5, requested_c_days * (4.0 / 14.0)), 1)
+      mode_notice = (
+          f"Mode C default cap is {MAX_MODE_C_DAYS} days (requested {requested_c_days} daily shards, "
+          f"estimated ~{est_req_min} min wall clock); capped at {MAX_MODE_C_DAYS} daily shards unless "
+          "explicitly confirmed in multi-window batches."
+      )
+    else:
+      eff_days = max(requested_c_days, 2)
     first_day = today_midnight - datetime.timedelta(days=eff_days - 1)
-    start_iso = first_day.strftime("%Y-%m-%dT%H:%M:%SZ")
-    baseline_start = (first_day - datetime.timedelta(days=30)).strftime("%Y-%m-%d")
+    first_anchor = (first_day - datetime.timedelta(days=2)) if has_ecg else first_day
+    if has_ecg:
+      ecg_72h_anchor_applied = True
+    start_iso = first_anchor.strftime("%Y-%m-%dT%H:%M:%SZ")
+    baseline_start = (first_anchor - datetime.timedelta(days=30)).strftime("%Y-%m-%d")
     baseline_end = (today_midnight - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
     eval_label = f"Mode C: {eff_days}d Rolling Per-Day Shards"
     shards = []
     today_str = today_midnight.strftime("%Y-%m-%d")
-    for offset in range(eff_days - 1, -1, -1):
+    for shard_idx, offset in enumerate(range(eff_days - 1, -1, -1)):
       day_dt = today_midnight - datetime.timedelta(days=offset)
       day_str = day_dt.strftime("%Y-%m-%d")
-      shard_start = f"{day_str}T00:00:00Z"
+      if statistical_model in (StatisticalModel.MAD, StatisticalModel.QUANTILE_IQR_SKEW):
+        shard_start = (day_dt - datetime.timedelta(days=29)).strftime("%Y-%m-%dT00:00:00Z")
+        b_anchor_dt = day_dt
+      elif has_ecg:
+        b_anchor_dt = day_dt - datetime.timedelta(days=2)
+        shard_start = b_anchor_dt.strftime("%Y-%m-%dT00:00:00Z")
+      else:
+        b_anchor_dt = day_dt
+        shard_start = f"{day_str}T00:00:00Z"
       shard_end = end_iso if offset == 0 else f"{day_str}T23:59:59Z"
-      b_start = (day_dt - datetime.timedelta(days=30)).strftime("%Y-%m-%d")
-      shard_query = compiled_query.replace(f'"{today_str}"', f'"{day_str}"')
+      b_start = (b_anchor_dt - datetime.timedelta(days=30)).strftime("%Y-%m-%d")
+      shard_query = _rewrite_ecg_event_date(compiled_query, day_str).replace(f'"{today_str}"', f'"{day_str}"')
+      if statistical_model in (StatisticalModel.MAD, StatisticalModel.QUANTILE_IQR_SKEW):
+        shard_query = re.sub(
+            r'(timestamp\.get_date\([^)]+\)\s*>=\s*)"\d{4}-\d{2}-\d{2}"',
+            rf'\1"{day_str}"',
+            shard_query,
+        )
       shards.append({
           "day": day_str,
+          "batch_index": shard_idx // MODE_C_MAX_BATCH_SIZE,
           "start_time": shard_start,
           "end_time": shard_end,
-          "baseline_window": f"[{b_start}, {day_str})",
+          "baseline_window": f"[{b_start}, {b_anchor_dt.strftime('%Y-%m-%d')})",
           "query": shard_query,
       })
+    shard_pacing = {
+        "batch_size": MODE_C_MAX_BATCH_SIZE,
+        "shard_count": eff_days,
+        "batch_count": math.ceil(eff_days / MODE_C_MAX_BATCH_SIZE),
+        "inter_batch_pause_seconds": MODE_C_INTER_BATCH_PAUSE_SECONDS,
+        "max_retries_per_shard": MODE_C_MAX_RETRIES_PER_SHARD,
+        "retry_on": list(MODE_C_RETRYABLE_ERRORS),
+        "estimated_wall_minutes": round(max(0.5, eff_days * (4.0 / 14.0)), 1),
+    }
+    scored_day_window = {
+        "day": today_str,
+        "start_time": f"{today_str}T00:00:00Z",
+        "end_time": end_iso,
+    }
 
   else:  # Mode D: Fleet Rollup Horizon
     eff_days = max(window_days, 1)
@@ -504,6 +942,11 @@ def _compute_execution_windows(
       "mode": mode_clean,
       "window_days": eff_days,
       "evaluation_mode_label": eval_label,
+      "is_partial_day": is_partial_day,
+      "partial_day_warning": partial_day_warning,
+      "capped_from_days": capped_from_days,
+      "mode_notice": mode_notice,
+      "effective_query": compiled_query,
       "start_time": start_iso,
       "end_time": end_iso,
       "probe_start_time": probe_start_iso,
@@ -511,7 +954,11 @@ def _compute_execution_windows(
       "baseline_start_date": baseline_start,
       "baseline_end_date": baseline_end,
       "ecg_72h_anchor_applied": ecg_72h_anchor_applied,
+      "scored_day_window": scored_day_window,
+      "shard_pacing": shard_pacing,
       "shards": shards,
+      "intraday_hourly": bool(intraday_hourly),
+      "intraday_window_meta": intraday_window_meta,
   }
 
 
@@ -527,7 +974,8 @@ def _build_micro_raw_query(
   ent_field = "principal.user.userid" if entity_type == EntityType.USER else "principal.asset.hostname"
   ent_var = "$user" if entity_type == EntityType.USER else "$host"
   ent_name = ent_var.lstrip("$")
-  model_upper = (statistical_model or "ZSCORE").strip().upper().replace("-", "_")
+  resolved_micro_model = resolve_statistical_model(statistical_model)
+  model_upper = resolved_micro_model.value
   goal = hypothesis_goal or f"Micro-Raw Statistical Outlier Hunt ({model_upper})"
 
   ent_filter_line = ""
@@ -541,10 +989,10 @@ def _build_micro_raw_query(
       if ln.strip():
         extra_lines += f"    {ln.strip()}\n"
 
-  if "CV" in model_upper or "JITTER" in model_upper or "BEACON" in model_upper:
+  if "CV" in model_upper:
     return (
         f"// Goal: {goal}\n"
-        "// Plane: MICRO_RAW (Sub-Hour Coefficient of Variation / Jitter)\n"
+        "// Plane: MICRO_RAW (Sub-Hour Coefficient of Variation)\n"
         "stage stage1_micro_buckets {\n"
         '    metadata.event_type = "NETWORK_HTTP"\n'
         f"    {ent_field} = {ent_var}\n"
@@ -657,6 +1105,26 @@ def compile_hunt_pipeline(
     scoring_days: Optional[int] = None,
     scoring_end_date: Optional[str] = None,
     reference_time: Optional[datetime.datetime] = None,
+    today_so_far: bool = False,
+    has_run_command: bool = True,
+    local_execution_available: bool = True,
+    byte_dispersion_floor: Optional[float] = None,
+    identifier_coverage_payload: Optional[Any] = None,
+    prior_alpha0: Optional[float] = None,
+    prior_beta0: Optional[float] = None,
+    fleet_prior_payload: Optional[Any] = None,
+    min_awakening_volume: int = 25,
+    tenant_tz: str = "UTC",
+    biz_start_hour: int = 8,
+    biz_end_hour: int = 18,
+    learned_active_hours: Optional[Any] = None,
+    start_time: Optional[str] = None,
+    end_time: Optional[str] = None,
+    target_date: Optional[str] = None,
+    novelty_subkey_field: Optional[str] = None,
+    min_novelty_events: int = 1,
+    intraday_hourly: bool = False,
+    allow_short_intraday_window: bool = False,
     **kwargs: Any,
 ) -> Dict[str, Any]:
   """Compiles a multi-stage YARA-L 2.0 hunt pipeline, pre-flight specification card, and time windows.
@@ -682,30 +1150,258 @@ def compile_hunt_pipeline(
   model_str_upper = (
       statistical_model.value
       if isinstance(statistical_model, StatisticalModel)
-      else str(statistical_model or "STANDARD_Z_SCORE").strip().upper().replace("-", "_")
+      else str(statistical_model or "STANDARD_Z_SCORE").strip().upper().replace("-", "_").replace(" ", "_")
   )
+  if model_str_upper in UNSUPPORTED_SILENCE_ALIASES:
+    raise ValueError(
+        f"Statistical model '{statistical_model}' (silence / drop-out detection) is not supported: "
+        "metrics.* and match ... by 1d emit no zero-count buckets, so lower-tail silence "
+        "detection is not supported until a zero-day-aware lower-tail detector exists."
+    )
+  if model_str_upper in HANDOFF_JITTER_ALIASES:
+    handoff_ent_type = (
+        "USER"
+        if ent_enum == EntityType.USER
+        else ("RESOURCE" if ent_enum == EntityType.RESOURCE else "HOSTNAME")
+    )
+    handoff_ent_val = (
+        entity_value.strip()
+        if entity_value and entity_value.strip().lower() not in ("fleet", "fleet-wide", "all", "*", "unknown", "none")
+        else "fleet"
+    )
+    lookback_str = f"{max(window_days, 1) * 24}h" if window_days and window_days > 1 else "24h"
+    payload = build_handoff_payload(
+        intent="C2_BEACONING_JITTER",
+        entity_type=handoff_ent_type,
+        entity_value=handoff_ent_val,
+        lookback=lookback_str,
+        sensitivity=sens_tier,
+        justification=hypothesis_goal,
+    )
+    demarcation_card = format_handoff_card(payload, ack=None)
+    return {
+        "status": "HANDOFF_REQUIRED",
+        "action": "CONSULTATIVE_DEMARCATION",
+        "protocol": SUPPORTED_PROTOCOL,
+        "request_id": payload["request_id"],
+        "source_skill": "secops-risk-metrics-multistage",
+        "target_skill": "secops-statistical-hunter",
+        "intent": "C2_BEACONING_JITTER",
+        "model_routed": "C2_BEACONING_JITTER",
+        "statistical_model": "C2_BEACONING_JITTER",
+        "entity_type": ent_enum.value,
+        "entity_value": entity_value or "Fleet-Wide",
+        "sensitivity": sens_tier,
+        "handoff_payload": payload,
+        "payload": payload,
+        "handoff_card": demarcation_card,
+        "handoff_card_markdown": demarcation_card,
+        "demarcation_card_markdown": demarcation_card,
+        "preflight_card": demarcation_card,
+        "preflight_card_markdown": demarcation_card,
+        "compiled_query": "",
+        "query": "",
+        "ast_valid": True,
+        "ast_errors": [],
+        "statistical_violations": [],
+    }
+  if model_str_upper in HANDOFF_TIME_OF_DAY_ALIASES or arch_key in (
+      "circadian_von_mises_2stage",
+      "circadian_von_mises",
+      "hourly_temporal_zscore",
+      "hour_of_day_profile",
+  ):
+    handoff_ent_type = (
+        "USER"
+        if ent_enum == EntityType.USER
+        else ("RESOURCE" if ent_enum == EntityType.RESOURCE else "HOSTNAME")
+    )
+    handoff_ent_val = (
+        entity_value.strip()
+        if entity_value and entity_value.strip().lower() not in ("fleet", "fleet-wide", "all", "*", "unknown", "none")
+        else "fleet"
+    )
+    eff_hod_days = window_days if window_days and window_days > 1 else 14
+    lookback_str = f"{eff_hod_days}d"
+    payload = build_handoff_payload(
+        intent="HOUR_OF_DAY_PROFILE",
+        entity_type=handoff_ent_type,
+        entity_value=handoff_ent_val,
+        lookback=lookback_str,
+        sensitivity=sens_tier,
+        justification=hypothesis_goal,
+        parameters={"window_days": eff_hod_days},
+    )
+    demarcation_card = format_handoff_card(payload, ack=None)
+    return {
+        "status": "HANDOFF_REQUIRED",
+        "action": "CONSULTATIVE_DEMARCATION",
+        "protocol": SUPPORTED_PROTOCOL,
+        "request_id": payload["request_id"],
+        "source_skill": "secops-risk-metrics-multistage",
+        "target_skill": "secops-statistical-hunter",
+        "intent": "HOUR_OF_DAY_PROFILE",
+        "model_routed": "HOUR_OF_DAY_PROFILE",
+        "statistical_model": "HOUR_OF_DAY_PROFILE",
+        "entity_type": ent_enum.value,
+        "entity_value": entity_value or "Fleet-Wide",
+        "sensitivity": sens_tier,
+        "handoff_payload": payload,
+        "payload": payload,
+        "handoff_card": demarcation_card,
+        "handoff_card_markdown": demarcation_card,
+        "demarcation_card_markdown": demarcation_card,
+        "preflight_card": demarcation_card,
+        "preflight_card_markdown": demarcation_card,
+        "compiled_query": "",
+        "query": "",
+        "ast_valid": True,
+        "ast_errors": [],
+        "statistical_violations": [],
+    }
   if arch_key in ("single_metric", "local_2stage", "2stage") and model_str_upper in MODEL_IMPLIED_ARCHITECTURE:
     arch_key = MODEL_IMPLIED_ARCHITECTURE[model_str_upper]
 
   if plane_upper == "HYBRID" and arch_key in ("single_metric", "local_2stage", "2stage"):
     arch_key = "hybrid_enrichment"
 
-  stat_model_enum = resolve_statistical_model(statistical_model)
+  if model_str_upper in RETIRED_MODEL_ALIASES:
+    replacement = RETIRED_MODEL_ALIASES[model_str_upper]
+    raise ValueError(f"Statistical model '{model_str_upper}' is retired; use {replacement}.")
+  merged_advisories: List[str] = []
+  if (
+      model_str_upper == "ASYMMETRIC_DIRECTIONAL_Z"
+      or statistical_model == StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z
+  ):
+    merged_advisories.append(
+        "ASYMMETRIC_DIRECTIONAL_Z merged into STANDARD_Z_SCORE (D1): upper-tail positive Z >= threshold is identical to Standard Z."
+    )
+  stat_model_enum = (
+      StatisticalModel.STANDARD_Z_SCORE
+      if (
+          model_str_upper in MODEL_IMPLIED_ARCHITECTURE
+          or statistical_model == StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z
+      )
+      else resolve_statistical_model(statistical_model)
+  )
+  if arch_key in ("quantile_iqr_skew", "quantile_iqr_skew_3stage"):
+    stat_model_enum = StatisticalModel.QUANTILE_IQR_SKEW
+  elif arch_key in ("mad_robust", "mad_robust_3stage"):
+    stat_model_enum = StatisticalModel.MAD
+  elif arch_key in (
+      "longitudinal_cusum",
+      "longitudinal_cusum_2stage",
+      "longitudinal_cusum_series_3stage",
+      "cusum_series_3stage",
+      "windowed_slack_sum",
+      "windowed_slack_sum_2stage",
+  ):
+    stat_model_enum = StatisticalModel.LONGITUDINAL_CUSUM
+  elif arch_key in ("first_seen_novelty", "first_seen_novelty_2stage"):
+    stat_model_enum = StatisticalModel.FIRST_SEEN_NOVELTY
+
+  is_explicit_stateless_slack_sum = (
+      model_str_upper in ("WINDOWED_SLACK_SUM", "SLACK_SUM", "STATELESS_SLACK_SUM")
+      or arch_key in ("windowed_slack_sum", "windowed_slack_sum_2stage")
+  )
+  if (
+      stat_model_enum == StatisticalModel.LONGITUDINAL_CUSUM
+      and not is_explicit_stateless_slack_sum
+      and (not local_execution_available or not has_run_command)
+  ):
+    raise ValueError(
+        "G5 violation: Page CUSUM (LONGITUDINAL_CUSUM) cannot run statelessly in YARA-L alone — "
+        "this model needs a client that can run local scripts (scripts/cusum_helper.py). "
+        "Request statistical_model='WINDOWED_SLACK_SUM' explicitly if you want the stateless "
+        "Windowed Slack Sum prefilter."
+    )
+
+  mode_norm_early = (mode or "A").strip().upper()
+  if mode_norm_early.startswith("MODE"):
+    mode_norm_early = mode_norm_early.replace("MODE", "").strip()
+  if mode_norm_early not in ("B", "C", "D") and stat_model_enum == StatisticalModel.LONGITUDINAL_CUSUM:
+    raise ValueError(
+        "LONGITUDINAL_CUSUM cannot run in single-day Mode A; "
+        "sequential drift requires a multi-day Mode B or Mode C window."
+    )
+  effective_mode = mode
+  redirected_from_mode: Optional[str] = None
+  redirect_notice: Optional[str] = None
+  if (
+      mode_norm_early == "B"
+      and window_days > MAX_MODE_B_DAYS
+      and stat_model_enum != StatisticalModel.LONGITUDINAL_CUSUM
+      and has_run_command
+  ):
+    effective_mode = "C"
+    redirected_from_mode = "B"
+    eff_redirect_shards = min(window_days, MAX_MODE_C_DAYS)
+    redirect_notice = (
+        f"Requested {window_days}-day Mode B timeline exceeds the {MAX_MODE_B_DAYS}-day Mode B cap; "
+        f"automatically redirected to Mode C ({eff_redirect_shards} per-day shards collated via scripts/timeline_assembler.py) "
+        "so each UTC day is scored against its own trailing 30-day baseline."
+    )
   metric_list = normalize_metrics_list(metrics, ent_enum, arch_key)
-  if len(metric_list) >= 2 and arch_key in ("single_metric", "local_2stage", "2stage"):
-    arch_key = "multi_sector_fusion_4stage" if len(metric_list) >= 3 else "dual_sector_fusion_3stage"
+  if metrics is None and ent_enum == EntityType.ASSET and metric_list == ["network_bytes_outbound"]:
+    if stat_model_enum == StatisticalModel.POISSON:
+      metric_list = ["dns_queries_total"]
+    elif stat_model_enum == StatisticalModel.BAYESIAN_BETA_BINOMIAL:
+      metric_list = ["dns_queries_fail"]
+  pf7_multi_metric_err = (
+      f"Cannot compile {len(metric_list)} metrics ({metric_list}) in a single in-query fusion DAG: "
+      "Chronicle YARA-L multi-stage queries support at most 2 UDM event stages (PF-7), and "
+      "compile_hunt_pipeline refuses to silently slice metrics[:2]. Pass exactly 2 metrics for "
+      "DUAL_SECTOR_FUSION_3STAGE / MULTI_SECTOR_FUSION_4STAGE, pass a valid 3-metric sibling triad "
+      "(e.g., auth_attempts_total/fail/success) for PART_OF_THE_WHOLE_TRIAD_MULTILEVEL, or use "
+      "decoupled architecture='360_radar' sector queries for >= 3 heterogeneous sectors."
+  )
+  if len(metric_list) == 2 and arch_key in ("single_metric", "local_2stage", "2stage"):
+    arch_key = "dual_sector_fusion_3stage"
+  elif len(metric_list) >= 3 and arch_key in ("single_metric", "local_2stage", "2stage"):
+    is_valid_sibling_triad = False
+    if (
+        len(metric_list) == 3
+        and len(set(metric_list)) == 3
+        and all(m in METRIC_CATALOG and not mc.is_composite_only(m) for m in metric_list)
+    ):
+      try:
+        PreFlightValidator.audit_triad(
+            metric_list,
+            entity_type=ent_enum,
+            min_baseline_days=min_baseline_days,
+            identifier_field=identifier_field,
+        )
+        is_valid_sibling_triad = True
+      except ValueError:
+        is_valid_sibling_triad = False
+    if is_valid_sibling_triad:
+      arch_key = "triad"
+    else:
+      raise ValueError(pf7_multi_metric_err)
   primary_metric = metric_list[0]
+  if (
+      identifier_field is None
+      and identifier_coverage_payload is not None
+      and plane_upper != "MICRO_RAW"
+      and primary_metric in METRIC_CATALOG
+  ):
+    probe_ent = ent_enum if ent_enum in METRIC_CATALOG[primary_metric].supported_entity_types else METRIC_CATALOG[primary_metric].supported_entity_types[0]
+    identifier_field = select_identifier_from_coverage(
+        identifier_coverage_payload,
+        target_metric=primary_metric,
+        entity_type=probe_ent,
+    )
 
   router = MultiStageTemplateRouter()
   sector_queries: Optional[Dict[str, str]] = None
   chained_plan: Optional[Dict[str, Any]] = None
   entity_graph_dim = "N/A"
-  match_mode = MatchMode.FLEET_ROLLUP if (mode or "A").strip().upper().endswith("D") else MatchMode.TIMELINE_BREAKDOWN
+  match_mode = MatchMode.FLEET_ROLLUP if (effective_mode or "A").strip().upper().endswith("D") else MatchMode.TIMELINE_BREAKDOWN
 
   # 1. Compile the query according to plane and architecture
   if plane_upper == "MICRO_RAW":
     compiled_query = _build_micro_raw_query(
-        statistical_model=model_str_upper,
+        statistical_model=stat_model_enum.value,
         entity_type=ent_enum,
         entity_value=entity_value,
         anomaly_threshold=eff_anomaly,
@@ -788,14 +1484,24 @@ def compile_hunt_pipeline(
           "web": ("http_queries_total", EntityType.ASSET),
       }
     sector_queries = {}
+    sa_radar_val = service_account or (
+        entity_value
+        if entity_value and entity_value.strip().lower() not in ("fleet", "fleet-wide", "all", "*", "unknown", "none")
+        else None
+    )
     for sec_name, (sec_metric, sec_ent) in sector_map.items():
       if sec_metric == "alert_event_name_count":
-        sq = router.build_alert_surge_query(entity_type=sec_ent, anomaly_threshold=eff_anomaly)
+        sq = router.build_alert_surge_query(
+            entity_type=sec_ent,
+            anomaly_threshold=eff_anomaly,
+            include_significance_gate=False,
+        )
       elif sec_metric.startswith("resource_"):
         sq = router.build_cloud_repository_scope_query(
-            service_account=service_account or entity_value,
+            service_account=sa_radar_val,
             anomaly_threshold=eff_anomaly,
             target_metric=sec_metric,
+            include_significance_gate=False,
         )
       else:
         sq = router.build_query(
@@ -805,8 +1511,9 @@ def compile_hunt_pipeline(
             anomaly_threshold=eff_anomaly,
             min_baseline_days=min_baseline_days,
             match_mode=match_mode,
+            include_significance_gate=False,
         )
-      sector_queries[sec_name] = _inject_stage1_filters(sq, entity_value=entity_value, custom_filter=custom_filter)
+      sector_queries[sec_name] = _inject_stage1_filters(sq, entity_value=entity_value, custom_filter=custom_filter, entity_type=sec_ent)
 
     if arch_key == "radar_360_sector_web_http":
       compiled_query = router.build_pipeline_query(PipelineArchitecture.RADAR_360_SECTOR_WEB_HTTP)
@@ -833,7 +1540,7 @@ def compile_hunt_pipeline(
         condition_expression=condition_expression,
         identifier_field=identifier_field,
     )
-    compiled_query = _inject_stage1_filters(compiled_query, entity_value=entity_value, custom_filter=custom_filter)
+    compiled_query = _inject_stage1_filters(compiled_query, entity_value=entity_value, custom_filter=custom_filter, entity_type=ent_enum)
     audit_info = PreFlightValidator.audit(target_metric=primary_metric, entity_type=ent_enum, min_baseline_days=min_baseline_days, identifier_field=identifier_field)
     canonical_arch = PipelineArchitecture.DUAL_BASELINE_3STAGE.value
 
@@ -852,22 +1559,24 @@ def compile_hunt_pipeline(
         condition_expression=condition_expression,
         identifier_field=identifier_field,
     )
-    compiled_query = _inject_stage1_filters(compiled_query, entity_value=entity_value, custom_filter=custom_filter)
+    compiled_query = _inject_stage1_filters(compiled_query, entity_value=entity_value, custom_filter=custom_filter, entity_type=ent_enum)
     audit_info = PreFlightValidator.audit(target_metric=primary_metric, entity_type=ent_enum, min_baseline_days=min_baseline_days, identifier_field=identifier_field)
     canonical_arch = PipelineArchitecture.EMPIRICAL_BAYES_3STAGE.value
 
   elif arch_key in ("fusion", "sector_fusion", "dual_sector_fusion", "dual_sector_fusion_3stage", "fusion_3stage", "multi_sector_fusion", "multi_sector_fusion_4stage", "fusion_4stage", "rollup_sector_fusion"):
+    if len(metric_list) > 2:
+      raise ValueError(pf7_multi_metric_err)
     is_four_stage = arch_key in ("multi_sector_fusion_4stage", "fusion_4stage", "rollup_sector_fusion")
     pipe_enum = PipelineArchitecture.MULTI_SECTOR_FUSION_4STAGE if is_four_stage else PipelineArchitecture.DUAL_SECTOR_FUSION_3STAGE
     if len(metric_list) < 2:
       second = "network_bytes_outbound" if primary_metric != "network_bytes_outbound" else "auth_attempts_fail"
       metric_list = [primary_metric, second]
-    for m in metric_list[:2]:
+    for m in metric_list:
       if ent_enum not in METRIC_CATALOG[m].supported_entity_types:
         ent_enum = EntityType.ASSET
     compiled_query = router.build_pipeline_query(
         pipe_enum,
-        target_metrics=metric_list[:2],
+        target_metrics=metric_list,
         entity_type=ent_enum,
         anomaly_threshold=eff_anomaly,
         min_baseline_days=min_baseline_days,
@@ -883,9 +1592,14 @@ def compile_hunt_pipeline(
     canonical_arch = pipe_enum.value
 
   elif arch_key in ("triad", "part_of_the_whole_triad_multilevel", "part_of_the_whole_triad"):
+    if len(metric_list) > 3:
+      raise ValueError(
+          f"Triad architecture supports at most 3 sibling metrics in one stage, got {len(metric_list)} ({metric_list}); "
+          "use architecture='360_radar' for decoupled multi-sector hunts (PF-7)."
+      )
     compiled_query = router.build_pipeline_query(
         PipelineArchitecture.PART_OF_THE_WHOLE_TRIAD_MULTILEVEL,
-        target_metrics=metric_list[:3],
+        target_metrics=metric_list,
         entity_type=ent_enum,
         anomaly_threshold=eff_anomaly,
         min_baseline_days=min_baseline_days,
@@ -949,21 +1663,25 @@ def compile_hunt_pipeline(
         entity_type=ent_enum,
         anomaly_threshold=eff_anomaly,
         hypothesis_goal=hypothesis_goal,
+        identifier_field=identifier_field,
     )
-    compiled_query = _inject_stage1_filters(compiled_query, entity_value=entity_value, custom_filter=custom_filter)
-    audit_info = PreFlightValidator.audit(target_metric=primary_metric, entity_type=ent_enum, min_baseline_days=min_baseline_days)
+    compiled_query = _inject_stage1_filters(compiled_query, entity_value=entity_value, custom_filter=custom_filter, entity_type=ent_enum)
+    audit_info = PreFlightValidator.audit(target_metric=primary_metric, entity_type=ent_enum, min_baseline_days=min_baseline_days, identifier_field=identifier_field)
     entity_graph_dim = "DERIVED_CONTEXT Domain Prevalence (rolling_max <= 3, day_count = 10)"
     canonical_arch = PipelineArchitecture.RARE_DESTINATION_ECG_3STAGE.value
 
   elif arch_key in ("fusion_rare_destination", "fusion_rare_destination_3stage"):
+    if len(metric_list) > 2:
+      raise ValueError(pf7_multi_metric_err)
     compiled_query = router.build_fusion_rare_destination_query(
-        target_metrics=metric_list[:2] if len(metric_list) >= 2 else None,
+        target_metrics=metric_list if len(metric_list) == 2 else None,
         entity_type=ent_enum,
         fusion_threshold_sq=eff_fusion_sq,
         hypothesis_goal=hypothesis_goal,
+        identifier_field=identifier_field,
     )
     compiled_query = _inject_stage1_filters(compiled_query, entity_value=entity_value, custom_filter=custom_filter)
-    audit_info = PreFlightValidator.audit(target_metric=metric_list[0], entity_type=ent_enum, min_baseline_days=min_baseline_days)
+    audit_info = PreFlightValidator.audit(target_metric=metric_list[0], entity_type=ent_enum, min_baseline_days=min_baseline_days, identifier_field=identifier_field)
     entity_graph_dim = "DERIVED_CONTEXT Domain Prevalence (rolling_max <= 3, day_count = 10)"
     canonical_arch = PipelineArchitecture.FUSION_RARE_DESTINATION_3STAGE.value
 
@@ -980,13 +1698,14 @@ def compile_hunt_pipeline(
     )
     compiled_query = _inject_stage1_filters(compiled_query, entity_value=entity_value, custom_filter=custom_filter)
     primary_metric = fail_m
-    audit_info = PreFlightValidator.audit(target_metric=primary_metric, entity_type=ent_enum, min_baseline_days=min_baseline_days)
+    audit_info = PreFlightValidator.audit(target_metric=primary_metric, entity_type=ent_enum, min_baseline_days=min_baseline_days, identifier_field=identifier_field)
     canonical_arch = PipelineArchitecture.HTTP_ERROR_RATIO_SURGE_2STAGE.value
 
-  elif arch_key == "c2_beacon_flow":
+  elif arch_key in ("outbound_flow_surge", "outbound_flow_surge_2stage", "c2_beacon_flow", "c2_beacon_flow_frequency_2stage"):
     flow_m = primary_metric if primary_metric.startswith("network_flows_") else "network_flows_outbound"
-    ent_enum = EntityType.ASSET
-    compiled_query = router.build_c2_beacon_flow_query(
+    if ent_enum not in METRIC_CATALOG[flow_m].supported_entity_types:
+      ent_enum = EntityType.ASSET
+    compiled_query = router.build_outbound_flow_surge_query(
         target_metric=flow_m,
         entity_type=ent_enum,
         anomaly_threshold=eff_anomaly,
@@ -996,8 +1715,8 @@ def compile_hunt_pipeline(
     )
     compiled_query = _inject_stage1_filters(compiled_query, entity_value=entity_value, custom_filter=custom_filter)
     primary_metric = flow_m
-    audit_info = PreFlightValidator.audit(target_metric=primary_metric, entity_type=ent_enum, min_baseline_days=min_baseline_days)
-    canonical_arch = "C2_BEACON_FLOW_2STAGE"
+    audit_info = PreFlightValidator.audit(target_metric=primary_metric, entity_type=ent_enum, min_baseline_days=min_baseline_days, identifier_field=identifier_field)
+    canonical_arch = "OUTBOUND_FLOW_SURGE_2STAGE"
 
   elif arch_key == "alert_surge":
     primary_metric = "alert_event_name_count"
@@ -1045,7 +1764,8 @@ def compile_hunt_pipeline(
       "hybrid_metric_derived_asset_age_2stage",
       "http_target_surge_2stage",
       "macd_momentum_velocity_2stage",
-      "circadian_von_mises_2stage",
+      "first_seen_novelty",
+      "first_seen_novelty_2stage",
   ):
     hybrid_arch_map = {
         "hybrid_enrichment": PipelineArchitecture.HYBRID_METRIC_RAW_ENRICHMENT_2STAGE,
@@ -1068,35 +1788,100 @@ def compile_hunt_pipeline(
         "hybrid_metric_derived_asset_age_2stage": PipelineArchitecture.HYBRID_METRIC_DERIVED_ASSET_AGE_2STAGE,
         "http_target_surge_2stage": PipelineArchitecture.HTTP_TARGET_SURGE_2STAGE,
         "macd_momentum_velocity_2stage": PipelineArchitecture.MACD_MOMENTUM_VELOCITY_2STAGE,
-        "circadian_von_mises_2stage": PipelineArchitecture.CIRCADIAN_VON_MISES_2STAGE,
+        "first_seen_novelty": PipelineArchitecture.FIRST_SEEN_NOVELTY_2STAGE,
+        "first_seen_novelty_2stage": PipelineArchitecture.FIRST_SEEN_NOVELTY_2STAGE,
     }
     pipe_enum = hybrid_arch_map[arch_key]
+    if pipe_enum == PipelineArchitecture.FIRST_SEEN_NOVELTY_2STAGE and metrics is None:
+      primary_metric = (
+          "auth_attempts_total"
+          if ent_enum == EntityType.USER
+          else ("resource_read_total" if ent_enum == EntityType.RESOURCE else "http_queries_total")
+      )
+      metric_list = [primary_metric]
     plane_upper = "HYBRID" if "HYBRID" in pipe_enum.value else plane_upper
     if ent_enum not in METRIC_CATALOG[primary_metric].supported_entity_types:
       ent_enum = METRIC_CATALOG[primary_metric].supported_entity_types[0]
-    compiled_query = router.build_pipeline_query(
-        pipe_enum,
-        target_metric=primary_metric,
-        entity_type=ent_enum,
-        anomaly_threshold=eff_anomaly,
-        min_baseline_days=min_baseline_days,
-        hypothesis_goal=hypothesis_goal,
-        min_threshold=min_threshold,
-        max_threshold=max_threshold,
-        condition_expression=condition_expression,
-        identifier_field=identifier_field,
-    )
-    compiled_query = _inject_stage1_filters(compiled_query, entity_value=entity_value, custom_filter=custom_filter)
-    audit_info = PreFlightValidator.audit(target_metric=primary_metric, entity_type=ent_enum, min_baseline_days=min_baseline_days)
+    if pipe_enum == PipelineArchitecture.FIRST_SEEN_NOVELTY_2STAGE and intraday_hourly:
+      compiled_query = router.build_query(
+          target_metric=primary_metric,
+          entity_type=ent_enum,
+          statistical_model=StatisticalModel.FIRST_SEEN_NOVELTY,
+          anomaly_threshold=eff_anomaly,
+          min_baseline_days=min_baseline_days,
+          match_mode=match_mode,
+          hypothesis_goal=hypothesis_goal,
+          min_threshold=min_threshold,
+          max_threshold=max_threshold,
+          condition_expression=condition_expression,
+          identifier_field=identifier_field,
+          novelty_subkey_field=novelty_subkey_field,
+          min_novelty_events=min_novelty_events,
+          intraday_hourly=True,
+      )
+    elif intraday_hourly:
+      raise ValueError(
+          f"R3 / PF-10 violation: intraday_hourly=True is supported only on single-metric 2-stage "
+          f"Mode A pipelines, not pipeline architecture '{pipe_enum.value}'."
+      )
+    else:
+      compiled_query = router.build_pipeline_query(
+          pipe_enum,
+          target_metric=primary_metric,
+          entity_type=ent_enum,
+          anomaly_threshold=eff_anomaly,
+          min_baseline_days=min_baseline_days,
+          hypothesis_goal=hypothesis_goal,
+          min_threshold=min_threshold,
+          max_threshold=max_threshold,
+          condition_expression=condition_expression,
+          identifier_field=identifier_field,
+          novelty_subkey_field=novelty_subkey_field,
+          min_novelty_events=min_novelty_events,
+      )
+    compiled_query = _inject_stage1_filters(compiled_query, entity_value=entity_value, custom_filter=custom_filter, entity_type=ent_enum)
+    audit_info = PreFlightValidator.audit(target_metric=primary_metric, entity_type=ent_enum, min_baseline_days=min_baseline_days, identifier_field=identifier_field)
     if "DERIVED" in pipe_enum.value:
       entity_graph_dim = "DERIVED_CONTEXT Prevalence / Asset Age (rolling_max <= 3, day_count = 10)"
     elif "WHOIS" in pipe_enum.value:
       entity_graph_dim = "GLOBAL_CONTEXT WHOIS Domain Registration Lifecycle (NRD <= 30d)"
     canonical_arch = pipe_enum.value
 
+  elif arch_key in ("longitudinal_cusum_series_3stage", "cusum_series_3stage"):
+    if ent_enum not in METRIC_CATALOG[primary_metric].supported_entity_types:
+      ent_enum = METRIC_CATALOG[primary_metric].supported_entity_types[0]
+    cusum_tier_map = {"HIGH_RECALL": 3.0, "BALANCED": 4.0, "HIGH_PRECISION": 5.0}
+    eff_cusum_h = float(anomaly_threshold) if anomaly_threshold is not None else cusum_tier_map.get(sens_tier, 4.0)
+    compiled_query = router.build_longitudinal_cusum_series_query(
+        target_metric=primary_metric,
+        entity_type=ent_enum,
+        cusum_h_threshold=eff_cusum_h,
+        min_baseline_days=min_baseline_days,
+        hypothesis_goal=hypothesis_goal,
+        identifier_field=identifier_field,
+        byte_dispersion_floor=byte_dispersion_floor,
+        min_threshold=min_threshold,
+        max_threshold=max_threshold,
+        condition_expression=condition_expression,
+        local_execution_available=(local_execution_available and has_run_command),
+    )
+    compiled_query = _inject_stage1_filters(
+        compiled_query, entity_value=entity_value, custom_filter=custom_filter, entity_type=ent_enum
+    )
+    audit_info = PreFlightValidator.audit(
+        target_metric=primary_metric,
+        entity_type=ent_enum,
+        min_baseline_days=min_baseline_days,
+        identifier_field=identifier_field,
+    )
+    canonical_arch = PipelineArchitecture.LONGITUDINAL_CUSUM_SERIES_3STAGE.value
+
   else:
-    # Default: 2-Stage Single Metric + Stage 2 Mathematical Model (or auto-routed composite/cloud scope)
-    if primary_metric == "alert_event_name_count":
+    if (
+        primary_metric == "alert_event_name_count"
+        and stat_model_enum != StatisticalModel.FIRST_SEEN_NOVELTY
+        and not intraday_hourly
+    ):
       compiled_query = router.build_alert_surge_query(
           entity_type=ent_enum,
           anomaly_threshold=eff_anomaly,
@@ -1121,6 +1906,29 @@ def compile_hunt_pipeline(
     else:
       if ent_enum not in METRIC_CATALOG[primary_metric].supported_entity_types:
         ent_enum = METRIC_CATALOG[primary_metric].supported_entity_types[0]
+      eff_scoring_days = scoring_days
+      eff_scoring_end_date = scoring_end_date
+      if stat_model_enum in (StatisticalModel.MAD, StatisticalModel.QUANTILE_IQR_SKEW):
+        mode_norm_for_scoring = (effective_mode or "A").strip().upper().replace("MODE", "").strip() or "A"
+        is_today_opt = bool(today_so_far) or mode_norm_for_scoring in ("A_TODAY", "A_PARTIAL")
+        if mode_norm_for_scoring in ("A_TODAY", "A_PARTIAL"):
+          mode_norm_for_scoring = "A"
+        if eff_scoring_days is None:
+          if mode_norm_for_scoring in ("A", "C"):
+            eff_scoring_days = 1
+          elif mode_norm_for_scoring == "B":
+            eff_scoring_days = min(max(window_days if window_days > 1 else MAX_MODE_B_DAYS, 2), MAX_MODE_B_DAYS)
+          else:
+            eff_scoring_days = max(window_days, 1)
+        if eff_scoring_end_date is None:
+          ref_now = reference_time or datetime.datetime.now(datetime.timezone.utc)
+          if ref_now.tzinfo is None:
+            ref_now = ref_now.replace(tzinfo=datetime.timezone.utc)
+          ref_midnight = ref_now.replace(hour=0, minute=0, second=0, microsecond=0)
+          if mode_norm_for_scoring == "A" and not is_today_opt:
+            eff_scoring_end_date = (ref_midnight - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+          else:
+            eff_scoring_end_date = ref_midnight.strftime("%Y-%m-%d")
       compiled_query = router.build_query(
           target_metric=primary_metric,
           entity_type=ent_enum,
@@ -1133,10 +1941,22 @@ def compile_hunt_pipeline(
           max_threshold=max_threshold,
           condition_expression=condition_expression,
           identifier_field=identifier_field,
-          scoring_days=scoring_days,
-          scoring_end_date=scoring_end_date,
+          scoring_days=eff_scoring_days,
+          scoring_end_date=eff_scoring_end_date,
           fold_change_threshold=eff_fold,
           robust_threshold=eff_robust,
+          byte_dispersion_floor=byte_dispersion_floor,
+          prior_alpha0=prior_alpha0,
+          prior_beta0=prior_beta0,
+          fleet_prior_payload=fleet_prior_payload,
+          min_awakening_volume=min_awakening_volume,
+          tenant_tz=tenant_tz,
+          biz_start_hour=biz_start_hour,
+          biz_end_hour=biz_end_hour,
+          learned_active_hours=learned_active_hours,
+          novelty_subkey_field=novelty_subkey_field,
+          min_novelty_events=min_novelty_events,
+          intraday_hourly=intraday_hourly,
       )
       audit_info = PreFlightValidator.audit(
           target_metric=primary_metric,
@@ -1147,26 +1967,71 @@ def compile_hunt_pipeline(
       )
       canonical_arch = (
           PipelineArchitecture.CLOUD_REPOSITORY_SCOPE_DUAL_BRANCH.value
-          if (primary_metric.startswith("resource_") and ent_enum == EntityType.USER and stat_model_enum != StatisticalModel.MAD)
+          if (
+              primary_metric.startswith("resource_")
+              and ent_enum == EntityType.USER
+              and stat_model_enum == StatisticalModel.STANDARD_Z_SCORE
+              and not intraday_hourly
+          )
           else PipelineArchitecture.LOCAL_2STAGE.value
       )
-    compiled_query = _inject_stage1_filters(compiled_query, entity_value=entity_value, custom_filter=custom_filter)
+    compiled_query = _inject_stage1_filters(compiled_query, entity_value=entity_value, custom_filter=custom_filter, entity_type=ent_enum)
 
-  # 2. Validate AST and Statistical Antipatterns
+  # 2. Compute Execution Windows & Turn-1 10-Minute Probe Query
+  window_spec = _compute_execution_windows(
+      compiled_query=compiled_query,
+      mode=effective_mode,
+      window_days=window_days,
+      statistical_model=stat_model_enum if plane_upper != "MICRO_RAW" else None,
+      reference_time=reference_time,
+      today_so_far=today_so_far,
+      start_time=start_time,
+      end_time=end_time,
+      target_date=target_date,
+      intraday_hourly=intraday_hourly,
+      allow_short_intraday_window=allow_short_intraday_window,
+  )
+  compiled_query = window_spec["effective_query"]
+  effective_mode_notice = " ".join(
+      n for n in (redirect_notice, window_spec.get("mode_notice")) if n
+  ) or None
+  shard_pacing = window_spec.get("shard_pacing")
+  has_ecg_join = bool(re.search(r"\bgraph\.(?:entity|metadata|relations)\b", compiled_query))
+  ecg_source_type: Optional[str] = (
+      "DERIVED_CONTEXT"
+      if "DERIVED_CONTEXT" in compiled_query
+      else ("GLOBAL_CONTEXT" if "GLOBAL_CONTEXT" in compiled_query else None)
+  )
+  ecg_join_filter_disclosure = _build_ecg_join_filter_disclosure(
+      has_ecg_join, bool(window_spec.get("ecg_72h_anchor_applied"))
+  )
+  day0_companion_query: Optional[str] = None
+  day0_companion_window: Optional[Dict[str, str]] = None
+  if has_ecg_join and plane_upper != "MICRO_RAW" and primary_metric in METRIC_CATALOG:
+    comp_ent = (
+        ent_enum
+        if ent_enum in METRIC_CATALOG[primary_metric].supported_entity_types
+        else METRIC_CATALOG[primary_metric].supported_entity_types[0]
+    )
+    day0_companion_query = router.build_day0_ecg_companion_query(
+        target_metric=primary_metric,
+        entity_type=comp_ent,
+        anomaly_threshold=eff_anomaly,
+        identifier_field=identifier_field,
+        byte_dispersion_floor=byte_dispersion_floor,
+    )
+    day0_companion_window = window_spec.get("scored_day_window") or {
+        "day": window_spec["shards"][0]["day"],
+        "start_time": window_spec["start_time"],
+        "end_time": window_spec["end_time"],
+    }
+
+  # 3. Validate AST and Statistical Antipatterns
   ast_errors = MalachiteASTValidator.validate_query(compiled_query)
   stat_violations = [
       f"[{sv.antipattern.value}] stage '{sv.stage_name}': {sv.description}"
       for sv in StatisticalAntipatternAuditor.audit_query(compiled_query)
   ]
-
-  # 3. Compute Execution Windows & Turn-1 10-Minute Probe Query
-  window_spec = _compute_execution_windows(
-      compiled_query=compiled_query,
-      mode=mode,
-      window_days=window_days,
-      statistical_model=stat_model_enum if plane_upper != "MICRO_RAW" else None,
-      reference_time=reference_time,
-  )
 
   probe_filter_lines = list(audit_info.get("event_filter", ['metadata.event_type = "USER_LOGIN"']))
   probe_query = " AND ".join(probe_filter_lines)
@@ -1178,22 +2043,108 @@ def compile_hunt_pipeline(
       if cohort_entities
       else f"Enterprise {ent_enum.value.title()} Population"
   )
+  cohort_cap_info: Optional[Dict[str, Any]] = None
+  if cohort_entities and canonical_arch in (
+      PipelineArchitecture.PART_OF_THE_WHOLE_MULTILEVEL.value,
+      PipelineArchitecture.PART_OF_THE_WHOLE_TRIAD_MULTILEVEL.value,
+  ):
+    unique_peers = list(dict.fromkeys(c for c in cohort_entities if c))
+    is_triad_arch = (
+        canonical_arch == PipelineArchitecture.PART_OF_THE_WHOLE_TRIAD_MULTILEVEL.value
+    )
+    eff_gate_z = float(min_threshold) if min_threshold is not None else float(eff_anomaly)
+    eff_gate_sq = float(min_threshold) if min_threshold is not None else float(eff_fusion_sq)
+    cohort_cap_info = evaluate_samuelson_cohort_cap(
+        len(unique_peers),
+        threshold_z=eff_gate_z,
+        is_triad=is_triad_arch,
+        fusion_threshold_sq=eff_gate_sq,
+    )
   root_gate = MultiStageTemplateRouter.root_condition(compiled_query)
-  sig_label = root_gate or default_significance_threshold(stat_model_enum.value) or f"Z >= {eff_anomaly}σ (CRI >= 50)"
+  if canonical_arch == PipelineArchitecture.RADAR_360_DECOUPLED_SECTOR.value:
+    sig_label = f"NONE per sector (post-query Euclidean D >= {eff_anomaly})"
+  else:
+    sig_label = root_gate or default_significance_threshold(stat_model_enum.value) or f"Z >= {eff_anomaly}σ (CRI >= 50)"
+
+  cusum_series_query: Optional[str] = None
+  helper_script: Optional[str] = None
+  if stat_model_enum == StatisticalModel.LONGITUDINAL_CUSUM and not is_explicit_stateless_slack_sum:
+    helper_script = "scripts/cusum_helper.py"
+    if canonical_arch == PipelineArchitecture.LONGITUDINAL_CUSUM_SERIES_3STAGE.value:
+      cusum_series_query = compiled_query
+    elif primary_metric in METRIC_CATALOG:
+      cusum_tier_map = {"HIGH_RECALL": 3.0, "BALANCED": 4.0, "HIGH_PRECISION": 5.0}
+      eff_cusum_h = float(anomaly_threshold) if anomaly_threshold is not None else cusum_tier_map.get(sens_tier, 4.0)
+      cusum_ent = (
+          ent_enum
+          if ent_enum in METRIC_CATALOG[primary_metric].supported_entity_types
+          else METRIC_CATALOG[primary_metric].supported_entity_types[0]
+      )
+      sq_raw = router.build_longitudinal_cusum_series_query(
+          target_metric=primary_metric,
+          entity_type=cusum_ent,
+          cusum_h_threshold=eff_cusum_h,
+          min_baseline_days=min_baseline_days,
+          hypothesis_goal=hypothesis_goal,
+          identifier_field=identifier_field,
+          byte_dispersion_floor=byte_dispersion_floor,
+          local_execution_available=True,
+      )
+      cusum_series_query = _inject_stage1_filters(
+          sq_raw, entity_value=entity_value, custom_filter=custom_filter, entity_type=cusum_ent
+      )
+
+  model_card_label = (
+      "WINDOWED_SLACK_SUM (Windowed Slack Sum — Stateless Prefilter)"
+      if is_explicit_stateless_slack_sum
+      else f"{stat_model_enum.value} ({canonical_arch})"
+  )
 
   preflight_card = PreFlightValidator.render_preflight_card(
       target_scope=target_scope_label,
       peer_cohort=peer_cohort_label,
-      statistical_model=f"{stat_model_enum.value} ({canonical_arch})",
+      statistical_model=model_card_label,
       entity_graph_dimension=entity_graph_dim,
       evaluation_mode=window_spec["evaluation_mode_label"],
       significance_threshold=sig_label,
       min_baseline_days=audit_info.get("min_baseline_days", 7),
   )
+  if window_spec["partial_day_warning"]:
+    preflight_card = (
+        f"{preflight_card}\n\n"
+        "> [!WARNING]\n"
+        f"> **⚠️ Partial UTC Day — Low-Biased vs Full-Day Baseline**: {window_spec['partial_day_warning']}"
+    )
+  if effective_mode_notice:
+    preflight_card = (
+        f"{preflight_card}\n\n"
+        "> [!NOTE]\n"
+        f"> **⏱️ Timeline Horizon Routing (D9)**: {effective_mode_notice}"
+    )
+  if shard_pacing:
+    preflight_card = (
+        f"{preflight_card}\n\n"
+        f"* **⏱️ Mode C Query Pacing (D9 / WS1-11)**: Dispatch `{shard_pacing['shard_count']}` daily shards in "
+        f"`{shard_pacing['batch_count']}` batch(es) of at most `{shard_pacing['batch_size']}` "
+        f"(`{shard_pacing['inter_batch_pause_seconds']:.1f}s` inter-batch pause; retry transient "
+        f"`{', '.join(shard_pacing['retry_on'][:3])}` once; estimated run time `~{shard_pacing['estimated_wall_minutes']} min`)."
+    )
+  if ecg_join_filter_disclosure:
+    preflight_card = (
+        f"{preflight_card}\n\n"
+        f"* **🔗 ECG Inner-Join Filter & `[D-32, D-2)` Baseline Disclosure (PF-8 / WS1-08)**: {ecg_join_filter_disclosure}"
+    )
+  if cohort_cap_info and cohort_cap_info.get("cohort_too_small") and cohort_cap_info.get("warning"):
+    preflight_card = (
+        f"{preflight_card}\n\n"
+        "> [!WARNING]\n"
+        f"> **⚠️ Samuelson Small-Cohort Cap (PF-2 / WS1-09)**: {cohort_cap_info['warning']}"
+    )
 
   clearance_question = (
-      "Would you like me to proceed with **Mode A (Today vs 30-Day Baseline)**, "
-      "**Mode B (2–7 Day Fixed-Baseline Timeline)**, or **Mode C (Per-Day Baseline Shards)**? "
+      "Would you like me to proceed with **Mode A (Last Complete UTC Day vs 30-Day Baseline)** "
+      "[or **Mode A — Today So Far (Partial UTC Day)**], "
+      "**Mode B (2–3 Day Fixed-Baseline Timeline)**, or **Mode C (Per-Day Baseline Shards)**? "
       "(Thresholds can be tuned first.)"
   )
 
@@ -1207,10 +2158,17 @@ def compile_hunt_pipeline(
         f"- **Bridge Contract**: `{bridge_keys}`\n"
         f"- **Phase 2**: Pivot into the secondary entity plane using the extracted bridge keys or Chronicle Data Table column syntax (`in %ueba_hunt_bridge.entity`)."
     )
-  md_parts.extend([
-      "#### 💻 Candidate Multi-Stage YARA-L 2.0 Query Preview\n\n```yara\n" + compiled_query.strip() + "\n```",
-      clearance_question,
-  ])
+  md_parts.append(
+      "#### 💻 Candidate Multi-Stage YARA-L 2.0 Query Preview\n\n```yara\n" + compiled_query.strip() + "\n```"
+  )
+  if day0_companion_query and day0_companion_window:
+    md_parts.append(
+        f"#### 🆕 Day-0 Unindexed Artifact Companion Query (`{day0_companion_window['start_time']}` → `{day0_companion_window['end_time']}`, no `graph.*` inner join)\n\n"
+        "```yara\n"
+        + day0_companion_query.strip()
+        + "\n```"
+    )
+  md_parts.append(clearance_question)
   preflight_card_markdown = "\n\n".join(md_parts)
 
   return {
@@ -1224,13 +2182,33 @@ def compile_hunt_pipeline(
       "entity_value": entity_value or "Fleet-Wide",
       "target_field": audit_info.get("target_field", ""),
       "mode": window_spec["mode"],
+      "redirected_from_mode": redirected_from_mode,
+      "capped_from_days": window_spec.get("capped_from_days"),
+      "mode_notice": effective_mode_notice,
       "window_days": window_spec["window_days"],
       "evaluation_mode_label": window_spec["evaluation_mode_label"],
+      "is_partial_day": window_spec["is_partial_day"],
+      "partial_day_warning": window_spec["partial_day_warning"],
+      "intraday_hourly": bool(intraday_hourly),
+      "intraday_window_meta": window_spec.get("intraday_window_meta"),
+      "has_ecg_join": has_ecg_join,
+      "ecg_source_type": ecg_source_type,
+      "ecg_join_filter_disclosure": ecg_join_filter_disclosure,
+      "day0_companion_query": day0_companion_query,
+      "day0_companion_window": day0_companion_window,
+      "cohort_size": cohort_cap_info["cohort_size"] if cohort_cap_info else None,
+      "samuelson_max_z": cohort_cap_info["samuelson_max_z"] if cohort_cap_info else None,
+      "samuelson_max_d_sq": cohort_cap_info["samuelson_max_d_sq"] if cohort_cap_info else None,
+      "required_min_cohort_size": cohort_cap_info["required_min_cohort_size"] if cohort_cap_info else None,
+      "cohort_too_small": bool(cohort_cap_info and cohort_cap_info.get("cohort_too_small")),
+      "cohort_cap_warning": cohort_cap_info["warning"] if cohort_cap_info else None,
       "sensitivity": sens_tier,
       "anomaly_threshold": eff_anomaly,
       "min_baseline_days": audit_info.get("min_baseline_days", 7),
       "compiled_query": compiled_query,
       "query": compiled_query,
+      "cusum_series_query": cusum_series_query,
+      "helper_script": helper_script,
       "probe_query": probe_query,
       "probe_start_time": window_spec["probe_start_time"],
       "probe_end_time": window_spec["probe_end_time"],
@@ -1240,17 +2218,23 @@ def compile_hunt_pipeline(
           "start_time": window_spec["start_time"],
           "end_time": window_spec["end_time"],
           "mode": window_spec["mode"],
+          "redirected_from_mode": redirected_from_mode,
+          "capped_from_days": window_spec.get("capped_from_days"),
           "window_days": window_spec["window_days"],
+          "is_partial_day": window_spec["is_partial_day"],
           "baseline_start_date": window_spec["baseline_start_date"],
           "baseline_end_date": window_spec["baseline_end_date"],
           "ecg_72h_anchor_applied": window_spec["ecg_72h_anchor_applied"],
+          "shard_pacing": shard_pacing,
       },
+      "shard_pacing": shard_pacing,
       "shards": window_spec["shards"],
       "sector_queries": sector_queries,
       "chained_plan": chained_plan,
       "ast_valid": len(ast_errors) == 0,
       "ast_errors": ast_errors,
       "statistical_violations": stat_violations,
+      "advisories": list(dict.fromkeys([*router.last_advisories, *merged_advisories])),
       "audit": audit_info,
       "preflight_card": preflight_card,
       "preflight_card_markdown": preflight_card_markdown,
@@ -1348,19 +2332,9 @@ def dispatch_hybrid_handoff(
 # ---------------------------------------------------------------------------
 
 
-def _cri_band_metadata(cri: int) -> Tuple[str, str, str]:
-  """Returns (short_badge, full_band_label, unicode_bar) for a CRI [0..100] score."""
-  blocks = max(0, min(8, int(round((cri / 100.0) * 8))))
-  bar = ("█" * blocks) + ("░" * (8 - blocks))
-  if cri >= 90:
-    return "CRITICAL", "🚨 Critical Outlier", bar
-  if cri >= 70:
-    return "HIGH", "🔴 High Threat", bar
-  if cri >= 46:
-    return "MEDIUM", "🟠 Medium Outlier", bar
-  if cri >= 26:
-    return "LOW", "🟡 Low Drift", bar
-  return "INFORMATIONAL", "🟢 Nominal", bar
+def _cri_band_metadata(cri: Any) -> Tuple[str, str, str]:
+  """Returns (short_badge, full_band_label, unicode_bar) for a CRI [0..100] or None score."""
+  return get_cri_band_metadata(cri)
 
 
 def _normalize_single_row(raw_row: Dict[str, Any]) -> Dict[str, Any]:
@@ -1399,13 +2373,12 @@ def _normalize_single_row(raw_row: Dict[str, Any]) -> Dict[str, Any]:
         val = row[k]
         if isinstance(val, list) and val:
           val = val[0]
-        try:
-          return float(val)
-        except (TypeError, ValueError):
-          continue
+        parsed = _coerce_finite_float(val)
+        if parsed is not None:
+          return parsed
     return default
 
-  observed = _first_float((
+  obs_keys = (
       "observed",
       "observed_val",
       "observed_24h",
@@ -1419,9 +2392,8 @@ def _normalize_single_row(raw_row: Dict[str, Any]) -> Dict[str, Any]:
       "observed_fails",
       "m1_obs",
       "sector_a_obs",
-  ), 0.0)
-
-  hist_avg = _first_float((
+  )
+  avg_keys = (
       "hist_avg",
       "historical_avg",
       "avg_30d",
@@ -1432,11 +2404,11 @@ def _normalize_single_row(raw_row: Dict[str, Any]) -> Dict[str, Any]:
       "historical_flow_avg",
       "hist_fail_avg",
       "median_30d",
+      "q50_val",
       "d_mu",
       "m1_avg",
-  ), 0.0)
-
-  hist_stddev = _first_float((
+  )
+  std_keys = (
       "hist_stddev",
       "historical_stddev",
       "stddev_30d",
@@ -1447,10 +2419,17 @@ def _normalize_single_row(raw_row: Dict[str, Any]) -> Dict[str, Any]:
       "hist_fail_stddev",
       "robust_scale",
       "safe_robust_scale",
+      "safe_iqr",
       "d_sigma",
-  ), 1.0)
+  )
+  raw_obs = _first_float(obs_keys)
+  raw_avg = _first_float(avg_keys)
+  raw_std = _first_float(std_keys)
+  observed = raw_obs if raw_obs is not None else 0.0
+  hist_avg = raw_avg if raw_avg is not None else 0.0
+  hist_stddev = raw_std if raw_std is not None else 1.0
 
-  active_days = _first_float((
+  active_days_keys = (
       "active_days",
       "hist_active_days",
       "historical_active_days",
@@ -1460,73 +2439,266 @@ def _normalize_single_row(raw_row: Dict[str, Any]) -> Dict[str, Any]:
       "hist_flow_active_days",
       "hist_fail_active_days",
       "baseline_days",
-  ), 30.0)
+      "raw_active_days",
+  )
+  raw_active_days = _first_float(active_days_keys)
+  has_explicit_active_days = raw_active_days is not None
+  active_days = raw_active_days if raw_active_days is not None else 30.0
 
-  score = _first_float((
-      "z_score",
+  score_keys = (
       "modified_z",
-      "delta_z",
-      "shielded_z",
-      "circadian_threat_score",
-      "hourly_z",
-      "cusum_drift_score",
-      "hurdle_threat_score",
-      "upper_tail_z",
-      "sensitivity_excess",
-      "macd_momentum_score",
-      "bayes_shift_ratio",
-      "posterior_fail_prob",
-      "posterior_lift",
-      "surge_ratio",
+      "m_z_score",
+      "tukey_excess_z",
+      "quantile_z",
+      "fence_z",
+      "macd_z",
+      "above_max_z",
+      "bayesian_z",
+      "beta_binomial_z",
+      "adaptive_z",
+      "hod_z_score",
+      "burst_z",
+      "flow_surge_score",
+      "deficit_z",
+      "novelty_flag",
+      "tukey_fence_ratio",
       "fold_change",
+      "rel_dev_z_equiv",
+      "surge_ratio",
+      "hourly_surge_ratio",
       "fano_factor",
-      "eb_z_score",
+      "cv",
+      "diversity_z",
+      "sensitivity_excess",
+      "bayes_shift_ratio",
+      "posterior_lift",
+      "posterior_fail_prob",
+      "posterior_fail_rate",
+      "regularized_failure_prob",
+      "posterior_rate",
+      "empirical_shift",
+      "ratio_1v7",
+      "ratio_1v30",
+      "shannon_entropy_score",
+      "entropy_score",
+      "zipf_rarity_score",
+      "rarity_score",
+      "ewma_velocity_score",
+      "velocity_score",
+      "velocity_kmh",
+      "markov_threat_score",
+      "fused_threat_score",
+      "cusum_drift_score",
+      "windowed_slack_sum",
+      "hurdle_threat_score",
+      "hurdle_anomaly_score",
+      "circadian_threat_score",
+      "macd_momentum_score",
+      "normalized_odds_score",
+      "composite_risk",
+      "composite_threat_distance",
+      "threat_distance",
+      "threat_norm",
+      "threat_score",
+      "concentration_ratio",
+      "producer_ratio",
+      "beacon_score",
+      "recon_score",
+      "target_risk_score",
+      "shielded_z",
+      "targeted_delta_z",
+      "delta_z",
+      "upper_tail_z",
+      "hourly_z",
       "poisson_z",
+      "eb_z_score",
+      "bayesian_z",
+      "fleet_z",
+      "z_log",
+      "macro_z_score",
+      "macro_z",
+      "z_vs_enterprise",
+      "z_vs_team",
+      "z_sector",
+      "alert_z",
+      "process_z",
+      "fail_z",
+      "flow_z",
       "cusum_s",
       "hurdle_z",
       "asymmetric_z",
       "macd_z",
       "circadian_z",
-      "composite_risk",
-      "threat_distance",
-      "threat_norm",
-      "threat_score",
-      "normalized_odds_score",
-      "target_risk_score",
-      "recon_score",
-      "beacon_score",
-      "alert_z",
-      "process_z",
-      "fail_z",
-      "flow_z",
-      "macro_z_score",
-      "macro_z",
-      "z_vs_team",
-      "z_vs_enterprise",
       "raw_z",
       "clamped_z",
-      "personal_z",
-      "anomaly_score",
       "ratio",
+      "personal_z",
+      "z_score",
+      "anomaly_score",
+      "score",
       "z",
-  ))
+  )
+  sq_score_keys = (
+      "composite_threat_norm_sq",
+      "threat_vector_norm_sq",
+      "threat_distance_sq",
+      "poisson_z_sq",
+      "d_vs_fleet_sq",
+      "d_vs_team_sq",
+      "d_sq",
+      "norm_sq",
+  )
+  has_any_score_key = any(k in row for k in score_keys + sq_score_keys)
 
-  if score is None:
-    sq_val = _first_float(("threat_distance_sq", "composite_threat_norm_sq", "d_vs_fleet_sq", "d_vs_team_sq", "d_sq", "norm_sq"))
-    if sq_val is not None:
-      score = math.sqrt(max(0.0, sq_val))
-    elif observed is not None and hist_avg is not None:
-      denom = hist_stddev if (hist_stddev and hist_stddev > 0) else 1.0
-      score = (observed - hist_avg) / denom
-    else:
-      score = 0.0
+  matched_key: Optional[str] = None
+  matched_is_sq = False
+  raw_score: Optional[float] = None
 
-  explicit_cri = _first_float(("cri", "cri_score"))
-  cri_int = int(round(explicit_cri)) if explicit_cri is not None else cri_from_score(score)
-  cri_int = max(0, min(100, cri_int))
-  short_badge, full_band, bar = _cri_band_metadata(cri_int)
+  # Preserve original model score key when re-normalizing Mode C shard rows.
+  prior_key = row.get("score_key")
+  if isinstance(prior_key, str) and prior_key in row:
+    prior_val = row[prior_key]
+    if isinstance(prior_val, list) and prior_val:
+      prior_val = prior_val[0]
+    parsed_prior = _coerce_finite_float(prior_val)
+    if parsed_prior is not None:
+      matched_key = prior_key
+      matched_is_sq = prior_key in sq_score_keys
+      raw_score = parsed_prior
+
+  if raw_score is None:
+    for k in score_keys:
+      if k in row and row[k] is not None and row[k] != "-":
+        val = row[k]
+        if isinstance(val, list) and val:
+          val = val[0]
+        parsed = _coerce_finite_float(val)
+        if parsed is not None:
+          matched_key = k
+          matched_is_sq = False
+          raw_score = parsed
+          break
+
+  if raw_score is None:
+    for k in sq_score_keys:
+      if k in row and row[k] is not None and row[k] != "-":
+        val = row[k]
+        if isinstance(val, list) and val:
+          val = val[0]
+        parsed = _coerce_finite_float(val)
+        if parsed is not None:
+          matched_key = k
+          matched_is_sq = True
+          raw_score = parsed
+          break
+
+  if raw_score is None and not has_any_score_key and raw_obs is not None and raw_avg is not None:
+    denom = raw_std if (raw_std is not None and raw_std > 0) else 1.0
+    matched_key = "z_score"
+    matched_is_sq = False
+    raw_score = (raw_obs - raw_avg) / denom
+
+  # WS1-08 / PF-8: when ECG first_seen_time = 0, disable <7d ECG novelty boost (2.5x)
+  has_ecg_first_seen_key = any(k in row for k in ("first_seen", "first_seen_ts", "first_seen_time", "ecg_novelty_disabled"))
+  ecg_first_seen_val = _first_float(("first_seen", "first_seen_ts", "first_seen_time"))
+  ecg_disabled_flag = _first_float(("ecg_novelty_disabled",))
+  ecg_novelty_boost_disabled = bool(
+      row.get("ecg_novelty_boost_disabled")
+      or (ecg_disabled_flag is not None and ecg_disabled_flag >= 1.0)
+      or (has_ecg_first_seen_key and ecg_first_seen_val is not None and ecg_first_seen_val <= 0.0)
+  )
+  if ecg_novelty_boost_disabled and matched_key == "threat_score" and raw_score is not None:
+    base_z = _first_float(("z_score", "personal_z"))
+    if base_z is not None:
+      has_prevalence = any(k in row for k in ("fleet_prevalence", "enterprise_rolling_max"))
+      unboosted_cap = (1.5 * base_z) if has_prevalence else base_z
+      if raw_score > unboosted_cap:
+        raw_score = unboosted_cap
+
+  if raw_score is not None and matched_key == "novelty_flag":
+    display_score: Optional[float] = raw_score
+    z_equiv = score_to_z_equivalent(matched_key, raw_score)
+    true_sigma = is_true_sigma_key(matched_key)
+    score_display = format_score_with_unit(matched_key, raw_score)
+  elif raw_score is not None and matched_key is not None:
+    display_score = (
+        math.sqrt(max(0.0, raw_score)) if matched_is_sq else raw_score
+    )
+    z_equiv = score_to_z_equivalent(matched_key, raw_score, already_sqrt=False)
+    true_sigma = is_true_sigma_key(matched_key) and not matched_is_sq
+    score_display = format_score_with_unit(
+        None if matched_is_sq else matched_key, display_score
+    )
+  else:
+    display_score = None
+    z_equiv = None
+    true_sigma = False
+    score_display = "N/A"
+
+  has_explicit_cri = any(k in row for k in ("cri", "cri_score")) and prior_key is None
+  explicit_cri = (
+      coerce_cri_int(row.get("cri") if "cri" in row else row.get("cri_score"))
+      if has_explicit_cri
+      else None
+  )
+  if explicit_cri is not None:
+    cri_int: Optional[int] = explicit_cri
+  elif matched_key == "novelty_flag":
+    cri_int = None
+  elif has_explicit_cri and not has_any_score_key:
+    cri_int = None
+  elif raw_score is not None and matched_key is not None:
+    cri_int = cri_from_model_score(matched_key, raw_score, already_sqrt=False)
+  else:
+    cri_int = None
+  if matched_key == "novelty_flag" and cri_int is None and raw_score is not None:
+    short_badge = "NOVELTY" if raw_score >= 1.0 else "SEEN"
+    full_band = (
+        "🆕 Novelty Flag (30d first_seen = 0)"
+        if raw_score >= 1.0
+        else "🟢 Seen in 30d Baseline"
+    )
+    bar = "█" * 5 + "░" * 5 if raw_score >= 1.0 else "░" * 10
+  else:
+    short_badge, full_band, bar = _cri_band_metadata(cri_int)
+
+  z_score_val: Optional[float] = (
+      round(display_score, 2) if display_score is not None else None
+  )
+
+  earlier_today_sum = _first_float(("earlier_today_sum",))
+  earlier_today_peak = _first_float(("earlier_today_peak_hour",))
+  earlier_today_hours = _first_float(("earlier_today_active_hours",))
+  earlier_today_first = _first_float(("earlier_today_first_seen",))
+  raw_full_today = _first_float(("full_today_so_far",))
 
   normalized = dict(row)
+  if earlier_today_sum is not None or raw_full_today is not None:
+    eff_earlier_sum = float(earlier_today_sum if earlier_today_sum is not None else 0.0)
+    eff_obs = float(observed if observed is not None else 0.0)
+    eff_full_today = (
+        float(raw_full_today)
+        if raw_full_today is not None
+        else (eff_earlier_sum + eff_obs)
+    )
+    intraday_eval = evaluate_intraday_today_so_far(
+        earlier_today_sum=eff_earlier_sum,
+        raw_observed=eff_obs,
+        hist_avg=float(hist_avg if hist_avg is not None else 0.0),
+        hist_stddev=float(hist_stddev if hist_stddev is not None else 1.0),
+    )
+    normalized["earlier_today_sum"] = round(eff_earlier_sum, 2)
+    normalized["full_today_so_far"] = round(eff_full_today, 2)
+    normalized["guaranteed_full_day_breach"] = intraday_eval["guaranteed_full_day_breach"]
+    normalized["intraday_verdict"] = intraday_eval["verdict"]
+    normalized["intraday_status_label"] = intraday_eval["status_label"]
+    if earlier_today_peak is not None:
+      normalized["earlier_today_peak_hour"] = round(earlier_today_peak, 2)
+    if earlier_today_hours is not None:
+      normalized["earlier_today_active_hours"] = int(round(earlier_today_hours))
+    if earlier_today_first is not None:
+      normalized["earlier_today_first_seen"] = int(round(earlier_today_first))
+
   normalized.update({
       "entity": entity,
       "observed": round(observed, 2) if observed is not None else 0.0,
@@ -1536,15 +2708,36 @@ def _normalize_single_row(raw_row: Dict[str, Any]) -> Dict[str, Any]:
       "hist_stddev": round(hist_stddev, 2) if hist_stddev is not None else 1.0,
       "historical_stddev": round(hist_stddev, 2) if hist_stddev is not None else 1.0,
       "active_days": int(round(active_days)) if active_days is not None else 30,
-      "z_score": round(score, 2),
-      "anomaly_score": round(score, 2),
+      "has_explicit_active_days": has_explicit_active_days,
+      "ecg_novelty_boost_disabled": ecg_novelty_boost_disabled,
+      "score_key": matched_key,
+      "z_equivalent": round(z_equiv, 4) if z_equiv is not None else None,
+      "is_true_sigma": true_sigma,
+      "score_display": score_display,
+      "z_score": z_score_val,
+      "anomaly_score": round(display_score, 2) if display_score is not None else None,
       "cri": cri_int,
       "cri_score": cri_int,
+      "cri_display": format_cri(cri_int),
       "cri_badge": short_badge,
       "cri_band_label": full_band,
       "visual_bar": bar,
   })
   return normalized
+
+
+def _normalized_row_sort_key(item: Dict[str, Any]) -> Tuple[float, float]:
+  """Sorts normalized outlier rows monotonically by Z-equivalent severity."""
+  z_eq = item.get("z_equivalent")
+  primary = float(z_eq) if z_eq is not None else -math.inf
+  raw_s = item.get("anomaly_score")
+  if raw_s is None:
+    tie = -math.inf
+  elif is_inverted_score_key(item.get("score_key")):
+    tie = -float(raw_s)
+  else:
+    tie = float(raw_s)
+  return (primary, tie)
 
 
 def _extract_and_normalize_rows(
@@ -1569,7 +2762,7 @@ def _extract_and_normalize_rows(
         r_copy = dict(r)
         r_copy.setdefault("day", day_str)
         combined.append(_normalize_single_row(r_copy))
-    combined.sort(key=lambda x: x.get("z_score", 0.0), reverse=True)
+    combined.sort(key=_normalized_row_sort_key, reverse=True)
     return combined, {"stats": {"results": combined}}
 
   if isinstance(rows_input, str):
@@ -1587,13 +2780,13 @@ def _extract_and_normalize_rows(
       return [], rows_input
     if "top_outliers" in rows_input and isinstance(rows_input["top_outliers"], list):
       normalized = [_normalize_single_row(r) for r in rows_input["top_outliers"]]
-      normalized.sort(key=lambda x: x.get("z_score", 0.0), reverse=True)
+      normalized.sort(key=_normalized_row_sort_key, reverse=True)
       return normalized, {"stats": {"results": normalized}}
     if "results" in rows_input and "stats" not in rows_input and isinstance(rows_input["results"], list):
       return _extract_and_normalize_rows(rows_input["results"])
     parsed = parse_stats_payload(rows_input)
     normalized = [_normalize_single_row(r) for r in parsed]
-    normalized.sort(key=lambda x: x.get("z_score", 0.0), reverse=True)
+    normalized.sort(key=_normalized_row_sort_key, reverse=True)
     return normalized, rows_input
 
   if isinstance(rows_input, (list, tuple)):
@@ -1603,10 +2796,20 @@ def _extract_and_normalize_rows(
       normalized = [_normalize_single_row(r) for r in parsed]
     else:
       normalized = [_normalize_single_row(r) for r in rows_input if isinstance(r, dict)]
-    normalized.sort(key=lambda x: x.get("z_score", 0.0), reverse=True)
+    normalized.sort(key=_normalized_row_sort_key, reverse=True)
     return normalized, {"stats": {"results": normalized}}
 
   return [], {"stats": {"results": []}}
+
+
+_MATURITY_GATED_MODELS: frozenset[StatisticalModel] = frozenset({
+    StatisticalModel.STANDARD_Z_SCORE,
+    StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z,
+    StatisticalModel.COEFFICIENT_OF_VARIATION,
+    StatisticalModel.MACD_MOMENTUM_VELOCITY,
+    StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD,
+    StatisticalModel.LONGITUDINAL_CUSUM,
+})
 
 
 def render_forensic_dossier(
@@ -1619,9 +2822,14 @@ def render_forensic_dossier(
     window_days: int = 14,
     anomaly_threshold: float = 3.0,
     output_html_path: Optional[Union[str, Path]] = None,
-    radar_scores: Optional[Union[str, Dict[str, float]]] = None,
+    radar_scores: Optional[Union[str, Dict[str, Any]]] = None,
     baseline_dates: Optional[Tuple[str, str]] = None,
     skip_postflight_audit: bool = False,
+    radar_sector_payloads: Optional[Dict[str, Any]] = None,
+    radar_query_texts: Optional[Dict[str, str]] = None,
+    today_so_far: bool = False,
+    min_baseline_days: int = DEFAULT_MIN_BASELINE_DAYS,
+    intraday_hourly: bool = False,
     **kwargs: Any,
 ) -> Dict[str, Any]:
   """Renders a 6-Section CommonMark Forensic Triage Dossier with CRI scoring, SVG/HTML charts, and next steps.
@@ -1634,6 +2842,8 @@ def render_forensic_dossier(
   - 360° Entity Behavioral Radar (`EntityRadarCollector`)
   - Self-contained HTML + SVG Chart Generation (`RiskMetricsChartGenerator` & `EntityRadarCollector`)
   """
+  start_time: Optional[str] = kwargs.get("start_time")
+  end_time: Optional[str] = kwargs.get("end_time")
   del kwargs
 
   clean_metric = (metric_name or "auth_attempts_total").strip()
@@ -1652,7 +2862,64 @@ def render_forensic_dossier(
       unparseable_str_error = f"UNPARSEABLE_BACKEND_RESPONSE: Could not parse rows string as JSON: {exc}"
 
   outliers, raw_envelope = _extract_and_normalize_rows(rows)
+  eff_intraday_hourly = (
+      bool(intraday_hourly)
+      or ("window: today" in (executed_query or ""))
+      or any("earlier_today_sum" in r or "full_today_so_far" in r for r in outliers)
+  )
+  if eff_intraday_hourly:
+    for r in outliers:
+      if "earlier_today_sum" in r or "full_today_so_far" in r:
+        r_eval = evaluate_intraday_today_so_far(
+            earlier_today_sum=float(r.get("earlier_today_sum", 0.0)),
+            raw_observed=float(r.get("observed", 0.0)),
+            hist_avg=float(r.get("hist_avg", 0.0)),
+            hist_stddev=float(r.get("hist_stddev", 1.0)),
+            threshold_sigma=float(anomaly_threshold),
+        )
+        if "full_today_so_far" not in r or r["full_today_so_far"] is None:
+          r["full_today_so_far"] = round(r_eval["full_today_so_far"], 2)
+        r["guaranteed_full_day_breach"] = r_eval["guaranteed_full_day_breach"]
+        r["intraday_verdict"] = r_eval["verdict"]
+        r["intraday_status_label"] = r_eval["status_label"]
   mode_clean = (mode or "A").strip().upper().replace("MODE", "").strip() or "A"
+  eff_today_so_far = bool(today_so_far) or mode_clean in ("A_TODAY", "A_PARTIAL") or eff_intraday_hourly
+  if mode_clean in ("A_TODAY", "A_PARTIAL"):
+    mode_clean = "A"
+  intraday_window_meta: Optional[Dict[str, Any]] = None
+  if eff_intraday_hourly and start_time and end_time:
+    intraday_window_meta = validate_intraday_hourly_window(
+        str(start_time),
+        str(end_time),
+        allow_short_window=True,
+    )
+  intraday_interval_note: Optional[str] = (
+      intraday_window_meta.get("earlier_today_interval_note") if intraday_window_meta else None
+  )
+  if mode_clean == "A" and eff_intraday_hourly:
+    if intraday_interval_note:
+      partial_day_warning: Optional[str] = (
+          f"Intra-day (1h, today) stitched Mode A ({intraday_interval_note}): "
+          "today so far (partial UTC day) — cannot clear entity until 24h complete. "
+          "Upper-tail breaches (full_today_so_far >= 30d upper tail) are guaranteed full-day outliers; "
+          "hand off sub-hour burst timing to secops-statistical-hunter."
+      )
+      if intraday_window_meta and intraday_window_meta.get("short_window_warning"):
+        partial_day_warning = f"{partial_day_warning} {intraday_window_meta['short_window_warning']}"
+    else:
+      partial_day_warning = (
+          "Intra-day (1h, today) stitched Mode A: today so far (partial UTC day) — cannot clear entity until 24h complete. "
+          "Upper-tail breaches (full_today_so_far >= 30d upper tail) are guaranteed full-day outliers; "
+          "hand off sub-hour burst timing to secops-statistical-hunter."
+      )
+  elif mode_clean == "A" and eff_today_so_far:
+    partial_day_warning = (
+        "Partial UTC day ([today 00:00:00Z -> now]) compared against a full-day "
+        "(period: 1d, window: 30d) baseline without elapsed-fraction scaling; "
+        "sub-full-day Z-scores are systematically low-biased and may miss active breakouts."
+    )
+  else:
+    partial_day_warning = None
 
   # 1. Post-Flight Execution Audit & QueryIntegrityGate Verification (runs before zero-row return)
   audit_result = None
@@ -1705,6 +2972,8 @@ def render_forensic_dossier(
           "outcome_classification": "AUDIT_BLOCKED",
           "outlier_count": 0,
           "outliers": [],
+          "immature_entities": [],
+          "immature_count": 0,
           "dossier_markdown": blocked_md,
           "markdown": blocked_md,
           "clean_hunt_markdown": blocked_md,
@@ -1716,37 +2985,105 @@ def render_forensic_dossier(
           "audit_result": audit_result,
       }
 
-  qualifying_outliers = [r for r in outliers if r.get("z_score", 0.0) >= anomaly_threshold]
+  eff_min_days = max(int(min_baseline_days), 1)
+  immature_entities: List[Dict[str, Any]] = []
+  if stat_model_enum in _MATURITY_GATED_MODELS:
+    mature_outliers: List[Dict[str, Any]] = []
+    for r in outliers:
+      if r.get("has_explicit_active_days") and r.get("active_days", 30) < eff_min_days:
+        immature_entities.append(r)
+      else:
+        mature_outliers.append(r)
+    outliers = mature_outliers
+
+  qualifying_outliers = [
+      r
+      for r in outliers
+      if (
+          (r.get("anomaly_score") or 0.0) >= 1.0
+          if (
+              r.get("score_key") == "novelty_flag"
+              or stat_model_enum == StatisticalModel.FIRST_SEEN_NOVELTY
+          )
+          else (
+              (r.get("z_equivalent") is not None and r["z_equivalent"] >= anomaly_threshold)
+              if anomaly_threshold == 3.0
+              else (r.get("z_score") is not None and r["z_score"] >= anomaly_threshold)
+          )
+      )
+  ]
+  primary_metric_col = (
+      outliers[0].get("score_key")
+      if (outliers and isinstance(outliers[0].get("score_key"), str))
+      else (
+          immature_entities[0].get("score_key")
+          if (immature_entities and isinstance(immature_entities[0].get("score_key"), str))
+          else "z_score"
+      )
+  )
   reduced_data: Dict[str, Any] = {
       "outlier_count": len(outliers),
       "top_outliers": outliers,
-      "primary_score_metric": "z_score",
+      "primary_score_metric": primary_metric_col,
       "fleet_wave": len(qualifying_outliers) >= 10,
   }
 
-  outcome_class = CommonMarkTriageFormatter.classify_hunt_outcome(reduced_data, anomaly_threshold)
-  next_steps_md = CommonMarkTriageFormatter.build_agentic_next_steps(
-      reduced_data=reduced_data,
-      target_metric=clean_metric,
-      statistical_model=model_label,
-      anomaly_threshold=anomaly_threshold,
-  )
+  if not outliers and immature_entities:
+    outcome_class = "SPARSE_BASELINE"
+    next_steps_md = CommonMarkTriageFormatter.build_agentic_next_steps(
+        reduced_data={
+            "outlier_count": len(immature_entities),
+            "top_outliers": immature_entities,
+            "primary_score_metric": primary_metric_col,
+            "outcome_override": "SPARSE_BASELINE",
+        },
+        target_metric=clean_metric,
+        statistical_model=model_label,
+        anomaly_threshold=anomaly_threshold,
+    )
+  else:
+    outcome_class = CommonMarkTriageFormatter.classify_hunt_outcome(reduced_data, anomaly_threshold)
+    next_steps_md = CommonMarkTriageFormatter.build_agentic_next_steps(
+        reduced_data=reduced_data,
+        target_metric=clean_metric,
+        statistical_model=model_label,
+        anomaly_threshold=anomaly_threshold,
+    )
 
-  # 2. Optional 360° Radar Payload
+  # 2. Optional 360° Radar Payload (D6 Guardrails G1-G3: raw udm_search sector payloads only)
   radar_payload: Optional[Dict[str, Any]] = None
+  effective_radar_payloads: Optional[Dict[str, Any]] = None
   if radar_scores is not None:
+    if isinstance(radar_scores, str) or isinstance(radar_scores, bool) or not isinstance(radar_scores, dict):
+      raise ValueError(
+          "G1 violation: typed radar_scores are prohibited; pass raw udm_search sector payloads dict"
+      )
+    if any(isinstance(v, bool) or not isinstance(v, dict) for v in radar_scores.values()):
+      raise ValueError(
+          "G1 violation: typed radar_scores are prohibited; pass raw udm_search sector payloads dict"
+      )
+    effective_radar_payloads = radar_scores
+  if radar_sector_payloads is not None:
+    effective_radar_payloads = radar_sector_payloads
+
+  if effective_radar_payloads is not None:
     collector = EntityRadarCollector()
-    if isinstance(radar_scores, str):
-      normalized_scores_str = radar_scores.replace(":", "=")
-      spokes = EntityRadarCollector.parse_scores_argument(normalized_scores_str, entity_type=ent_enum.value)
-    else:
-      pairs_str = ",".join(f"{k}={v}" for k, v in radar_scores.items())
-      spokes = EntityRadarCollector.parse_scores_argument(pairs_str, entity_type=ent_enum.value)
+    eff_query_texts = (
+        radar_query_texts
+        if radar_query_texts is not None
+        else ({"executed_query": executed_query} if executed_query else None)
+    )
+    spokes, radar_provenance = EntityRadarCollector.parse_raw_sector_payloads(
+        effective_radar_payloads,
+        entity_type=ent_enum.value,
+        query_texts=eff_query_texts,
+    )
     target_ent = outliers[0]["entity"] if outliers else "target_entity"
     radar_payload = collector.build_radar_payload(
         entity_id=target_ent,
         entity_type=ent_enum.value,
         spokes=spokes,
+        provenance=radar_provenance,
     )
     radar_payload["composite_risk_distance"] = radar_payload["composite_distance_d"]
     radar_payload["composite_cri"] = radar_payload["calibrated_risk_index"]
@@ -1756,7 +3093,16 @@ def render_forensic_dossier(
   timeline_markdown = ""
   has_timeline_rows = any(r.get("day") or r.get("ws") or r.get("window_start") for r in outliers)
   if mode_clean in ("B", "C") or has_timeline_rows:
-    assembler = TimelineAssembler(entity_field="entity", score_field="z_score")
+    inferred_tl_score_field = (
+        outliers[0].get("score_key")
+        if (
+            outliers
+            and isinstance(outliers[0].get("score_key"), str)
+            and outliers[0]["score_key"] in outliers[0]
+        )
+        else "z_score"
+    )
+    assembler = TimelineAssembler(entity_field="entity", score_field=inferred_tl_score_field)
     if mode_clean == "C" and isinstance(rows, (list, tuple)) and rows and isinstance(rows[0], (list, tuple)):
       for day_str, shard_payload in rows:
         shard_rows, _ = _extract_and_normalize_rows(shard_payload)
@@ -1788,9 +3134,17 @@ def render_forensic_dossier(
   ranked_entities_for_chart = [
       {
           "entity": r["entity"],
-          "threat_distance_d": r["z_score"],
-          "z_score": r["z_score"],
-          "cri": r["cri"],
+          "threat_distance_d": (
+              (r["z_equivalent"] if r.get("z_equivalent") is not None else 0.0)
+              if is_inverted_score_key(r.get("score_key"))
+              else (r["z_score"] if r.get("z_score") is not None else 0.0)
+          ),
+          "z_score": (
+              (r["z_equivalent"] if r.get("z_equivalent") is not None else 0.0)
+              if is_inverted_score_key(r.get("score_key"))
+              else (r["z_score"] if r.get("z_score") is not None else 0.0)
+          ),
+          "cri": r["cri"] if r.get("cri") is not None else 0,
           "observed": r["observed"],
           "baseline_mean": r["hist_avg"],
           "status": r["cri_badge"],
@@ -1837,13 +3191,82 @@ def render_forensic_dossier(
     embed_tag = f'<agent-embed src="file://{resolved_html_path}"></agent-embed>'
 
   # 5. Handle Zero-Row Clean Hunt vs Populated 6-Section Dossier
-  eval_mode_str = f"Mode {mode_clean}"
+  eval_mode_str = (
+      "Mode A: Intra-Day Stitched — today so far (partial UTC day) — cannot clear entity until 24h complete"
+      if (mode_clean == "A" and eff_intraday_hourly)
+      else (
+          "Mode A: Today So Far (Partial UTC Day — Low-Biased vs Full-Day Baseline)"
+          if (mode_clean == "A" and eff_today_so_far)
+          else f"Mode {mode_clean}"
+      )
+  )
+  has_ecg_join = bool(re.search(r"\bgraph\.(?:entity|metadata|relations)\b", executed_query or ""))
+  ecg_join_filter_disclosure = _build_ecg_join_filter_disclosure(
+      has_ecg_join, ecg_72h_anchor_applied=(mode_clean in ("A", "B", "C") and has_ecg_join)
+  )
+  ecg_novelty_boost_disabled = any(
+      r.get("ecg_novelty_boost_disabled") for r in (outliers + immature_entities)
+  )
+  ecg_novelty_notice: Optional[str] = (
+      "<7d ECG novelty boost disabled because ECG first_seen_time = 0; "
+      "use metrics.* first_seen novelty (PF-11 / WS1-12) instead."
+      if ecg_novelty_boost_disabled
+      else None
+  )
+  cohort_cap_info = extract_query_cohort_cap_info(
+      executed_query,
+      default_anomaly_threshold=anomaly_threshold,
+  )
+  if cohort_cap_info is None or not cohort_cap_info.get("cohort_too_small"):
+    is_triad_query = bool(executed_query and "$d_vs_team_sq" in executed_query)
+    for r in outliers + immature_entities:
+      raw_ts = _coerce_finite_float(r.get("team_size"))
+      raw_flag = _coerce_finite_float(r.get("cohort_too_small"))
+      if raw_ts is not None and raw_ts > 0:
+        cand_cap = evaluate_samuelson_cohort_cap(
+            int(round(raw_ts)),
+            threshold_z=anomaly_threshold,
+            is_triad=is_triad_query or ("d_vs_team_sq" in r),
+        )
+        if cand_cap["cohort_too_small"] or (raw_flag is not None and raw_flag >= 1.0):
+          cand_cap["cohort_too_small"] = True
+          if not cand_cap["warning"]:
+            cand_cap["warning"] = (
+                f"Cohort too small (PF-2 / WS1-09): peer cohort size N = {int(round(raw_ts))} "
+                f"caps sample-SD Z-score at (N - 1)/sqrt(N) = {cand_cap['samuelson_max_z']:.2f}σ "
+                f"below the {anomaly_threshold:.2f}σ significance gate (requires N >= {cand_cap['required_min_cohort_size']})."
+            )
+          cohort_cap_info = cand_cap
+          break
+      elif raw_flag is not None and raw_flag >= 1.0:
+        cohort_cap_info = {
+            "cohort_size": None,
+            "samuelson_max_z": _coerce_finite_float(r.get("samuelson_max_z")),
+            "samuelson_max_d_sq": _coerce_finite_float(r.get("samuelson_max_d_sq")),
+            "required_min_cohort_size": samuelson_min_cohort_size(anomaly_threshold),
+            "cohort_too_small": True,
+            "warning": (
+                "Cohort too small (PF-2 / WS1-09): in-query sample-SD Samuelson bound "
+                f"(N - 1)/sqrt(N) fell below the {anomaly_threshold:.2f}σ significance gate "
+                f"(requires N >= {samuelson_min_cohort_size(anomaly_threshold)} active peers)."
+            ),
+        }
+        break
+  cohort_too_small = bool(cohort_cap_info and cohort_cap_info.get("cohort_too_small"))
+  cohort_cap_warning: Optional[str] = (
+      cohort_cap_info.get("warning") if cohort_too_small and cohort_cap_info else None
+  )
+  mode_c_fade_caveat: Optional[str] = MODE_C_FADE_CAVEAT if mode_clean == "C" else None
   clean_hunt_md = CommonMarkTriageFormatter.format_clean_hunt_report(
       target_metric=clean_metric,
       statistical_model=model_label,
       executed_query=executed_query,
       anomaly_threshold=anomaly_threshold,
       evaluation_mode=eval_mode_str,
+      ecg_join_filter_disclosure=ecg_join_filter_disclosure,
+      cohort_cap_warning=cohort_cap_warning,
+      mode_c_fade_caveat=mode_c_fade_caveat,
+      intraday_interval_note=intraday_interval_note,
   )
 
   # Resolve UDM pivot filter for Pillar 5
@@ -1858,7 +3281,15 @@ def render_forensic_dossier(
     pivot_filters = ['metadata.event_type = "USER_LOGIN"']
     target_field = "principal.user.userid" if ent_enum == EntityType.USER else "principal.asset.hostname"
 
-  top_entity = outliers[0]["entity"] if outliers else ("target_user" if ent_enum == EntityType.USER else "target_host")
+  top_entity = (
+      outliers[0]["entity"]
+      if outliers
+      else (
+          immature_entities[0]["entity"]
+          if immature_entities
+          else ("target_user" if ent_enum == EntityType.USER else "target_host")
+      )
+  )
   ui_pivot_query = " AND ".join(pivot_filters + [f'{target_field} = "{top_entity}"'])
   bridge_pivot_query = f'{target_field} in %ueba_hunt_bridge.entity'
   mitre_recon_note = (
@@ -1866,8 +3297,22 @@ def render_forensic_dossier(
       if clean_metric in ("http_queries_fail", "dns_queries_fail")
       else ""
   )
+  partial_day_pillar3_lines = (
+      [f"> * **Partial-Day Low-Bias Disclosure**: {partial_day_warning}"]
+      if partial_day_warning
+      else []
+  )
+  ecg_pillar3_lines: List[str] = []
+  if ecg_join_filter_disclosure:
+    ecg_pillar3_lines.append(f"> * **ECG Inner-Join Filter Disclosure**: {ecg_join_filter_disclosure}")
+  if ecg_novelty_notice:
+    ecg_pillar3_lines.append(f"> * **ECG Novelty Notice**: {ecg_novelty_notice}")
+  if cohort_cap_warning:
+    ecg_pillar3_lines.append(f"> * **Samuelson Small-Cohort Cap**: {cohort_cap_warning}")
+  if mode_c_fade_caveat:
+    ecg_pillar3_lines.append(f"> * **Sustained-Attack Fade Caveat (D10 / WS1-11)**: {mode_c_fade_caveat}")
 
-  if not outliers and radar_payload is None:
+  if not outliers and not immature_entities and radar_payload is None:
     # Build 6-section zero-row dossier that preserves both Clean Hunt markers and all 6 section headers
     dossier_lines = [
         f"#### 1. Statistical Outlier Report: `{clean_metric}` ({model_label}){mitre_recon_note} (Nominal Baseline)",
@@ -1876,6 +3321,10 @@ def render_forensic_dossier(
         "* **Baseline Horizon**: 30-Day Pre-Computed Behavioral Tables (`window: 30d`).",
         "* **Outcome Classification**: `CLEAN_OR_SUBTHRESHOLD`",
     ]
+    if ecg_join_filter_disclosure:
+      dossier_lines.append(f"* **ECG Inner-Join Filter Disclosure**: {ecg_join_filter_disclosure}")
+    if cohort_cap_warning:
+      dossier_lines.append(f"* **Samuelson Small-Cohort Cap (PF-2 / WS1-09)**: {cohort_cap_warning}")
     if embed_tag:
       dossier_lines.extend(["", embed_tag])
     dossier_lines.extend([
@@ -1897,6 +3346,8 @@ def render_forensic_dossier(
         "> [!IMPORTANT]",
         f"> **Nominal Baseline Verification: `{clean_metric}` ({model_label}){mitre_recon_note}**",
         f"> * **The Core Finding**: No entities breached the `{anomaly_threshold}σ` gate during the active evaluation window.",
+        *partial_day_pillar3_lines,
+        *ecg_pillar3_lines,
         next_steps_md,
         "",
         "---",
@@ -1927,9 +3378,21 @@ def render_forensic_dossier(
     return {
         "status": "RENDERED",
         "is_zero_row": True,
+        "is_partial_day": bool(partial_day_warning),
+        "partial_day_warning": partial_day_warning,
+        "intraday_window_meta": intraday_window_meta,
+        "has_ecg_join": has_ecg_join,
+        "ecg_join_filter_disclosure": ecg_join_filter_disclosure,
+        "ecg_novelty_boost_disabled": ecg_novelty_boost_disabled,
+        "ecg_novelty_notice": ecg_novelty_notice,
+        "cohort_too_small": cohort_too_small,
+        "cohort_cap_warning": cohort_cap_warning,
+        "mode_c_fade_caveat": mode_c_fade_caveat,
         "outcome_classification": outcome_class,
         "outlier_count": 0,
         "outliers": [],
+        "immature_entities": [],
+        "immature_count": 0,
         "dossier_markdown": dossier_md,
         "markdown": dossier_md,
         "clean_hunt_markdown": clean_hunt_md,
@@ -1946,22 +3409,42 @@ def render_forensic_dossier(
   # 6. Populated 5-Section Dossier
   sparse_callout = None
   min_days_seen = min((r.get("active_days", 30) for r in outliers), default=30)
-  if min_days_seen < 7:
+  if immature_entities:
+    min_immature_days = min(r.get("active_days", 0) for r in immature_entities)
+    immature_preview = ", ".join(
+        f"`{r['entity']}` ($N = {r.get('active_days', 0)}$)" for r in immature_entities[:5]
+    )
     sparse_callout = (
         "> [!WARNING]\n"
-        f"> **⚠️ Sparse Baseline Caution (Minimum Active Days $N = {min_days_seen} < 7$)**:\n"
-        "> One or more ranked entities have fewer than 7 active baseline days in the 30-day window. "
-        "Consider Empirical Bayes shrinkage (`EMPIRICAL_BAYES_3STAGE`) or `TWO_PART_HURDLE`."
+        f"> **⚠️ Sparse Baseline Caution (Immature Entities Excluded from Z-Scoring, Minimum Active Days $N = {min_immature_days} < {eff_min_days}$)**:\n"
+        f"> Excluded **{len(immature_entities)}** immature entity/entities ({immature_preview}) from `{model_label}` Z-alerting per D8 (`$active_days >= {eff_min_days}`). "
+        "Route cold-start / dormant accounts to `TWO_PART_HURDLE` (`two_part_hurdle.yl2`) or `metrics.*` `first_seen` novelty (`PF-11` / `WS1-12`), never parametric Z."
+    )
+  elif min_days_seen < eff_min_days:
+    sparse_callout = (
+        "> [!WARNING]\n"
+        f"> **⚠️ Sparse Baseline Caution (Minimum Active Days $N = {min_days_seen} < {eff_min_days}$)**:\n"
+        f"> One or more ranked entities have fewer than {eff_min_days} active baseline days in the 30-day window. "
+        "Route immature entities to `TWO_PART_HURDLE` (`two_part_hurdle.yl2`), `metrics.*` `first_seen` novelty (`PF-11` / `WS1-12`), or Empirical Bayes shrinkage (`EMPIRICAL_BAYES_3STAGE`)."
     )
 
+  any_true_sigma = any(r.get("is_true_sigma") for r in outliers)
+  score_col_header = "Z-Score" if (any_true_sigma or not outliers) else "Model Score"
   table_lines = [
-      "| Entity | Observed | 30d Mean (μ) | 30d StdDev (σ) | Z-Score | CRI Score (0–100) | Visual Magnitude |",
+      f"| Entity | Observed | 30d Mean (μ) | 30d StdDev (σ) | {score_col_header} | CRI Score (0–100) | Visual Magnitude |",
       "| :----- | :------- | :----------- | :------------- | :------ | :---------------- | :--------------- |",
   ]
-  for r in outliers:
+  if outliers:
+    for r in outliers:
+      score_cell = r.get("score_display") or "N/A"
+      cri_cell = format_cri(r.get("cri"))
+      table_lines.append(
+          f"| `{r['entity']}` | `{r['observed']}` | `{r['hist_avg']}` | `{r['hist_stddev']}` | "
+          f"`{score_cell}` | **`{cri_cell}`** ({r['cri_badge']}) | `{r['visual_bar']}` |"
+      )
+  else:
     table_lines.append(
-        f"| `{r['entity']}` | `{r['observed']}` | `{r['hist_avg']}` | `{r['hist_stddev']}` | "
-        f"`+{r['z_score']:.2f}σ` | **`{r['cri']}`** ({r['cri_badge']}) | `{r['visual_bar']}` |"
+        f"| *(0 mature entities; {len(immature_entities)} immature routed to novelty/hurdle)* | `0` | `0.00` | `1.00` | `N/A` | **`N/A`** (INFORMATIONAL) | `░░░░░░░░` |"
     )
 
   projected_cols = sorted(list(outliers[0].keys())) if outliers else []
@@ -2012,9 +3495,35 @@ def render_forensic_dossier(
         "",
         "##### 🕸️ 360° Multi-Sector Behavioral Risk Radar Summary",
         "",
-        f"* **Composite Multi-Sector Threat Distance ($D$)**: `{radar_payload['composite_risk_distance']}σ` "
+        f"* **Composite Multi-Sector Threat Distance ($D$)**: `{radar_payload['composite_risk_distance']}` "
         f"(CRI: **`{radar_payload['composite_cri']}`** — `{radar_payload['severity_band']}`)",
     ])
+
+  if outliers:
+    top_score_cell = outliers[0].get("score_display") or "N/A"
+    top_cri_cell = format_cri(outliers[0].get("cri"))
+    intraday_suffix = ""
+    if "full_today_so_far" in outliers[0]:
+      intraday_suffix = (
+          f" Stitched `full_today_so_far = {outliers[0]['full_today_so_far']}` "
+          f"(`earlier_today_sum = {outliers[0].get('earlier_today_sum', 0.0)}` + raw `observed = {outliers[0]['observed']}`) — "
+          f"**{outliers[0].get('intraday_status_label', '')}**."
+      )
+    core_finding_line = (
+        f"> * **The Core Finding**: Top entity `{top_entity}` registered `{top_score_cell}` "
+        f"(`CRI = {top_cri_cell}`, {outliers[0]['cri_band_label']}) against its 30-day behavioral baseline "
+        f"(`μ = {outliers[0]['hist_avg']}`, `σ = {outliers[0]['hist_stddev']}`).{intraday_suffix}"
+    )
+  elif radar_payload:
+    core_finding_line = (
+        f"> * **The Core Finding**: Entity `{top_entity}` evaluated across 360° multi-sector telemetry with "
+        f"Composite Threat Distance `D = {radar_payload['composite_risk_distance']}` "
+        f"(`CRI = {radar_payload['composite_cri']}`, `{radar_payload['severity_band']}`)."
+    )
+  else:
+    core_finding_line = (
+        f"> * **The Core Finding**: No entities breached the `{anomaly_threshold}σ` gate during the active evaluation window."
+    )
 
   dossier_sections.extend([
       "",
@@ -2024,11 +3533,24 @@ def render_forensic_dossier(
       "",
       "> [!IMPORTANT]",
       f"> **Threat Translation & Attack Scenarios: `{clean_metric}` ({model_label}){mitre_recon_note}**",
-      f"> * **The Core Finding**: Top entity `{top_entity}` registered `+{outliers[0]['z_score']:.2f}σ` (`CRI = {outliers[0]['cri']}`, {outliers[0]['cri_band_label']}) against its 30-day behavioral baseline (`μ = {outliers[0]['hist_avg']}`, `σ = {outliers[0]['hist_stddev']}`).",
-      "> * **Security Significance**: Statistically significant departure from historical entity behavior indicating potential credential compromise, automated staging, or anomalous data movement.",
-      "> * **Potential Attack Scenarios**: Credential stuffing, lateral expansion, living-off-the-land execution, or staged exfiltration.",
-      "> * **Legitimate False Positives**: Scheduled enterprise backups, administrative batch jobs, or fleet patch rollouts.",
-      "> * **SOC Action Playbook**: 1. Verify entity identity & change tickets, 2. Inspect companion process/network stages, 3. Pivot via Agentic Next Steps below.",
+      core_finding_line,
+      *partial_day_pillar3_lines,
+      *ecg_pillar3_lines,
+      *(
+          [
+              "> * **Security Significance**: 30-day **baseline dispersion screen** (`F = σ² / μ` computed from the 30-day baseline only; independent of today's observed value — `NO-GATE`) used to distinguish Poisson (`F ≈ 1.0`) from overdispersed (`F > 2.0`) baselines.",
+              "> * **Active Spray / Burst Routing**: Does not measure day-level breakouts or sub-hour sprays; route active credential spray or brute-force hunts to `secops-statistical-hunter` `POISSON_BURST_CLUSTERING`.",
+              "> * **Legitimate High Dispersion**: Scheduled administrative batches, weekly scans, or shared jump hosts naturally exhibit `F > 2.0`.",
+              "> * **SOC Action Playbook**: 1. Use `F <= 2.0` to validate Poisson assumptions, 2. Use `MAD` or `QUANTILE_IQR_SKEW` on `F > 2.0` entities, 3. Pivot active spray hypotheses to `secops-statistical-hunter` `POISSON_BURST_CLUSTERING`.",
+          ]
+          if stat_model_enum == StatisticalModel.VARIANCE
+          else [
+              "> * **Security Significance**: Statistically significant departure from historical entity behavior indicating potential credential compromise, automated staging, or anomalous data movement.",
+              "> * **Potential Attack Scenarios**: Credential stuffing, lateral expansion, living-off-the-land execution, or staged exfiltration.",
+              "> * **Legitimate False Positives**: Scheduled enterprise backups, administrative batch jobs, or fleet patch rollouts.",
+              "> * **SOC Action Playbook**: 1. Verify entity identity & change tickets, 2. Inspect companion process/network stages, 3. Pivot via Agentic Next Steps below.",
+          ]
+      ),
       next_steps_md,
       "",
       "---",
@@ -2061,8 +3583,17 @@ def render_forensic_dossier(
       r"\text{CRI}(S) = \text{clamp}\left(\text{round}\left(\frac{100}{1 + \exp(-0.6 \cdot (S - 3.0))}\right),\, 0,\, 100\right)",
       "$$",
       "",
-      "</details>",
   ])
+  if radar_payload and radar_payload.get("provenance"):
+    r_prov = radar_payload["provenance"]
+    dossier_sections.extend([
+        "##### 🔐 D6-G3 Radar Execution Provenance",
+        f"* **Helper Version**: `{r_prov.get('helper_version', 'N/A')}`",
+        f"* **Payload SHA-256**: `{r_prov.get('payload_sha256', 'N/A')}`",
+        f"* **Query SHA-256**: `{r_prov.get('query_sha256', 'N/A')}`",
+        "",
+    ])
+  dossier_sections.append("</details>")
 
   dossier_md = "\n".join(dossier_sections)
   legacy_report_md = CommonMarkTriageFormatter.format_report(
@@ -2073,14 +3604,30 @@ def render_forensic_dossier(
       executed_query=executed_query,
       audit_result=audit_result,
       sparse_callout=sparse_callout,
+      ecg_join_filter_disclosure=ecg_join_filter_disclosure,
+      ecg_novelty_notice=ecg_novelty_notice,
+      cohort_cap_warning=cohort_cap_warning,
+      mode_c_fade_caveat=mode_c_fade_caveat,
   )
 
   return {
       "status": "RENDERED",
       "is_zero_row": False,
+      "is_partial_day": bool(partial_day_warning),
+      "partial_day_warning": partial_day_warning,
+      "intraday_window_meta": intraday_window_meta,
+      "has_ecg_join": has_ecg_join,
+      "ecg_join_filter_disclosure": ecg_join_filter_disclosure,
+      "ecg_novelty_boost_disabled": ecg_novelty_boost_disabled,
+      "ecg_novelty_notice": ecg_novelty_notice,
+      "cohort_too_small": cohort_too_small,
+      "cohort_cap_warning": cohort_cap_warning,
+      "mode_c_fade_caveat": mode_c_fade_caveat,
       "outcome_classification": outcome_class,
       "outlier_count": len(outliers),
       "outliers": outliers,
+      "immature_entities": immature_entities,
+      "immature_count": len(immature_entities),
       "dossier_markdown": dossier_md,
       "markdown": dossier_md,
       "triage_report_markdown": legacy_report_md,
@@ -2158,15 +3705,15 @@ def get_metric_catalog_summary(
 SECTOR_HYBRID_MODELS: Dict[str, List[str]] = {
     "USER_CREDENTIAL_SIGNALS": [
         "standard_z_score",
-        "circadian_von_mises",
         "two_part_hurdle",
-        "asymmetric_directional_z",
+        "quantile_iqr_skew",
         "adaptive_context_threshold",
+        "bayesian_beta_binomial",
     ],
     "HOST_ENDPOINT_HEALTH": [
         "standard_z_score",
         "poisson",
-        "fleet_prevalence_shield",
+        "quantile_iqr_skew",
         "two_part_hurdle",
         "mad",
     ],
@@ -2188,7 +3735,7 @@ SECTOR_HYBRID_MODELS: Dict[str, List[str]] = {
         "standard_z_score",
         "bayesian_beta_binomial",
         "coefficient_of_variation",
-        "fleet_prevalence_shield",
+        "quantile_iqr_skew",
         "mad",
     ],
     "DNS_RESOLUTION_TELEMETRY": [
@@ -2201,7 +3748,7 @@ SECTOR_HYBRID_MODELS: Dict[str, List[str]] = {
     "WORKSPACE_SAAS_ACTIVITY": [
         "standard_z_score",
         "longitudinal_cusum",
-        "asymmetric_directional_z",
+        "quantile_iqr_skew",
         "two_part_hurdle",
         "relative_deviation",
     ],
@@ -2249,24 +3796,96 @@ def calculate_part_whole_ratio(current_val: float, baseline_mean: float) -> floa
   return round(cur / base, 4)
 
 
+def calculate_two_part_hurdle_details(
+    observed_val: float,
+    baseline_mean: float,
+    baseline_stddev: float = 1.0,
+    active_days: int = 0,
+    min_active_days: int = DEFAULT_MIN_BASELINE_DAYS,
+    min_awakening_volume: float = 25.0,
+    hist_max: Optional[float] = None,
+    last_seen_seconds: Optional[float] = None,
+    eval_timestamp_seconds: Optional[float] = None,
+    byte_dispersion_floor: Optional[float] = None,
+) -> Dict[str, Any]:
+  """Computes the Two-Part Hurdle breakdown with awakening-volume & hist_max gates and WS1-05 dormancy (WS3-HURDLE)."""
+  obs = float(observed_val)
+  mean = float(baseline_mean)
+  std = float(baseline_stddev)
+  n_days = float(active_days)
+  eff_min_days = float(min_active_days)
+  eff_awaken_vol = float(min_awakening_volume)
+  if eff_awaken_vol < 1.0:
+    raise ValueError(f"min_awakening_volume must be >= 1, got {min_awakening_volume}.")
+  eff_hist_max = float(hist_max) if hist_max is not None else max(0.0, mean)
+
+  if (
+      last_seen_seconds is not None
+      and eval_timestamp_seconds is not None
+      and float(last_seen_seconds) > 0.0
+      and float(eval_timestamp_seconds) >= float(last_seen_seconds)
+  ):
+    dormant_days = (float(eval_timestamp_seconds) - float(last_seen_seconds)) / 86400.0
+  else:
+    dormant_days = max(0.0, 30.0 - n_days)
+
+  is_dormant_branch = n_days < eff_min_days
+  is_dormant_awakening = bool(
+      is_dormant_branch and obs >= eff_awaken_vol and obs > eff_hist_max
+  )
+  awakening_ref = max(eff_hist_max, eff_awaken_vol)
+  awakening_ratio = (obs / awakening_ref) if awakening_ref > 0.0 else 1.0
+  dormant_score = (
+      3.0 + math.log(max(awakening_ratio, 1.0)) if is_dormant_awakening else 0.0
+  )
+
+  floor = (
+      float(byte_dispersion_floor)
+      if byte_dispersion_floor is not None
+      else math.sqrt(max(mean, 1.0))
+  )
+  safe_std = max(std, floor)
+  raw_z = (obs - mean) / safe_std
+  intensity_z = max(0.0, raw_z)
+  hurdle_score = dormant_score if is_dormant_branch else intensity_z
+  return {
+      "hurdle_threat_score": round(hurdle_score, 4),
+      "dormant_score": round(dormant_score, 4),
+      "intensity_z": round(intensity_z, 4),
+      "is_dormant_awakening": is_dormant_awakening,
+      "dormant_days": round(dormant_days, 4),
+      "is_true_sigma": False,
+  }
+
+
 def calculate_two_part_hurdle(
     observed_val: float,
     baseline_mean: float,
     baseline_stddev: float = 1.0,
     active_days: int = 0,
-    min_active_days: int = 1,
+    min_active_days: int = DEFAULT_MIN_BASELINE_DAYS,
+    min_awakening_volume: float = 25.0,
+    hist_max: Optional[float] = None,
+    last_seen_seconds: Optional[float] = None,
+    eval_timestamp_seconds: Optional[float] = None,
+    byte_dispersion_floor: Optional[float] = None,
 ) -> float:
-  """Computes the Two-Part Hurdle anomaly score separating zero-baseline cold starts from active surges."""
-  obs = float(observed_val)
-  if obs <= 0.0:
+  """Computes the Two-Part Hurdle score on its own scale (not true sigma) separating gated dormant awakenings from rectified active Z."""
+  if float(observed_val) <= 0.0:
     return 0.0
-  mean = float(baseline_mean)
-  std = float(baseline_stddev)
-  is_dormant = (active_days < min_active_days and mean == 0.0)
-  if is_dormant:
-    return round(10.0 + math.log(max(obs, 1.0) + 1.0), 4)
-  safe_std = std if std > 0.0 else 1.0
-  return round(max(0.0, (obs - mean) / safe_std), 4)
+  details = calculate_two_part_hurdle_details(
+      observed_val=observed_val,
+      baseline_mean=baseline_mean,
+      baseline_stddev=baseline_stddev,
+      active_days=active_days,
+      min_active_days=min_active_days,
+      min_awakening_volume=min_awakening_volume,
+      hist_max=hist_max,
+      last_seen_seconds=last_seen_seconds,
+      eval_timestamp_seconds=eval_timestamp_seconds,
+      byte_dispersion_floor=byte_dispersion_floor,
+  )
+  return float(details["hurdle_threat_score"])
 
 
 def calculate_bayesian_joint_odds(
@@ -2295,22 +3914,179 @@ def calculate_macd_momentum(
     hist_avg: float,
     hist_stddev: float,
     hist_max: float = 0.0,
+    dispersion_floor: Optional[float] = None,
 ) -> float:
-  """Computes the MACD momentum & velocity crossover score."""
+  """Computes linear Above-Historical-Max Z: personal_z + max(0, observed - hist_max) / safe_stddev."""
   obs = float(observed_val)
   avg = float(hist_avg)
   std = float(hist_stddev)
-  hmax = float(hist_max) if hist_max and float(hist_max) > 0.0 else max(avg, 1.0)
-  safe_std = std if std > 0.0 else 1.0
-  fast_diff = obs - avg
-  fast_z = fast_diff / safe_std
-  slow_diff = hmax - avg
-  slow_z = slow_diff / safe_std
-  macd_diff = fast_z - slow_z
-  safe_max = hmax if hmax > 0.0 else 1.0
-  velocity_ratio = obs / safe_max
-  scaled_diff = macd_diff * velocity_ratio
-  return round(scaled_diff if macd_diff > 0.0 else fast_z, 4)
+  floor = float(dispersion_floor) if dispersion_floor is not None else math.sqrt(max(avg, 1.0))
+  safe_std = max(std, floor)
+  hmax = float(hist_max) if hist_max and float(hist_max) > 0.0 else avg
+  personal_z = (obs - avg) / safe_std
+  above_max_z = max(0.0, obs - hmax) / safe_std
+  return round(personal_z + above_max_z, 4)
+
+
+def calculate_bayesian_gamma_posterior(
+    observed: float,
+    hist_sum: float,
+    active_days: int = 0,
+    hist_avg: float = 0.0,
+    hist_stddev: float = 0.0,
+    prior_alpha0: float = 0.5,
+    prior_beta0: float = 0.1,
+) -> Dict[str, float]:
+  """Computes fleet-prior Empirical Bayes Gamma-Poisson posterior rate and NB predictive residual Z (WS3-BAYES)."""
+  obs = float(observed)
+  s30 = float(hist_sum)
+  n = float(active_days)
+  avg = float(hist_avg)
+  sd = float(hist_stddev)
+  a0 = float(prior_alpha0)
+  b0 = float(prior_beta0)
+  if a0 <= 0.0 or b0 <= 0.0:
+    raise ValueError(f"Empirical Bayes prior hyperparameters must be positive, got ({a0}, {b0}).")
+
+  mu_cal = s30 / 30.0
+  df_minus_one = (n if n > 1.0 else 1.0) - 1.0
+  sum_x2 = (df_minus_one * sd * sd) + (n * avg * avg)
+  raw_var_cal = (sum_x2 / 30.0) - (mu_cal * mu_cal)
+  var_cal = raw_var_cal if raw_var_cal > 0.0 else 0.0
+  raw_excess_var = var_cal - mu_cal
+  excess_var = raw_excess_var if (n >= 2.0 and raw_excess_var > 0.0) else 0.0
+
+  post_alpha_pre = a0 + s30
+  post_beta_pre = b0 + 30.0
+  posterior_rate = post_alpha_pre / post_beta_pre
+  post_rate_var = post_alpha_pre / (post_beta_pre * post_beta_pre)
+  cred_w = n / (n + b0)
+  pred_var = posterior_rate + post_rate_var + (cred_w * excess_var)
+  safe_pred_sd = math.sqrt(pred_var if pred_var > 1.0 else 1.0)
+  bayesian_z = (obs - posterior_rate) / safe_pred_sd
+  return {
+      "mu_cal": round(mu_cal, 6),
+      "var_cal": round(var_cal, 6),
+      "excess_var": round(excess_var, 6),
+      "posterior_rate": round(posterior_rate, 6),
+      "post_rate_var": round(post_rate_var, 6),
+      "cred_w": round(cred_w, 6),
+      "pred_var": round(pred_var, 6),
+      "safe_pred_sd": round(safe_pred_sd, 6),
+      "bayesian_z": round(bayesian_z, 4),
+  }
+
+
+def calculate_beta_binomial_posterior(
+    obs_fail: float,
+    obs_total: float,
+    hist_fail_sum: float = 0.0,
+    hist_total_sum: float = 0.0,
+    prior_alpha0: float = 1.0,
+    prior_beta0: float = 19.0,
+) -> Dict[str, float]:
+  """Computes paired Empirical Bayes Beta-Binomial posterior rate and posterior-predictive Z (WS3-BETA-BINOMIAL)."""
+  f_obs = float(obs_fail)
+  n_obs = float(obs_total)
+  f_hist = float(hist_fail_sum)
+  n_hist = float(hist_total_sum)
+  a0 = float(prior_alpha0)
+  b0 = float(prior_beta0)
+  if a0 <= 0.0 or b0 <= 0.0:
+    raise ValueError(f"Beta-Binomial prior hyperparameters must be positive, got ({a0}, {b0}).")
+
+  raw_hist_succ = n_hist - f_hist
+  hist_succ_sum = raw_hist_succ if raw_hist_succ > 0.0 else 0.0
+  alpha_pre = a0 + f_hist
+  beta_pre = b0 + hist_succ_sum
+  ab = alpha_pre + beta_pre
+  prior_fail_rate = alpha_pre / ab
+  posterior_fail_rate = (alpha_pre + f_obs) / (ab + n_obs)
+  pred_mean = n_obs * prior_fail_rate
+  pred_var = n_obs * prior_fail_rate * (beta_pre / ab) * ((ab + n_obs) / (ab + 1.0))
+  safe_pred_sd = math.sqrt(pred_var if pred_var > 0.25 else 0.25)
+  beta_binomial_z = (f_obs - pred_mean) / safe_pred_sd
+  return {
+      "alpha_pre": round(alpha_pre, 6),
+      "beta_pre": round(beta_pre, 6),
+      "prior_fail_rate": round(prior_fail_rate, 6),
+      "posterior_fail_rate": round(posterior_fail_rate, 6),
+      "posterior_rate": round(posterior_fail_rate, 6),
+      "pred_mean": round(pred_mean, 6),
+      "pred_var": round(pred_var, 6),
+      "safe_pred_sd": round(safe_pred_sd, 6),
+      "beta_binomial_z": round(beta_binomial_z, 4),
+  }
+
+
+def calculate_windowed_slack_sum(
+    daily_observations: Sequence[float],
+    hist_avg: float,
+    hist_stddev: float,
+    active_days: int,
+    min_baseline_days: int = DEFAULT_MIN_BASELINE_DAYS,
+    slack_k: float = 0.5,
+    anomaly_threshold: float = 3.0,
+    min_drift_days: int = 2,
+    byte_dispersion_floor: Optional[float] = None,
+) -> Dict[str, Any]:
+  """Computes the in-query Windowed Slack Sum W = sum(max(0, Z_t - k)) with maturity zeroing (WS3-CUSUM / WS6-01)."""
+  avg = float(hist_avg)
+  std = float(hist_stddev)
+  n_days = int(active_days)
+  floor = float(byte_dispersion_floor) if byte_dispersion_floor is not None else math.sqrt(max(avg, 1.0))
+  safe_stddev = max(std, floor)
+  is_mature = n_days >= int(min_baseline_days)
+
+  daily_z_list: List[float] = []
+  daily_excess_list: List[float] = []
+  for obs_raw in daily_observations:
+    obs = float(obs_raw)
+    dz = (obs - avg) / safe_stddev
+    daily_z_list.append(dz)
+    z_minus_slack = dz - float(slack_k)
+    excess = z_minus_slack if (is_mature and z_minus_slack > 0.0) else 0.0
+    daily_excess_list.append(excess)
+
+  w_sum = sum(daily_excess_list)
+  drift_days = sum(1 for e in daily_excess_list if e > 0.0)
+  max_daily_z = max(daily_z_list) if daily_z_list else 0.0
+  alerts = bool(is_mature and w_sum >= float(anomaly_threshold) and drift_days >= int(min_drift_days))
+  return {
+      "windowed_slack_sum": round(w_sum, 4),
+      "cusum_drift_score": round(w_sum, 4),
+      "drift_days": drift_days,
+      "max_daily_z": round(max_daily_z, 4),
+      "is_mature": is_mature,
+      "alerts": alerts,
+  }
+
+
+def calculate_poisson_rarity_z(
+    observed: float,
+    hist_sum: float,
+    active_days: int = 0,
+    hist_avg: float = 0.0,
+    hist_stddev: float = 0.0,
+) -> float:
+  """Computes dispersion-checked Poisson / Negative-Binomial residual Z (WS3-POISSON)."""
+  k = float(observed)
+  lam = float(hist_sum) / 30.0
+  n = float(active_days)
+  avg = float(hist_avg)
+  sd = float(hist_stddev)
+  sum_x = n * avg
+  df_minus_one = (n if n > 1.0 else 1.0) - 1.0
+  sum_x2 = (df_minus_one * sd * sd) + (n * avg * avg)
+  mu_cal = sum_x / 30.0
+  raw_var_cal = (sum_x2 / 30.0) - (mu_cal * mu_cal)
+  var_cal = raw_var_cal if raw_var_cal > 0.0 else 0.0
+  safe_lambda = lam if lam > 1.0 else 1.0
+  fano_cal = var_cal / safe_lambda
+  nb_var = var_cal if var_cal > safe_lambda else safe_lambda
+  eff_var = nb_var if (n >= 2.0 and fano_cal > 2.0) else safe_lambda
+  safe_poisson_sd = math.sqrt(eff_var)
+  return round((k - lam) / safe_poisson_sd, 4)
 
 
 def calculate_hourly_zscore(
@@ -2323,19 +4099,139 @@ def calculate_hourly_zscore(
   return round((float(observed_hour) - float(avg_hourly)) / safe_std, 4)
 
 
+def calculate_adaptive_context_z(
+    observed: float,
+    hist_avg: float,
+    hist_stddev: float,
+    active_days: int = DEFAULT_MIN_BASELINE_DAYS,
+    off_hours_obs: Optional[float] = None,
+    event_timestamp_seconds: Optional[float] = None,
+    event_hour: Optional[int] = None,
+    event_dow: Optional[int] = None,
+    tenant_tz: str = "UTC",
+    biz_start_hour: int = 8,
+    biz_end_hour: int = 18,
+    learned_active_hours: Optional[Any] = None,
+    min_baseline_days: int = DEFAULT_MIN_BASELINE_DAYS,
+    anomaly_threshold: float = 3.0,
+    byte_dispersion_floor: Optional[float] = None,
+) -> Dict[str, Any]:
+  """Computes concordance-aligned off-hours (1.75σ) vs in-hours (3.0σ) Z-equivalent adaptive_z (WS3-ADAPTIVE / D1c).
+
+  `event_dow` follows Chronicle `timestamp.get_day_of_week`: 1 = Sunday, 2 = Monday .. 6 = Friday, 7 = Saturday.
+  """
+  import zoneinfo
+  from .template_router import normalize_learned_active_hours
+
+  eff_tz = str(tenant_tz or "").strip()
+  if not eff_tz:
+    raise ValueError("tenant_tz must be a non-empty IANA time-zone string.")
+
+  obs = float(observed)
+  avg = float(hist_avg)
+  std = float(hist_stddev)
+  n_days = int(active_days)
+
+  if off_hours_obs is not None:
+    eff_off_hours = max(0.0, float(off_hours_obs))
+  else:
+    hr = event_hour
+    dow = event_dow
+    if event_timestamp_seconds is not None and (hr is None or dow is None):
+      dt = datetime.datetime.fromtimestamp(float(event_timestamp_seconds), tz=zoneinfo.ZoneInfo(eff_tz))
+      if hr is None:
+        hr = dt.hour
+      if dow is None:
+        dow = 1 if dt.weekday() == 6 else dt.weekday() + 2
+
+    if learned_active_hours is not None:
+      norm = normalize_learned_active_hours(learned_active_hours)
+      assert norm is not None
+      hrs, weekdays_only = norm
+      hr_ok = (int(hr) in set(hrs)) if hr is not None else bool(hrs)
+      dow_ok = (2 <= int(dow) <= 6) if (weekdays_only and dow is not None) else True
+      in_sched = hr_ok and dow_ok
+    else:
+      s = int(biz_start_hour)
+      e = int(biz_end_hour)
+      if s < 0 or s > 23 or e < 0 or e > 24:
+        raise ValueError(f"Business hours out of bounds: biz_start_hour={s}, biz_end_hour={e}.")
+      dow_ok = (2 <= int(dow) <= 6) if dow is not None else True
+      if hr is None:
+        hr_ok = s != e
+      elif s == e:
+        hr_ok = False
+      elif s < e:
+        hr_ok = s <= int(hr) < e
+      else:
+        hr_ok = int(hr) >= s or int(hr) < e
+      in_sched = dow_ok and hr_ok
+    eff_off_hours = 0.0 if in_sched else max(0.0, obs)
+
+  floor = float(byte_dispersion_floor) if byte_dispersion_floor is not None else math.sqrt(max(avg, 1.0))
+  safe_stddev = max(std, floor)
+  personal_z = (obs - avg) / safe_stddev
+  safe_obs = obs if obs > 0.0 else 1.0
+  off_hours_share = max(0.0, min(1.0, eff_off_hours / safe_obs))
+  effective_gate = 1.75 if off_hours_share >= 0.5 else 3.0
+  adaptive_z = (personal_z * 3.0) / effective_gate
+  sensitivity_excess = personal_z - effective_gate
+  is_mature = n_days >= int(min_baseline_days)
+  alerts = bool(is_mature and adaptive_z >= float(anomaly_threshold))
+  return {
+      "personal_z": round(personal_z, 4),
+      "off_hours_obs": round(eff_off_hours, 4),
+      "off_hours_share": round(off_hours_share, 4),
+      "effective_gate": effective_gate,
+      "adaptive_z": round(adaptive_z, 4),
+      "sensitivity_excess": round(sensitivity_excess, 4),
+      "is_mature": is_mature,
+      "alerts": alerts,
+      "is_true_sigma": False,
+  }
+
+
+def rebuild_calendar_day_stats(
+    active_days: float,
+    active_avg: float,
+    active_sd: float,
+    historical_sum: Optional[float] = None,
+    window_days: float = 30.0,
+) -> Dict[str, float]:
+  """Rebuilds 30-day calendar-day statistics from active-day metrics.* outputs (PF-1, PF-2, WS1-05)."""
+  from .timeline_assembler import rebuild_calendar_day_stats as _ta_rebuild
+  return _ta_rebuild(
+      active_days=active_days,
+      active_avg=active_avg,
+      active_sd=active_sd,
+      historical_sum=historical_sum,
+      window_days=window_days,
+  )
+
+
+compile_hunt_plan = compile_hunt_pipeline
+
+
 class UEBAHybridEngine:
   """Object-oriented facade over compile_hunt_pipeline, dispatch_hybrid_handoff, and render_forensic_dossier."""
 
   compile_hunt_pipeline = staticmethod(compile_hunt_pipeline)
+  compile_hunt_plan = staticmethod(compile_hunt_pipeline)
   dispatch_hybrid_handoff = staticmethod(dispatch_hybrid_handoff)
   render_forensic_dossier = staticmethod(render_forensic_dossier)
   get_metric_catalog_summary = staticmethod(get_metric_catalog_summary)
   select_hybrid_models = staticmethod(select_hybrid_models)
   calculate_part_whole_ratio = staticmethod(calculate_part_whole_ratio)
   calculate_two_part_hurdle = staticmethod(calculate_two_part_hurdle)
+  calculate_two_part_hurdle_details = staticmethod(calculate_two_part_hurdle_details)
+  calculate_windowed_slack_sum = staticmethod(calculate_windowed_slack_sum)
   calculate_bayesian_joint_odds = staticmethod(calculate_bayesian_joint_odds)
   calculate_macd_momentum = staticmethod(calculate_macd_momentum)
   calculate_hourly_zscore = staticmethod(calculate_hourly_zscore)
+  calculate_adaptive_context_z = staticmethod(calculate_adaptive_context_z)
+  rebuild_calendar_day_stats = staticmethod(rebuild_calendar_day_stats)
+  build_identifier_coverage_probe = staticmethod(build_identifier_coverage_probe)
+  select_identifier_from_coverage = staticmethod(select_identifier_from_coverage)
 
 
 # ---------------------------------------------------------------------------
@@ -2359,13 +4255,36 @@ def _build_arg_parser() -> argparse.ArgumentParser:
   p_compile.add_argument("--entity-type", dest="entity_type", default="USER")
   p_compile.add_argument("--entity-value", "--entity", dest="entity_value", default=None)
   p_compile.add_argument("--custom-filter", dest="custom_filter", default=None)
-  p_compile.add_argument("--mode", default="A", choices=["A", "B", "C", "D"])
+  p_compile.add_argument("--mode", default="A", choices=["A", "A_TODAY", "A_PARTIAL", "B", "C", "D"])
+  p_compile.add_argument("--today-so-far", dest="today_so_far", action="store_true", help="Score Today So Far ([today 00:00Z -> now]) with partial-day low-bias warning")
+  p_compile.add_argument(
+      "--intraday-hourly",
+      dest="intraday_hourly",
+      action="store_true",
+      help="Opt-in WS1-13 / PF-10 intra-day (period: 1h, window: today) stitching alongside 30d companion baseline",
+  )
+  p_compile.add_argument(
+      "--allow-short-intraday-window",
+      dest="allow_short_intraday_window",
+      action="store_true",
+      help="Override R2 >= 4h raw window minimum on --intraday-hourly with explicit materialization-lag warning",
+  )
+  p_compile.add_argument("--start-time", dest="start_time", default=None, help="UTC ISO-8601 query startTime (hour-aligned when --intraday-hourly)")
+  p_compile.add_argument("--end-time", dest="end_time", default=None, help="UTC ISO-8601 query endTime")
+  p_compile.add_argument("--no-run-command", dest="has_run_command", action="store_false", default=True, help="Simulate MCP-only client without local script execution (caps Mode B at 3 days)")
+  p_compile.add_argument("--no-local-execution", dest="local_execution_available", action="store_false", default=True, help="Simulate environment without local Python helper execution (D6-G5)")
   p_compile.add_argument("--window-days", dest="window_days", type=int, default=1)
   p_compile.add_argument("--sensitivity", default="BALANCED")
   p_compile.add_argument("--threshold", dest="anomaly_threshold", type=float, default=None)
   p_compile.add_argument("--min-baseline-days", dest="min_baseline_days", type=int, default=None)
   p_compile.add_argument("--goal", dest="hypothesis_goal", default=None)
   p_compile.add_argument("--identifier-field", dest="identifier_field", default=None)
+  p_compile.add_argument(
+      "--identifier-coverage",
+      dest="identifier_coverage",
+      default=None,
+      help="JSON string or path to D4 identifier coverage probe payload (hostname vs IP)",
+  )
   p_compile.add_argument("--cohort", dest="cohort_entities", default=None, help="Comma-separated cohort entity IDs")
   p_compile.add_argument("--service-account", dest="service_account", default=None)
   p_compile.add_argument("--killchain", dest="killchain_archetype", default=None)
@@ -2392,10 +4311,20 @@ def _build_arg_parser() -> argparse.ArgumentParser:
   p_render.add_argument("--metric", "--metric-name", dest="metric_name", default="auth_attempts_total")
   p_render.add_argument("--entity-type", dest="entity_type", default="USER")
   p_render.add_argument("--mode", default="A")
+  p_render.add_argument("--today-so-far", dest="today_so_far", action="store_true", help="Flag Today So Far partial-day low-bias disclosure in dossier")
+  p_render.add_argument("--intraday-hourly", dest="intraday_hourly", action="store_true", help="Enable WS1-13 / R4 intra-day (1h, today) upper-tail breach / cannot-clear dossier semantics")
+  p_render.add_argument("--start-time", dest="start_time", default=None, help="Optional UTC ISO-8601 query startTime for --intraday-hourly dossier interval notes")
+  p_render.add_argument("--end-time", dest="end_time", default=None, help="Optional UTC ISO-8601 query endTime for --intraday-hourly dossier interval notes")
   p_render.add_argument("--window-days", dest="window_days", type=int, default=14)
   p_render.add_argument("--threshold", dest="anomaly_threshold", type=float, default=3.0)
   p_render.add_argument("--output-html", dest="output_html_path", default=None)
   p_render.add_argument("--radar-scores", dest="radar_scores", default=None)
+  p_render.add_argument(
+      "--radar-sector-payloads",
+      dest="radar_sector_payloads",
+      default=None,
+      help="JSON string or path to JSON file mapping sector names to raw udm_search stats payloads",
+  )
   p_render.add_argument("--format", choices=["markdown", "json"], default="markdown")
 
   # 4. catalog subcommand
@@ -2427,10 +4356,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         min_baseline_days=args.min_baseline_days,
         hypothesis_goal=args.hypothesis_goal,
         identifier_field=args.identifier_field,
+        identifier_coverage_payload=args.identifier_coverage,
         cohort_entities=cohort,
         service_account=args.service_account,
         killchain_archetype=args.killchain_archetype,
         chained_path=args.chained_path,
+        today_so_far=args.today_so_far,
+        has_run_command=args.has_run_command,
+        local_execution_available=args.local_execution_available,
+        intraday_hourly=args.intraday_hourly,
+        allow_short_intraday_window=args.allow_short_intraday_window,
+        start_time=args.start_time,
+        end_time=args.end_time,
     )
     if args.format == "query":
       print(res["compiled_query"])
@@ -2472,8 +4409,20 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
           entity_type=args.entity_type,
           mode=args.mode,
           window_days=args.window_days,
+          today_so_far=args.today_so_far,
+          intraday_hourly=args.intraday_hourly,
+          allow_short_intraday_window=True,
+          start_time=args.start_time,
+          end_time=args.end_time,
       )
       exec_query = compiled["compiled_query"]
+
+    radar_payloads_arg = None
+    if args.radar_sector_payloads:
+      raw_rp = args.radar_sector_payloads
+      if Path(raw_rp).exists():
+        raw_rp = Path(raw_rp).read_text(encoding="utf-8")
+      radar_payloads_arg = json.loads(raw_rp)
 
     res = render_forensic_dossier(
         rows=rows_arg,
@@ -2486,6 +4435,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         anomaly_threshold=args.anomaly_threshold,
         output_html_path=args.output_html_path,
         radar_scores=args.radar_scores,
+        radar_sector_payloads=radar_payloads_arg,
+        today_so_far=args.today_so_far,
+        intraday_hourly=args.intraday_hourly,
+        start_time=args.start_time,
+        end_time=args.end_time,
     )
     if args.format == "markdown":
       print(res["dossier_markdown"])

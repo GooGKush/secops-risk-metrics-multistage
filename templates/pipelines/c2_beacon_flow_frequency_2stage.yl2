@@ -1,15 +1,17 @@
 // ============================================================================
-// ARCHITECTURE: 2-STAGE C2 BEACON & FLOW FREQUENCY OUTLIER PIPELINE
+// ARCHITECTURE: 2-STAGE OUTBOUND FLOW SURGE PIPELINE (FORMERLY C2 BEACON FLOW FREQUENCY)
 // Skill: secops-risk-metrics-multistage
 // Common Compiler Conformance: YARA-L 2.0 Multi-Stage DAG Engine
-// Models Supported:
-//   Flow Frequency Anomaly ($Z \ge 3.0\sigma$) & Micro-Payload Concentration
-// Join Budget: 1 metric lookup (Stage 1) + 1 stage join (Root) = 2 joins total (<= 4).
-// Match Topology: Entity-centric match key ($host by 1d) joining flow surge to target persistence.
+// Purpose: Detects daily outbound network flow count surges against a 30-day entity baseline
+//          with single-scan target destination breadth enrichment (D1 / WS4-D1).
+//          Note: Sub-hour callback periodicity / interval jitter requires raw inter-arrival
+//          timestamps and hands off to secops-statistical-hunter C2_BEACONING_JITTER.
+// Join Budget: 1 metric lookup (Stage 1) + 0 inter-stage joins (Root) = 1 join total (<= 4).
+// Match Topology: Single UDM scan ($host by 1d) combining flow surge Z with destination breadth.
 // ============================================================================
 
-// Stage 1: Personal Host Outbound Flow Baseline & Payload Density Derivation
-stage stage1_outbound_flow_frequency {
+// Stage 1: Personal Host Outbound Flow Baseline, Payload Density & Destination Breadth
+stage stage1_outbound_flow_surge {
     network.sent_bytes > 0
     network.sent_bytes < 1000000000000000
     principal.asset.hostname = $host
@@ -21,6 +23,9 @@ stage stage1_outbound_flow_frequency {
   outcome:
     $observed_flows = count(metadata.id)
     $observed_bytes = sum(network.sent_bytes)
+    $distinct_dst_ips = count_distinct(target.ip)
+    $distinct_dst_ports = count_distinct(target.port)
+    $sample_dst_ips = array_distinct(target.ip)
 
     $hist_flow_avg = max(metrics.network_flows_outbound(
         period: 1d, window: 30d, metric: event_count_sum, agg: avg,
@@ -39,48 +44,32 @@ stage stage1_outbound_flow_frequency {
         principal.asset.hostname: principal.asset.hostname
     ))
 
-    $flow_z = ($observed_flows - $hist_flow_avg) / if($hist_flow_stddev > 0, $hist_flow_stddev, 1.0)
-    $bytes_per_flow = $observed_bytes / ($observed_flows + 0.001)
+    $dispersion_floor = math.sqrt(if($hist_flow_avg > 1.0, $hist_flow_avg, 1.0))
+    $flow_z = ($observed_flows - $hist_flow_avg) / if($hist_flow_stddev > $dispersion_floor, $hist_flow_stddev, $dispersion_floor)
+    $bytes_per_flow = (1.0 * $observed_bytes) / ($observed_flows + 0.001)
 }
 
-// Stage 2: Target Destination & Port Dispersion (C2 Infrastructure Breadth)
-stage stage2_target_dispersion {
-    network.sent_bytes > 0
-    network.sent_bytes < 1000000000000000
-    principal.asset.hostname = $host
-    $host != ""
-
-  match:
-    $host by 1d
-
-  outcome:
-    $distinct_dst_ips = count_distinct(target.ip)
-    $distinct_dst_ports = count_distinct(target.port)
-    $sample_dst_ips = array_distinct(target.ip)
-}
-
-// Stage 3 (Root Stage): Compound C2 Beaconing & Micro-Session Scoring
-$host = $stage1_outbound_flow_frequency.host
-$host = $stage2_target_dispersion.host
+// Stage 2 (Root Stage): Outbound Flow Surge Scoring & Target Breadth Summary
+$host = $stage1_outbound_flow_surge.host
 
 match:
   $host by 1d
 
 outcome:
-  $flow_z = max($stage1_outbound_flow_frequency.flow_z)
-  $observed_flows = max($stage1_outbound_flow_frequency.observed_flows)
-  $observed_bytes = max($stage1_outbound_flow_frequency.observed_bytes)
-  $bytes_per_flow = max($stage1_outbound_flow_frequency.bytes_per_flow)
-  $distinct_ips = max($stage2_target_dispersion.distinct_dst_ips)
-  $distinct_ports = max($stage2_target_dispersion.distinct_dst_ports)
-  $sample_ips = array_distinct($stage2_target_dispersion.sample_dst_ips)
-
-  // Beacon Score: High session frequency amplified when payload density is low (< 4KB/flow)
-  $beacon_score = $flow_z * if($bytes_per_flow < 4096, 2.0, 1.0)
+  $flow_z = max($stage1_outbound_flow_surge.flow_z)
+  $flow_surge_score = $flow_z
+  $active_days = max($stage1_outbound_flow_surge.hist_flow_active_days)
+  $observed_flows = max($stage1_outbound_flow_surge.observed_flows)
+  $observed_bytes = max($stage1_outbound_flow_surge.observed_bytes)
+  $bytes_per_flow = max($stage1_outbound_flow_surge.bytes_per_flow)
+  $distinct_ips = max($stage1_outbound_flow_surge.distinct_dst_ips)
+  $distinct_ports = max($stage1_outbound_flow_surge.distinct_dst_ports)
+  $sample_ips = array_distinct($stage1_outbound_flow_surge.sample_dst_ips)
 
 condition:
-  $flow_z >= 3.0
+  $active_days >= 7
+  and $flow_z >= 3.0
   and $observed_flows >= 50
 
 order:
-  $beacon_score desc
+  $flow_surge_score desc

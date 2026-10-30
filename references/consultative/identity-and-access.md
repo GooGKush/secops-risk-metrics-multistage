@@ -24,9 +24,9 @@ Traditional authentication alerting centers around account lockout rules:
 * **Math Model**: `two_part_hurdle.yl2`
 * **How It Defeats the Blind Spot**: Decomposes the anomaly into two distinct stages: Stage 1 evaluates the binary transition ($0 \to \ge 1$ active days), immediately alerting on previously silent accounts without requiring high volume; Stage 2 scores volume intensity only if the account is normally active.
 
-### Strategy C: Volatility Shift (Asymmetric Directional Z)
+### Strategy C: One-Sided Upper-Tail Surge (Standard Z-Score — Merged `asymmetric_directional_z.yl2`)
 * **Target Metric**: `metrics.auth_attempts_total`
-* **Math Model**: `asymmetric_directional_z.yl2`
+* **Math Model**: `standard_z_score.yl2` (`asymmetric_directional_z.yl2` merged into `standard_z_score.yl2` per `D1`)
 * **How It Defeats the Blind Spot**: Applies an asymmetric ReLU function ($\max(0, Z)$) that focuses analytical attention exclusively on upward surges while ignoring drops in volume (such as weekends or vacations) that corrupt symmetrical baselines.
 
 ---

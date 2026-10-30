@@ -29,20 +29,36 @@ stage alerts_risk {
         principal.asset.hostname: principal.asset.hostname,
         security_result.rule_name: security_result.rule_name
     ))
-    $z = ($obs - $avg) / if($std > 0, $std, 1.0)
+    $days = max(metrics.alert_event_name_count(
+        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+        principal.asset.hostname: principal.asset.hostname,
+        security_result.rule_name: security_result.rule_name
+    ))
+    $floor = math.sqrt(if($avg > 1.0, $avg, 1.0))
+    $raw_z = ($obs - $avg) / if($std > $floor, $std, $floor)
+    $z = if($days >= 7, $raw_z, 0.0)
 }
 
-// --- ROOT STAGE: Entity-Level Alert Z-Score Projection (Max Peak Outlier across Rules) ---
+// --- ROOT STAGE: Rule-Keyed Alert Z-Score Projection (Consistent (Host, Rule) Tuple) ---
+// MULTIPLICITY & RULE-KEYED AGGREGATION NOTE (WS4-RADAR-COHORT):
+// Grouping the root by ($host, $rule_name) preserves tuple integrity so $observed,
+// $baseline, $dispersion, $active_days, and $z all belong to the SAME alert rule
+// (preventing independent max() across unrelated noisy vs. rare rules). When a host
+// triggers K distinct rules, the maximum of K standard normal Z-scores drifts upward
+// by ~sqrt(2 * ln(K)); callers selecting the top row per host (order: $z desc)
+// evaluate the peak rule's self-consistent baseline tuple.
 $host = $alerts_risk.host
+$rule_name = $alerts_risk.rule_name
 
 match:
-  $host by 1d
+  $host, $rule_name by 1d
 
 outcome:
   $z = max($alerts_risk.z)
   $observed = max($alerts_risk.obs)
   $baseline = max($alerts_risk.avg)
   $dispersion = max($alerts_risk.std)
+  $active_days = max($alerts_risk.days)
 
 // NO-GATE: 360 radar sector micro-query. Every sector must be reported, nominal included, so the
 // root is not filtered; significance is applied when the 6 sector Z-scores are fused in the report.

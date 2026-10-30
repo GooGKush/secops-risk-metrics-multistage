@@ -42,14 +42,14 @@ class ComplexMultiStageSyntaxTest(unittest.TestCase):
       return f.read()
 
   def test_multi_sector_fusion_4stage_template_is_generic(self):
-    """The 4-stage fusion template hardcodes no metric pair: sectors, filters and entity fields are slots."""
+    """The fleet-normalized multi-sector fusion template uses a single-stage sector_union and mature robust fleet center."""
     content = self._read_template("multi_sector_fusion_4stage.yl2")
 
-    # 1. 2 UDM sector stages + 1 stage-to-stage fleet normalization stage + root = 4 stages
-    self.assertIn("stage sector_a", content)
-    self.assertIn("stage sector_b", content)
+    # 1. Single-stage union + stage-to-stage mature fleet normalization + root (no inner-join sector drop)
+    self.assertIn("stage sector_union", content)
+    self.assertNotIn("stage sector_a", content)
+    self.assertNotIn("stage sector_b", content)
     self.assertIn("stage fleet_sector_norm", content)
-    self.assertIn("4-STAGE", content)
     self.assertIn("MULTI-SECTOR", content)
 
     # 2. No codified telemetry pair (the old template was always auth + network)
@@ -61,23 +61,25 @@ class ComplexMultiStageSyntaxTest(unittest.TestCase):
                  "{{sector_a_metric_arg}}", "{{sector_b_metric_arg}}", "{{min_baseline_days}}"):
       self.assertIn(slot, content)
 
-    # 3. Entity and window_start synchronized in the root stage
-    self.assertIn("$entity = $sector_a.entity", content)
-    self.assertIn("$entity = $sector_b.entity", content)
+    # 3. Entity and window_start synchronized via sector_union + mature window.median fleet center
+    self.assertIn("$entity = $sector_union.entity", content)
     self.assertIn("$ws = $fleet_sector_norm.ws", content)
+    self.assertIn("window.median($sector_union.z_a, false)", content)
+    self.assertIn("window.median($sector_union.z_b, false)", content)
     self.assertIn("match:\n  $entity, $ws by 1d", content)
 
-    # 4. 4-component rectified Euclidean norm (personal Z + fleet Delta-Z), ordered
-    self.assertIn("$composite_threat_norm_sq = $z_a_sq + $z_b_sq + $dz_a_sq + $dz_b_sq", content)
+    # 4. Fleet-normalized rectified Euclidean norm (personal_norm_sq tracked separately)
+    self.assertIn("$personal_norm_sq = $z_a_sq + $z_b_sq", code)
+    self.assertIn("$composite_threat_norm_sq = $dz_a_sq + $dz_b_sq", code)
     self.assertIn("$composite_threat_norm_sq desc", content)
 
   def test_dual_sector_fusion_3stage_template_is_generic(self):
-    """The 3-stage fusion template hardcodes no metric pair and joins on $entity."""
+    """The dual-sector fusion template hardcodes no metric pair and unions sectors in stage sector_union."""
     content = self._read_template("dual_sector_fusion_3stage.yl2")
-    self.assertIn("stage sector_a", content)
-    self.assertIn("stage sector_b", content)
-    self.assertIn("$entity = $sector_a.entity", content)
-    self.assertIn("$entity = $sector_b.entity", content)
+    self.assertIn("stage sector_union", content)
+    self.assertNotIn("stage sector_a", content)
+    self.assertNotIn("stage sector_b", content)
+    self.assertIn("$entity = $sector_union.entity", content)
     self.assertIn("match:\n  $entity by 1d", content)
     self.assertIn("$composite_threat_norm_sq = $z_a_sq + $z_b_sq", content)
     code = re.sub(r"//[^\n]*", "", content)
@@ -131,26 +133,30 @@ class ComplexMultiStageSyntaxTest(unittest.TestCase):
     self.assertIn("order:\n  $delta_z desc", content)
 
   def test_hierarchical_empirical_bayes_3stage_template_syntax(self):
-    """Verifies the 3-Stage Empirical Bayes template conforms to Common Compiler grammar."""
+    """Verifies the 3-Stage Empirical Bayes template computes fleet EB Gamma-NB predictive Z (WS4-BAYES-ASSET)."""
     template_path = os.path.join(self.templates_dir, "hierarchical_empirical_bayes_3stage.yl2")
     self.assertTrue(os.path.exists(template_path), f"Missing template: {template_path}")
 
     with open(template_path, "r", encoding="utf-8") as f:
       content = f.read()
 
-    # 1. Must define Stage 1 host extract and Stage 2 fleet hyperpriors
+    # 1. Must define Stage 1 host extract (calendar 30d rate + extra-Poisson dispersion) and Stage 2 mature fleet hyperpriors
     self.assertIn("stage host_extract", content)
+    self.assertIn("$mu_cal = $hist_sum / 30.0", content)
+    self.assertIn("$raw_excess_var = $var_cal - $mu_cal", content)
     self.assertIn("stage fleet_hyperpriors", content)
+    self.assertIn("$mature_n =", content)
+    self.assertIn("$eb_alpha =", content)
+    self.assertIn("$eb_beta =", content)
 
-    # 2. Stage 2 must calculate hyperprior mean and stddev (variance derived in outcome)
-    self.assertIn("avg($host_extract.hist_avg)", content)
-    self.assertIn("stddev($host_extract.hist_avg)", content)
-    self.assertIn("$fleet_sigma_sq = $fleet_sigma * $fleet_sigma", content)
-
-    # 3. Root stage must blend priors and compute posterior rate
-    self.assertIn("$alpha_post = $alpha_host + $obs_24h", content)
-    self.assertIn("$beta_post = $beta_host + 1.0", content)
-    self.assertIn("$posterior_rate = $alpha_post / $beta_post", content)
+    # 2. Root stage must compute pre-observation 30d posterior rate and NB predictive residual Z
+    self.assertIn("$post_alpha_pre = $alpha0 + $hist_sum", content)
+    self.assertIn("$post_beta_pre = $beta0 + 30.0", content)
+    self.assertIn("$posterior_rate = $post_alpha_pre / $post_beta_pre", content)
+    self.assertIn("$bayesian_z = ($obs_24h - $posterior_rate) / $safe_pred_sd", content)
+    self.assertIn("condition:\n  $bayesian_z >= {{anomaly_threshold}}", content)
+    self.assertIn("order:\n  $bayesian_z desc", content)
+    self.assertNotIn("order:\n  $posterior_rate desc", content)
 
   def test_cloud_resource_lifecycle_fusion_compound_dimensions(self):
     """Verifies that generated Cloud Resource Lifecycle queries enforce compound vendor/product dimensions."""
@@ -333,56 +339,65 @@ order:
     """Verifies that multi-stage pipelines leverage Outcomes-in-Outcomes (OIO) within intermediate stages."""
     # 1. multi_sector_fusion_4stage.yl2
     ms_content = self._read_template("multi_sector_fusion_4stage.yl2")
-    self.assertIn("$z_a_raw = ($a_obs - $a_avg) / if($a_std > 0, $a_std, 1.0)", ms_content)
+    self.assertIn("$a_floor = math.sqrt(if($a_avg > 1.0, $a_avg, 1.0))", ms_content)
+    self.assertIn("$z_a_raw = ($a_obs - $a_avg) / if($a_std > $a_floor, $a_std, $a_floor)", ms_content)
     self.assertIn("$z_a_pos = if($z_a_raw > 0, $z_a_raw, 0.0)", ms_content)
-    self.assertIn("$z_a = if($a_days >= {{min_baseline_days}}, $z_a_pos, 0.0)", ms_content)
-    self.assertIn("$z_b_raw = ($b_obs - $b_avg) / if($b_std > 0, $b_std, 1.0)", ms_content)
-    self.assertIn("$z_b = if($b_days >= {{min_baseline_days}}, $z_b_pos, 0.0)", ms_content)
-    self.assertIn("$z_a = max($sector_a.z_a)", ms_content)
-    self.assertIn("$z_b = max($sector_b.z_b)", ms_content)
-    self.assertIn("$fleet_a_mu = max($fleet_sector_norm.fleet_z_a_avg)", ms_content)
-    self.assertIn("$fleet_b_mu = max($fleet_sector_norm.fleet_z_b_avg)", ms_content)
+    self.assertIn("$z_a = if($a_obs > 0 and $a_days >= {{min_baseline_days}}, $z_a_pos, 0.0)", ms_content)
+    self.assertIn("$b_floor = math.sqrt(if($b_avg > 1.0, $b_avg, 1.0))", ms_content)
+    self.assertIn("$z_b_raw = ($b_obs - $b_avg) / if($b_std > $b_floor, $b_std, $b_floor)", ms_content)
+    self.assertIn("$z_b = if($b_obs > 0 and $b_days >= {{min_baseline_days}}, $z_b_pos, 0.0)", ms_content)
+    self.assertIn("$z_a = max($sector_union.z_a)", ms_content)
+    self.assertIn("$z_b = max($sector_union.z_b)", ms_content)
+    self.assertIn("$fleet_a_mu = max($fleet_sector_norm.fleet_z_a_median)", ms_content)
+    self.assertIn("$fleet_b_mu = max($fleet_sector_norm.fleet_z_b_median)", ms_content)
 
     # 2. dual_sector_fusion_3stage.yl2
     ds_content = self._read_template("dual_sector_fusion_3stage.yl2")
-    self.assertIn("$z_a_raw = ($a_obs - $a_avg) / if($a_std > 0, $a_std, 1.0)", ds_content)
-    self.assertIn("$z_b_raw = ($b_obs - $b_avg) / if($b_std > 0, $b_std, 1.0)", ds_content)
-    self.assertIn("$z_a = max($sector_a.z_a)", ds_content)
-    self.assertIn("$z_b = max($sector_b.z_b)", ds_content)
+    self.assertIn("$a_floor = math.sqrt(if($a_avg > 1.0, $a_avg, 1.0))", ds_content)
+    self.assertIn("$z_a_raw = ($a_obs - $a_avg) / if($a_std > $a_floor, $a_std, $a_floor)", ds_content)
+    self.assertIn("$b_floor = math.sqrt(if($b_avg > 1.0, $b_avg, 1.0))", ds_content)
+    self.assertIn("$z_b_raw = ($b_obs - $b_avg) / if($b_std > $b_floor, $b_std, $b_floor)", ds_content)
+    self.assertIn("$z_a = max($sector_union.z_a)", ds_content)
+    self.assertIn("$z_b = max($sector_union.z_b)", ds_content)
     self.assertIn("$z_a_gated = if($a_active_days >= {{min_baseline_days}}, $z_a, 0.0)", ds_content)
 
     # 3. cloud_repository_scope_dual_branch.yl2
     cr_path = os.path.join(self.templates_dir, "cloud_repository_scope_dual_branch.yl2")
     with open(cr_path, "r", encoding="utf-8") as f:
       cr_content = f.read()
-    self.assertIn("$dest_z = ($observed_reads - $dest_avg) / if($dest_stddev > 0, $dest_stddev, 1.0)", cr_content)
-    self.assertIn("$create_z = ($observed_creates - $dest_create_avg) / if($dest_create_stddev > 0, $dest_create_stddev, 1.0)", cr_content)
-    self.assertIn("$origin_z = ($observed_reads - $origin_avg) / if($origin_stddev > 0, $origin_stddev, 1.0)", cr_content)
-    self.assertIn("$ip_origin_z = ($ip_total_reads - $origin_avg) / if($origin_stddev > 0, $origin_stddev, 1.0)", cr_content)
-    self.assertIn("$dest_z = ($obs - max($stage1_extract.dest_avg)) / if(max($stage1_extract.dest_stddev) > 0, max($stage1_extract.dest_stddev), 1.0)", cr_content)
-    self.assertIn("$create_z = ($obs_creates - max($stage1_extract.dest_create_avg)) / if(max($stage1_extract.dest_create_stddev) > 0, max($stage1_extract.dest_create_stddev), 1.0)", cr_content)
-    self.assertIn("$origin_z = max($stage2_origin_rollup.ip_origin_z)", cr_content)
-    self.assertIn("$composite_risk = if($dest_z > 0, $dest_z, 0.0)", cr_content)
+    self.assertIn("$dest_write_days = max(metrics.resource_written_total(", cr_content)
+    self.assertIn("$dest_del_days = max(metrics.resource_deletion_total(", cr_content)
+    self.assertIn("$dest_create_days = max(metrics.resource_creation_total(", cr_content)
+    self.assertIn("stage stage2_origin_rollup {", cr_content)
+    self.assertIn("stage stage3_origin_score {", cr_content)
+    self.assertIn("$dest_z = if($read_days >= 7 and $dest_raw > 0.0, $dest_raw, 0.0)", cr_content)
+    self.assertIn("$create_z = if($create_days >= 7 and $create_raw > 0.0, $create_raw, 0.0)", cr_content)
+    self.assertIn("$origin_z = max($stage3_origin_score.ip_origin_z)", cr_content)
+    self.assertIn("$composite_risk = $dest_z + $write_z + $del_z + $create_z + $origin_z", cr_content)
 
     # 4. dual_baseline_delta_z_3stage.yl2
     dz_path = os.path.join(self.templates_dir, "dual_baseline_delta_z_3stage.yl2")
     with open(dz_path, "r", encoding="utf-8") as f:
       dz_content = f.read()
-    self.assertIn("$personal_z = ($observed_24h - $hist_avg) / if($hist_stddev > 0, $hist_stddev, 1.0)", dz_content)
+    self.assertIn("$dispersion_floor = math.sqrt(if($hist_avg > 1.0, $hist_avg, 1.0))", dz_content)
+    self.assertIn("$personal_z = ($observed_24h - $hist_avg) / if($hist_stddev > $dispersion_floor, $hist_stddev, $dispersion_floor)", dz_content)
     self.assertIn("$personal_z = max($host_extract.personal_z)", dz_content)
 
     # 5. part_of_the_whole_multilevel.yl2
     pw_path = os.path.join(self.templates_dir, "part_of_the_whole_multilevel.yl2")
     with open(pw_path, "r", encoding="utf-8") as f:
       pw_content = f.read()
-    self.assertIn("$z_personal = ($obs - $personal_avg) / if($personal_std > 0, $personal_std, 1.0)", pw_content)
+    self.assertIn("$personal_floor = math.sqrt(if($personal_avg > 1.0, $personal_avg, 1.0))", pw_content)
+    self.assertIn("$z_personal = ($obs - $personal_avg) / if($personal_std > $personal_floor, $personal_std, $personal_floor)", pw_content)
     self.assertIn("$z_personal = max($all_entities.z_personal)", pw_content)
 
     # 6. radar_360_decoupled_sector.yl2
     rd_path = os.path.join(self.templates_dir, "radar_360_decoupled_sector.yl2")
     with open(rd_path, "r", encoding="utf-8") as f:
       rd_content = f.read()
-    self.assertIn("$z = ($obs - $avg) / if($std > 0, $std, 1.0)", rd_content)
+    self.assertIn("$floor = math.sqrt(if($avg > 1.0, $avg, 1.0))", rd_content)
+    self.assertIn("$raw_z = ($obs - $avg) / if($std > $floor, $std, $floor)", rd_content)
+    self.assertIn("$z = if($days >= 7, $raw_z, 0.0)", rd_content)
     self.assertIn("$z = max($auth_risk.z)", rd_content)
 
 

@@ -8,7 +8,7 @@
 //
 // PEER GROUP (default = fleet only):
 //   No peers mentioned -> delete every block between "// >>> TEAM COHORT" and
-//   "// <<< TEAM COHORT" (3 blocks) and keep "order: $d_vs_fleet_sq desc". Without a peer
+//   "// <<< TEAM COHORT" (4 blocks) and keep "order: $d_vs_fleet_sq desc". Without a peer
 //   list the team stage would just recompute the fleet.
 //   Peers mentioned but not named (e.g. "vs his team") -> resolve the team from Active
 //   Directory in Turn 1 (AD TEAM LOOKUP in references/multi-stage-metrics-guide.md, Peer
@@ -19,20 +19,27 @@
 //   delete only the marker lines, and swap BOTH condition: ($d_vs_team_sq >= {{fusion_threshold_sq}})
 //   AND order: ($d_vs_team_sq desc). Show the filled query in the Turn 1 Pre-Flight.
 //   ADDITIONAL SLOTS: entity_name = entity_var without leading $ (e.g. user or host);
-//   target_entity_filter = subject/cohort filter in root stage (or {{entity_var}} != "" for fleet-wide).
-//   SAMUELSON SMALL-COHORT BOUND: Because the subject is included in the cohort mean/stddev,
-//   max Z_i <= math.sqrt(N - 1) and D^2 <= 3*(N - 1). Lower fusion_threshold_sq when team_size < 6.
-//   TRIAD COLLINEARITY NOTE: Since total = fail + success, the 3 triad Z-scores span 2 linearly
-//   independent degrees of freedom; D^2 = Z1^2 + Z2^2 + Z3^2 weights the sum-axis by 2x.
-//   Path user -> group -> enterprise: $z*_vs_team (one vs group), $z*_team_vs_enterprise and
-//   $d_team_vs_fleet_sq (group mean vs fleet; elevated = team campaign/rollout).
+//   target_entity_filter = subject/cohort filter in root stage (or {{entity_var}} != "" for fleet-wide);
+//   cohort_population_guard = human USER cohort guard excluding Windows system/service and trailing-$ machine accounts;
+//   m1_var_floor / m2_var_floor / m3_var_floor = 1.0 for count metrics or squared byte floor.
+//   SAMUELSON SMALL-COHORT BOUND & LEAVE-ONE-OUT SCORING (PF-2 / WS1-09 / WS4-RADAR-COHORT):
+//   Cohort means and variances exclude the scored entity itself ((sum_all - obs) / (N - 1)).
+//   Chronicle's raw stddev() computes sample SD (N - 1 df) with the subject included in the cohort,
+//   bounding max Z_i <= (N - 1) / math.sqrt(N) and D^2 <= 3 * (N - 1)^2 / N.
+//   A fusion_threshold_sq of 12.25 requires team_size >= 6;
+//   when $samuelson_max_d_sq < {{fusion_threshold_sq}}, $cohort_too_small = 1 ("cohort too small").
+//   TRIAD COLLINEARITY & POSITIVE RECTIFICATION NOTE: Since total = fail + success, the 3 triad Z-scores
+//   span 2 linearly independent degrees of freedom; negative Z-scores are rectified at 0.0 before squaring
+//   (D^2 = sum(max(0, Z_m)^2)) so quiet peers never outrank surging outliers.
+//   MAX JOIN COUNT BUDGET (maxJoinCount = 4): team_cohort_stats joins only all_entities (1 UEBA metrics.*
+//   join + 0 in enterprise_stats + 0 in team_cohort_stats + 2 in loo_scores + 1 in Root = 4 joins).
 //
 // CONCRETE FIELD BINDING & INSTANTIATION GUIDE:
 // Slots event_filter and m1/m2/m3_observation_agg: take them from the triad's block in
 //   references/metric-sector-catalog.md "Sibling triads" (Auth, DNS, HTTP, Network bytes, Network flows).
 //   The stage filter is shared by all three metrics; never paste one metric's own extra line into it.
 //   Composite-only families (file_executions_*, resource_*) cannot form a triad.
-// Math is two-sided (D^2 = sum of Z^2); a drop in one metric also raises D.
+// Math is upper-tail rectified (D^2 = sum of max(0, Z)^2) so quiet drops do not inflate D.
 // Canonical Triad: HTTP Telemetry (Queries Total, Queries Fail, Queries Success)
 //   - event_filter slot: (network.http.method != "" or network.http.user_agent != "" or network.http.response_code != 0 or network.http.referral_url != ""), entity_field slot: principal.asset.hostname, entity_var slot: $host
 //   - Metric 1 (Total Queries): m1_observation_agg slot: count(metadata.id), m1_metric_func_avg slot: metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.asset.hostname: principal.asset.hostname)
@@ -45,6 +52,7 @@ stage all_entities {
     {{event_filter}}
     {{entity_field}} = {{entity_var}}
     {{entity_var}} != ""
+    {{cohort_population_guard}}
 
   match:
     {{entity_var}} by 1d
@@ -63,9 +71,12 @@ stage all_entities {
     $m3_p_std = max({{m3_metric_func_stddev}})
 
     // In-Stage Personal Historical Z-Scores across the Triad (Outcomes-in-Outcomes)
-    $z1_personal = ($m1_obs - $m1_p_avg) / if($m1_p_std > 0, $m1_p_std, 1.0)
-    $z2_personal = ($m2_obs - $m2_p_avg) / if($m2_p_std > 0, $m2_p_std, 1.0)
-    $z3_personal = ($m3_obs - $m3_p_avg) / if($m3_p_std > 0, $m3_p_std, 1.0)
+    $m1_floor = math.sqrt(if($m1_p_avg > 1.0, $m1_p_avg, 1.0))
+    $m2_floor = math.sqrt(if($m2_p_avg > 1.0, $m2_p_avg, 1.0))
+    $m3_floor = math.sqrt(if($m3_p_avg > 1.0, $m3_p_avg, 1.0))
+    $z1_personal = ($m1_obs - $m1_p_avg) / if($m1_p_std > $m1_floor, $m1_p_std, $m1_floor)
+    $z2_personal = ($m2_obs - $m2_p_avg) / if($m2_p_std > $m2_floor, $m2_p_std, $m2_floor)
+    $z3_personal = ($m3_obs - $m3_p_avg) / if($m3_p_std > $m3_floor, $m3_p_std, $m3_floor)
 }
 
 // Fleet stage: Enterprise Whole (Macro baseline across the entire fleet)
@@ -76,35 +87,43 @@ stage enterprise_stats {
     $ws by 1d
 
   outcome:
+    $m1_fleet_sum = sum($all_entities.m1_obs)
     $m1_fleet_avg = avg($all_entities.m1_obs)
     $m1_fleet_std = stddev($all_entities.m1_obs)
 
+    $m2_fleet_sum = sum($all_entities.m2_obs)
     $m2_fleet_avg = avg($all_entities.m2_obs)
     $m2_fleet_std = stddev($all_entities.m2_obs)
 
+    $m3_fleet_sum = sum($all_entities.m3_obs)
     $m3_fleet_avg = avg($all_entities.m3_obs)
     $m3_fleet_std = stddev($all_entities.m3_obs)
 
-    // Zero-safe divisors (keeps the root under the 20-outcome limit)
-    $m1_fleet_div = if($m1_fleet_std > 0, $m1_fleet_std, 1.0)
-    $m2_fleet_div = if($m2_fleet_std > 0, $m2_fleet_std, 1.0)
-    $m3_fleet_div = if($m3_fleet_std > 0, $m3_fleet_std, 1.0)
-
     $fleet_size = count_distinct($all_entities.{{entity_name}})
+    $fleet_valid = if($fleet_size > 1, 1.0, 0.0)
+    $fleet_peer_n = if($fleet_size > 1, $fleet_size, 2) - 1.0
+    $fleet_n_over_nm1 = $fleet_size / $fleet_peer_n
+    $fleet_inv_df = 1.0 / (if($fleet_size > 2, $fleet_size, 3) - 2.0)
+    $m1_fleet_ss = $fleet_peer_n * $m1_fleet_std * $m1_fleet_std
+    $m2_fleet_ss = $fleet_peer_n * $m2_fleet_std * $m2_fleet_std
+    $m3_fleet_ss = $fleet_peer_n * $m3_fleet_std * $m3_fleet_std
 }
 
 // >>> TEAM COHORT
-// Optional stage: Team Cohort Whole (named peers) + the group as a whole vs the fleet
+// Optional stage: Team Cohort Whole (named peers; decoupled from enterprise_stats to stay <= 4 joins)
 stage team_cohort_stats {
     $u = $all_entities.{{entity_name}}
     $ws = $all_entities.window_start
-    $ws = $enterprise_stats.ws
     {{cohort_filter}}
 
   match:
     $ws by 1d
 
   outcome:
+    $m1_team_sum = sum($all_entities.m1_obs)
+    $m2_team_sum = sum($all_entities.m2_obs)
+    $m3_team_sum = sum($all_entities.m3_obs)
+
     $m1_team_avg = avg($all_entities.m1_obs)
     $m2_team_avg = avg($all_entities.m2_obs)
     $m3_team_avg = avg($all_entities.m3_obs)
@@ -112,27 +131,65 @@ stage team_cohort_stats {
     $m1_team_std = stddev($all_entities.m1_obs)
     $m2_team_std = stddev($all_entities.m2_obs)
     $m3_team_std = stddev($all_entities.m3_obs)
-    $m1_team_div = if($m1_team_std > 0, $m1_team_std, 1.0)
-    $m2_team_div = if($m2_team_std > 0, $m2_team_std, 1.0)
-    $m3_team_div = if($m3_team_std > 0, $m3_team_std, 1.0)
-
-    // Group vs Enterprise ("Team as Part of the Fleet"): team mean in fleet std units
-    $z1_team_vs_enterprise = ($m1_team_avg - max($enterprise_stats.m1_fleet_avg)) / max($enterprise_stats.m1_fleet_div)
-    $z2_team_vs_enterprise = ($m2_team_avg - max($enterprise_stats.m2_fleet_avg)) / max($enterprise_stats.m2_fleet_div)
-    $z3_team_vs_enterprise = ($m3_team_avg - max($enterprise_stats.m3_fleet_avg)) / max($enterprise_stats.m3_fleet_div)
-    $d_team_vs_fleet_sq = ($z1_team_vs_enterprise * $z1_team_vs_enterprise) + ($z2_team_vs_enterprise * $z2_team_vs_enterprise) + ($z3_team_vs_enterprise * $z3_team_vs_enterprise)
 
     $team_size = count_distinct($all_entities.{{entity_name}})
+    $team_peer_n = if($team_size > 1, $team_size, 2) - 1.0
+    $team_n_over_nm1 = $team_size / $team_peer_n
+    $team_inv_df = 1.0 / (if($team_size > 2, $team_size, 3) - 2.0)
+    $m1_team_ss = $team_peer_n * $m1_team_std * $m1_team_std
+    $m2_team_ss = $team_peer_n * $m2_team_std * $m2_team_std
+    $m3_team_ss = $team_peer_n * $m3_team_std * $m3_team_std
 }
 // <<< TEAM COHORT
 
-// Root Stage: Multilevel Triad Scoring & Composite Distance
+// Stage 3/4: Per-Entity Leave-One-Out Cross-Sectional Z-Scores (resets arithmetic op depth before squaring)
+stage loo_scores {
+    {{entity_var}} = $all_entities.{{entity_name}}
+    $ws = $all_entities.window_start
+    // >>> TEAM COHORT
+    $ws = $team_cohort_stats.ws
+    // <<< TEAM COHORT
+    $ws = $enterprise_stats.ws
+    {{target_entity_filter}}
+
+  match:
+    {{entity_var}}, $ws by 1d
+
+  outcome:
+    $e1_loo_avg = (max($enterprise_stats.m1_fleet_sum) - max($all_entities.m1_obs)) / max($enterprise_stats.fleet_peer_n)
+    $e1_var = (max($enterprise_stats.m1_fleet_ss) - (max($enterprise_stats.fleet_n_over_nm1) * (max($all_entities.m1_obs) - max($enterprise_stats.m1_fleet_avg)) * (max($all_entities.m1_obs) - max($enterprise_stats.m1_fleet_avg)))) * max($enterprise_stats.fleet_inv_df)
+    $z1_vs_enterprise = max($enterprise_stats.fleet_valid) * (max($all_entities.m1_obs) - $e1_loo_avg) / math.sqrt(if(if($e1_var > $e1_loo_avg, $e1_var, $e1_loo_avg) > {{m1_var_floor}}, if($e1_var > $e1_loo_avg, $e1_var, $e1_loo_avg), {{m1_var_floor}}))
+
+    $e2_loo_avg = (max($enterprise_stats.m2_fleet_sum) - max($all_entities.m2_obs)) / max($enterprise_stats.fleet_peer_n)
+    $e2_var = (max($enterprise_stats.m2_fleet_ss) - (max($enterprise_stats.fleet_n_over_nm1) * (max($all_entities.m2_obs) - max($enterprise_stats.m2_fleet_avg)) * (max($all_entities.m2_obs) - max($enterprise_stats.m2_fleet_avg)))) * max($enterprise_stats.fleet_inv_df)
+    $z2_vs_enterprise = max($enterprise_stats.fleet_valid) * (max($all_entities.m2_obs) - $e2_loo_avg) / math.sqrt(if(if($e2_var > $e2_loo_avg, $e2_var, $e2_loo_avg) > {{m2_var_floor}}, if($e2_var > $e2_loo_avg, $e2_var, $e2_loo_avg), {{m2_var_floor}}))
+
+    $e3_loo_avg = (max($enterprise_stats.m3_fleet_sum) - max($all_entities.m3_obs)) / max($enterprise_stats.fleet_peer_n)
+    $e3_var = (max($enterprise_stats.m3_fleet_ss) - (max($enterprise_stats.fleet_n_over_nm1) * (max($all_entities.m3_obs) - max($enterprise_stats.m3_fleet_avg)) * (max($all_entities.m3_obs) - max($enterprise_stats.m3_fleet_avg)))) * max($enterprise_stats.fleet_inv_df)
+    $z3_vs_enterprise = max($enterprise_stats.fleet_valid) * (max($all_entities.m3_obs) - $e3_loo_avg) / math.sqrt(if(if($e3_var > $e3_loo_avg, $e3_var, $e3_loo_avg) > {{m3_var_floor}}, if($e3_var > $e3_loo_avg, $e3_var, $e3_loo_avg), {{m3_var_floor}}))
+
+    // >>> TEAM COHORT
+    $t1_loo_avg = (max($team_cohort_stats.m1_team_sum) - max($all_entities.m1_obs)) / max($team_cohort_stats.team_peer_n)
+    $t1_var = (max($team_cohort_stats.m1_team_ss) - (max($team_cohort_stats.team_n_over_nm1) * (max($all_entities.m1_obs) - max($team_cohort_stats.m1_team_avg)) * (max($all_entities.m1_obs) - max($team_cohort_stats.m1_team_avg)))) * max($team_cohort_stats.team_inv_df)
+    $z1_vs_team = (max($all_entities.m1_obs) - $t1_loo_avg) / math.sqrt(if(if($t1_var > $t1_loo_avg, $t1_var, $t1_loo_avg) > {{m1_var_floor}}, if($t1_var > $t1_loo_avg, $t1_var, $t1_loo_avg), {{m1_var_floor}}))
+
+    $t2_loo_avg = (max($team_cohort_stats.m2_team_sum) - max($all_entities.m2_obs)) / max($team_cohort_stats.team_peer_n)
+    $t2_var = (max($team_cohort_stats.m2_team_ss) - (max($team_cohort_stats.team_n_over_nm1) * (max($all_entities.m2_obs) - max($team_cohort_stats.m2_team_avg)) * (max($all_entities.m2_obs) - max($team_cohort_stats.m2_team_avg)))) * max($team_cohort_stats.team_inv_df)
+    $z2_vs_team = (max($all_entities.m2_obs) - $t2_loo_avg) / math.sqrt(if(if($t2_var > $t2_loo_avg, $t2_var, $t2_loo_avg) > {{m2_var_floor}}, if($t2_var > $t2_loo_avg, $t2_var, $t2_loo_avg), {{m2_var_floor}}))
+
+    $t3_loo_avg = (max($team_cohort_stats.m3_team_sum) - max($all_entities.m3_obs)) / max($team_cohort_stats.team_peer_n)
+    $t3_var = (max($team_cohort_stats.m3_team_ss) - (max($team_cohort_stats.team_n_over_nm1) * (max($all_entities.m3_obs) - max($team_cohort_stats.m3_team_avg)) * (max($all_entities.m3_obs) - max($team_cohort_stats.m3_team_avg)))) * max($team_cohort_stats.team_inv_df)
+    $z3_vs_team = (max($all_entities.m3_obs) - $t3_loo_avg) / math.sqrt(if(if($t3_var > $t3_loo_avg, $t3_var, $t3_loo_avg) > {{m3_var_floor}}, if($t3_var > $t3_loo_avg, $t3_var, $t3_loo_avg), {{m3_var_floor}}))
+
+    $team_size = max($team_cohort_stats.team_size)
+    // <<< TEAM COHORT
+}
+
+// Root Stage: Positive-Rectified Multilevel Triad Scoring & Composite Distance
 {{entity_var}} = $all_entities.{{entity_name}}
 $ws = $all_entities.window_start
-// >>> TEAM COHORT
-$ws = $team_cohort_stats.ws
-// <<< TEAM COHORT
-$ws = $enterprise_stats.ws
+{{entity_var}} = $loo_scores.{{entity_name}}
+$ws = $loo_scores.ws
 
 {{target_entity_filter}}
 
@@ -150,25 +207,26 @@ outcome:
   $z3_personal = max($all_entities.z3_personal)
 
   // >>> TEAM COHORT
-  // Peer group only: Team Cross-Sectional Z-Scores ("Part of the Team")
-  $z1_vs_team = ($m1_observed - max($team_cohort_stats.m1_team_avg)) / max($team_cohort_stats.m1_team_div)
-  $z2_vs_team = ($m2_observed - max($team_cohort_stats.m2_team_avg)) / max($team_cohort_stats.m2_team_div)
-  $z3_vs_team = ($m3_observed - max($team_cohort_stats.m3_team_avg)) / max($team_cohort_stats.m3_team_div)
+  // Peer group only: Leave-One-Out Team Cross-Sectional Z-Scores ("Part of the Team")
+  $team_size = max($loo_scores.team_size)
+  $z1_vs_team = if($team_size > 1, max($loo_scores.z1_vs_team), 0.0)
+  $z2_vs_team = if($team_size > 1, max($loo_scores.z2_vs_team), 0.0)
+  $z3_vs_team = if($team_size > 1, max($loo_scores.z3_vs_team), 0.0)
 
-  $d_vs_team_sq = ($z1_vs_team * $z1_vs_team) + ($z2_vs_team * $z2_vs_team) + ($z3_vs_team * $z3_vs_team)
+  $d_vs_team_sq = (if($z1_vs_team > 0.0, $z1_vs_team, 0.0) * if($z1_vs_team > 0.0, $z1_vs_team, 0.0)) + (if($z2_vs_team > 0.0, $z2_vs_team, 0.0) * if($z2_vs_team > 0.0, $z2_vs_team, 0.0)) + (if($z3_vs_team > 0.0, $z3_vs_team, 0.0) * if($z3_vs_team > 0.0, $z3_vs_team, 0.0))
 
-  // 4. Group vs Enterprise, computed in team_cohort_stats (elevated = team campaign/rollout)
-  $d_team_vs_fleet_sq = max($team_cohort_stats.d_team_vs_fleet_sq)
-  $team_size = max($team_cohort_stats.team_size)
+  $samuelson_max_z = ($team_size - 1.0) / math.sqrt(if($team_size > 1, $team_size, 1.0))
+  $samuelson_max_d_sq = 3.0 * $samuelson_max_z * $samuelson_max_z
+  $cohort_too_small = if($samuelson_max_d_sq < {{fusion_threshold_sq}}, 1, 0)
   // <<< TEAM COHORT
 
-  // 2. Enterprise Cross-Sectional Z-Scores ("Part of the Fleet")
-  $z1_vs_enterprise = ($m1_observed - max($enterprise_stats.m1_fleet_avg)) / max($enterprise_stats.m1_fleet_div)
-  $z2_vs_enterprise = ($m2_observed - max($enterprise_stats.m2_fleet_avg)) / max($enterprise_stats.m2_fleet_div)
-  $z3_vs_enterprise = ($m3_observed - max($enterprise_stats.m3_fleet_avg)) / max($enterprise_stats.m3_fleet_div)
+  // 2. Leave-One-Out Enterprise Cross-Sectional Z-Scores ("Part of the Fleet")
+  $z1_vs_enterprise = max($loo_scores.z1_vs_enterprise)
+  $z2_vs_enterprise = max($loo_scores.z2_vs_enterprise)
+  $z3_vs_enterprise = max($loo_scores.z3_vs_enterprise)
 
-  // 3. Composite Threat Norm Across the Triad vs the Fleet
-  $d_vs_fleet_sq = ($z1_vs_enterprise * $z1_vs_enterprise) + ($z2_vs_enterprise * $z2_vs_enterprise) + ($z3_vs_enterprise * $z3_vs_enterprise)
+  // 3. Positive-Rectified Composite Threat Norm Across the Triad vs the Fleet
+  $d_vs_fleet_sq = (if($z1_vs_enterprise > 0.0, $z1_vs_enterprise, 0.0) * if($z1_vs_enterprise > 0.0, $z1_vs_enterprise, 0.0)) + (if($z2_vs_enterprise > 0.0, $z2_vs_enterprise, 0.0) * if($z2_vs_enterprise > 0.0, $z2_vs_enterprise, 0.0)) + (if($z3_vs_enterprise > 0.0, $z3_vs_enterprise, 0.0) * if($z3_vs_enterprise > 0.0, $z3_vs_enterprise, 0.0))
 
 // Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
 condition:

@@ -206,7 +206,8 @@ class TestGuardrailContracts(unittest.TestCase):
     multi-day single query is a fixed-baseline timeline, not a sliding one.
     """
     self.assertIn("Evaluation Modes", self.skill_content)
-    self.assertIn("Mode A: Current-Day Snapshot", self.skill_content)
+    self.assertIn("Mode A: Last Complete UTC Day Snapshot", self.skill_content)
+    self.assertIn("Today So Far", self.skill_content)
     self.assertIn("Mode B: Fixed-Baseline Timeline", self.skill_content)
     self.assertIn("Mode C: Per-Day Baseline Timeline", self.skill_content)
     self.assertIn("Window Invariant", self.skill_content)
@@ -218,10 +219,11 @@ class TestGuardrailContracts(unittest.TestCase):
     self.assertNotIn("compared to its own trailing 30d baseline (`period", self.skill_content)
 
   def test_mode_c_is_capability_gated_and_mode_b_capped(self):
-    """Mode C requires run_command; Mode B is a 2-7 day single query; no-shell clients get the harness note."""
+    """Mode C requires run_command; Mode B is a 2-3 day single query (D9); no-shell clients get the harness note."""
     self.assertIn("(`run_command` present only)", self.skill_content)
-    self.assertIn("2–7 days, one query", self.skill_content)
+    self.assertIn("2–3 days, one query", self.skill_content)
     self.assertIn("need a client that runs local scripts", self.skill_content)
+    self.assertNotIn("2–7 days", self.skill_content)
     self.assertNotIn("2–14", self.skill_content)
 
   def test_mode_c_execution_contracts_amended(self):
@@ -485,7 +487,7 @@ class TestGuardrailContracts(unittest.TestCase):
       g_content = f.read()
 
   def test_precomposed_pipeline_templates_exist(self):
-    """All 25 analytical pipeline templates in templates/pipelines/ must exist and be non-empty."""
+    """All active analytical pipeline templates in templates/pipelines/ must exist; retired D1 ones must not."""
     skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     pipelines_dir = os.path.join(skill_dir, 'templates', 'pipelines')
     
@@ -503,7 +505,6 @@ class TestGuardrailContracts(unittest.TestCase):
         'hybrid_metric_entropy_concentration_2stage.yl2',
         'hybrid_metric_fleet_prevalence_2stage.yl2',
         'hybrid_metric_http_ua_prevalence_2stage.yl2',
-        'hybrid_metric_orthogonal_space_2stage.yl2',
         'hybrid_metric_raw_enrichment_2stage.yl2',
         'hybrid_metric_whois_domain_lifecycle_2stage.yl2',
         'longitudinal_cusum_2stage.yl2',
@@ -527,6 +528,11 @@ class TestGuardrailContracts(unittest.TestCase):
           100,
           f"Pipeline template '{pipeline_file}' is unexpectedly empty (<100 bytes)."
       )
+    retired_path = os.path.join(pipelines_dir, 'hybrid_metric_orthogonal_space_2stage.yl2')
+    self.assertFalse(
+        os.path.exists(retired_path),
+        "Retired (D1) template 'hybrid_metric_orthogonal_space_2stage.yl2' must be removed from templates/pipelines/.",
+    )
 
   def test_all_templates_balanced_delimiters(self):
     """Every .yl2 template in the repository must have strictly balanced parentheses, brackets, and braces."""
@@ -1732,15 +1738,16 @@ class TestGuardrailContracts(unittest.TestCase):
   def test_no_retired_evaluation_mode_labels(self):
     """Retired Mode A/B labels must not reappear in agent- or consumer-facing text.
 
-    Mode A is a current-day window (00:00Z -> now), NOT a rolling 24 hours: a
-    rolling window straddles two daily metrics buckets. Mode B spans 2-7 days,
-    with 7 as the ceiling rather than the only option.
+    Mode A defaults to the last complete UTC day ([D-1 00:00Z, D0 00:00Z), with explicit
+    partial-today opt-in via --today-so-far), NOT a rolling 24 hours: a rolling window
+    straddles two daily metrics buckets. Mode B spans 2-3 days (capped at 3 days to bound
+    start-anchored fixed-baseline staleness).
 
     Rule 1 (Mode A) is a case-insensitive proximity rule, so any re-drift phrasing
     is caught, not just the exact strings that were removed once.
 
     Rule 2 (Mode B) is deliberately a name deny-list and NOT a proximity rule: a
-    rendered caption legitimately reads "Mode B (7-Day Timeline)" when seven days
+    rendered caption legitimately reads "Mode B (3-Day Timeline)" when three days
     were requested. Only the retired *names*, which embed a fixed horizon in the
     mode's title, are forbidden.
 
@@ -1779,8 +1786,8 @@ class TestGuardrailContracts(unittest.TestCase):
 
     self.assertEqual(
         [], offenders,
-        "Retired evaluation-mode labels found. Mode A is a current-day window, "
-        "not a rolling 24h; Mode B is 'Fixed-Baseline Timeline' (2-7 days) with no "
+        "Retired evaluation-mode labels found. Mode A defaults to the last complete UTC day "
+        "(not a rolling 24h); Mode B is 'Fixed-Baseline Timeline' (2-3 days) with no "
         f"fixed horizon in its name. Offenders: {offenders}"
     )
 

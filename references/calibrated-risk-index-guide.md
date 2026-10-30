@@ -38,8 +38,9 @@ $$
 $$
 
 ### Calibration Parameters:
-* **Inflection Point ($Z_{\text{mid}} = 3.0\sigma$)**: The statistical threshold for a "True Statistical Anomaly" (the 99.87th percentile tail under Gaussian assumptions).
+* **Inflection Point ($Z_{\text{mid}} = 3.0\sigma$)**: The statistical threshold for a "True Statistical Anomaly" (the 99.87th percentile tail under univariate Gaussian assumptions).
 * **Steepness Parameter ($\alpha = 0.6$)**: Calibrates the transition slope so that moderate drift ($Z = 2.0\sigma$) sits in the low 30s, while multi-sigma breakouts ($Z \ge 5.0\sigma$) enter high-severity tiers ($>75$).
+* **Multi-Sector Correlation & Fleet Expected-Maximum Caveat (`WS7-03`)**: When CRI is evaluated on a fused Euclidean norm $D = \sqrt{\sum \max(0, Z_i)^2}$, false-positive rates depend on **inter-sector correlation** — positively correlated sectors (such as Network Egress, DNS, and Web HTTP) exceed independent $\chi^2_k$ tail probabilities because $D$ carries no covariance matrix. When interpreting fleet-wide or $K$-key maxima, $\sqrt{2 \ln N}$ is an **approximation of the Gaussian expected maximum** ($\mathbb{E}[\max_{1 \le i \le N} Z_i] \approx \sqrt{2 \ln N}$), **not a Bonferroni correction** (a cutoff at $\sqrt{2 \ln N}$ sits near the expected fleet maximum rather than controlling family-wise error at $\alpha / N$).
 
 ---
 
@@ -95,7 +96,7 @@ $$
    * **Interpretation**: Massive breakout or dormant zero-baseline awakening. The entity is exhibiting behavior completely alien to its historical profile.
    * **Action**: High-priority incident response escalation. Isolate host or suspend user credentials if paired with suspicious command-line artifacts.
 
-> **In-Query Discrete Step Ladder (`templates/stage2_math_models/piecewise_cri.yl2`)**: When a query computes a discrete step-function approximation directly inside YARA-L (`$cri_score`), it maps the same 5 operational tiers onto representative midpoint scores: `95` (`CRITICAL`, $Z \ge 6.0$), `85` (`HIGH`, $4.5 \le Z < 6.0$), `65` (`MEDIUM`, $3.0 \le Z < 4.5$), `40` (`LOW`, $2.0 \le Z < 3.0$), `15` (`INFORMATIONAL`, $0.0 < Z < 2.0$), and `0` (`NOMINAL`, $Z \le 0.0$).
+> **Retirement Note (`D1` / `WS7-01` — `templates/stage2_math_models/piecewise_cri.yl2` Retired)**: The legacy in-query discrete step-ladder template (`piecewise_cri.yl2`) is **retired** under `D1`. CRI is computed exclusively in Python post-processing via `ueba_constants.calculate_cri` (with canonical tier boundaries `26 / 46 / 70 / 90`, `Z <= 0 -> 0`, and `N/A` for boolean novelty or missing data).
 
 ---
 

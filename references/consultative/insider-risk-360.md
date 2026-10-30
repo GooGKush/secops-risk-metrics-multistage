@@ -24,9 +24,9 @@ Every individual action is intentionally tuned to fall below alert thresholds. T
   $$D = \sqrt{2.0^2 + 2.0^2 + 2.0^2 + 2.0^2 + 2.0^2 + 2.0^2} = \sqrt{24} \approx 4.90\sigma$$
   An anomaly score of $+4.90\sigma$ represents an extreme statistical rarity, instantly prioritizing the entity for tier-1 SOC triage.
 
-### Strategy B: Peer Group Divergence (Fleet Prevalence Shield)
+### Strategy B: Peer Group & Fleet Divergence (`part_of_the_whole_multilevel.yl2` / `dual_baseline_delta_z_3stage.yl2`)
 * **Target Metric**: Multi-vector evaluation
-* **Math Model**: `fleet_prevalence_shield.yl2`
+* **Math Model**: `part_of_the_whole_multilevel.yl2` or `dual_baseline_delta_z_3stage.yl2` (single-plane `fleet_prevalence_shield.yl2` retired per `D1`)
 * **How It Defeats the Blind Spot**: Compares the subject's cross-vector footprint against their immediate departmental cohort (e.g. Finance, DevOps, Legal). An individual whose multi-vector activity diverges by $\ge 3.0\sigma$ from their peers is immediately surfaced.
 
 ---

@@ -5,6 +5,47 @@ Author: Greg Kushmerek
 
 from typing import Any, Dict, List, Optional
 
+try:
+  from .ueba_constants import (
+      _coerce_finite_float,
+      calculate_cri,
+      coerce_cri_int,
+      cri_from_model_score,
+      format_cri,
+      format_score_with_unit,
+      get_cri_band_metadata,
+      is_inverted_score_key,
+      is_true_sigma_key,
+      score_to_z_equivalent,
+  )
+except ImportError:
+  try:
+    from scripts.ueba_constants import (
+        _coerce_finite_float,
+        calculate_cri,
+        coerce_cri_int,
+        cri_from_model_score,
+        format_cri,
+        format_score_with_unit,
+        get_cri_band_metadata,
+        is_inverted_score_key,
+        is_true_sigma_key,
+        score_to_z_equivalent,
+    )
+  except ImportError:
+    from ueba_constants import (  # type: ignore[no-redef]
+        _coerce_finite_float,
+        calculate_cri,
+        coerce_cri_int,
+        cri_from_model_score,
+        format_cri,
+        format_score_with_unit,
+        get_cri_band_metadata,
+        is_inverted_score_key,
+        is_true_sigma_key,
+        score_to_z_equivalent,
+    )
+
 
 class CommonMarkTriageFormatter:
   """Formats outlier findings into executive markdown triage reports with plain-English impact cards."""
@@ -36,14 +77,31 @@ class CommonMarkTriageFormatter:
           score_key,
           r.get("z_score", r.get("threat_distance", r.get("threat_norm", r.get("anomaly_score", 0.0)))),
       )
-      try:
-        scores.append(float(raw_score))
-      except (TypeError, ValueError):
-        pass
-    if scores and max(scores) < anomaly_threshold:
-      return "CLEAN_OR_SUBTHRESHOLD"
+      parsed = _coerce_finite_float(raw_score)
+      if parsed is not None:
+        scores.append(parsed)
+    if score_key == "novelty_flag":
+      if scores and max(scores) < 1.0:
+        return "CLEAN_OR_SUBTHRESHOLD"
+      qualifying_count = sum(1 for s in scores if s >= 1.0) if scores else len(outliers)
+      if reduced_data.get("fleet_wave") is True or qualifying_count >= 10:
+        return "FLEET_WAVE"
+      return "ACUTE_OUTLIER"
 
-    qualifying_count = sum(1 for s in scores if s >= anomaly_threshold) if scores else len(outliers)
+    if is_inverted_score_key(score_key):
+      if anomaly_threshold >= 1.0 and score_key == "cv":
+        z_eqs = [z for s in scores if (z := score_to_z_equivalent(score_key, s)) is not None]
+        if z_eqs and max(z_eqs) < anomaly_threshold:
+          return "CLEAN_OR_SUBTHRESHOLD"
+        qualifying_count = sum(1 for z in z_eqs if z >= anomaly_threshold) if z_eqs else len(outliers)
+      else:
+        if scores and min(scores) > anomaly_threshold:
+          return "CLEAN_OR_SUBTHRESHOLD"
+        qualifying_count = sum(1 for s in scores if s <= anomaly_threshold) if scores else len(outliers)
+    else:
+      if scores and max(scores) < anomaly_threshold:
+        return "CLEAN_OR_SUBTHRESHOLD"
+      qualifying_count = sum(1 for s in scores if s >= anomaly_threshold) if scores else len(outliers)
     if reduced_data.get("fleet_wave") is True or qualifying_count >= 10:
       return "FLEET_WAVE"
 
@@ -64,7 +122,7 @@ class CommonMarkTriageFormatter:
   MITRE_KILLCHAIN_PROGRESSION: Dict[str, Dict[str, str]] = {
       "auth": {
           "tactic": "TA0001 Initial Access / TA0006 Credential Access",
-          "upstream": "TA0001 Initial Access (`circadian_von_mises_2stage.yl2`)",
+          "upstream": "TA0001 Initial Access (`secops-statistical-hunter` `HOUR_OF_DAY_PROFILE`)",
           "downstream": "TA0002 Execution (`CREDENTIAL_ACCESS_TO_EXECUTION`) or TA0008 Lateral Movement (`CREDENTIAL_ACCESS_TO_LATERAL_MOVEMENT`)",
       },
       "file_executions": {
@@ -132,7 +190,11 @@ class CommonMarkTriageFormatter:
       anomaly_threshold: float = 3.0,
   ) -> str:
     """Generates outcome-driven agentic follow-up recommendations for Pillar 4 or Clean Hunt reports."""
-    outcome = cls.classify_hunt_outcome(reduced_data, anomaly_threshold)
+    outcome = (
+        reduced_data.get("outcome_override")
+        if isinstance(reduced_data, dict) and reduced_data.get("outcome_override")
+        else cls.classify_hunt_outcome(reduced_data, anomaly_threshold)
+    )
     if isinstance(reduced_data, list):
       reduced_data = {"top_outliers": reduced_data}
     outliers = reduced_data.get("top_outliers", [])
@@ -149,16 +211,16 @@ class CommonMarkTriageFormatter:
     elif outcome == "FLEET_WAVE":
       lines = [
           f"> * **🧭 Agentic Next Steps (Outcome Classification: `{outcome}` — State 3 → Phase 1B Pivot)** (MITRE Tactic: `{mitre['tactic']}`):",
-          f">   * **[1] Suppress Rollout / Patch Wave Noise**: Re-score `{target_metric}` in Phase 1B using `FLEET_PREVALENCE_SHIELD` (`fleet_prevalence_shield.yl2`), `HYBRID_METRIC_FLEET_PREVALENCE_2STAGE`, or `DUAL_BASELINE_3STAGE` (`ΔZ = Z_personal - Z_fleet`).",
+          f">   * **[1] Suppress Rollout / Patch Wave Noise**: Re-score `{target_metric}` in Phase 1B using `HYBRID_METRIC_FLEET_PREVALENCE_2STAGE` (`hybrid_metric_fleet_prevalence_2stage.yl2`) or `DUAL_BASELINE_3STAGE` (`ΔZ = Z_personal - Z_fleet`).",
           f">   * **[2] Isolate Peer Cohort Departure**: Slice `{top_entity}` against its functional team cohort via `PART_OF_THE_WHOLE_MULTILEVEL` (`part_of_the_whole_multilevel.yl2`).",
           f">   * **[3] Filter by Enterprise Prevalence**: Apply `DERIVED_CONTEXT` rarity gating (`rolling_max <= 3`) to drop fleet-wide binaries or domains.",
       ]
     elif outcome == "SPARSE_BASELINE":
       lines = [
           f"> * **🧭 Agentic Next Steps (Outcome Classification: `{outcome}` — State 3 → Phase 1B Pivot)** (MITRE Tactic: `{mitre['tactic']}`):",
-          f">   * **[1] Switch to Sparse-History / Cold-Start Math**: Re-evaluate `{top_entity}` on `{target_metric}` using `TWO_PART_HURDLE` (`two_part_hurdle.yl2`), `POISSON` (`poisson_rarity.yl2`), or `BAYESIAN_GAMMA` (`poisson_gamma_bayesian.yl2`) for $N < 7$ active days.",
+          f">   * **[1] Route Immature Entities ($N < 7$ Active Days) to Hurdle or Novelty**: Re-evaluate `{top_entity}` on `{target_metric}` using `TWO_PART_HURDLE` (`two_part_hurdle.yl2`), `metrics.*` `first_seen` novelty (`PF-11` / `WS1-12`), `POISSON` (`poisson_rarity.yl2`), or `BAYESIAN_GAMMA` (`poisson_gamma_bayesian.yl2`) — never parametric Z.",
           f">   * **[2] Borrow Peer / Fleet Baseline Strength**: Pivot to `EMPIRICAL_BAYES_3STAGE` or `PART_OF_THE_WHOLE_MULTILEVEL` so thin personal history is regularized by the peer cohort.",
-          f">   * **[3] Verify Infant Asset / Dormant Account Lifecycle**: Run `HYBRID_METRIC_DERIVED_ASSET_AGE_2STAGE` (`hybrid_metric_derived_asset_age_2stage.yl2`) on `{top_entity}`.",
+          f">   * **[3] Verify Infant Asset / Dormant Account Lifecycle**: Check `metrics.*` `first_seen` / `last_seen` timestamps or run `HYBRID_METRIC_DERIVED_ASSET_AGE_2STAGE` (`hybrid_metric_derived_asset_age_2stage.yl2`) on `{top_entity}`.",
       ]
     else:
       lines = [
@@ -177,6 +239,10 @@ class CommonMarkTriageFormatter:
       executed_query: str,
       anomaly_threshold: float = 3.0,
       evaluation_mode: str = "Mode A",
+      ecg_join_filter_disclosure: Optional[str] = None,
+      cohort_cap_warning: Optional[str] = None,
+      mode_c_fade_caveat: Optional[str] = None,
+      intraday_interval_note: Optional[str] = None,
   ) -> str:
     """Renders the lightweight 2-pillar Clean Hunt Summary for 0-row outcomes with agentic next steps."""
     next_steps = cls.build_agentic_next_steps(
@@ -185,15 +251,37 @@ class CommonMarkTriageFormatter:
         statistical_model=statistical_model,
         anomaly_threshold=anomaly_threshold,
     )
-    return "\n".join([
+    has_ecg = bool(
+        executed_query
+        and any(tok in executed_query for tok in ("graph.entity", "graph.metadata", "graph.relations"))
+    )
+    eff_ecg_disclosure = ecg_join_filter_disclosure or (
+        "Entity Context Graph stages execute as an inner join (active filter): entities, hashes, domains, or IPs "
+        "with no matching graph record drop out silently (absent from the graph != benign or common; run the Day-0 "
+        "companion query without graph.* for newly observed Day-0 artifacts)."
+        if has_ecg
+        else None
+    )
+    lines = [
         f"#### 1. Statistical Outlier Report: `{target_metric}` ({statistical_model}) (Nominal Baseline)",
         "",
         f"* **Result**: **0 observed events** (**0 ranked outlier entities**) exceeded the `{anomaly_threshold}σ` significance gate under **{evaluation_mode}** ($Z = 0.00\\sigma, D = 0.00\\sigma, \\text{{CRI}} = 0$, 🟢 **Nominal Fleet Baseline**).",
         "* **Baseline Horizon**: 30-Day Pre-Computed Behavioral Tables (`window: 30d`).",
+    ]
+    if intraday_interval_note:
+      lines.append(f"* **Intra-Day Earlier-Today Interval (PF-10 / WS1-13)**: {intraday_interval_note}")
+    if eff_ecg_disclosure:
+      lines.append(f"* **ECG Inner-Join Filter Disclosure**: {eff_ecg_disclosure}")
+    if cohort_cap_warning:
+      lines.append(f"* **Samuelson Small-Cohort Cap (PF-2 / WS1-09)**: {cohort_cap_warning}")
+    if mode_c_fade_caveat:
+      lines.append(f"* **Sustained-Attack Fade Caveat (D10 / WS1-11)**: {mode_c_fade_caveat}")
+    lines.extend([
         "",
         "> [!IMPORTANT]",
         next_steps,
     ])
+    return "\n".join(lines)
 
   @staticmethod
   def format_report(
@@ -204,6 +292,10 @@ class CommonMarkTriageFormatter:
       executed_query: Optional[str] = None,
       audit_result: Optional[Any] = None,
       sparse_callout: Optional[str] = None,
+      ecg_join_filter_disclosure: Optional[str] = None,
+      ecg_novelty_notice: Optional[str] = None,
+      cohort_cap_warning: Optional[str] = None,
+      mode_c_fade_caveat: Optional[str] = None,
   ) -> str:
     # 1. Post-Flight Audit Gate Check
     if audit_result is not None and not getattr(audit_result, "is_valid", True):
@@ -248,6 +340,36 @@ class CommonMarkTriageFormatter:
     if sparse_callout:
       report.extend([sparse_callout, ""])
 
+    has_ecg = bool(
+        executed_query
+        and any(tok in executed_query for tok in ("graph.entity", "graph.metadata", "graph.relations"))
+    )
+    eff_ecg_disclosure = ecg_join_filter_disclosure or (
+        "Entity Context Graph stages execute as an inner join (active filter): entities, hashes, domains, or IPs "
+        "with no matching graph record drop out silently (absent from the graph != benign or common; run the Day-0 "
+        "companion query without graph.* for newly observed Day-0 artifacts)."
+        if has_ecg
+        else None
+    )
+    if eff_ecg_disclosure:
+      report.extend([
+          "> [!NOTE]",
+          f"> **🔗 ECG Inner-Join Filter Disclosure (PF-8 / WS1-08)**: {eff_ecg_disclosure}",
+          "",
+      ])
+    if ecg_novelty_notice:
+      report.extend([
+          "> [!WARNING]",
+          f"> **⚠️ ECG Novelty Notice (PF-8 / WS1-08)**: {ecg_novelty_notice}",
+          "",
+      ])
+    if cohort_cap_warning:
+      report.extend([
+          "> [!WARNING]",
+          f"> **⚠️ Samuelson Small-Cohort Cap (PF-2 / WS1-09)**: {cohort_cap_warning}",
+          "",
+      ])
+
     report.extend([
         f"* **Outliers Detected**: **{total_outliers} entities** exceeded the configured threshold (`> {anomaly_threshold}`).",
         f"* **Active Search Window**: 24-Hour Active Evaluation Window (Today's Observations).",
@@ -266,17 +388,23 @@ class CommonMarkTriageFormatter:
       ])
       for record in outliers:
         entity = record.get("entity", "unknown")
-        z_auth = record.get("z_auth", 0.0)
-        z_proc = record.get("z_proc", 0.0)
-        z_net = record.get("z_net", 0.0)
-        d_val = record.get("threat_distance", record.get("threat_norm", record.get("anomaly_score", 0.0)))
-        cri_val = record.get("cri", record.get("cri_score", 99))
-        cri_badge = record.get("cri_badge", "CRITICAL")
-        bar = record.get("visual_bar", "████████")
-        report.append(f"| `{entity}` | `+{z_auth:.1f}σ` | `+{z_proc:.1f}σ` | `+{z_net:.1f}σ` | `+{d_val:.2f}σ` | **`{cri_val}`** ({cri_badge}) | `{bar}` |")
+        z_auth = float(record.get("z_auth", 0.0))
+        z_proc = float(record.get("z_proc", 0.0))
+        z_net = float(record.get("z_net", 0.0))
+        raw_d = record.get("threat_distance", record.get("threat_norm", record.get("anomaly_score")))
+        d_num = _coerce_finite_float(raw_d)
+        explicit_cri = coerce_cri_int(record.get("cri", record.get("cri_score")))
+        cri_int = explicit_cri if explicit_cri is not None else cri_from_model_score("threat_distance", d_num)
+        default_badge, _, default_bar = get_cri_band_metadata(cri_int)
+        cri_cell = format_cri(cri_int)
+        cri_badge = record.get("cri_badge", default_badge)
+        bar = record.get("visual_bar", default_bar)
+        d_cell = format_score_with_unit("threat_distance", d_num)
+        report.append(f"| `{entity}` | `{z_auth:+.1f}σ` | `{z_proc:+.1f}σ` | `{z_net:+.1f}σ` | `{d_cell}` | **`{cri_cell}`** ({cri_badge}) | `{bar}` |")
     else:
+      score_col_label = "Credibility / Z-Score" if is_true_sigma_key(score_key) else "Model Score"
       report.extend([
-          "| Entity Identifier | 24h Observed | Baseline Mean (30d) | Baseline StdDev | Credibility / Z-Score | CRI Score (0–100) | Visual Magnitude |",
+          f"| Entity Identifier | 24h Observed | Baseline Mean (30d) | Baseline StdDev | {score_col_label} | CRI Score (0–100) | Visual Magnitude |",
           "| :---------------- | :----------- | :------------------ | :-------------- | :-------------------- | :---------------- | :--------------- |",
       ])
       for record in outliers:
@@ -284,11 +412,35 @@ class CommonMarkTriageFormatter:
         observed = record.get("observed", record.get("observed_val", record.get("observed_24h", "-")))
         hist_avg = record.get("hist_avg", record.get("historical_avg", record.get("avg_30d", "-")))
         hist_std = record.get("hist_stddev", record.get("historical_stddev", record.get("stddev_30d", "-")))
-        score_val = record.get(score_key, record.get("z_score", record.get("anomaly_score", "-")))
-        cri_val = record.get("cri", record.get("cri_score", 99))
-        cri_badge = record.get("cri_badge", "CRITICAL")
-        bar = record.get("visual_bar", "████████")
-        report.append(f"| `{entity}` | `{observed}` | `{hist_avg}` | `{hist_std}` | `+{score_val}σ` | **`{cri_val}`** ({cri_badge}) | `{bar}` |")
+        if score_key in record:
+          eff_key = score_key
+          score_val = record[score_key]
+        elif "z_score" in record:
+          eff_key = "z_score"
+          score_val = record["z_score"]
+        else:
+          eff_key = record.get("score_key") or "anomaly_score"
+          score_val = record.get("anomaly_score", "-")
+        score_num = _coerce_finite_float(score_val)
+        explicit_cri = coerce_cri_int(record.get("cri", record.get("cri_score")))
+        if eff_key == "novelty_flag":
+          cri_int = explicit_cri
+          default_badge = "NOVELTY" if (score_num or 0.0) >= 1.0 else "SEEN"
+          default_bar = "█" * 5 + "░" * 5 if (score_num or 0.0) >= 1.0 else "░" * 10
+          cri_cell = format_cri(cri_int)
+          cri_badge = record.get("cri_badge", default_badge)
+          bar = record.get("visual_bar", default_bar)
+          score_cell = record.get("score_display") or (
+              "NOVEL (flag=1)" if (score_num or 0.0) >= 1.0 else "SEEN (flag=0)"
+          )
+        else:
+          cri_int = explicit_cri if explicit_cri is not None else cri_from_model_score(eff_key, score_num)
+          default_badge, _, default_bar = get_cri_band_metadata(cri_int)
+          cri_cell = format_cri(cri_int)
+          cri_badge = record.get("cri_badge", default_badge)
+          bar = record.get("visual_bar", default_bar)
+          score_cell = record.get("score_display") if (record.get("score_display") and score_num is not None and score_key not in record) else format_score_with_unit(eff_key, score_num)
+        report.append(f"| `{entity}` | `{observed}` | `{hist_avg}` | `{hist_std}` | `{score_cell}` | **`{cri_cell}`** ({cri_badge}) | `{bar}` |")
 
     report.extend([
         "",
@@ -306,11 +458,33 @@ class CommonMarkTriageFormatter:
         "",
         "> [!IMPORTANT]",
         f"> **Threat Translation & Attack Scenarios: {target_metric} ({statistical_model})**",
-        f"> * **The Core Finding**: Outliers detected exceeding {anomaly_threshold} significance threshold.",
-        "> * **Security Significance**: Volume explosion or multi-vector correlation indicating anomalous breakout.",
-        "> * **Potential Attack Scenarios**: Ransomware staging, credential stuffing, data exfiltration, lateral movement.",
-        "> * **Legitimate False Positives**: Scheduled backup jobs, administrative bulk updates, patch deployments.",
-        "> * **SOC Action Playbook**: 1. Inspect affected entity, 2. Check process tree, 3. Validate egress network destinations.",
+        *(
+            [
+                "> * **The Core Finding**: 30-day **baseline dispersion screen** (`F = σ² / μ` computed from the 30-day baseline only; independent of today's observed value — `NO-GATE`).",
+                *(
+                    [f"> * **Sustained-Attack Fade Caveat (D10 / WS1-11)**: {mode_c_fade_caveat}"]
+                    if mode_c_fade_caveat
+                    else []
+                ),
+                "> * **Security Significance**: Ranks entities by historical day-to-day baseline dispersion (`F ≈ 1.0` Poisson vs `F > 2.0` overdispersed) to guide model selection (`POISSON` vs negative-binomial / `MAD`), not day-level breakout alerting.",
+                "> * **Active Spray / Burst Routing**: This screen does not detect active credential sprays or sub-hour bursts; route spray hunts to `secops-statistical-hunter` `POISSON_BURST_CLUSTERING`.",
+                "> * **Legitimate High Dispersion**: Batch jobs, weekly administrative runs, or multi-tenant jump hosts naturally exhibit `F > 2.0`.",
+                "> * **SOC Action Playbook**: 1. Use `F <= 2.0` to validate Poisson assumptions, 2. Use `MAD` or `QUANTILE_IQR_SKEW` on `F > 2.0` entities, 3. Pivot active spray hypotheses to `secops-statistical-hunter` `POISSON_BURST_CLUSTERING`.",
+            ]
+            if any(tok in statistical_model.upper() for tok in ("VARIANCE", "FANO"))
+            else [
+                f"> * **The Core Finding**: Outliers detected exceeding {anomaly_threshold} significance threshold.",
+                *(
+                    [f"> * **Sustained-Attack Fade Caveat (D10 / WS1-11)**: {mode_c_fade_caveat}"]
+                    if mode_c_fade_caveat
+                    else []
+                ),
+                "> * **Security Significance**: Volume explosion or multi-vector correlation indicating anomalous breakout.",
+                "> * **Potential Attack Scenarios**: Ransomware staging, credential stuffing, data exfiltration, lateral movement.",
+                "> * **Legitimate False Positives**: Scheduled backup jobs, administrative bulk updates, patch deployments.",
+                "> * **SOC Action Playbook**: 1. Inspect affected entity, 2. Check process tree, 3. Validate egress network destinations.",
+            ]
+        ),
         CommonMarkTriageFormatter.build_agentic_next_steps(
             reduced_data, target_metric, statistical_model, anomaly_threshold
         ),
@@ -333,7 +507,7 @@ class CommonMarkTriageFormatter:
         f"* **Model Formulation**: {statistical_model}",
         "* **Degrees of Freedom ($N$)**: 30 daily observation periods.",
         r"* **Multi-Sector Threat Norm ($D$)**: Euclidean Distance $D = \sqrt{\sum \max(0, Z_i)^2}$ over $K = 3$ sectors. Clamping makes $D$ a rectified norm, not $\chi_3$: null mean $\mathbb{E}[D] \approx 0.97$, with point mass $P(D = 0) = 12.5\%$ when no sector exceeds baseline.",
-        r"* **Calibrated Risk Index**: $\text{CRI} = \text{clamp}\left(\text{round}\left(\frac{100}{1 + \exp(-0.6 \cdot (S - 3.0))}\right),\, 0,\, 100\right)$, evaluated on the score column $S$ defined above. Because $S$ is non-negative under clamping, the attainable floor is $\text{CRI} = 14$ at $S = 0$.",
+        r"* **Calibrated Risk Index**: For $S > 0$, $\text{CRI} = \text{clamp}\left(\text{round}\left(\frac{100}{1 + \exp(-0.6 \cdot (S - 3.0))}\right),\, 0,\, 100\right)$; for $S \le 0$, $\text{CRI} = 0$ (nominal zero floor); missing or non-finite scores report `N/A`.",
         "</details>",
     ])
 

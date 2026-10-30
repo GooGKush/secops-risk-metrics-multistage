@@ -10,8 +10,9 @@
 // ENTITY GRAPH FRESHNESS (references/entity-context-graph-guide.md, Rule 5):
 //   Daily graph records (every prevalence.* filter) are built once a day and lag about a
 //   day; a window starting today 00:00Z overlaps none of them, the inner join drops every
-//   row, and zero rows are structural, not a true negative. Start the search window two
-//   days back at 00:00Z; the today_date slot (today's UTC date, YYYY-MM-DD) keeps the event
+//   row, and zero rows are structural, not a true negative. Start the search window at the
+//   scored UTC day minus 2 at 00:00Z (endTime = today 00:00Z by default, or now in Today So Far);
+//   the today_date slot (the scored UTC day, YYYY-MM-DD — yesterday by default in Mode A) keeps the event
 //   stages on the analysis day (stage 2 mixes events and the graph alias; the filter
 //   applies to its events only). The graph alias matches by key only (no time predicate).
 //   Zero rows from a window starting today is a freshness gap: rerun, do not report clean.
@@ -53,7 +54,8 @@ stage stage1_personal_surge {
     $hist_stddev = max({{target_metric_func_stddev}})
     $hist_active_days = max({{target_metric_func_active_days}})
 
-    $personal_z = ($observed_val - $hist_mean) / if($hist_stddev > 0, $hist_stddev, 1.0)
+    $dispersion_floor = math.sqrt(if($hist_mean > 1.0, $hist_mean, 1.0))
+    $personal_z = ($observed_val - $hist_mean) / if($hist_stddev > $dispersion_floor, $hist_stddev, $dispersion_floor)
     $surging_entity = array_distinct($entity)
 }
 
@@ -70,7 +72,7 @@ stage stage2_fleet_prevalence {
     $graph.graph.metadata.source_type = "DERIVED_CONTEXT"
     $graph.graph.entity.file.sha256 = $token
     $graph.graph.entity.file.prevalence.day_count = 10
-    $graph.graph.entity.file.prevalence.rolling_max <= 3
+    $graph.graph.entity.file.prevalence.rolling_max <= {{max_fleet_prevalence}}
     $graph.graph.entity.file.prevalence.rolling_max > 0
 
   match:
@@ -110,9 +112,9 @@ outcome:
   $normalized_odds_score = $personal_z * $prevalence_dampener
 
 condition:
-  // Personal host must breach historical baseline
+  // Personal host must breach historical baseline (mature baseline required; zero-day novelty goes to hurdle/first_seen)
   $personal_z >= {{personal_threshold}}
-  and ($active_baseline_days >= {{min_baseline_days}} or $active_baseline_days = 0)
+  and $active_baseline_days >= {{min_baseline_days}}
   // Fleet Prevalence Filter: Binary/token must NOT be an enterprise-wide rollout
   and $fleet_adopters <= {{max_fleet_adopters}}
 

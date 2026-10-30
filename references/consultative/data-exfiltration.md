@@ -19,20 +19,20 @@ Static detection rules designed to detect data loss rely almost exclusively on h
 * **Math Model**: `longitudinal_cusum.yl2`
 * **How It Defeats the Blind Spot**: Accumulates deviations above a reference slack parameter ($k = 0.5\sigma$) across multiple consecutive days ($S_t^+ = \max(0, S_{t-1}^+ + Z_t - k)$). Even if daily transfers stay comfortably within nominal levels, sustained deviations cause $S_t^+$ to cross the alert boundary ($H \ge 4.0\sigma$).
 
-### Strategy B: The Shock Absorber (Piecewise CRI)
+### Strategy B: Heavy-Tailed Hoarding Breakout (`mad.yl2` + Canonical CRI)
 * **Target Metric**: `metrics.workspace_total_download_actions`
-* **Math Model**: `piecewise_cri.yl2`
-* **How It Defeats the Blind Spot**: Standard linear Z-scores produce excessive false alarms on jumpy baselines. Piecewise CRI applies a 3-zone curve: Zone 1 ($Z < 2.0$) absorbs operational variance; Zone 2 ($2.0 \le Z < 4.0$) alerts the SOC; Zone 3 ($Z \ge 4.0$) applies an exponential penalty for massive exfiltration events.
+* **Math Model**: `mad.yl2` / `standard_z_score.yl2` (`piecewise_cri.yl2` retired per `D1`; severity tiering computed via Python `ueba_constants.calculate_cri`)
+* **How It Defeats the Blind Spot**: Median-anchored Modified Z (`$modified_z >= 3.5`) resists historic bulk-job inflation while canonical sigmoid CRI (`Z = 3.0 -> 50`) normalizes severity onto `[0, 100]`.
 
 ### Strategy C: Covert Payload Detection (Poisson-Gamma Bayesian)
 * **Target Metric**: `metrics.dns_bytes_outbound`
 * **Math Model**: `poisson_gamma_bayesian.yl2`
 * **How It Defeats the Blind Spot**: DNS traffic is inherently noisy. A conjugate Poisson-Gamma model updates prior historical byte rate expectations with observed payloads, flagging statistically impossible payload densities without relying on static query count thresholds.
 
-### Strategy D: The High-Frequency Micro-Session Detector (Flow Frequency Baseline)
+### Strategy D: Outbound Flow Surge (Daily Session-Count Baseline)
 * **Target Metric**: `metrics.network_flows_outbound`
-* **Math Model**: `c2_beacon_flow_frequency_2stage.yl2`
-* **How It Defeats the Blind Spot**: Attackers exfiltrating small, serialized tokens or maintaining C2 heartbeats keep byte footprints tiny (<1 KB/session). While `metrics.network_bytes_outbound` shows zero deviation, baselining session count (`metrics.network_flows_outbound`) with `metric: event_count_sum` catches acute connection frequency departures ($Z_{\text{flows}} \ge 3.0\sigma$).
+* **Math Model**: `c2_beacon_flow_frequency_2stage.yl2` (**Outbound Flow Surge**)
+* **How It Defeats the Blind Spot**: Attackers exfiltrating small, serialized tokens keep byte footprints tiny (<1 KB/session). While `metrics.network_bytes_outbound` shows minimal byte deviation, baselining daily session count (`metrics.network_flows_outbound`) with `metric: event_count_sum` catches acute connection count departures ($Z_{\text{flows}} \ge 3.0\sigma$; sub-hour periodicity/jitter hands off to `secops-statistical-hunter` `C2_BEACONING_JITTER`).
 
 
 

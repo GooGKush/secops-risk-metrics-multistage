@@ -252,14 +252,16 @@ class TestRollupSectors(unittest.TestCase):
     self.assertGreaterEqual(rendered, 2 * len(self.COMPOSITE))
 
   def test_process_plus_dns_by_host(self):
-    """The case that prompted roll-ups: process execution + DNS for one host."""
+    """The case that prompted roll-ups: process execution + DNS for one host (with multiplicity offset)."""
     q = self.router.build_sector_fusion_query(
         mc.SectorSpec("file_executions_total", "principal.asset.hostname"),
         mc.SectorSpec("dns_queries_fail", "principal.asset.hostname"))
     self.assertIn("principal.asset.hostname: principal.asset.hostname, metadata.event_type: metadata.event_type, "
                   "principal.process.file.sha256: principal.process.file.sha256", q)
     self.assertIn("$a_keys = count_distinct($sector_a_detail.principal_process_file_hash)", q)
-    self.assertIn("$z_a = max($sector_a_detail.d_z)", q)
+    self.assertIn("$z_a_max = max($sector_a_detail.d_z)", q)
+    self.assertIn("$multiplicity_offset = math.sqrt(2.0 * math.log($k_eff))", q)
+    self.assertIn("$z_a = if($z_a_adj > 0.0, $z_a_adj, 0.0)", q)
     self.assertIn("$a_novel_keys = sum($sector_a_detail.d_novel)", q)
 
   def test_rollup_templates_are_generic(self):
@@ -338,6 +340,14 @@ class TestObservedFiltersEverywhere(unittest.TestCase):
         self.assertEqual(mc.observed_filter_gaps(q), [], f"{m} {et}")
     for pt in PipelineArchitecture:
       if pt == PipelineArchitecture.LOCAL_2STAGE:
+        continue
+      if pt == PipelineArchitecture.CIRCADIAN_VON_MISES_2STAGE:
+        with self.assertRaisesRegex(ValueError, r"retired.*HOUR_OF_DAY_PROFILE"):
+          router.build_pipeline_query(pt, entity_type=EntityType.USER)
+        continue
+      if pt == PipelineArchitecture.HYBRID_METRIC_ORTHOGONAL_SPACE_2STAGE:
+        with self.assertRaisesRegex(ValueError, r"retired \(D1\)"):
+          router.build_pipeline_query(pt, entity_type=EntityType.ASSET)
         continue
       for et in (EntityType.ASSET, EntityType.USER):
         q = router.build_pipeline_query(pt, entity_type=et)
@@ -481,10 +491,10 @@ class TestSiblingTriads(unittest.TestCase):
     section = guide.split("### 4. Intra-Event Metric Triad Breakouts", 1)[1].split("### ", 1)[0]
     self.assertNotIn("Endpoint Process Triad", section)
     self.assertNotIn("dns_bytes_outbound", section)
-    self.assertNotIn("max(0, Z", section, "the template's triad norm is two-sided")
+    self.assertIn("max(0, Z", section, "WS4-RADAR-COHORT: triad norm rectifies negative Zs before squaring")
     self.assertIn("metric-sector-catalog.md", section)
     tpl = (SKILL_ROOT / "templates" / "pipelines" / "part_of_the_whole_triad_multilevel.yl2").read_text(encoding="utf-8")
-    self.assertIn("$d_vs_team_sq = ($z1_vs_team * $z1_vs_team)", tpl)
+    self.assertIn("if($z1_vs_team > 0.0, $z1_vs_team, 0.0)", tpl)
     self.assertIn("Sibling triads", tpl)
     self.assertIn("Peer group is optional (default = fleet only)", section)
 
@@ -492,9 +502,9 @@ class TestSiblingTriads(unittest.TestCase):
     tpl = (SKILL_ROOT / "templates" / "pipelines" / "part_of_the_whole_triad_multilevel.yl2").read_text(encoding="utf-8")
     opens = [ln for ln in tpl.splitlines() if ln.strip().startswith("// >>> TEAM COHORT")]
     closes = [ln for ln in tpl.splitlines() if ln.strip().startswith("// <<< TEAM COHORT")]
-    self.assertEqual(len(opens), 3)
-    self.assertEqual(len(closes), 3)
-    self.assertIn("$d_vs_fleet_sq = ($z1_vs_enterprise * $z1_vs_enterprise)", tpl)
+    self.assertEqual(len(opens), 4)
+    self.assertEqual(len(closes), 4)
+    self.assertIn("if($z1_vs_enterprise > 0.0, $z1_vs_enterprise, 0.0)", tpl)
     self.assertTrue(tpl.rstrip().endswith("order:\n  $d_vs_fleet_sq desc"))
     # Every team reference sits inside a marked block, so deleting the blocks leaves no dangling refs.
     from scripts.template_router import _apply_team_cohort_blocks
@@ -508,7 +518,10 @@ class TestSiblingTriads(unittest.TestCase):
     router = MultiStageTemplateRouter()
     expected_stage = {
         "Workspace activity": ['metadata.vendor_name = "Google Workspace"'],
-        "Workspace Gmail": ['(metadata.product_name = "GMAIL" or metadata.product_name = "gmail")'],
+        "Workspace Gmail": [
+            "re.regex(metadata.product_name, `(?i)^gmail$`)",
+            "((((network.sent_bytes > 0 and network.sent_bytes < 1000000000000000) or (network.received_bytes > 0 and network.received_bytes < 1000000000000000))) or (network.sent_bytes > 0 and network.sent_bytes < 1000000000000000) or (network.sent_bytes > 0))",
+        ],
     }
     for label, metrics in mc.CANONICAL_TRIADS:
       if not label.startswith("Workspace"):

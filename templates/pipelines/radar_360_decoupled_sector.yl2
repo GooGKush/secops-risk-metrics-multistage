@@ -25,7 +25,13 @@ stage auth_risk {
         period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
         target.user.userid: target.user.userid
     ))
-    $z = ($obs - $avg) / if($std > 0, $std, 1.0)
+    $days = max(metrics.auth_attempts_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+        target.user.userid: target.user.userid
+    ))
+    $floor = math.sqrt(if($avg > 1.0, $avg, 1.0))
+    $raw_z = ($obs - $avg) / if($std > $floor, $std, $floor)
+    $z = if($days >= 7, $raw_z, 0.0)
 }
 
 // --- ROOT STAGE: Single-Sector Z-Score Projection (1 Join Total) ---
@@ -42,6 +48,7 @@ outcome:
   $observed = max($auth_risk.obs)
   $baseline = max($auth_risk.avg)
   $dispersion = max($auth_risk.std)
+  $active_days = max($auth_risk.days)
 
 // NO-GATE: 360 radar sector micro-query. Every sector must be reported, nominal included, so the
 // root is not filtered; significance is applied when the 6 sector Z-scores are fused in the report.

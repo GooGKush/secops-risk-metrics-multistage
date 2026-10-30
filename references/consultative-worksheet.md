@@ -21,17 +21,17 @@ Every threat—known, emerging, or zero-day—physically deforms telemetry in on
 │ 2. State Transition         │ Transition from 0 to positive │ Two-Part Hurdle Model                │
 │    ("The Dormancy Break")   │ activity (volume is minor)    │ (Zero-Inflation Logistic Gate)       │
 ├─────────────────────────────┼───────────────────────────────┼──────────────────────────────────────┤
-│ 3. Volumetric Shock         │ Sudden explosive surge over   │ Piecewise CRI (The Shock Absorber)   │
-│    ("The Spiky Rupture")    │ individual/peer baseline      │ or Asymmetric Directional Z (ReLU)   │
+│ 3. Volumetric Shock         │ Sudden explosive surge over   │ Standard Z-Score or MAD Robust Z     │
+│    ("The Spiky Rupture")    │ individual/peer baseline      │ (Normalized via Canonical CRI)       │
 ├─────────────────────────────┼───────────────────────────────┼──────────────────────────────────────┤
-│ 4. Volatility Regularity    │ Unnatural clockwork intervals │ Circadian von Mises Temporal Dist    │
-│    ("The Machine Pulse")    │ or cyclic 24h clock shifts    │ or Hourly Temporal Z-Score / Fano    │
+│ 4. Schedule / Regularity    │ Surge on predictable host or  │ Regular-Volume Surge (CV <= 0.5),    │
+│    ("Off-Hours / Steady")   │ off-hours schedule departure  │ Adaptive Context, or HOUR_OF_DAY H/O │
 ├─────────────────────────────┼───────────────────────────────┼──────────────────────────────────────┤
 │ 5. Orthogonal Dispersion    │ Mild elevations across 3–5    │ 360° Decoupled Behavioral Radar      │
 │    ("The Multi-Vector Fog") │ unrelated telemetry sectors   │ with Euclidean Distance (D >= 3.5σ)  │
 ├─────────────────────────────┼───────────────────────────────┼──────────────────────────────────────┤
-│ 6. Kinetic Acceleration     │ Runaway velocity departure    │ MACD Dual-Spine Momentum Indicator   │
-│    ("The Runaway Train")    │ breaking historical ceilings  │ (Fast vs Slow Velocity Divergence)   │
+│ 6. Above-Max Peak Breakout  │ Daily volume shatters 30-day  │ Above-Historical-Max Z               │
+│    ("Record Breaker")       │ mean and historical maximum   │ (macd_momentum_velocity_2stage.yl2)  │
 ├─────────────────────────────┼───────────────────────────────┼──────────────────────────────────────┤
 │ 7. Bipartite Graph Topology │ 1→N fan-out (lateral scan /   │ East-West Lateral Fan-Out Fusion or  │
 │    ("The Web / Staging Hub")│ spray) or N→1 fan-in staging  │ Privileged Lateral Expansion (Handoff│
@@ -49,7 +49,7 @@ Every threat—known, emerging, or zero-day—physically deforms telemetry in on
 
 ### 👤 Persona-Conditioned Prior Matrix (Condition Before Model Selection)
 Before selecting a mathematical model in Phase 1A/1B, condition the statistical prior on the target actor class:
-* **Interactive Human User**: High diurnal variance and broad process/destination diversity are normal. *Diagnostic Deformations*: Circadian phase shift (`circadian_von_mises_2stage.yl2`), peer-cohort divergence (`part_of_the_whole_multilevel.yl2`), or machine-like low jitter (`CV <= 0.20`).
+* **Interactive Human User**: High diurnal variance and broad process/destination diversity are normal. *Diagnostic Deformations*: Off-hours adaptive schedule departure (`adaptive_context_threshold.yl2`; 24-bin hour-of-day profiling hands off to `secops-statistical-hunter` `HOUR_OF_DAY_PROFILE` — `circadian_von_mises_2stage.yl2` retired per `D1`), peer-cohort divergence (`part_of_the_whole_multilevel.yl2`), or regular-volume surge (`CV <= 0.50`, `coefficient_of_variation.yl2`).
 * **Service Account / Daemon / Workload Identity**: Near-zero variance (`$stddev == 0`) and fixed origin IP/host are normal. *Diagnostic Deformations*: Origin-IP/host breadth expansion (`> 1` source IP), interactive logon types, or first-time repository access (`cloud_repository_scope_dual_branch.yl2` / `two_part_hurdle.yl2`).
 * **CI/CD Runner / Admin Jump Host / Ephemeral Compute**: High process launch churn is normal; outbound network destinations follow a strict allowlist. *Diagnostic Deformations*: Rare external domain/IP contact (`rare_destination_ecg_3stage.yl2`), parent-child Markov transition surprisal, or Zipfian long-tail binary execution.
 
@@ -154,13 +154,13 @@ When the hypothesis touches two or more vectors, do not stop at listing them. Pr
 * **Why Static Rules Miss It**: Fixed threshold alerts (e.g. `bytes > 5GB`) are easily bypassed by chunked daily transfers (e.g. 400MB/day), and blanket rules cannot distinguish routine developer egress from unauthorized dumps.
 * **Common-Sense Rigor Check**: Check for scheduled backups, cloud file synchronization, or developer builds before assuming exfiltration; use median-anchored baselines (MAD) when historic large transfers distort averages.
 * **Summary View Options**:
-  1. *Low-and-Slow Trickle*: Accumulate minor daily upload deviations over up to 14 days (**Longitudinal CUSUM Drift** on `network_bytes_outbound`; one request, the multi-stage search limit).
-  2. *Bulk Hoarding Burst*: Penalize sudden exponential download surges while absorbing routine daily variance (**Piecewise CRI / Shock Absorber** on `workspace_total_download_actions`).
+  1. *Low-and-Slow Trickle*: Accumulate minor daily upload deviations across 2–30 days (**Longitudinal CUSUM Drift** on `network_bytes_outbound` via `longitudinal_cusum_series_3stage.yl2` + `scripts/cusum_helper.py`).
+  2. *Bulk Hoarding Burst*: Detect heavy-tailed or sudden download surges while normalizing severity via canonical CRI (**MAD Robust Z / Standard Z-Score** on `workspace_total_download_actions`; in-query `piecewise_cri.yl2` retired per `D1`).
   3. *Covert Protocol Egress*: Detect data staging and tunneling via DNS queries (**Poisson-Gamma Bayesian** on `dns_bytes_outbound`).
   4. *Multilevel Network Triad Breakout*: Compare Outbound, Inbound, and Total Byte volume simultaneously against team cohort and enterprise wholes to catch asymmetric data siphoning (**Part-of-the-Whole Triad** via `part_of_the_whole_triad_multilevel.yl2`).
-  5. *High-Frequency Session Surge & C2 Beaconing*: Detect micro-payload, high-frequency outbound connection bursts that bypass volumetric thresholds (**Flow Frequency Anomaly** on `network_flows_outbound` via `c2_beacon_flow_frequency_2stage.yl2`).
+  5. *Outbound Flow Surge*: Detect micro-payload, high-frequency daily outbound connection bursts that bypass byte volumetric thresholds (**Outbound Flow Surge** on `network_flows_outbound` via `c2_beacon_flow_frequency_2stage.yl2`; sub-hour periodicity/jitter hands off to `secops-statistical-hunter` `C2_BEACONING_JITTER`).
   6. *Context-Enhanced WHOIS Egress*: Cross-reference outbound transfer departures against WHOIS registration dates and expiration status to apply 2.5x–3.0x risk multipliers on Newly Registered Domains or expired infrastructure (**WHOIS Domain Lifecycle** via `templates/pipelines/hybrid_metric_whois_domain_lifecycle_2stage.yl2`).
-  7. *Runaway Velocity Divergence*: Detect sudden, unconstrained egress acceleration that shatters historical 30-day ceilings (**MACD Dual-Spine Momentum Indicator** on `network_bytes_outbound` via `macd_momentum_velocity_2stage.yl2`).
+  7. *Above-Historical-Max Breakout*: Detect sudden egress surges that exceed both the 30-day average and the 30-day historical maximum (**Above-Historical-Max Z** on `network_bytes_outbound` via `macd_momentum_velocity_2stage.yl2`).
   8. *Egress to Rare Destinations*: Score outbound bytes per host and keep only hosts that contacted domains or IPs seen on <= 3 hosts enterprise-wide (**Rare Destination Filter** via `rare_destination_ecg_3stage.yl2`).
   9. *1-Stage Quantile & Bowley Skewness Egress Fence*: Compute 5-point empirical quantiles (`$p10, $q25, $q50, $q75, $p90`), Bowley quartile skewness (`$bowley_skew`), and Skewness-Adjusted Tukey Fence alongside 30d `metrics.*` Z in 3 stages (**Quantile IQR Skew** via `quantile_iqr_skew_3stage.yl2`).
   10. *Intra-Bucket Per-Flow Payload Quantile Shape ($P_{50}$ vs $P_{90}$)*: Pair 30-day `metrics.network_bytes_outbound` macro Z-scores with in-stage `window.percentile(network.sent_bytes, 50)` and `window.percentile(network.sent_bytes, 90)` to expose stealth burst exfiltration hidden inside normal daily totals.
@@ -174,7 +174,7 @@ When the hypothesis touches two or more vectors, do not stop at listing them. Pr
   2. *Dormant Account Wakeup*: Surface idle users or service accounts suddenly initiating sessions (**Two-Part Hurdle Model** on `auth_attempts_success` or `workspace_auth_attempts_total`).
   3. *Off-Hours / Unusual Login Volume*: Identify sudden access surges against a user's 30-day baseline (**Standard Z-Score** on `auth_attempts_total`).
   4. *Multilevel Authentication Triad*: Simultaneously compare an individual's Total, Failed, and Successful attempts against their peer team cohort and enterprise whole to distinguish high legitimate login volume from targeted credential attacks (**Part-of-the-Whole Triad** via `part_of_the_whole_triad_multilevel.yl2`).
-  5. *Circadian Clock Phase Shift*: Catch off-hours or night-shift credential replay using circular 24-hour distance penalties without linear wrap distortion (**Circadian von Mises Temporal Distance** on `auth_attempts_total` via `circadian_von_mises_2stage.yl2`).
+  5. *Off-Hours & Weekend Adaptive Schedule Tightening*: Tighten detection hurdles from `3.0σ` to `1.75σ` when `>=50%` of login activity occurs outside `{{tenant_tz}}` business hours (**Adaptive Context Threshold** on `auth_attempts_total` via `adaptive_context_threshold.yl2`; 24-bin hour-of-day profiling hands off to `secops-statistical-hunter` `HOUR_OF_DAY_PROFILE` — `circadian_von_mises_2stage.yl2` retired per `D1`).
 * *Deep Dive Guide*: `references/consultative/identity-and-access.md`
 
 ### Domain 3: Cloud Infrastructure Tampering & Sabotage
@@ -190,7 +190,7 @@ When the hypothesis touches two or more vectors, do not stop at listing them. Pr
 * **Why Static Rules Miss It**: Attackers utilize dual-use built-in utilities (`powershell.exe`, `certutil.exe`) or communicate via periodic low-frequency beacons that generate no discrete EDR detections.
 * **Common-Sense Rigor Check**: Verify whether new process launches or hash sightings coincide with fleetwide software updates (Fleet Prevalence Shield on SHA256) or administrative cron schedules.
 * **Summary View Options**:
-  1. *Time-of-Day Execution Anomalies*: Detect endpoint binary launches occurring during historically dead hours (**Hourly Temporal Z-Score** on `file_executions_total`).
+  1. *Off-Hours Execution Sensitivity*: Detect endpoint binary launches concentrated outside business hours (**Adaptive Context Threshold** on `file_executions_total` via `adaptive_context_threshold.yl2`; per-hour-of-day profiling hands off to `secops-statistical-hunter` `HOUR_OF_DAY_PROFILE` — `hourly_temporal_zscore.yl2` retired per `D1`).
   2. *Living-off-the-Land Surge*: Surface statistically rare binary executions for a specific host and hash (**Poisson Rarity** on `file_executions_success`).
   3. *EDR Alert Accumulation & Novel Rule Breakout*: Detect subtle increases or first-time rule firings (`$d_days = 0`) in vendor alerts on critical assets or user+host+process tuples before an incident is declared (**Longitudinal CUSUM Drift** or **2-Stage Alert Surge** on `alert_event_name_count` via `MultiStageTemplateRouter.build_alert_surge_query`).
   4. *Enterprise Software Rollout / Patch Tuesday Normalization*: Separate targeted endpoint malware execution from corporate package updates (**Archetype 3: Dual-Plane Fleet Prevalence Normalization** via `templates/pipelines/hybrid_metric_fleet_prevalence_2stage.yl2` using token-centric match topology `$token by 1d` on binary hash `target.process.file.sha256 = $token` and hyperbolic prevalence dampener `1.0 / (k_fleet + 1.0)`).
@@ -240,7 +240,7 @@ PRE-FLIGHT HUNTING SPECIFICATION:
 • Baseline Horizon Spine: 30-Day (period: 1d, 30d)
 • Peer Cohort & Roster:   [Team/Dept, e.g. IT (Frank, Tim) / N/A]
 • Entity Graph Dimension: [Prevalence (day_count = 10, rolling_max <= 3) | WHOIS NRD (< 30d) | Infant Asset (< 7d) | N/A]
-• Evaluation Horizon Mode:[chosen mode only: A today | B 2–7d + baseline dates | C per-day shards]
+• Evaluation Horizon Mode:[chosen mode only: A last complete UTC day (default) or Today So Far | B 2–3d + baseline dates | C per-day shards]
 • Statistical Model:      [Model & Template, e.g. CUSUM Drift (`longitudinal_cusum.yl2`)]
 • Significance Threshold: [Model gate (model-concordance-guide.md §2.1): Z >= 3.0σ | 2.0σ <= Z < 3.0σ | >= 2.0× baseline | D >= 3.5σ | N/A (Fano)]
 ```
@@ -255,7 +255,7 @@ When the analyst asks a question or requests parameter adjustments prior to givi
 2. **Maintain Active Context**: Retain the active entity scope, telemetry vectors, and hunt objective in working context.
 3. **Update Specification**: Present the updated Pre-Flight Card reflecting the adjusted parameters (threshold, horizon, baseline model).
 4. **Re-Verify Query**: Probe the updated single-event UDM filter via `udm_search(maxEvents=1)` when query logic changes, and display the refreshed candidate query block.
-5. **Prompt for Clearance**: Conclude by asking whether to proceed with Mode A (Today vs 30-Day Baseline) or Mode B (2–7 Day Fixed-Baseline Timeline), plus Mode C (Per-Day Baseline) when `run_command` is present.
+5. **Prompt for Clearance**: Conclude by asking whether to proceed with Mode A (Last Complete UTC Day vs 30-Day Baseline, or explicit Mode A — Today So Far) or Mode B (2–3 Day Fixed-Baseline Timeline), plus Mode C (Per-Day Baseline) when `run_command` is present.
 
 ---
 
@@ -348,15 +348,15 @@ outcome:
   $safe_iqr = if($iqr > 0, $iqr, $q50_floor)
   $bowley_skew = ($q75_val + $q25_val - (2.0 * $q50_val)) / $safe_iqr
   $pos_skew = if($bowley_skew > 0, $bowley_skew, 0.0)
-  $adj_upper_fence = $q75_val + (1.5 * math.pow(2.718281828, 3.0 * $pos_skew) * $safe_iqr)
-  $safe_fence = if($adj_upper_fence > 0, $adj_upper_fence, 1.0)
-  $tukey_fence_ratio = $observed / $safe_fence
+  $adj_upper_fence = $q75_val + (1.5 * math.pow(2.718281828, 1.35 * $pos_skew) * $safe_iqr)
+  $robust_scale = $safe_iqr / 1.349
+  $tukey_excess_z = ($observed - $adj_upper_fence) / $robust_scale
 
 condition:
-  $in_scoring_window = 1 and $raw_active_days >= 7 and $tukey_fence_ratio >= 2.0
+  $in_scoring_window = 1 and $raw_active_days >= 7 and $tukey_excess_z >= 1.0
 
 order:
-  $tukey_fence_ratio desc
+  $tukey_excess_z desc
 ```
 
 ### Pattern 2: Macro 30-Day `metrics.*` Baseline + Intra-Bucket Per-Flow Payload Quantile Shape ($P_{50}$ vs $P_{90}$)

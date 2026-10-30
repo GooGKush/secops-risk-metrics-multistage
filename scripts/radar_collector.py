@@ -8,11 +8,315 @@ import argparse
 import base64
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, asdict
+import hashlib
 import html
 import json
 import math
+import os
 import sys
 from typing import Any, Dict, List, Optional, Tuple
+
+try:
+  from .ueba_constants import (
+      DEFAULT_MIN_BASELINE_DAYS,
+      RADAR_COMPOSITE_D_THRESHOLD,
+      RADAR_FUSION_DISTANCE_THRESHOLD,
+      _coerce_finite_float,
+      calculate_cri,
+      format_cri,
+  )
+except ImportError:
+  try:
+    from scripts.ueba_constants import (
+        DEFAULT_MIN_BASELINE_DAYS,
+        RADAR_COMPOSITE_D_THRESHOLD,
+        RADAR_FUSION_DISTANCE_THRESHOLD,
+        _coerce_finite_float,
+        calculate_cri,
+        format_cri,
+    )
+  except ImportError:
+    from ueba_constants import (  # type: ignore[no-redef]
+        DEFAULT_MIN_BASELINE_DAYS,
+        RADAR_COMPOSITE_D_THRESHOLD,
+        RADAR_FUSION_DISTANCE_THRESHOLD,
+        _coerce_finite_float,
+        calculate_cri,
+        format_cri,
+    )
+
+
+class _RadarQueryTemplate(str):
+  """String template supporting both `% {'entity_id': ...}` and `.format(entity=...)` safely with YARA-L braces."""
+
+  def format(self, *args: Any, **kwargs: Any) -> str:
+    ent = kwargs.get("entity_id", kwargs.get("entity", args[0] if args else "entity"))
+    return str(self) % {"entity_id": ent}
+
+
+HELPER_VERSION = "2.3.0"
+
+
+def _canonical_json_sha256(obj: Any) -> str:
+  """Computes deterministic SHA-256 hex digest over canonical UTF-8 JSON."""
+  canonical = json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+  return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _decode_chronicle_cell(cell: Any) -> Any:
+  """Decodes a single Chronicle udm_search stats.results cell dict, failing closed on malformed cells."""
+  if not isinstance(cell, dict):
+    raise ValueError(
+        "G1/G2 violation: malformed cell in udm_search stats.results; expected dict."
+    )
+  if not cell:
+    return None
+  if "value" not in cell or not isinstance(cell["value"], dict):
+    raise ValueError(
+        "G1/G2 violation: malformed cell in udm_search stats.results; expected {'value': {...}} envelope."
+    )
+  value = cell["value"]
+  if not value:
+    return None
+  kind, raw = next(iter(value.items()))
+  if kind in ("int64Val", "uint64Val"):
+    return int(raw)
+  if kind == "doubleVal":
+    return float(raw)
+  if kind == "boolVal":
+    return bool(raw)
+  if kind == "list" and isinstance(raw, dict):
+    return [_decode_chronicle_cell({"value": v}) for v in raw.get("values", [])]
+  return raw
+
+
+def _parse_strict_udm_stats_payload(sector_key: str, raw_payload: Any) -> List[Dict[str, Any]]:
+  """Strictly validates and parses a raw udm_search stats payload per D6 Guardrails G1 and G2."""
+  if isinstance(raw_payload, bool) or not isinstance(raw_payload, dict):
+    raise ValueError(
+        "G1 violation: sector payload must be a raw udm_search response dict containing 'stats' "
+        "(or empty {} for 0-row sector), not LLM-typed numbers."
+    )
+  if not raw_payload:
+    return []
+  if "events" in raw_payload and "stats" not in raw_payload:
+    raise ValueError(
+        f"G1 violation (RAW_LOG_DUMP_DETECTED): sector '{sector_key}' payload contains raw "
+        "unaggregated 'events' without 'stats'."
+    )
+  if "stats" not in raw_payload:
+    raise ValueError(
+        "G1 violation: sector payload must be a raw udm_search response dict containing 'stats' "
+        "(or empty {} for 0-row sector), not LLM-typed numbers or hand-typed dicts."
+    )
+  stats_obj = raw_payload["stats"]
+  if stats_obj is None or stats_obj == {} or stats_obj == []:
+    return []
+  if not isinstance(stats_obj, dict):
+    raise ValueError(
+        f"G1/G2 violation: sector '{sector_key}' 'stats' must be a dict, got {type(stats_obj).__name__}."
+    )
+  if "results" not in stats_obj:
+    raise ValueError(
+        f"G1/G2 violation: sector '{sector_key}' non-empty 'stats' dict is missing 'results'."
+    )
+  results = stats_obj["results"]
+  if results is None or results == []:
+    return []
+  if not isinstance(results, list):
+    raise ValueError(
+        f"G1/G2 violation: sector '{sector_key}' 'stats.results' must be a list."
+    )
+  columns: Dict[str, List[Any]] = {}
+  for col in results:
+    if (
+        not isinstance(col, dict)
+        or not isinstance(col.get("column"), str)
+        or not col["column"].strip()
+        or not isinstance(col.get("values"), list)
+    ):
+      raise ValueError(
+          f"G1/G2 violation: malformed stats.results column entry in sector '{sector_key}'; "
+          "expected Chronicle columnar {'column': str, 'values': [...]} structure."
+      )
+    col_name = col["column"].strip().lstrip("$")
+    columns[col_name] = [_decode_chronicle_cell(cell) for cell in col["values"]]
+
+  n_rows = max((len(vals) for vals in columns.values()), default=0)
+  rows: List[Dict[str, Any]] = []
+  for i in range(n_rows):
+    rows.append({name: (vals[i] if i < len(vals) else None) for name, vals in columns.items()})
+  return rows
+
+
+def _extract_spoke_metrics_from_rows(
+    sector_key: str,
+    rows: List[Dict[str, Any]],
+) -> Tuple[float, float, float, float]:
+  """Extracts (observed, baseline_mean, baseline_stddev, z_score) from parsed stats.results rows."""
+  primary_z_cols = (
+      "personal_z",
+      "z_score",
+      "z",
+      "alert_z",
+      "z_alerts",
+      "process_z",
+      "fail_z",
+      "flow_z",
+      "macro_z_score",
+      "macro_z",
+  )
+  excluded_z_suffixes = ("_sq", "_raw", "_pos", "_rw", "_cd", "_gap")
+  prefix_aliases = {
+      "download": ("dl", "download"),
+      "change": ("ch", "change"),
+      "outbound": ("out", "outbound"),
+      "inbound": ("in", "inbound"),
+      "egress": ("bytes", "egress"),
+      "dns_fail": ("dns", "dns_fail"),
+      "http": ("http", "web"),
+      "alerts": ("alerts", "alert"),
+  }
+
+  def _as_float(val: Any) -> Optional[float]:
+    if isinstance(val, list) and val:
+      val = val[0]
+    if val is None or isinstance(val, bool):
+      return None
+    try:
+      return float(val)
+    except (TypeError, ValueError):
+      return None
+
+  def _first_present(row: Dict[str, Any], candidates: Tuple[str, ...]) -> Optional[float]:
+    for key in candidates:
+      if key in row:
+        num = _as_float(row[key])
+        if num is not None:
+          return num
+    return None
+
+  best_tuple: Optional[Tuple[float, float, float, float]] = None
+  for row in rows:
+    winning_prefix: Optional[str] = None
+    z_val = _first_present(row, primary_z_cols)
+    if z_val is None:
+      z_candidates: List[Tuple[float, str]] = []
+      for k, raw_v in row.items():
+        kl = k.lower()
+        if any(kl.endswith(sfx) for sfx in excluded_z_suffixes):
+          continue
+        if kl.startswith("z_"):
+          fv = _as_float(raw_v)
+          if fv is not None:
+            z_candidates.append((fv, kl[2:]))
+        elif kl.endswith("_z"):
+          fv = _as_float(raw_v)
+          if fv is not None:
+            z_candidates.append((fv, kl[:-2]))
+      if z_candidates:
+        z_candidates.sort(key=lambda item: item[0], reverse=True)
+        z_val, winning_prefix = z_candidates[0]
+
+    pref_tokens: Tuple[str, ...] = ()
+    if winning_prefix:
+      pref_tokens = prefix_aliases.get(winning_prefix, (winning_prefix,))
+
+    obs_candidates = (
+        "observed",
+        "observed_val",
+        "observed_24h",
+        "obs",
+        "today_val",
+        "total_obs",
+        "alerts_obs",
+    ) + tuple(f"{p}_obs" for p in pref_tokens)
+    obs_val = _first_present(row, obs_candidates)
+    if obs_val is None:
+      for k, raw_v in row.items():
+        if k.lower().endswith("_obs"):
+          obs_val = _as_float(raw_v)
+          if obs_val is not None:
+            break
+
+    avg_candidates = (
+        "historical_avg",
+        "hist_avg",
+        "baseline",
+        "baseline_mean",
+        "avg_30d",
+        "mu",
+        "hist_mean",
+        "historical_mean",
+        "d_mu",
+        "avg",
+        "alerts_avg",
+    ) + tuple(f"{p}_avg" for p in pref_tokens)
+    avg_val = _first_present(row, avg_candidates)
+    if avg_val is None:
+      for k, raw_v in row.items():
+        if k.lower().endswith(("_avg", "_mean")):
+          avg_val = _as_float(raw_v)
+          if avg_val is not None:
+            break
+
+    std_candidates = (
+        "historical_stddev",
+        "hist_stddev",
+        "dispersion",
+        "baseline_stddev",
+        "stddev_30d",
+        "sigma",
+        "hist_std",
+        "historical_std",
+        "d_sigma",
+        "stddev",
+        "std",
+        "alerts_std",
+    ) + tuple(f"{p}_std" for p in pref_tokens) + tuple(f"{p}_stddev" for p in pref_tokens)
+    std_val = _first_present(row, std_candidates)
+    if std_val is None:
+      for k, raw_v in row.items():
+        if k.lower().endswith(("_std", "_stddev")):
+          std_val = _as_float(raw_v)
+          if std_val is not None:
+            break
+
+    days_candidates = (
+        "active_days",
+        "hist_active_days",
+        "historical_active_days",
+        "active_baseline_days",
+    ) + tuple(f"{p}_days" for p in pref_tokens) + tuple(f"{p}_active_days" for p in pref_tokens)
+    days_val = _first_present(row, days_candidates)
+
+    if z_val is None:
+      if obs_val is not None and avg_val is not None:
+        is_byte_sector = any(tok in sector_key.lower() for tok in ("net", "egress", "byte", "traffic"))
+        disp_floor = 1048576.0 if is_byte_sector else math.sqrt(max(avg_val, 1.0))
+        denom = max(std_val if (std_val is not None and std_val > 0.0) else 0.0, disp_floor)
+        z_val = (obs_val - avg_val) / denom
+      else:
+        continue
+
+    if days_val is not None and days_val < float(DEFAULT_MIN_BASELINE_DAYS):
+      z_val = 0.0
+
+    candidate = (
+        obs_val if obs_val is not None else 0.0,
+        avg_val if avg_val is not None else 0.0,
+        std_val if std_val is not None else 0.0,
+        z_val,
+    )
+    if best_tuple is None or candidate[3] > best_tuple[3]:
+      best_tuple = candidate
+
+  if best_tuple is None:
+    raise ValueError(
+        f"G2 violation: sector '{sector_key}' stats.results contains {len(rows)} row(s) "
+        "but no recognized Z-score or baseline metric columns."
+    )
+  return best_tuple
 
 
 @dataclass
@@ -26,11 +330,11 @@ class MetricSpoke:
   baseline_stddev: float
   z_score: float
   unit: str = "events"
-  cri_score: int = 0
+  cri_score: Optional[int] = None
 
   def __post_init__(self):
-    if self.cri_score == 0 and self.z_score is not None:
-      self.cri_score = round(100.0 / (1.0 + math.exp(-0.6 * (max(0.0, self.z_score) - 3.0))))
+    if self.cri_score is None:
+      self.cri_score = calculate_cri(self.z_score)
 
   def to_dict(self) -> Dict[str, Any]:
     return asdict(self)
@@ -39,45 +343,50 @@ class MetricSpoke:
 class EntityRadarCollector:
   """Collects multi-sector behavioral metrics for an entity and renders radial risk fingerprints."""
 
+  HELPER_VERSION = HELPER_VERSION
+
   USER_SECTOR_QUERIES = {
-      "IAM & Authentication": """
-// Sector: IAM & Authentication
-stage s1 {
+      "IAM & Authentication": _RadarQueryTemplate("""
+// Sector: IAM & Authentication (Single-Stage Union: preserves 0-success brute-force targets)
+stage auth_risk {
     metadata.event_type = "USER_LOGIN"
-    not security_result.action = "ALLOW"
     target.user.userid = "%(entity_id)s"
     $user = target.user.userid
   match:
     $user by 1d
   outcome:
-    $fail_obs = count(metadata.id)
+    $fail_obs = sum(if(security_result.action = "ALLOW", 0, 1))
+    $succ_obs = sum(if(security_result.action = "ALLOW", 1, 0))
     $fail_avg = max(metrics.auth_attempts_fail(period: 1d, window: 30d, metric: event_count_sum, agg: avg, target.user.userid: target.user.userid))
     $fail_std = max(metrics.auth_attempts_fail(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, target.user.userid: target.user.userid))
-}
-stage s2 {
-    metadata.event_type = "USER_LOGIN"
-    security_result.action = "ALLOW"
-    target.user.userid = "%(entity_id)s"
-    $user = target.user.userid
-  match:
-    $user by 1d
-  outcome:
-    $succ_obs = count(metadata.id)
+    $fail_days = max(metrics.auth_attempts_fail(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, target.user.userid: target.user.userid))
     $succ_avg = max(metrics.auth_attempts_success(period: 1d, window: 30d, metric: event_count_sum, agg: avg, target.user.userid: target.user.userid))
     $succ_std = max(metrics.auth_attempts_success(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, target.user.userid: target.user.userid))
+    $succ_days = max(metrics.auth_attempts_success(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, target.user.userid: target.user.userid))
 }
-$user = $s1.user
-$user = $s2.user
+$user = $auth_risk.user
 match: $user by 1d
 outcome:
-  $fail_std = max($s1.fail_std)
-  $succ_std = max($s2.succ_std)
-  $z_fail = (max($s1.fail_obs) - max($s1.fail_avg)) / if($fail_std > 0, $fail_std, 1.0)
-  $z_succ = (max($s2.succ_obs) - max($s2.succ_avg)) / if($succ_std > 0, $succ_std, 1.0)
-""",
-      "Cloud Infrastructure": """
+  $fail_obs = max($auth_risk.fail_obs)
+  $fail_avg = max($auth_risk.fail_avg)
+  $fail_std = max($auth_risk.fail_std)
+  $fail_days = max($auth_risk.fail_days)
+  $fail_floor = math.sqrt(if($fail_avg > 1.0, $fail_avg, 1.0))
+  $safe_fail_std = if($fail_std > $fail_floor, $fail_std, $fail_floor)
+  $raw_z_fail = ($fail_obs - $fail_avg) / $safe_fail_std
+  $z_fail = if($fail_days >= 7, $raw_z_fail, 0.0)
+  $succ_obs = max($auth_risk.succ_obs)
+  $succ_avg = max($auth_risk.succ_avg)
+  $succ_std = max($auth_risk.succ_std)
+  $succ_days = max($auth_risk.succ_days)
+  $succ_floor = math.sqrt(if($succ_avg > 1.0, $succ_avg, 1.0))
+  $safe_succ_std = if($succ_std > $succ_floor, $succ_std, $succ_floor)
+  $raw_z_succ = ($succ_obs - $succ_avg) / $safe_succ_std
+  $z_succ = if($succ_days >= 7, $raw_z_succ, 0.0)
+"""),
+      "Cloud Infrastructure": _RadarQueryTemplate("""
 // Sector: Cloud Infrastructure CRUD
-stage s1 {
+stage cloud_risk {
     (
         metadata.event_type = "RESOURCE_READ" or
         metadata.event_type = "USER_RESOURCE_ACCESS" or
@@ -98,34 +407,69 @@ stage s1 {
     $read_obs = sum(if(metadata.event_type = "RESOURCE_READ" or metadata.event_type = "USER_RESOURCE_ACCESS", 1, 0))
     $read_avg = max(metrics.resource_read_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
     $read_std = max(metrics.resource_read_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
+    $read_days = max(metrics.resource_read_total(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
     $write_obs = sum(if(metadata.event_type = "RESOURCE_WRITTEN" or metadata.event_type = "USER_RESOURCE_UPDATE_CONTENT", 1, 0))
     $write_avg = max(metrics.resource_written_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
     $write_std = max(metrics.resource_written_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
+    $write_days = max(metrics.resource_written_total(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
     $create_obs = sum(if(metadata.event_type = "RESOURCE_CREATION" or metadata.event_type = "USER_RESOURCE_CREATION", 1, 0))
     $create_avg = max(metrics.resource_creation_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
     $create_std = max(metrics.resource_creation_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
+    $create_days = max(metrics.resource_creation_total(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
     $delete_obs = sum(if(metadata.event_type = "RESOURCE_DELETION" or metadata.event_type = "USER_RESOURCE_DELETION", 1, 0))
     $delete_avg = max(metrics.resource_deletion_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
     $delete_std = max(metrics.resource_deletion_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
+    $delete_days = max(metrics.resource_deletion_total(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name))
 }
-$user = $s1.user
+stage cloud_rollup {
+    $user = $cloud_risk.user
+  match:
+    $user by 1d
+  outcome:
+    $r_obs = max($cloud_risk.read_obs)
+    $r_avg = max($cloud_risk.read_avg)
+    $r_std = max($cloud_risk.read_std)
+    $r_days = max($cloud_risk.read_days)
+    $r_flr = math.sqrt(if($r_avg > 1.0, $r_avg, 1.0))
+    $r_sd = if($r_std > $r_flr, $r_std, $r_flr)
+    $zr_u = ($r_obs - $r_avg) / $r_sd
+    $z_read = if($r_days >= 7, $zr_u, 0.0)
+    $w_obs = max($cloud_risk.write_obs)
+    $w_avg = max($cloud_risk.write_avg)
+    $w_std = max($cloud_risk.write_std)
+    $w_days = max($cloud_risk.write_days)
+    $w_flr = math.sqrt(if($w_avg > 1.0, $w_avg, 1.0))
+    $w_sd = if($w_std > $w_flr, $w_std, $w_flr)
+    $zw_u = ($w_obs - $w_avg) / $w_sd
+    $z_write = if($w_days >= 7, $zw_u, 0.0)
+}
+$user = $cloud_risk.user
+$user = $cloud_rollup.user
 match: $user by 1d
 outcome:
-  $read_std = max($s1.read_std)
-  $write_std = max($s1.write_std)
-  $create_std = max($s1.create_std)
-  $delete_std = max($s1.delete_std)
-  $z_read = (max($s1.read_obs) - max($s1.read_avg)) / if($read_std > 0, $read_std, 1000000.0)
-  $z_write = (max($s1.write_obs) - max($s1.write_avg)) / if($write_std > 0, $write_std, 1000000.0)
-  $z_create = (max($s1.create_obs) - max($s1.create_avg)) / if($create_std > 0, $create_std, 1000000.0)
-  $z_delete = (max($s1.delete_obs) - max($s1.delete_avg)) / if($delete_std > 0, $delete_std, 1000000.0)
+  $c_avg = max($cloud_risk.create_avg)
+  $c_std = max($cloud_risk.create_std)
+  $c_days = max($cloud_risk.create_days)
+  $c_flr = math.sqrt(if($c_avg > 1.0, $c_avg, 1.0))
+  $c_sd = if($c_std > $c_flr, $c_std, $c_flr)
+  $zc_u = (max($cloud_risk.create_obs) - $c_avg) / $c_sd
+  $z_create = if($c_days >= 7, $zc_u, 0.0)
+  $d_avg = max($cloud_risk.delete_avg)
+  $d_std = max($cloud_risk.delete_std)
+  $d_days = max($cloud_risk.delete_days)
+  $d_flr = math.sqrt(if($d_avg > 1.0, $d_avg, 1.0))
+  $d_sd = if($d_std > $d_flr, $d_std, $d_flr)
+  $zd_u = (max($cloud_risk.delete_obs) - $d_avg) / $d_sd
+  $z_delete = if($d_days >= 7, $zd_u, 0.0)
+  $z_read = max($cloud_rollup.z_read)
+  $z_write = max($cloud_rollup.z_write)
   $z_rw = if($z_read >= $z_write, $z_read, $z_write)
   $z_cd = if($z_create >= $z_delete, $z_create, $z_delete)
   $z = if($z_rw >= $z_cd, $z_rw, $z_cd)
-""",
-      "Workspace Data Hoarding": """
+"""),
+      "Workspace Data Hoarding": _RadarQueryTemplate("""
 // Sector: Workspace & Drive Data
-stage s1 {
+stage workspace_risk {
     metadata.vendor_name = "Google Workspace"
     principal.user.userid = "%(entity_id)s"
     $user = principal.user.userid
@@ -136,20 +480,32 @@ stage s1 {
     $ch_obs = count(metadata.id)
     $dl_avg = max(metrics.workspace_total_download_actions(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: principal.user.userid))
     $dl_std = max(metrics.workspace_total_download_actions(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: principal.user.userid))
+    $dl_days = max(metrics.workspace_total_download_actions(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.user.userid: principal.user.userid))
     $ch_avg = max(metrics.workspace_total_change_actions(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: principal.user.userid))
     $ch_std = max(metrics.workspace_total_change_actions(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: principal.user.userid))
+    $ch_days = max(metrics.workspace_total_change_actions(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.user.userid: principal.user.userid))
 }
-$user = $s1.user
+$user = $workspace_risk.user
 match: $user by 1d
 outcome:
-  $dl_std = max($s1.dl_std)
-  $ch_std = max($s1.ch_std)
-  $z_download = (max($s1.dl_obs) - max($s1.dl_avg)) / if($dl_std > 0, $dl_std, 1.0)
-  $z_change = (max($s1.ch_obs) - max($s1.ch_avg)) / if($ch_std > 0, $ch_std, 1.0)
-""",
-      "Network Egress & Web": """
+  $dl_avg = max($workspace_risk.dl_avg)
+  $dl_std = max($workspace_risk.dl_std)
+  $dl_days = max($workspace_risk.dl_days)
+  $dl_flr = math.sqrt(if($dl_avg > 1.0, $dl_avg, 1.0))
+  $safe_dl_std = if($dl_std > $dl_flr, $dl_std, $dl_flr)
+  $raw_z_dl = (max($workspace_risk.dl_obs) - $dl_avg) / $safe_dl_std
+  $z_download = if($dl_days >= 7, $raw_z_dl, 0.0)
+  $ch_avg = max($workspace_risk.ch_avg)
+  $ch_std = max($workspace_risk.ch_std)
+  $ch_days = max($workspace_risk.ch_days)
+  $ch_flr = math.sqrt(if($ch_avg > 1.0, $ch_avg, 1.0))
+  $safe_ch_std = if($ch_std > $ch_flr, $ch_std, $ch_flr)
+  $raw_z_ch = (max($workspace_risk.ch_obs) - $ch_avg) / $safe_ch_std
+  $z_change = if($ch_days >= 7, $raw_z_ch, 0.0)
+"""),
+      "Network Egress & Web": _RadarQueryTemplate("""
 // Sector: Network Egress Volume
-stage s1 {
+stage egress_risk {
     network.sent_bytes > 0
     network.sent_bytes < 1000000000000000
     principal.user.userid = "%(entity_id)s"
@@ -157,19 +513,26 @@ stage s1 {
   match:
     $user by 1d
   outcome:
-    $bytes_obs = sum(network.sent_bytes)
+    $bytes_obs = sum(if(network.sent_bytes > 0 and network.sent_bytes < 1000000000000000, 1.0, 0.0) * network.sent_bytes)
     $bytes_avg = max(metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: avg, principal.user.userid: principal.user.userid))
     $bytes_std = max(metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: stddev, principal.user.userid: principal.user.userid))
+    $bytes_days = max(metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: num_metric_periods, principal.user.userid: principal.user.userid))
 }
-$user = $s1.user
+$user = $egress_risk.user
 match: $user by 1d
 outcome:
-  $bytes_std = max($s1.bytes_std)
-  $z_egress = (max($s1.bytes_obs) - max($s1.bytes_avg)) / if($bytes_std > 0, $bytes_std, 1.0)
-""",
-      "DNS Resolution": """
+  $bytes_obs = max($egress_risk.bytes_obs)
+  $bytes_avg = max($egress_risk.bytes_avg)
+  $bytes_std = max($egress_risk.bytes_std)
+  $bytes_days = max($egress_risk.bytes_days)
+  $bytes_floor = 1048576.0
+  $safe_bytes_std = if($bytes_std > $bytes_floor, $bytes_std, $bytes_floor)
+  $raw_z_egress = ($bytes_obs - $bytes_avg) / $safe_bytes_std
+  $z_egress = if($bytes_days >= 7, $raw_z_egress, 0.0)
+"""),
+      "DNS Resolution": _RadarQueryTemplate("""
 // Sector: DNS Failures
-stage s1 {
+stage dns_risk {
     (network.dns.questions.name != "" or network.dns.answers.name != "" or network.dns.id != 0)
     network.dns.response_code != 0
     principal.user.userid = "%(entity_id)s"
@@ -180,16 +543,22 @@ stage s1 {
     $dns_obs = count(metadata.id)
     $dns_avg = max(metrics.dns_queries_fail(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: principal.user.userid))
     $dns_std = max(metrics.dns_queries_fail(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: principal.user.userid))
+    $dns_days = max(metrics.dns_queries_fail(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.user.userid: principal.user.userid))
 }
-$user = $s1.user
+$user = $dns_risk.user
 match: $user by 1d
 outcome:
-  $dns_std = max($s1.dns_std)
-  $z_dns_fail = (max($s1.dns_obs) - max($s1.dns_avg)) / if($dns_std > 0, $dns_std, 1.0)
-""",
-      "Web & Proxy Activity": """
+  $dns_avg = max($dns_risk.dns_avg)
+  $dns_std = max($dns_risk.dns_std)
+  $dns_days = max($dns_risk.dns_days)
+  $dns_floor = math.sqrt(if($dns_avg > 1.0, $dns_avg, 1.0))
+  $safe_dns_std = if($dns_std > $dns_floor, $dns_std, $dns_floor)
+  $raw_z_dns = (max($dns_risk.dns_obs) - $dns_avg) / $safe_dns_std
+  $z_dns_fail = if($dns_days >= 7, $raw_z_dns, 0.0)
+"""),
+      "Web & Proxy Activity": _RadarQueryTemplate("""
 // Sector: Web & Proxy Activity
-stage s1 {
+stage web_risk {
     (network.http.method != "" or network.http.user_agent != "" or network.http.response_code != 0 or network.http.referral_url != "")
     principal.user.userid = "%(entity_id)s"
     $user = principal.user.userid
@@ -199,17 +568,23 @@ stage s1 {
     $http_obs = count(metadata.id)
     $http_avg = max(metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: principal.user.userid))
     $http_std = max(metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.user.userid: principal.user.userid))
+    $http_days = max(metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.user.userid: principal.user.userid))
 }
-$user = $s1.user
+$user = $web_risk.user
 match: $user by 1d
 outcome:
-  $http_std = max($s1.http_std)
-  $z_http = (max($s1.http_obs) - max($s1.http_avg)) / if($http_std > 0, $http_std, 1.0)
-""",
+  $http_avg = max($web_risk.http_avg)
+  $http_std = max($web_risk.http_std)
+  $http_days = max($web_risk.http_days)
+  $http_floor = math.sqrt(if($http_avg > 1.0, $http_avg, 1.0))
+  $safe_http_std = if($http_std > $http_floor, $http_std, $http_floor)
+  $raw_z_http = (max($web_risk.http_obs) - $http_avg) / $safe_http_std
+  $z_http = if($http_days >= 7, $raw_z_http, 0.0)
+"""),
   }
 
   ASSET_SECTOR_QUERIES = {
-      "Authentication & Access": """
+      "Authentication & Access": _RadarQueryTemplate("""
 // Sector: Asset Authentication
 stage s1 {
     metadata.event_type = "USER_LOGIN"
@@ -222,14 +597,20 @@ stage s1 {
     $fail_obs = count(metadata.id)
     $fail_avg = max(metrics.auth_attempts_fail(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.asset.hostname: principal.asset.hostname))
     $fail_std = max(metrics.auth_attempts_fail(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.asset.hostname: principal.asset.hostname))
+    $fail_days = max(metrics.auth_attempts_fail(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.asset.hostname: principal.asset.hostname))
 }
 $asset = $s1.asset
 match: $asset by 1d
 outcome:
+  $fail_avg = max($s1.fail_avg)
   $fail_std = max($s1.fail_std)
-  $z_fail = (max($s1.fail_obs) - max($s1.fail_avg)) / if($fail_std > 0, $fail_std, 1.0)
-""",
-      "Network Traffic Volume": """
+  $fail_days = max($s1.fail_days)
+  $fail_floor = math.sqrt(if($fail_avg > 1.0, $fail_avg, 1.0))
+  $safe_fail_std = if($fail_std > $fail_floor, $fail_std, $fail_floor)
+  $raw_z_fail = (max($s1.fail_obs) - $fail_avg) / $safe_fail_std
+  $z_fail = if($fail_days >= 7, $raw_z_fail, 0.0)
+"""),
+      "Network Traffic Volume": _RadarQueryTemplate("""
 // Sector: Network Inbound & Outbound
 stage s1 {
     ((network.sent_bytes > 0 and network.sent_bytes < 1000000000000000) or (network.received_bytes > 0 and network.received_bytes < 1000000000000000))
@@ -238,22 +619,36 @@ stage s1 {
   match:
     $asset by 1d
   outcome:
-    $out_obs = sum(network.sent_bytes)
+    $out_obs = sum(if(network.sent_bytes > 0 and network.sent_bytes < 1000000000000000, 1.0, 0.0) * network.sent_bytes)
     $out_avg = max(metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: avg, principal.asset.hostname: principal.asset.hostname))
     $out_std = max(metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: stddev, principal.asset.hostname: principal.asset.hostname))
-    $in_obs = sum(network.received_bytes)
+    $out_days = max(metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: num_metric_periods, principal.asset.hostname: principal.asset.hostname))
+    $in_obs = sum(if(network.received_bytes > 0 and network.received_bytes < 1000000000000000, 1.0, 0.0) * network.received_bytes)
     $in_avg = max(metrics.network_bytes_inbound(period: 1d, window: 30d, metric: value_sum, agg: avg, principal.asset.hostname: principal.asset.hostname))
     $in_std = max(metrics.network_bytes_inbound(period: 1d, window: 30d, metric: value_sum, agg: stddev, principal.asset.hostname: principal.asset.hostname))
+    $in_days = max(metrics.network_bytes_inbound(period: 1d, window: 30d, metric: value_sum, agg: num_metric_periods, principal.asset.hostname: principal.asset.hostname))
 }
 $asset = $s1.asset
 match: $asset by 1d
 outcome:
+  $out_obs = max($s1.out_obs)
+  $out_avg = max($s1.out_avg)
   $out_std = max($s1.out_std)
+  $out_days = max($s1.out_days)
+  $out_floor = 1048576.0
+  $safe_out_std = if($out_std > $out_floor, $out_std, $out_floor)
+  $raw_z_out = ($out_obs - $out_avg) / $safe_out_std
+  $z_outbound = if($out_days >= 7, $raw_z_out, 0.0)
+  $in_obs = max($s1.in_obs)
+  $in_avg = max($s1.in_avg)
   $in_std = max($s1.in_std)
-  $z_outbound = (max($s1.out_obs) - max($s1.out_avg)) / if($out_std > 0, $out_std, 1.0)
-  $z_inbound = (max($s1.in_obs) - max($s1.in_avg)) / if($in_std > 0, $in_std, 1.0)
-""",
-      "DNS Resolution": """
+  $in_days = max($s1.in_days)
+  $in_floor = 28276845.0
+  $safe_in_std = if($in_std > $in_floor, $in_std, $in_floor)
+  $raw_z_in = ($in_obs - $in_avg) / $safe_in_std
+  $z_inbound = if($in_days >= 7, $raw_z_in, 0.0)
+"""),
+      "DNS Resolution": _RadarQueryTemplate("""
 // Sector: DNS Failures
 stage s1 {
     (network.dns.questions.name != "" or network.dns.answers.name != "" or network.dns.id != 0)
@@ -266,14 +661,20 @@ stage s1 {
     $dns_obs = count(metadata.id)
     $dns_avg = max(metrics.dns_queries_fail(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.asset.hostname: principal.asset.hostname))
     $dns_std = max(metrics.dns_queries_fail(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.asset.hostname: principal.asset.hostname))
+    $dns_days = max(metrics.dns_queries_fail(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.asset.hostname: principal.asset.hostname))
 }
 $asset = $s1.asset
 match: $asset by 1d
 outcome:
+  $dns_avg = max($s1.dns_avg)
   $dns_std = max($s1.dns_std)
-  $z_dns_fail = (max($s1.dns_obs) - max($s1.dns_avg)) / if($dns_std > 0, $dns_std, 1.0)
-""",
-      "Web & Proxy Activity": """
+  $dns_days = max($s1.dns_days)
+  $dns_floor = math.sqrt(if($dns_avg > 1.0, $dns_avg, 1.0))
+  $safe_dns_std = if($dns_std > $dns_floor, $dns_std, $dns_floor)
+  $raw_z_dns = (max($s1.dns_obs) - $dns_avg) / $safe_dns_std
+  $z_dns_fail = if($dns_days >= 7, $raw_z_dns, 0.0)
+"""),
+      "Web & Proxy Activity": _RadarQueryTemplate("""
 // Sector: Web & Proxy Activity
 stage s1 {
     (network.http.method != "" or network.http.user_agent != "" or network.http.response_code != 0 or network.http.referral_url != "")
@@ -285,14 +686,20 @@ stage s1 {
     $http_obs = count(metadata.id)
     $http_avg = max(metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.asset.hostname: principal.asset.hostname))
     $http_std = max(metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.asset.hostname: principal.asset.hostname))
+    $http_days = max(metrics.http_queries_total(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.asset.hostname: principal.asset.hostname))
 }
 $asset = $s1.asset
 match: $asset by 1d
 outcome:
+  $http_avg = max($s1.http_avg)
   $http_std = max($s1.http_std)
-  $z_http = (max($s1.http_obs) - max($s1.http_avg)) / if($http_std > 0, $http_std, 1.0)
-""",
-      "Security & EDR Alerts": """
+  $http_days = max($s1.http_days)
+  $http_floor = math.sqrt(if($http_avg > 1.0, $http_avg, 1.0))
+  $safe_http_std = if($http_std > $http_floor, $http_std, $http_floor)
+  $raw_z_http = (max($s1.http_obs) - $http_avg) / $safe_http_std
+  $z_http = if($http_days >= 7, $raw_z_http, 0.0)
+"""),
+      "Security & EDR Alerts": _RadarQueryTemplate("""
 // Sector: Security & EDR Alerts
 stage alerts_risk {
     (metadata.log_type = "CB_EDR" or metadata.log_type = "CS_EDR" or metadata.log_type = "MICROSOFT_GRAPH_ALERT" or metadata.log_type = "SENTINELONE_ALERTS")
@@ -306,16 +713,23 @@ stage alerts_risk {
     $obs = count(metadata.id)
     $avg = max(metrics.alert_event_name_count(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.asset.hostname: principal.asset.hostname, security_result.rule_name: security_result.rule_name))
     $std = max(metrics.alert_event_name_count(period: 1d, window: 30d, metric: event_count_sum, agg: stddev, principal.asset.hostname: principal.asset.hostname, security_result.rule_name: security_result.rule_name))
-    $z = ($obs - $avg) / if($std > 0, $std, 1.0)
+    $days = max(metrics.alert_event_name_count(period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods, principal.asset.hostname: principal.asset.hostname, security_result.rule_name: security_result.rule_name))
+    $flr = math.sqrt(if($avg > 1.0, $avg, 1.0))
+    $safe_std = if($std > $flr, $std, $flr)
+    $raw_z = ($obs - $avg) / $safe_std
+    $z = if($days >= 7, $raw_z, 0.0)
 }
 $asset = $alerts_risk.asset
-match: $asset by 1d
+$rule_name = $alerts_risk.rule_name
+match: $asset, $rule_name by 1d
 outcome:
   $alerts_std = max($alerts_risk.std)
   $z_alerts = max($alerts_risk.z)
   $alerts_obs = max($alerts_risk.obs)
   $alerts_avg = max($alerts_risk.avg)
-""",
+  $alerts_days = max($alerts_risk.days)
+order: $z_alerts desc
+"""),
   }
 
   def __init__(self, secops_client: Optional[Any] = None):
@@ -342,77 +756,232 @@ outcome:
         MetricSpoke("Web & Proxy Activity", "Web & Proxy Requests", "metrics.http_queries_total", 0.0, 0.0, 0.0, 0.0, "requests", 0),
     ]
 
-  @staticmethod
-  def parse_scores_argument(scores_str: str, entity_type: str = "USER") -> List[MetricSpoke]:
-    """Parses convenient comma-separated key=value scores (e.g. 'auth=0.0,cloud=3.8,workspace=3.2,net=0.8,web=1.5,dns=10.8')."""
-    canonical = EntityRadarCollector.get_canonical_nominal_spokes(entity_type)
-    if not scores_str:
-      return canonical
+  @classmethod
+  def _resolve_sector_index(cls, sector_key: str, entity_type: str = "USER") -> int:
+    """Resolves a sector label or alias to its canonical 6-spoke index, failing closed on unknown keys."""
+    if not isinstance(sector_key, str) or not sector_key.strip():
+      raise ValueError("G2 violation: sector key must be a non-empty string.")
+    clean = sector_key.strip().lower()
+    is_asset = entity_type.upper() == "ASSET"
 
-    user_map = {
-        "auth": 0, "iam": 0, "login": 0,
-        "cloud": 1, "crud": 1, "resource": 1,
-        "workspace": 2, "saas": 2, "drive": 2, "doc": 2,
-        "net": 3, "network": 3, "egress": 3, "byte": 3,
+    user_exact = {
+        "iam & authentication": 0,
+        "authentication": 0,
+        "authentication & access": 0,
+        "authentication attempts": 0,
+        "iam": 0,
+        "auth": 0,
+        "login": 0,
+        "cloud infrastructure": 1,
+        "cloud infrastructure & iam crud": 1,
+        "cloud resource crud": 1,
+        "cloud": 1,
+        "crud": 1,
+        "resource": 1,
+        "workspace data": 2,
+        "workspace data hoarding": 2,
+        "workspace & saas exfil": 2,
+        "workspace": 2,
+        "saas": 2,
+        "drive": 2,
+        "doc": 2,
+        "network egress": 3,
+        "network egress & web": 3,
+        "network traffic volume": 3,
+        "network": 3,
+        "net": 3,
+        "egress": 3,
+        "bytes": 3,
+        "dns resolution": 4,
         "dns": 4,
-        "web": 5, "http": 5, "proxy": 5,
-        "proc": 4, "endpoint": 4, "process": 4, "launch": 4,
+        "web & proxy activity": 5,
+        "web & proxy": 5,
+        "web & proxy requests": 5,
+        "web": 5,
+        "http": 5,
+        "proxy": 5,
     }
-    asset_map = {
-        "auth": 0, "login": 0, "access": 0,
-        "net": 1, "network": 1, "traffic": 1,
+    asset_exact = {
+        "authentication": 0,
+        "authentication & access": 0,
+        "iam & authentication": 0,
+        "authentication attempts": 0,
+        "auth": 0,
+        "iam": 0,
+        "login": 0,
+        "access": 0,
+        "network": 1,
+        "network traffic volume": 1,
+        "network egress": 1,
+        "network egress & web": 1,
+        "net": 1,
+        "traffic": 1,
+        "egress": 1,
+        "bytes": 1,
         "dns": 2,
-        "web": 3, "http": 3, "proxy": 3,
-        "alert": 4, "edr": 4, "cloud": 4, "infra": 4, "crud": 4,
-        "proc": 5, "endpoint": 5, "process": 5,
+        "dns resolution": 2,
+        "web & proxy": 3,
+        "web & proxy activity": 3,
+        "web & proxy requests": 3,
+        "web": 3,
+        "http": 3,
+        "proxy": 3,
+        "security & edr alerts": 4,
+        "alerts": 4,
+        "alert": 4,
+        "edr": 4,
+        "cloud": 4,
+        "cloud infrastructure": 4,
+        "endpoint": 5,
+        "endpoint process activity": 5,
+        "workspace / endpoint activity": 5,
+        "proc": 5,
+        "process": 5,
+        "file_executions": 5,
     }
-    target_map = asset_map if entity_type.upper() == "ASSET" else user_map
+    exact_map = asset_exact if is_asset else user_exact
+    if clean in exact_map:
+      return exact_map[clean]
 
-    for part in scores_str.split(","):
-      part = part.strip()
-      if "=" in part:
-        k, v = part.split("=", 1)
-        k = k.strip().lower()
-        try:
-          val = float(v.strip())
-          for prefix, idx in target_map.items():
-            if prefix in k:
-              canonical[idx].z_score = val
-              canonical[idx].cri_score = 0
-              if val > 0:
-                canonical[idx].observed = max(1.0, round(val * 10.0))
-                canonical[idx].baseline_mean = 5.0
-                canonical[idx].baseline_stddev = 2.0
-              canonical[idx].__post_init__()
-              break
-        except ValueError:
-          pass
-    return canonical
+    prefix_rules = (
+        [
+            (("auth", "iam", "login", "access"), 0),
+            (("net", "egress", "traffic", "byte"), 1),
+            (("dns",), 2),
+            (("web", "http", "proxy"), 3),
+            (("alert", "edr", "cloud", "infra", "crud"), 4),
+            (("endpoint", "proc", "process", "exec"), 5),
+        ]
+        if is_asset
+        else [
+            (("auth", "iam", "login"), 0),
+            (("cloud", "crud", "resource"), 1),
+            (("workspace", "saas", "drive", "doc"), 2),
+            (("net", "egress", "byte"), 3),
+            (("dns",), 4),
+            (("web", "http", "proxy"), 5),
+        ]
+    )
+    for tokens, idx in prefix_rules:
+      if any(tok in clean for tok in tokens):
+        return idx
+
+    raise ValueError(
+        f"G2 violation: unrecognized radar sector key '{sector_key}' for entity_type='{entity_type}'."
+    )
+
+  @classmethod
+  def parse_raw_sector_payloads(
+      cls,
+      sector_payloads: Dict[str, Any],
+      entity_type: str = "USER",
+      query_texts: Optional[Dict[str, str]] = None,
+  ) -> Tuple[List[MetricSpoke], Dict[str, Any]]:
+    """Parses raw udm_search stats responses per sector into MetricSpokes + D6-G3 provenance.
+
+    Enforces D6 Guardrails:
+    - G1: Rejects LLM-typed numbers/strings, hand-typed dicts without 'stats', and raw 'events' dumps.
+    - G2: Fails closed on missing, empty, unknown, duplicate, or malformed sector inputs.
+    - G3: Returns helper_version, payload_sha256, and query_sha256 provenance metadata.
+    """
+    if isinstance(sector_payloads, bool) or not isinstance(sector_payloads, dict):
+      raise ValueError(
+          "G1 violation: sector payload must be a raw udm_search response dict containing 'stats' "
+          "(or empty {} for 0-row sector), not LLM-typed numbers or strings."
+      )
+    if not sector_payloads:
+      raise ValueError(
+          "G2 violation: sector_payloads cannot be empty; provide raw udm_search response dicts per sector."
+      )
+    if query_texts is not None and not isinstance(query_texts, dict):
+      raise ValueError(
+          "G2 violation: query_texts must be a dict mapping sector keys to YARA-L query strings."
+      )
+
+    canonical = cls.get_canonical_nominal_spokes(entity_type)
+    seen_indices: Dict[int, str] = {}
+    sectors_with_telemetry = 0
+
+    for sector_key, raw_payload in sector_payloads.items():
+      idx = cls._resolve_sector_index(sector_key, entity_type)
+      if idx in seen_indices:
+        raise ValueError(
+            f"G2 violation: duplicate radar sector mapping between '{seen_indices[idx]}' and '{sector_key}'."
+        )
+      seen_indices[idx] = sector_key
+
+      rows = _parse_strict_udm_stats_payload(sector_key, raw_payload)
+      if not rows:
+        # Valid 0-row raw udm_search payload ({} or {"stats": {}}) -> deterministic nominal 0.0
+        canonical[idx].observed = 0.0
+        canonical[idx].baseline_mean = 0.0
+        canonical[idx].baseline_stddev = 0.0
+        canonical[idx].z_score = 0.0
+        canonical[idx].cri_score = 0
+        continue
+
+      sectors_with_telemetry += 1
+      obs_val, avg_val, std_val, z_val = _extract_spoke_metrics_from_rows(sector_key, rows)
+      canonical[idx].observed = obs_val
+      canonical[idx].baseline_mean = avg_val
+      canonical[idx].baseline_stddev = std_val
+      canonical[idx].z_score = z_val
+      canonical[idx].cri_score = calculate_cri(z_val)
+
+    payload_sha256 = _canonical_json_sha256(sector_payloads)
+    query_sha256 = _canonical_json_sha256(query_texts) if query_texts else "N/A"
+    provenance = {
+        "helper_version": cls.HELPER_VERSION,
+        "payload_sha256": payload_sha256,
+        "query_sha256": query_sha256,
+        "sectors_evaluated": len(canonical),
+        "sectors_with_telemetry": sectors_with_telemetry,
+    }
+    return canonical, provenance
 
   @staticmethod
-  def calculate_composite_risk(spokes: List[MetricSpoke]) -> Tuple[float, int]:
+  def calculate_composite_risk(spokes: List[MetricSpoke]) -> Tuple[float, Optional[int]]:
     """Calculates the Euclidean Composite Distance D and Calibrated Risk Index (CRI)."""
     if not spokes:
       return 0.0, 0
 
-    sum_z_sq = sum(max(0.0, s.z_score) ** 2 for s in spokes)
+    finite_z = [
+        parsed
+        for s in spokes
+        for parsed in (_coerce_finite_float(s.z_score),)
+        if parsed is not None
+    ]
+    if not finite_z:
+      return 0.0, None
+
+    sum_z_sq = sum(max(0.0, z) ** 2 for z in finite_z)
     composite_d = math.sqrt(sum_z_sq)
-    cri_score = round(100.0 / (1.0 + math.exp(-0.6 * (composite_d - 3.0))))
-    return round(composite_d, 2), max(0, min(100, cri_score))
+    cri_score = calculate_cri(composite_d)
+    return round(composite_d, 2), cri_score
 
   def build_radar_payload(
       self,
       entity_id: str,
       entity_type: str,
       spokes: List[MetricSpoke],
+      provenance: Optional[Dict[str, Any]] = None,
   ) -> Dict[str, Any]:
-    """Assembles the full radar payload including statistics, SVG, Markdown, and Chart.js specs."""
+    """Assembles the full radar payload including statistics, provenance, SVG, Markdown, and Chart.js specs."""
     active_spokes = spokes if spokes else self.get_canonical_nominal_spokes(entity_type)
     sorted_spokes = sorted(active_spokes, key=lambda s: s.z_score, reverse=True)
     composite_d, cri = self.calculate_composite_risk(sorted_spokes)
 
     top_outlier = sorted_spokes[0] if sorted_spokes else None
-    is_anomalous = composite_d >= 3.0
+    is_anomalous = composite_d >= RADAR_COMPOSITE_D_THRESHOLD
+    effective_provenance = (
+        dict(provenance)
+        if provenance is not None
+        else {
+            "helper_version": self.HELPER_VERSION,
+            "payload_sha256": "N/A",
+            "query_sha256": "N/A",
+        }
+    )
 
     return {
         "entity_id": entity_id,
@@ -423,6 +992,7 @@ outcome:
         "spoke_count": len(sorted_spokes),
         "top_outlier_spoke": top_outlier.spoke_name if top_outlier else "N/A",
         "top_outlier_z": top_outlier.z_score if top_outlier else 0.0,
+        "provenance": effective_provenance,
         "spokes": [s.to_dict() for s in sorted_spokes],
         "svg_widget": self.generate_self_contained_svg(
             entity_id, sorted_spokes, composite_d, cri
@@ -440,7 +1010,7 @@ outcome:
             entity_id, sorted_spokes, composite_d, cri
         ),
         "markdown_table": self.generate_markdown_summary(
-            entity_id, sorted_spokes, composite_d, cri
+            entity_id, sorted_spokes, composite_d, cri, provenance=effective_provenance
         ),
         "chartjs_spec": self.generate_chartjs_spec(
             entity_id, sorted_spokes, composite_d, cri
@@ -468,7 +1038,7 @@ outcome:
     is_cri_mode = (scale_mode.lower() == "cri")
     display_cap = 100.0 if is_cri_mode else 4.0
 
-    if composite_d >= 3.0:
+    if composite_d >= RADAR_COMPOSITE_D_THRESHOLD:
       poly_fill, poly_stroke = "rgba(217, 48, 37, 0.25)", "#d93025"
       status_badge_bg, status_badge_fg, status_text = "#fce8e6", "#c5221f", "HIGH RISK ANOMALY"
     elif composite_d >= 2.0:
@@ -515,7 +1085,7 @@ outcome:
       svg_parts.append(f'  <line x1="{cx}" y1="{cy}" x2="{ax:.1f}" y2="{ay:.1f}" stroke="#eeeeee" stroke-width="1"/>')
 
       if is_cri_mode:
-        val_for_radius = min(max(0.0, float(s.cri_score)), 100.0)
+        val_for_radius = min(max(0.0, float(s.cri_score or 0)), 100.0)
         dr = (val_for_radius / 100.0) * max_radius
       else:
         raw_z = max(0.0, s.z_score)
@@ -548,7 +1118,7 @@ outcome:
         ly -= 2
 
       if is_cri_mode:
-        score_subtext = f"(CRI {s.cri_score} | {z_formatted}{outlier_tag})"
+        score_subtext = f"(CRI {format_cri(s.cri_score)} | {z_formatted}{outlier_tag})"
       else:
         score_subtext = f"({z_formatted}{outlier_tag})"
 
@@ -645,7 +1215,7 @@ outcome:
     active_spokes = spokes if spokes else EntityRadarCollector.get_canonical_nominal_spokes()
     spokes = active_spokes
 
-    is_anomalous = composite_d >= 3.0
+    is_anomalous = composite_d >= RADAR_COMPOSITE_D_THRESHOLD
     status_tag = "🚨 HIGH RISK ANOMALY" if is_anomalous else ("⚠️ ELEVATED" if composite_d >= 2.0 else "🟢 NOMINAL")
     header = f"360° BEHAVIORAL RISK RADAR: {entity_id} (D = {composite_d:.2f}σ | CRI {cri}/100 | {status_tag})"
     separator = "─" * max(len(header), 75)
@@ -659,8 +1229,9 @@ outcome:
       filled = int(round((capped_z / 4.0) * bar_width))
       bar = "▰" * filled + "▱" * (bar_width - filled)
       outlier_icon = " 🚨" if s.z_score >= 3.0 else (" ⚠️" if s.z_score >= 2.0 else "   ")
+      spoke_cri_str = format_cri(s.cri_score)
       lines.append(
-          f"{s.spoke_name:<{max_label_len}}  [{bar}]  +{s.z_score:>5.2f}σ  (CRI {s.cri_score:>3}/100){outlier_icon}"
+          f"{s.spoke_name:<{max_label_len}}  [{bar}]  +{s.z_score:>5.2f}σ  (CRI {spoke_cri_str:>3}/100){outlier_icon}"
       )
 
     lines.append(separator)
@@ -673,9 +1244,10 @@ outcome:
       spokes: List[MetricSpoke],
       composite_d: float,
       cri: int,
+      provenance: Optional[Dict[str, Any]] = None,
   ) -> str:
-    """Generates CommonMark table with Unicode magnitude progress bars."""
-    is_anomalous = composite_d >= 3.0
+    """Generates CommonMark table with Unicode magnitude progress bars and D6-G3 provenance."""
+    is_anomalous = composite_d >= RADAR_COMPOSITE_D_THRESHOLD
     status_icon = "🚨" if is_anomalous else "🟢"
     status_text = "HIGH RISK ANOMALOUS FOOTPRINT" if is_anomalous else "NOMINAL BEHAVIORAL BASELINE"
 
@@ -693,8 +1265,9 @@ outcome:
       bar_str = "▰" * bar_units + "▱" * (20 - bar_units)
 
       status = "🚨 **Anomaly**" if s.z_score >= 3.0 else ("⚠️ Elevated" if s.z_score >= 2.0 else "🟢 Nominal")
+      spoke_cri_cell = f"{format_cri(s.cri_score)}/100" if s.cri_score is not None else "N/A"
       lines.append(
-          f"| **{s.spoke_name}** ({s.sector}) | `{s.observed:,.0f} {s.unit}` | `{s.baseline_mean:,.1f} ± {s.baseline_stddev:,.1f}` | **`+{s.z_score:.2f}σ`** | `{s.cri_score}/100` | `{bar_str}` | {status} |"
+          f"| **{s.spoke_name}** ({s.sector}) | `{s.observed:,.0f} {s.unit}` | `{s.baseline_mean:,.1f} ± {s.baseline_stddev:,.1f}` | **`+{s.z_score:.2f}σ`** | `{spoke_cri_cell}` | `{bar_str}` | {status} |"
       )
 
     lines.append("")
@@ -714,6 +1287,17 @@ outcome:
     lines.append("3. **Calibrated Risk Index (CRI: 0–100 Logistic Sigmoid Mapping)**:")
     lines.append("   $$\\text{CRI} = \\text{round}\\left(\\frac{100}{1 + \\exp(-0.6 \\cdot (D - 3.0))}\\right)$$")
     lines.append(f"   $$\\text{{CRI}}({composite_d:.2f}) = \\mathbf{{{cri} / 100}} \\quad ({status_text})$$")
+    prov = provenance or {
+        "helper_version": EntityRadarCollector.HELPER_VERSION,
+        "payload_sha256": "N/A",
+        "query_sha256": "N/A",
+    }
+    lines.append("")
+    lines.append(
+        f"* **D6-G3 Provenance**: `helper_version={prov.get('helper_version', EntityRadarCollector.HELPER_VERSION)}` | "
+        f"`payload_sha256={prov.get('payload_sha256', 'N/A')}` | "
+        f"`query_sha256={prov.get('query_sha256', 'N/A')}`"
+    )
     return "\n".join(lines)
 
   @staticmethod
@@ -1203,7 +1787,34 @@ outcome:
 
 
 
-def main():
+def _load_json_arg(arg_val: str, flag_name: str) -> Any:
+  """Loads JSON from an inline string or existing file path, failing closed per D6-G2."""
+  raw = arg_val.strip()
+  if not raw:
+    raise ValueError(f"G2 violation: empty JSON input provided to {flag_name}.")
+  if raw.startswith("{") or raw.startswith("["):
+    try:
+      return json.loads(raw)
+    except json.JSONDecodeError as exc:
+      raise ValueError(f"G2 violation: malformed JSON in {flag_name}: {exc}") from exc
+  if os.path.exists(raw):
+    with open(raw, "r", encoding="utf-8") as f:
+      text = f.read().strip()
+    if not text:
+      raise ValueError(f"G2 violation: empty JSON file provided to {flag_name}: '{raw}'.")
+    try:
+      return json.loads(text)
+    except json.JSONDecodeError as exc:
+      raise ValueError(f"G2 violation: malformed JSON in file '{raw}' ({flag_name}): {exc}") from exc
+  try:
+    return json.loads(raw)
+  except json.JSONDecodeError as exc:
+    raise ValueError(
+        f"G2 violation: {flag_name} must be valid JSON or an existing file path, got '{raw}' ({exc})."
+    ) from exc
+
+
+def main(argv: Optional[List[str]] = None) -> int:
   """CLI entry point for deterministic visual generation and post-search collation."""
   parser = argparse.ArgumentParser(description="360° Entity Behavioral Risk Radar Generator")
   parser.add_argument("--entity", required=True, help="Entity identifier (user or hostname)")
@@ -1215,9 +1826,23 @@ def main():
   )
   parser.add_argument(
       "--scores",
-      help="Convenient comma-separated spoke deviations (e.g. 'auth=0.0,cloud=3.8,workspace=3.2,net=0.8,proc=10.8')",
+      default=None,
+      help="REMOVED (D6-G1): LLM-typed scores are prohibited; raises an error.",
   )
-  parser.add_argument("--data", help="JSON string or file path containing spoke records")
+  parser.add_argument(
+      "--raw-payload",
+      "--data",
+      dest="raw_payload",
+      default=None,
+      help="JSON string or file path mapping sector names to raw udm_search stats payloads",
+  )
+  parser.add_argument(
+      "--queries",
+      "--query-texts",
+      dest="query_texts",
+      default=None,
+      help="Optional JSON string or file path mapping sector names to executed YARA-L query texts",
+  )
   parser.add_argument(
       "--format",
       choices=["html", "svg", "data-uri", "dual", "embed", "ascii", "markdown", "json"],
@@ -1234,7 +1859,13 @@ def main():
           "SecOps MCP tool by the agent rather than running an HTTP request directly."
       ),
   )
-  args = parser.parse_args()
+  args = parser.parse_args(argv)
+
+  if args.scores is not None:
+    raise ValueError(
+        "G1 violation: --scores has been removed (D6-G1). "
+        "Pass raw udm_search sector payloads JSON via --raw-payload or --data."
+    )
 
   if args.execute:
     queries = (
@@ -1250,40 +1881,31 @@ def main():
       print(f"// === Sector: {sector_name} ===")
       print((tpl % {"entity_id": args.entity}).strip())
       print()
-    return
+    return 0
 
-  spokes = []
-  if args.scores:
-    spokes = EntityRadarCollector.parse_scores_argument(args.scores, args.entity_type)
-  elif args.data:
-    raw_data = args.data.strip()
-    if raw_data.startswith("[") or raw_data.startswith("{"):
-      parsed = json.loads(raw_data)
-      spoke_items = parsed if isinstance(parsed, list) else parsed.get("spokes", [])
-    else:
-      with open(raw_data, "r", encoding="utf-8") as f:
-        parsed = json.load(f)
-        spoke_items = parsed if isinstance(parsed, list) else parsed.get("spokes", [])
+  if not args.raw_payload or not args.raw_payload.strip():
+    raise ValueError(
+        "G2 violation: missing required --raw-payload / --data argument; "
+        "raw udm_search sector payloads JSON is required when --execute is not set."
+    )
 
-    for item in spoke_items:
-      spokes.append(
-          MetricSpoke(
-              sector=item.get("sector", "General"),
-              spoke_name=item.get("spoke_name", item.get("name", "Spoke")),
-              metric_table=item.get("metric_table", "metrics.unknown"),
-              observed=float(item.get("observed", 0.0)),
-              baseline_mean=float(item.get("baseline_mean", item.get("mean", 0.0))),
-              baseline_stddev=float(item.get("baseline_stddev", item.get("stddev", 0.0))),
-              z_score=float(item.get("z_score", item.get("z", 0.0))),
-              unit=item.get("unit", "events"),
-              cri_score=int(item.get("cri_score", item.get("cri", 0))),
-          )
-      )
-  else:
-    spokes = EntityRadarCollector.get_canonical_nominal_spokes(args.entity_type)
+  parsed_payloads = _load_json_arg(args.raw_payload, "--raw-payload/--data")
+  loaded_queries = (
+      _load_json_arg(args.query_texts, "--queries") if args.query_texts else None
+  )
+  spokes, provenance = EntityRadarCollector.parse_raw_sector_payloads(
+      parsed_payloads,
+      entity_type=args.entity_type,
+      query_texts=loaded_queries,
+  )
 
   collector = EntityRadarCollector()
-  payload = collector.build_radar_payload(args.entity, args.entity_type, spokes)
+  payload = collector.build_radar_payload(
+      args.entity,
+      args.entity_type,
+      spokes,
+      provenance=provenance,
+  )
 
   if args.format == "html":
     out_str = payload["html_widget"]
@@ -1327,7 +1949,8 @@ def main():
         f.write(payload["html_widget"])
 
   print(out_str)
+  return 0
 
 
 if __name__ == "__main__":
-  main()
+  sys.exit(main())

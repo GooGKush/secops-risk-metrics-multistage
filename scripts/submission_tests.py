@@ -46,7 +46,7 @@ from scripts.preflight_validator import (
     StatisticalModel,
 )
 from scripts.statistical_validator import StatisticalAntipatternAuditor
-from scripts.template_router import MultiStageTemplateRouter
+from scripts.template_router import MultiStageTemplateRouter, _apply_byte_dispersion_floor
 
 
 def iter_if_calls(query: str):
@@ -298,9 +298,16 @@ class SubmissionTestSuite:
     rendered = rendered.replace("{{fold_change_threshold}}", "2.0")
     rendered = rendered.replace("{{fusion_threshold_sq}}", "12.25")
     rendered = rendered.replace("{{robust_threshold}}", "3.5")
+    rendered = rendered.replace("{{tukey_excess_threshold}}", "1.0")
+    rendered = rendered.replace("{{cusum_h}}", "4.0")
+    rendered = rendered.replace("{{min_awakening_volume}}", "25")
     rendered = rendered.replace("{{min_baseline_days}}", str(audit["min_baseline_days"]))
+    rendered = rendered.replace("{{min_active_days}}", str(audit["min_baseline_days"]))
+    rendered = rendered.replace("{{prior_alpha0}}", "1.0")
+    rendered = rendered.replace("{{prior_beta0}}", "1.0")
     rendered = rendered.replace(
         "{{first_scored_date}}", datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d"))
+    rendered = _apply_byte_dispersion_floor(rendered, metric_name)
 
     return rendered
 
@@ -394,7 +401,7 @@ class SubmissionTestSuite:
                 PipelineArchitecture.DUAL_SECTOR_FUSION_3STAGE,
                 entity_type=EntityType.USER,
             ),
-            expected_stages=["sector_a", "sector_b"],
+            expected_stages=["sector_union"],
         )
     )
 
@@ -505,8 +512,8 @@ order:
         TestCase(
             test_id="PIPE-10-MACD-MOMENTUM",
             category="Pipeline Template",
-            name="2-Stage MACD Dual-Spine Momentum Velocity Pipeline",
-            description="Evaluates outbound network bytes using short-term velocity divergence against historical baseline anchor.",
+            name="2-Stage Above-Historical-Max Z Pipeline",
+            description="Evaluates outbound network bytes using linear peak exceedance above 30-day historical maximum.",
             generator=lambda: self.router.build_pipeline_query(
                 PipelineArchitecture.MACD_MOMENTUM_VELOCITY_2STAGE,
                 target_metric="network_bytes_outbound",
@@ -519,17 +526,16 @@ order:
 
     matrix.append(
         TestCase(
-            test_id="PIPE-11-CIRCADIAN-VON-MISES",
+            test_id="PIPE-11-QUANTILE-IQR-3STAGE",
             category="Pipeline Template",
-            name="2-Stage Circadian von Mises Temporal Distance Pipeline",
-            description="Evaluates hourly authentication attempts against 24-hour circular clock penalizing off-hours deviation.",
-            generator=lambda: self.router.build_pipeline_query(
-                PipelineArchitecture.CIRCADIAN_VON_MISES_2STAGE,
-                target_metric="auth_attempts_total",
-                entity_type=EntityType.USER,
-                anomaly_threshold=3.0,
+            name="3-Stage Non-Parametric Quantiles, Bowley Skewness & Skew-Adjusted Tukey Fence",
+            description="Evaluates 5-point quantile envelope and Hubert-Vandervieren skewness-adjusted Tukey upper fence.",
+            generator=lambda: self._render_pipeline(
+                "quantile_iqr_skew_3stage.yl2",
+                "network_bytes_outbound",
+                EntityType.ASSET,
             ),
-            expected_stages=["stage1_extract"],
+            expected_stages=["stage1_extract", "quantile_envelope"],
         )
     )
 
@@ -543,7 +549,36 @@ order:
                 PipelineArchitecture.MULTI_SECTOR_FUSION_4STAGE,
                 entity_type=EntityType.USER,
             ),
-            expected_stages=["sector_a", "sector_b", "fleet_sector_norm"],
+            expected_stages=["sector_union", "fleet_sector_norm"],
+        )
+    )
+
+    matrix.append(
+        TestCase(
+            test_id="PIPE-13-FLEET-PREVALENCE-HYBRID",
+            category="Pipeline Template",
+            name="2-Stage Dual-Plane Fleet Prevalence Normalization Pipeline",
+            description="Joins personal process execution surge with Entity Graph DERIVED_CONTEXT binary prevalence to discount corporate rollout waves.",
+            generator=lambda: self.router.build_pipeline_query(
+                PipelineArchitecture.HYBRID_METRIC_FLEET_PREVALENCE_2STAGE,
+                target_metric="file_executions_total",
+                entity_type=EntityType.ASSET,
+            ),
+            expected_stages=["stage1_personal_surge", "stage2_fleet_prevalence"],
+        )
+    )
+
+    matrix.append(
+        TestCase(
+            test_id="PIPE-14-PART-OF-WHOLE-TRIAD",
+            category="Pipeline Template",
+            name="3-Metric Multilevel Part-of-the-Whole Triad Pipeline",
+            description="Evaluates sibling triad Z-scores and fleet-normalized composite distance with Samuelson small-cohort guardrails.",
+            generator=lambda: self.router.build_pipeline_query(
+                PipelineArchitecture.PART_OF_THE_WHOLE_TRIAD_MULTILEVEL,
+                entity_type=EntityType.ASSET,
+            ),
+            expected_stages=["all_entities", "enterprise_stats"],
         )
     )
 
@@ -560,7 +595,7 @@ order:
             name="360° Radar Spoke: IAM & Authentication",
             description="Decoupled micro-query evaluating allowed vs failed logins.",
             generator=lambda: EntityRadarCollector.USER_SECTOR_QUERIES["IAM & Authentication"] % {"entity_id": test_entity} + "\norder: $z_fail desc\n",
-            expected_stages=["s1", "s2"],
+            expected_stages=["s1"],
         )
     )
 
@@ -607,16 +642,14 @@ order:
         ("ROUTER-04-CV", "dns_queries_total", EntityType.ASSET, StatisticalModel.COEFFICIENT_OF_VARIATION, "Coefficient of variation on DNS queries"),
         ("ROUTER-05-BAYES-GAMMA", "http_queries_total", EntityType.USER, StatisticalModel.BAYESIAN_GAMMA, "Poisson-Gamma conjugate Bayesian model"),
         ("ROUTER-06-BETA-BINOMIAL", "auth_attempts_total", EntityType.USER, StatisticalModel.BAYESIAN_BETA_BINOMIAL, "Beta-Binomial conjugate Bayesian model"),
-        ("ROUTER-07-HOURLY-Z", "file_executions_total", EntityType.ASSET, StatisticalModel.HOURLY_TEMPORAL_ZSCORE, "Hourly temporal Z-score on process launches"),
+        ("ROUTER-07-QUANTILE-IQR", "network_bytes_outbound", EntityType.ASSET, StatisticalModel.QUANTILE_IQR_SKEW, "Quantile IQR & Bowley skewness Tukey fence on network bytes"),
         ("ROUTER-08-FANO", "auth_attempts_fail", EntityType.USER, StatisticalModel.VARIANCE, "Variance-to-mean Fano factor on auth failures"),
         ("ROUTER-09-CUSUM", "network_bytes_outbound", EntityType.ASSET, StatisticalModel.LONGITUDINAL_CUSUM, "Longitudinal CUSUM drift on egress bytes"),
         ("ROUTER-10-HURDLE", "auth_attempts_total", EntityType.USER, StatisticalModel.TWO_PART_HURDLE, "Two-part hurdle model for zero-inflated auth"),
-        ("ROUTER-11-ASYMMETRIC-Z", "file_executions_total", EntityType.ASSET, StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z, "Asymmetric directional upper-tail surge on process executions"),
-        ("ROUTER-12-PIECEWISE-CRI", "network_bytes_outbound", EntityType.ASSET, StatisticalModel.PIECEWISE_CRI, "Piecewise Winsorized Calibrated Risk Index"),
-        ("ROUTER-13-FLEET-SHIELD", "network_bytes_outbound", EntityType.ASSET, StatisticalModel.FLEET_PREVALENCE_SHIELD, "Fleet prevalence concurrency discount shield"),
+        ("ROUTER-11-ASYMMETRIC-Z", "file_executions_total", EntityType.ASSET, StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z, "Merged standard Z upper-tail surge on process executions"),
         ("ROUTER-14-ADAPTIVE-THRESH", "auth_attempts_total", EntityType.USER, StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD, "Adaptive context-modulated sensitivity tightening"),
-        ("ROUTER-15-MACD-MOMENTUM", "network_bytes_outbound", EntityType.ASSET, StatisticalModel.MACD_MOMENTUM_VELOCITY, "MACD dual-spine momentum velocity on egress"),
-        ("ROUTER-16-CIRCADIAN-VON-MISES", "auth_attempts_total", EntityType.USER, StatisticalModel.CIRCADIAN_VON_MISES, "Circadian von Mises temporal distance on auth"),
+        ("ROUTER-15-MACD-MOMENTUM", "network_bytes_outbound", EntityType.ASSET, StatisticalModel.MACD_MOMENTUM_VELOCITY, "Above-Historical-Max Z linear peak exceedance on egress"),
+        ("ROUTER-16-RELATIVE-DEV", "auth_attempts_total", EntityType.USER, StatisticalModel.RELATIVE_DEVIATION, "Relative deviation fold change on auth attempts"),
     ]
 
     for rid, metric, etype, model, desc in router_cases:
@@ -821,10 +854,15 @@ order:
     s2_dir = self.skill_root / "templates" / "stage2_math_models"
     allowed_s2_slots = {
         "min_baseline_days",
+        "min_awakening_volume",
         "anomaly_threshold",
         "fold_change_threshold",
         "robust_threshold",
+        "tukey_excess_threshold",
         "first_scored_date",
+        "prior_alpha0",
+        "prior_beta0",
+        "min_novelty_events",
     }
     for p in sorted(s1_dir.glob("*.yl2")):
       raw = p.read_text(encoding="utf-8")

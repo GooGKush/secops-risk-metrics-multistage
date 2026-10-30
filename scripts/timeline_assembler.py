@@ -25,6 +25,44 @@ _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 if _SCRIPT_DIR not in sys.path:
   sys.path.insert(0, _SCRIPT_DIR)
 
+try:
+  from .ueba_constants import (
+      DEFAULT_MIN_BASELINE_DAYS,
+      _coerce_finite_float,
+      calculate_cri,
+      coerce_cri_int,
+      cri_from_model_score,
+      format_cri,
+      get_score_semantics,
+      is_inverted_score_key,
+      score_to_z_equivalent,
+  )
+except ImportError:
+  try:
+    from scripts.ueba_constants import (
+        DEFAULT_MIN_BASELINE_DAYS,
+        _coerce_finite_float,
+        calculate_cri,
+        coerce_cri_int,
+        cri_from_model_score,
+        format_cri,
+        get_score_semantics,
+        is_inverted_score_key,
+        score_to_z_equivalent,
+    )
+  except ImportError:
+    from ueba_constants import (  # type: ignore[no-redef]
+        DEFAULT_MIN_BASELINE_DAYS,
+        _coerce_finite_float,
+        calculate_cri,
+        coerce_cri_int,
+        cri_from_model_score,
+        format_cri,
+        get_score_semantics,
+        is_inverted_score_key,
+        score_to_z_equivalent,
+    )
+
 ENTITY_CANDIDATES = ("entity", "host", "hostname", "user", "userid", "principal", "asset", "token")
 NON_ENTITY_COLUMNS = {"ws", "TIME_BUCKET", "window_start"}
 # (column, is_squared): first match wins.
@@ -32,42 +70,97 @@ SCORE_CANDIDATES = (
     ("composite_threat_norm_sq", True),
     ("threat_vector_norm_sq", True),
     ("threat_distance_sq", True),
+    ("poisson_z_sq", True),
     ("d_vs_fleet_sq", True),
     ("d_vs_team_sq", True),
+    ("d_sq", True),
+    ("norm_sq", True),
     ("threat_distance", False),
     ("composite_threat_distance", False),
+    ("composite_risk", False),
+    ("fused_threat_score", False),
+    ("markov_threat_score", False),
     ("threat_score", False),
+    ("flow_surge_score", False),
     ("beacon_score", False),
-    ("personal_z", False),
-    ("shielded_z", False),
+    ("recon_score", False),
+    ("target_risk_score", False),
+    ("quantile_z", False),
+    ("fence_z", False),
+    ("tukey_excess_z", False),
+    ("tukey_fence_ratio", False),
     ("modified_z", False),
+    ("m_z_score", False),
+    ("macd_z", False),
+    ("above_max_z", False),
+    ("bayesian_z", False),
+    ("beta_binomial_z", False),
+    ("adaptive_z", False),
+    ("hod_z_score", False),
+    ("burst_z", False),
+    ("deficit_z", False),
+    ("delta_z", False),
+    ("targeted_delta_z", False),
+    ("shielded_z", False),
     ("upper_tail_z", False),
     ("poisson_z", False),
     ("hourly_z", False),
     ("flow_z", False),
     ("clamped_z", False),
     ("fast_z", False),
+    ("z_log", False),
+    ("fleet_z", False),
+    ("z_vs_enterprise", False),
+    ("z_vs_team", False),
+    ("z_sector", False),
+    ("macro_z_score", False),
     ("normalized_odds_score", False),
     ("cusum_drift_score", False),
+    ("windowed_slack_sum", False),
     ("hurdle_threat_score", False),
+    ("hurdle_anomaly_score", False),
     ("circadian_threat_score", False),
     ("macd_momentum_score", False),
     ("sensitivity_excess", False),
-    ("cri_score", False),
-    ("z_score", False),
-    ("z", False),
-    ("surge_ratio", False),
+    ("shannon_entropy_score", False),
+    ("entropy_score", False),
+    ("zipf_rarity_score", False),
+    ("rarity_score", False),
+    ("ewma_velocity_score", False),
+    ("velocity_score", False),
+    ("velocity_kmh", False),
     ("bayes_shift_ratio", False),
+    ("posterior_lift", False),
     ("posterior_fail_prob", False),
+    ("posterior_fail_rate", False),
+    ("regularized_failure_prob", False),
+    ("posterior_rate", False),
+    ("empirical_shift", False),
+    ("concentration_ratio", False),
+    ("producer_ratio", False),
+    ("fold_change", False),
+    ("rel_dev_z_equiv", False),
+    ("surge_ratio", False),
+    ("hourly_surge_ratio", False),
+    ("ratio_1v7", False),
+    ("ratio_1v30", False),
     ("fano_factor", False),
+    ("cv", False),
+    ("diversity_z", False),
+    ("novelty_flag", False),
+    ("cri_score", False),
+    ("personal_z", False),
+    ("z_score", False),
+    ("anomaly_score", False),
+    ("z", False),
     ("ratio", False),
 )
 SECTOR_Z_EXCLUDED_SUFFIXES = ("_sq", "_raw", "_pos")
 
 
-def cri_from_score(score: float) -> int:
-  """Canonical Calibrated Risk Index sigmoid (anchored at 3.0σ = 50)."""
-  return round(100.0 / (1.0 + math.exp(-0.6 * (max(0.0, score) - 3.0))))
+def cri_from_score(score: Any) -> Optional[int]:
+  """Canonical Calibrated Risk Index [0..100] (0 for Z<=0, 50 at 3.0σ, None on missing/error)."""
+  return calculate_cri(score)
 
 
 def _parse_day(day: str) -> datetime.date:
@@ -156,7 +249,7 @@ class TimelineAssembler:
       self,
       entity_field: Optional[str] = None,
       score_field: Optional[str] = None,
-      min_baseline_days: int = 5,
+      min_baseline_days: int = DEFAULT_MIN_BASELINE_DAYS,
       top_n: int = 15,
   ):
     self.entity_field = entity_field
@@ -254,13 +347,16 @@ class TimelineAssembler:
       squared: bool,
   ) -> Optional[float]:
     if score_field and row.get(score_field) is not None:
-      raw = float(row[score_field])
+      raw = _coerce_finite_float(row[score_field])
+      if raw is None:
+        return None
       return math.sqrt(max(0.0, raw)) if squared else raw
-    z_vals = [
-        float(v)
-        for k, v in row.items()
-        if k.startswith("z_") and not k.endswith(SECTOR_Z_EXCLUDED_SUFFIXES) and v is not None
-    ]
+    z_vals = []
+    for k, v in row.items():
+      if k.startswith("z_") and not k.endswith(SECTOR_Z_EXCLUDED_SUFFIXES) and v is not None:
+        parsed_v = _coerce_finite_float(v)
+        if parsed_v is not None:
+          z_vals.append(parsed_v)
     return max(z_vals) if z_vals else None
 
   @staticmethod
@@ -304,19 +400,36 @@ class TimelineAssembler:
     # Peak per (entity, day): templates with extra match keys can emit several rows.
     cells: Dict[Tuple[str, str], Dict[str, Any]] = {}
     sparse: List[Dict[str, Any]] = []
+    sem = get_score_semantics(score_field)
+    inverted_key = is_inverted_score_key(score_field)
+    boolean_key = sem.kind == "boolean_flag"
     for day, rows in self.shards.items():
       for row in rows:
         entity = str(row.get(entity_field))
         score = self._extract_row_score(row, score_field, squared)
         if score is None:
           continue
+        if boolean_key:
+          if score < sem.threshold:
+            continue
+          z_equiv = None
+          rank_tuple: Tuple[float, float] = (score, score)
+          cri_val = None
+        else:
+          z_equiv = score_to_z_equivalent(score_field, score, already_sqrt=squared)
+          if z_equiv is None:
+            continue
+          rank_tuple = (z_equiv, -score if inverted_key else score)
+          cri_val = cri_from_model_score(score_field, score, already_sqrt=squared)
         key = (entity, day)
-        if key not in cells or score > cells[key]["score"]:
+        if key not in cells or rank_tuple > cells[key]["_rank"]:
           cells[key] = {
               "entity": entity,
               "day": day,
               "score": score,
-              "cri": cri_from_score(score),
+              "z_equiv": z_equiv,
+              "_rank": rank_tuple,
+              "cri": cri_val,
               "sectors": {f: row.get(f) for f in sector_fields},
           }
         for prefix, days_col, obs_col in sparse_pairs:
@@ -350,11 +463,14 @@ class TimelineAssembler:
       for (entity, day), ent_sectors in sector_cells.items():
         norm_sq = sum(max(0.0, z) ** 2 for z in ent_sectors.values())
         d_score = math.sqrt(norm_sq) if norm_sq > 0 else max(ent_sectors.values(), default=0.0)
+        z_equiv_d = score_to_z_equivalent("threat_distance", d_score) or 0.0
         cells[(entity, day)] = {
             "entity": entity,
             "day": day,
             "score": d_score,
-            "cri": cri_from_score(d_score),
+            "z_equiv": z_equiv_d,
+            "_rank": (z_equiv_d, d_score),
+            "cri": cri_from_model_score("threat_distance", d_score),
             "sectors": {f: ent_sectors.get(f) for f in sector_fields},
         }
       squared = True  # Label composite distance column as D in markdown output.
@@ -374,7 +490,7 @@ class TimelineAssembler:
         day_rows.append({"day": day, "status": "failed", "reason": self.failed[day], "outliers": 0})
         continue
       day_cells = [c for (e, d), c in cells.items() if d == day]
-      top = max(day_cells, key=lambda c: c["score"]) if day_cells else None
+      top = max(day_cells, key=lambda c: c["_rank"]) if day_cells else None
       day_rows.append({
           "day": day,
           "status": "ok" if day_cells else "empty",
@@ -393,10 +509,10 @@ class TimelineAssembler:
         consecutive = ordinals[i] == ordinals[i - 1] + 1
         current = current + 1 if consecutive else 1
         longest = max(longest, current)
-        rising = rising + 1 if consecutive and flagged[i]["score"] > flagged[i - 1]["score"] else 1
+        rising = rising + 1 if consecutive and flagged[i]["_rank"] > flagged[i - 1]["_rank"] else 1
         if rising >= 3:
           escalating = True
-      peak = max(flagged, key=lambda c: c["score"])
+      peak = max(flagged, key=lambda c: c["_rank"])
       onsets = {}
       for field in sector_fields:
         for c in flagged:
@@ -404,16 +520,20 @@ class TimelineAssembler:
           if value is not None and float(value) > 0:
             onsets[field] = c["day"]
             break
-      # Sequential Page one-sided CUSUM (S_t = max(0.0, S_{t-1} + z_t - k), k = 0.5)
-      cusum_s = 0.0
-      peak_cusum_s = 0.0
+      # Gated slack sum over threshold-passing shard cells ONLY (NOT Page CUSUM: unflagged and 0-event days are censored)
+      gated_slack = 0.0
+      peak_gated_slack = 0.0
       cum_z = 0.0
-      flagged_by_day = {c["day"]: float(c["score"]) for c in flagged}
+      flagged_by_day = {
+          c["day"]: float(c["z_equiv"])
+          for c in flagged
+          if c["z_equiv"] is not None
+      }
       for d in sorted(self.shards):
         z_t = flagged_by_day.get(d, 0.0)
         cum_z += z_t
-        cusum_s = max(0.0, cusum_s + z_t - 0.5)
-        peak_cusum_s = max(peak_cusum_s, cusum_s)
+        gated_slack = max(0.0, gated_slack + z_t - 0.5)
+        peak_gated_slack = max(peak_gated_slack, gated_slack)
 
       entities[entity] = {
           "days_flagged": len(flagged),
@@ -423,14 +543,14 @@ class TimelineAssembler:
           "peak_score": round(peak["score"], 2),
           "peak_day": peak["day"],
           "peak_cri": peak["cri"],
-          "cusum_pos": round(cusum_s, 2),
-          "peak_cusum_pos": round(peak_cusum_s, 2),
+          "gated_slack_sum": round(gated_slack, 2),
+          "peak_gated_slack_sum": round(peak_gated_slack, 2),
           "cumulative_z": round(cum_z, 2),
           "escalating": escalating,
           "sector_onsets": onsets,
       }
 
-    top_rows = sorted(cells.values(), key=lambda c: c["score"], reverse=True)[: self.top_n]
+    top_rows = sorted(cells.values(), key=lambda c: c["_rank"], reverse=True)[: self.top_n]
     return {
         "meta": {
             "entity_field": entity_field,
@@ -466,6 +586,13 @@ class TimelineAssembler:
         "",
         "Each scored day D is compared to its own baseline [D − 30d, D).",
         "",
+        "> [!NOTE]",
+        "> **Sustained-Attack Baseline Absorption & Fade Caveat (D10)**: Because each day `D` uses `[D − 30d, D)`, "
+        "a sustained multi-day shift enters subsequent days' trailing baselines and inflates `σ` (Gaussian approximation: "
+        "a sustained `+3σ` shift reads `≈ 2.5σ` on day 2; a sustained `+6σ` shift stays above `3σ` for ~3 days; no guard band). "
+        "Never read a fading Mode C timeline as \"the attack stopped\" — use `LONGITUDINAL_CUSUM` (`longitudinal_cusum.yl2`) "
+        "to evaluate sustained persistence.",
+        "",
     ]
     if meta["failed_days"]:
       lines += [
@@ -487,7 +614,15 @@ class TimelineAssembler:
 
     entities = summary["entities"]
     if entities:
-      ranked = sorted(entities.items(), key=lambda kv: kv[1]["peak_score"], reverse=True)[:top_n]
+      is_inv = is_inverted_score_key(meta.get("score_field"))
+      ranked = sorted(
+          entities.items(),
+          key=lambda kv: (
+              kv[1].get("peak_cri") if kv[1].get("peak_cri") is not None else -1,
+              -kv[1]["peak_score"] if is_inv else kv[1]["peak_score"],
+          ),
+          reverse=True,
+      )[:top_n]
       sector_fields = meta["sector_fields"]
       lines += ["", "#### Entity Persistence & Onset", "",
                 "| Entity | Days Flagged | First | Last | Longest Run | Peak " + score_label
@@ -497,7 +632,7 @@ class TimelineAssembler:
         onsets = ", ".join(f"{k}: {v}" for k, v in e["sector_onsets"].items()) if sector_fields else "—"
         lines.append(
             f"| `{entity}` | {e['days_flagged']} | {e['first_day']} | {e['last_day']} | "
-            f"{e['longest_run']} | {e['peak_score']} ({e['peak_day']}) | {e['peak_cri']} | "
+            f"{e['longest_run']} | {e['peak_score']} ({e['peak_day']}) | {format_cri(e.get('peak_cri'))} | "
             f"{'yes' if e['escalating'] else 'no'} | {onsets or '—'} |")
 
     if summary["top"]:
@@ -507,7 +642,7 @@ class TimelineAssembler:
       for c in summary["top"][:top_n]:
         sectors = ", ".join(
             f"{k}={float(v):.2f}" for k, v in c["sectors"].items() if v is not None) or "—"
-        lines.append(f"| `{c['entity']}` | {c['day']} | {c['score']} | {c['cri']} | {sectors} |")
+        lines.append(f"| `{c['entity']}` | {c['day']} | {c['score']} | {format_cri(c.get('cri'))} | {sectors} |")
 
     if summary["sparse_baseline"]:
       lines += ["", f"#### Too New to Baseline (< {meta['min_baseline_days']} baseline days; sector scored 0)", "",
@@ -522,7 +657,15 @@ class TimelineAssembler:
 
   @staticmethod
   def ranked_records(summary: Dict[str, Any], top_n: int = 15) -> List[Dict[str, Any]]:
-    ranked = sorted(summary["entities"].items(), key=lambda kv: kv[1]["peak_score"], reverse=True)[:top_n]
+    is_inv = is_inverted_score_key(summary["meta"].get("score_field"))
+    ranked = sorted(
+        summary["entities"].items(),
+        key=lambda kv: (
+            kv[1].get("peak_cri") if kv[1].get("peak_cri") is not None else -1,
+            -kv[1]["peak_score"] if is_inv else kv[1]["peak_score"],
+        ),
+        reverse=True,
+    )[:top_n]
     return [
         {"entity": f"{entity} ({e['peak_day']})", "threat_distance_d": e["peak_score"], "cri": e["peak_cri"]}
         for entity, e in ranked
@@ -543,16 +686,16 @@ class TimelineAssembler:
 class TimelinePoint:
   """Single daily observation point in an entity timeline series."""
   day: str
-  z_score: float = 0.0
+  z_score: Optional[float] = 0.0
   observed: float = 0.0
   baseline_mean: float = 0.0
   baseline_stddev: float = 1.0
   cumulative_z: float = 0.0
   cusum_pos: float = 0.0
-  cri: int = 0
+  cri: Optional[int] = None
 
   def __post_init__(self) -> None:
-    if self.cri == 0 and self.z_score != 0.0:
+    if self.cri is None:
       self.cri = cri_from_score(self.z_score)
 
 
@@ -577,21 +720,74 @@ class EntityTimelineSeries:
     peak_z = -math.inf
     peak_d = ""
     for pt in self.points:
-      z_val = float(pt.z_score)
+      z_val = _coerce_finite_float(pt.z_score)
+      if z_val is None:
+        pt.cumulative_z = round(cum_z, 4)
+        pt.cusum_pos = round(s_t, 4)
+        if pt.cri is None:
+          pt.cri = None
+        continue
       cum_z += z_val
       s_t = max(0.0, s_t + z_val - slack_k)
       pt.cumulative_z = round(cum_z, 4)
       pt.cusum_pos = round(s_t, 4)
-      if pt.cri == 0:
+      if pt.cri is None:
         pt.cri = cri_from_score(z_val)
       if z_val > peak_z:
         peak_z = z_val
         peak_d = pt.day
     self.cumulative_z = round(cum_z, 4)
     self.cusum_pos = round(s_t, 4)
-    if self.points:
+    if peak_z > -math.inf:
       self.peak_score = round(peak_z, 4)
       self.peak_day = peak_d
+
+
+def rebuild_calendar_day_stats(
+    active_days: float,
+    active_avg: float,
+    active_sd: float,
+    historical_sum: Optional[float] = None,
+    window_days: float = 30.0,
+) -> Dict[str, float]:
+  """Rebuilds 30-day calendar-day statistics from active-day metrics.* outputs (PF-1, PF-2, WS1-05).
+
+  Malachite `metrics.*` computes `avg` and sample `stddev` (N-1) over `num_metric_periods`
+  (active days only), omitting zero-activity days. Given (n, avg, sd), this helper reconstructs:
+    sum_x      = historical_sum if provided else n * avg
+    sum_x2     = max(n - 1, 0) * sd^2 + n * avg^2
+    lambda_cal = sum_x / window_days
+    mu_cal     = sum_x / window_days
+    var_cal    = max(sum_x2 / window_days - mu_cal^2, 0.0)
+    sd_cal     = sqrt(var_cal)
+  """
+  win = float(window_days) if float(window_days) > 0.0 else 30.0
+  n = max(0.0, float(active_days))
+  avg = float(active_avg) if n > 0.0 else 0.0
+  sd = max(0.0, float(active_sd)) if n > 1.0 else 0.0
+  if n <= 0.0:
+    sum_x = 0.0
+    sum_x2 = 0.0
+  else:
+    sum_x = float(historical_sum) if historical_sum is not None else (n * avg)
+    df_minus_one = max(n - 1.0, 0.0)
+    sum_x2 = (df_minus_one * sd * sd) + (n * avg * avg)
+  mu_cal = sum_x / win
+  raw_var_cal = (sum_x2 / win) - (mu_cal * mu_cal)
+  var_cal = max(raw_var_cal, 0.0)
+  sd_cal = math.sqrt(var_cal)
+  return {
+      "active_days": n,
+      "window_days": win,
+      "dormant_days": max(0.0, win - n),
+      "active_day_fraction": min(1.0, max(0.0, n / win)),
+      "sum_x": sum_x,
+      "sum_x2": sum_x2,
+      "lambda_cal": mu_cal,
+      "mu_cal": mu_cal,
+      "var_cal": var_cal,
+      "sd_cal": sd_cal,
+  }
 
 
 def calculate_page_cusum_series(z_scores: Sequence[Any], slack_k: float = 0.5) -> List[Any]:
@@ -624,10 +820,15 @@ def calculate_page_cusum_series(z_scores: Sequence[Any], slack_k: float = 0.5) -
 def format_markdown_table(
     series_or_points: Union[EntityTimelineSeries, Sequence[Any], Dict[str, Any]],
     slack_k: float = 0.5,
+    *,
+    gated: bool = False,
 ) -> str:
   """Formats an EntityTimelineSeries, list of TimelinePoint/dicts, or assembler summary dict into Markdown."""
   if isinstance(series_or_points, dict) and "meta" in series_or_points and "days" in series_or_points:
     return TimelineAssembler.render_markdown(series_or_points)
+  if isinstance(series_or_points, dict) and series_or_points.get("gated"):
+    gated = True
+    series_or_points = series_or_points.get("points", [])
 
   if isinstance(series_or_points, EntityTimelineSeries):
     series_or_points.recompute(slack_k=slack_k)
@@ -639,16 +840,20 @@ def format_markdown_table(
       if isinstance(item, TimelinePoint):
         raw_pts.append(item)
       elif isinstance(item, dict):
+        has_raw_z = any(k in item for k in ("z_score", "z", "score"))
+        raw_z = item.get("z_score", item.get("z", item.get("score"))) if has_raw_z else 0.0
+        parsed_z = _coerce_finite_float(raw_z)
+        explicit_cri = coerce_cri_int(item.get("cri")) if "cri" in item and item.get("cri") is not None else None
         raw_pts.append(
             TimelinePoint(
                 day=str(item.get("day", item.get("date", ""))),
-                z_score=float(item.get("z_score", item.get("z", item.get("score", 0.0)))),
+                z_score=parsed_z,
                 observed=float(item.get("observed", item.get("observed_val", 0.0))),
                 baseline_mean=float(item.get("baseline_mean", item.get("hist_avg", 0.0))),
                 baseline_stddev=float(item.get("baseline_stddev", item.get("hist_stddev", 1.0))),
                 cumulative_z=float(item.get("cumulative_z", 0.0)),
                 cusum_pos=float(item.get("cusum_pos", 0.0)),
-                cri=int(item.get("cri", 0)),
+                cri=explicit_cri,
             )
         )
     temp_series = EntityTimelineSeries(entity="target_entity", points=raw_pts, slack_k=slack_k)
@@ -660,6 +865,23 @@ def format_markdown_table(
   if not points:
     return entity_header + "*(No timeline points)*"
 
+  if gated:
+    lines = [
+        entity_header.rstrip() if entity_header else "",
+        "| Date (UTC) | Observed | Flagged Z-Score | Gated Slack Sum | CRI (0-100) |",
+        "| :--- | ---: | ---: | ---: | ---: |",
+    ]
+    lines = [ln for ln in lines if ln != ""]
+    for pt in points:
+      z_num = _coerce_finite_float(pt.z_score)
+      z_cell = "N/A" if z_num is None else f"{z_num:+.2f}σ"
+      cri_cell = format_cri(pt.cri)
+      lines.append(
+          f"| `{pt.day}` | `{pt.observed:.2f}` | `{z_cell}` | "
+          f"`{pt.cusum_pos:.2f}` | **`{cri_cell}`** |"
+      )
+    return "\n".join(lines)
+
   lines = [
       entity_header.rstrip() if entity_header else "",
       "| Date (UTC) | Observed | Daily Z-Score | Cumulative Z | Page CUSUM+ (S_t) | CRI (0-100) |",
@@ -667,9 +889,12 @@ def format_markdown_table(
   ]
   lines = [ln for ln in lines if ln != ""]
   for pt in points:
+    z_num = _coerce_finite_float(pt.z_score)
+    z_cell = "N/A" if z_num is None else f"{z_num:+.2f}σ"
+    cri_cell = format_cri(pt.cri)
     lines.append(
-        f"| `{pt.day}` | `{pt.observed:.2f}` | `{pt.z_score:+.2f}σ` | "
-        f"`{pt.cumulative_z:+.2f}σ` | `{pt.cusum_pos:.2f}σ` | **`{pt.cri}`** |"
+        f"| `{pt.day}` | `{pt.observed:.2f}` | `{z_cell}` | "
+        f"`{pt.cumulative_z:+.2f}σ` | `{pt.cusum_pos:.2f}σ` | **`{cri_cell}`** |"
     )
   return "\n".join(lines)
 
@@ -685,7 +910,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                       help="DAY or DAY=REASON for a shard that failed after one retry.")
   parser.add_argument("--entity-field", help="Entity column (default: auto-detect)")
   parser.add_argument("--score-field", help="Score column; *_sq columns are square-rooted (default: auto-detect)")
-  parser.add_argument("--min-baseline-days", type=int, default=5)
+  parser.add_argument("--min-baseline-days", type=int, default=DEFAULT_MIN_BASELINE_DAYS)
   parser.add_argument("--top", type=int, default=15)
   parser.add_argument("--markdown-out")
   parser.add_argument("--json-out")

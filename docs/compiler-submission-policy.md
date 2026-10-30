@@ -108,9 +108,11 @@ The submission test harness automates compiler verification across 32 canonical 
 | `PIPE-07-EMPIRICAL-BAYES` | Pipeline Template | `http_queries_total` (Asset) | 3-stage hyperprior shrinkage (stddev²) |
 | `PIPE-08-CLOUD-SCOPE` | Pipeline Template | `resource_read_total` | Dual-branch cloud repository scope & origin outlier |
 | `PIPE-09-PREVALENCE` | Pipeline Template | `network_bytes_outbound` + Entity Graph | 2-stage IP prevalence ($\le 3$) & egress volume |
-| `PIPE-10-MACD-MOMENTUM` | Pipeline Template | `network_bytes_outbound` (Asset) | 2-stage MACD dual-spine momentum velocity |
-| `PIPE-11-CIRCADIAN-VON-MISES` | Pipeline Template | `auth_attempts_total` (User) | 2-stage Circadian von Mises temporal distance |
+| `PIPE-10-MACD-MOMENTUM` | Pipeline Template | `network_bytes_outbound` (Asset) | 2-stage Above-Historical-Max Z linear peak exceedance |
+| `PIPE-11-QUANTILE-IQR-3STAGE` | Pipeline Template | `network_bytes_outbound` (Asset) | 3-stage 5-point quantile envelope & skewness-adjusted Tukey fence |
 | `PIPE-12-MULTI-SECTOR-4STAGE` | Pipeline Template | Auth + Network + Fleet Norm | 4-stage multi-sector fusion (2 UDM + 1 Stage-to-Stage + Root) |
+| `PIPE-13-FLEET-PREVALENCE-HYBRID` | Pipeline Template | `file_executions_total` + Entity Graph | 2-stage binary prevalence (`rolling_max <= 3`) & rollout shield |
+| `PIPE-14-PART-OF-WHOLE-TRIAD` | Pipeline Template | Sibling Triad + Fleet Stats | 3-metric multilevel triad with Samuelson cohort bound |
 | `RADAR-01-AUTH` | Decoupled Radar Spoke | `auth_attempts_fail` | Allowed vs failed login micro-query |
 | `RADAR-02-CLOUD` | Decoupled Radar Spoke | `resource_creation_total` | Multi-dimensional cloud CRUD tracking |
 | `RADAR-03-WORKSPACE` | Decoupled Radar Spoke | `google_workspace_downloads` | High-frequency document hoarding query |
@@ -118,19 +120,17 @@ The submission test harness automates compiler verification across 32 canonical 
 | `ROUTER-01-POISSON` | Dynamic Router | `auth_attempts_fail` + Poisson | Automated variable harmonization |
 | `ROUTER-02-STD-Z` | Dynamic Router | `network_bytes_outbound` + Z-Score | Entity-type binding (`asset.ip`) |
 | `ROUTER-03-MAD` | Dynamic Router | `network_bytes_outbound` + MAD | Median & MAD denominator binding |
-| `ROUTER-04-CV` | Dynamic Router | `dns_queries_total` + CV | Relative volatility quotient |
+| `ROUTER-04-CV` | Dynamic Router | `dns_queries_total` + Regular-Volume Surge | Low-CV predictability surge filter |
 | `ROUTER-05-BAYES-GAMMA`| Dynamic Router | `http_queries_total` + Gamma | Prior shape ($\alpha$) & rate ($\beta$) outcomes |
 | `ROUTER-06-BETA-BINOMIAL`| Dynamic Router| `auth_attempts_total` + Beta | Success/failure conjugate updates |
-| `ROUTER-07-HOURLY-Z` | Dynamic Router | `file_executions_total` + Hourly | Temporal process launch variation |
+| `ROUTER-07-QUANTILE-IQR` | Dynamic Router | `network_bytes_outbound` + Quantile IQR | Empirical quantile envelope & Bowley skewness fence |
 | `ROUTER-08-FANO` | Dynamic Router | `auth_attempts_fail` + Fano | Variance-to-mean dispersion ratio |
-| `ROUTER-09-CUSUM` | Dynamic Router | `network_bytes_outbound` + CUSUM | Longitudinal Page CUSUM drift increment |
+| `ROUTER-09-CUSUM` | Dynamic Router | `network_bytes_outbound` + CUSUM | Longitudinal Windowed Slack Sum drift |
 | `ROUTER-10-HURDLE` | Dynamic Router | `auth_attempts_total` + Hurdle | Zero-inflated Bernoulli awakening penalty |
-| `ROUTER-11-ASYMMETRIC-Z`| Dynamic Router| `file_executions_total` + Asymmetric Z | One-sided upper-tail surge with ReLU |
-| `ROUTER-12-PIECEWISE-CRI`| Dynamic Router| `network_bytes_outbound` + CRI | Winsorized clamp & piecewise CRI tiers |
-| `ROUTER-13-FLEET-SHIELD`| Dynamic Router| `network_bytes_outbound` + Shield | Concurrency immunity discounting factor |
+| `ROUTER-11-ASYMMETRIC-Z`| Dynamic Router| `file_executions_total` + Merged Z | Merged into `STANDARD_Z_SCORE` (`D1`) |
 | `ROUTER-14-ADAPTIVE-THRESH`| Dynamic Router| `auth_attempts_total` + Adaptive | Context-modulated off-hours thresholding |
-| `ROUTER-15-MACD-MOMENTUM`| Dynamic Router| `network_bytes_outbound` + MACD | Fast spine vs slow reference divergence |
-| `ROUTER-16-CIRCADIAN-VON-MISES`| Dynamic Router| `auth_attempts_total` + Circadian | Circular 24-hour clock quadratic distance |
+| `ROUTER-15-MACD-MOMENTUM`| Dynamic Router| `network_bytes_outbound` + Above-Max Z | Linear peak exceedance above 30-day ceiling |
+| `ROUTER-16-RELATIVE-DEV`| Dynamic Router| `auth_attempts_total` + Relative Dev | Scale-free fold change vs 30-day mean |
 
 ---
 

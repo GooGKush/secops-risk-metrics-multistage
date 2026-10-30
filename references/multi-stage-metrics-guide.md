@@ -70,26 +70,95 @@ The compiler evaluates this via **AST Expression Inlining** (`substituteOutcomeV
 
 ---
 
-## 2. Daily vs. Hourly Match Granularity
+## 2. Daily Match Granularity & Opt-In Intra-Day `"Today So Far"` Stitching (`WS1-13`)
 
-While `metrics.*(...)` function calls always require the fixed `period: 1d, window: 30d` parameter pair, multi-stage DAG `match:` clauses support two temporal aggregation granularities:
+Multi-stage `metrics.*` DAGs operate primarily on UTC-day buckets (`by 1d`), with an opt-in Mode A intra-day stitching pattern (`intraday_hourly=True` / `--intraday-hourly`) for the `23/38` empirically populated `(period: 1h, window: today)` metrics:
 
-### Pattern 1: Daily Bucket Match (`by 1d`)
+### Pattern 1: Daily Bucket Match (`by 1d` — Default)
 * **Stage 1:** `match: $entity by 1d` -> Evaluates `00:00Z`-aligned UTC daily totals per entity against `metrics.*(period: 1d, window: 30d, ...)`.
 * **Stage 2 (Optional Fleet / Cohort Rollup):** `match: $window_start by 1d` -> Aggregates cross-sectional fleet or cohort statistics for that UTC day.
-* **Root Stage:** `match: $entity, $window_start by 1d` (or `match: $entity by 1d`) -> Compares each entity's daily observation against its 30-day baseline and/or peer distribution.
+* **Root Stage:** `match: $entity, $window_start by 1d` (or `match: $entity`) -> Compares each entity's daily observation against its 30-day baseline and/or peer distribution.
 
-### Pattern 2: Intra-Day Hourly Bucket Match (`by 1h`)
-* **Stage 1 (`macro_daily_baseline`):** `match: $entity by 1d` -> Queries `metrics.*(period: 1d, window: 30d, ...)` and derives the expected hourly rate ($\mu_{1\text{h}} = \mu_{1\text{d}} / 24.0$, $\sigma_{1\text{h}} = \sigma_{1\text{d}} / 4.898979$).
-* **Stage 2 (`micro_hourly_burst`):** `match: $entity by 1h` -> Aggregates raw events into 1-hour buckets within the evaluated UTC day.
-* **Root Stage:** Joins `$entity` across both stages (`templates/stage2_math_models/hourly_z_score.yl2`) to score the peak hourly burst `$max_hourly_observed` against the derived hourly baseline (`$hourly_z`).
+### Pattern 2: Opt-In Intra-Day `"Today So Far"` Stitching (`period: 1h, window: today` + `period: 1d, window: 30d`)
+When triaging an active UTC day in Mode A (`intraday_hourly=True` / `--intraday-hourly`) across a UTC hour-aligned raw window `[startTime, endTime)` (for example `2026-10-28T14:00:00Z` → `2026-10-28T19:00:00Z`), `metrics.*(period: 1h, window: today)` sums the pre-computed hourly buckets from `[00:00:00Z, startTime)` without scanning the earlier hours raw, and stitches `$full_today_so_far = $earlier_today_sum + $observed` against the **unscaled** 30-day daily baseline:
+
+```yara
+// Goal: Opt-in Mode A intra-day stitching pairing (period: 1h, window: today) with (period: 1d, window: 30d)
+stage stage1_extract {
+    metadata.event_type = "USER_LOGIN"
+    target.user.userid = $user
+    $user != ""
+
+  match:
+    $user by 1d
+
+  outcome:
+    $observed_val = count(metadata.id)
+    $historical_avg = max(metrics.auth_attempts_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+        target.user.userid: target.user.userid
+    ))
+    $historical_stddev = max(metrics.auth_attempts_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+        target.user.userid: target.user.userid
+    ))
+    $historical_active_days = max(metrics.auth_attempts_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+        target.user.userid: target.user.userid
+    ))
+    $earlier_today_sum = max(metrics.auth_attempts_total(
+        period: 1h, window: today, metric: event_count_sum, agg: sum,
+        target.user.userid: target.user.userid
+    ))
+    $earlier_today_peak_hour = max(metrics.auth_attempts_total(
+        period: 1h, window: today, metric: event_count_sum, agg: max,
+        target.user.userid: target.user.userid
+    ))
+    $earlier_today_active_hours = max(metrics.auth_attempts_total(
+        period: 1h, window: today, metric: event_count_sum, agg: num_metric_periods,
+        target.user.userid: target.user.userid
+    ))
+}
+
+$user = $stage1_extract.user
+
+match:
+  $user
+
+outcome:
+  $observed = max($stage1_extract.observed_val)
+  $earlier_today_sum = max($stage1_extract.earlier_today_sum)
+  $earlier_today_peak_hour = max($stage1_extract.earlier_today_peak_hour)
+  $earlier_today_active_hours = max($stage1_extract.earlier_today_active_hours)
+  $full_today_so_far = $earlier_today_sum + $observed
+  $hist_avg = max($stage1_extract.historical_avg)
+  $hist_stddev = max($stage1_extract.historical_stddev)
+  $active_days = max($stage1_extract.historical_active_days)
+  $dispersion_floor = math.sqrt(if($hist_avg > 1.0, $hist_avg, 1.0))
+  $safe_stddev = if($hist_stddev > $dispersion_floor, $hist_stddev, $dispersion_floor)
+  $personal_z = ($full_today_so_far - $hist_avg) / $safe_stddev
+
+condition:
+  $active_days >= 7 and $personal_z >= 3.0
+
+order:
+  $personal_z desc
+```
 
 ---
 
-## 3. Metric Period & Window Compiler Invariant (`period: 1d, window: 30d`)
+## 3. Metric `(period, window)` & Extended `metric:` / `agg:` Capabilities (`PF-10`, `PF-10b`, `PF-11`)
 
-1. **Universal `period: 1d, window: 30d` Invariant:** Across all 38 pre-computed `metrics.*` functions in Google SecOps, `period: 1d, window: 30d` is the **only** valid `(period, window)` combination (`validatePeriodAndWindow`). Passing `period: 1h`, `window: 24h`, or `window: today` inside `metrics.*(...)` is rejected by the Malachite compiler.
-2. **Hourly Volatility via Two-Stage Scaling (`HOURLY_TEMPORAL_ZSCORE`):** Never pass `period: 1h` to `metrics.*()`. Instead, use the 2-stage Macro-Day (`by 1d` + `metrics.*(period: 1d, window: 30d)`) + Micro-Hour (`by 1h`) pattern in `templates/stage2_math_models/hourly_z_score.yl2`.
+1. **Valid `(period, window)` Pairs (`PF-10`):** Google SecOps Malachite accepts **exactly two `(period, window)` pairs** (`rules/yl2/compiler/ueba/ueba.go`, `query_engine/qesql/ueba.go`): `(period: 1d, window: 30d)` and `(period: 1h, window: today)`. Every `metrics.*` call compiles under both pairs (`38/38` in `tests/live/baseline_gus_sdl.json` when anchored per `PF-10b`), and `23/38` metrics returned non-zero `(period: 1h, window: today)` data in `gus-sdl` (`PF10_SUPPORTED_HOURLY_TODAY_METRICS` in `scripts/preflight_validator.py`; the remaining `15/38` — `workspace_*`, `resource_deletion_*`, `resource_written_*`, `resource_creation_fail`, `file_executions_success`, and `alert_event_name_count` — returned 0 rows in the reference tenant).
+   * **What `window: today` Covers:** `today` runs from the end of the 30-day daily baseline window up to the query start's hour (`[end_of_30d_window, start_hour)`), capped at 4 hours before `endTime` (`endTime - 4h`). It measures **earlier today, before the raw search window** — never the raw search window itself and never a multi-day hourly history. Because default Modes A, B, and C start at `00:00:00Z`, `(1h, today)` returns `0` for them unless invoked via a mid-day `"Today So Far"` window (`--intraday-hourly`).
+   * **Template Policy (`(1h, today)` Decision):** Static `.yl2` templates emit `(period: 1d, window: 30d)` by default so `00:00Z`-aligned Mode A/B/C runs never carry dead `0`-valued hourly lookups; `scripts/ueba_hybrid_engine.py` (`intraday_hourly=True` / `--intraday-hourly`) dynamically injects `(period: 1h, window: today)` paired with `(period: 1d, window: 30d)` for active-day `"Today So Far"` stitching (`WS1-13`).
+2. **`PF-10b` Companion Anchor Invariant (`MISSING_D30_COMPANION_FOR_HOURLY_TODAY`):** Every stage/query invoking `metrics.*(period: 1h, window: today)` **must** also include at least one companion `metrics.*(period: 1d, window: 30d)` call (the native SecOps UEBA backend requires an `86400s` daily dimensional anchor; standalone `(1h, today)` fails backend resolution and is blocked by `MalachiteASTValidator`).
+3. **Intra-Day Guardrails (`R1–R5`):**
+   * **R1 & R3 (UTC Hour Alignment & Single-Day Window):** `startTime` must be UTC hour-aligned (`MM:SS = 00:00Z`) within a single UTC date (`<= 24h`) so `[00:00Z, startTime)` aligns cleanly to 1h buckets without double-counting; when `startTime` is `00:00:00Z`, `[00:00Z, startTime)` is empty and `(1h, today)` returns `0`.
+   * **R2 (Materialization-Lag Floor):** Require `endTime - startTime >= 4h` by default due to Chronicle's ~3–4h hourly UEBA rollup lag (`--allow-short-intraday-window` overrides with an explicit lag warning).
+   * **R4 (Never Divide 30d Mean/SD by 24 & Asymmetric Partial-Day Verdict):** Never divide a 30-day daily mean or standard deviation to synthesize an hourly baseline. Compare `$full_today_so_far` directly against the unscaled 30-day upper tail: when `$full_today_so_far` already exceeds the 30-day upper tail, flag a **guaranteed full-day upper-tail breach**; when sub-threshold, report `"today so far (partial UTC day) — cannot clear entity until 24h complete"`. Sub-hour burst timing and circadian profiling hand off to `secops-statistical-hunter` (`HOUR_OF_DAY_PROFILE`, `POISSON_BURST_CLUSTERING`, `EWMA_BURST_VELOCITY`).
+   * **R5 (Supported Metric Gate):** `intraday_hourly=True` is restricted to the `23/38` `PF10_SUPPORTED_HOURLY_TODAY_METRICS`.
+4. **Extended `metric:` & `agg:` Capabilities (`PF-11` / `WS1-12`):** Beyond `event_count_sum` and `value_sum`, the Malachite compiler (`ueba.go`) supports timestamp metric types `metric: first_seen` and `metric: last_seen` (`21/38` `PF11_POPULATED_FIRST_SEEN_METRICS` confirmed non-zero in `gus-sdl` per `tests/live/baseline_gus_sdl.json`), extreme-bucket timestamp aggregations `agg: period_start_for_max` and `agg: period_start_for_min`, and cardinality `metric: num_unique_filter_values` (requires exactly 1 wildcard `*` on a non-namespace filter plus `>= 1` concrete dimension filter). `templates/pipelines/first_seen_novelty_2stage.yl2` uses `(period: 1d, window: 30d, metric: first_seen, agg: min)` (`== 0` means unseen in the prior 30 days) as the primary 30-day novelty detector ahead of ECG (`PF-8`), enriched with `metric: last_seen, agg: max` and `agg: period_start_for_max` context (plus optional `(1h, today)` `first_seen` for earlier-today checks), reported strictly as boolean `$novelty_flag` — never as σ.
 
 ---
 
@@ -99,7 +168,7 @@ While `metrics.*(...)` function calls always require the fixed `period: 1d, wind
 | :--- | :--- | :--- |
 | `events:` header inside `stage` blocks | Declare predicates directly inside `stage name { ... }` | Stage blocks in Multi-Stage YARA-L do not use `events:`. |
 | Wrapping the final stage in `stage name { ... }` | Unwrapped root level | The final stage must be at the root level of the query file. |
-| Search window wider than the days you score (e.g. 30d "to get the baseline", or a rolling `now-24h`) | Clamp the search window to the scored UTC day(s): Mode A = today `00:00Z` → now (D-2 `00:00Z` + `get_date` for Entity Graph joins); Mode B = first scored day `00:00Z` → now | The 30-day baseline comes from `metrics.*`, anchored at the `startTime` day (`timeline-modes-guide.md` §1). A wider window re-anchors the baseline earlier and scores extra days; a rolling `now-24h` starts on yesterday's date and splits results across two daily buckets. |
+| Search window wider than the days you score (e.g. 30d "to get the baseline", or a rolling `now-24h`) | Clamp the search window to the scored UTC day(s): Mode A default = last complete UTC day `[yesterday 00:00Z, today 00:00Z)` (or `[D-2 00:00Z, today 00:00Z)` + `get_date` = `<scored UTC day>` for Entity Graph joins; explicit `"Today So Far"` = `today 00:00Z` → now); Mode B = 2–3 days (`startTime` = first scored day `00:00Z`) | The 30-day baseline comes from `metrics.*`, anchored at the `startTime` day (`timeline-modes-guide.md` §1). A wider window re-anchors the baseline earlier and scores extra days; a rolling `now-24h` starts on yesterday's date and splits results across two daily buckets. |
 | `stage_name.$variable` or `stage_name.variable` | `$stage_name.variable` | In YARA-L, stage references require the leading `$` on the stage identifier (e.g. `$stage1_extract.actual`). Placing `$` after the dot causes an ANTLR syntax crash (`no viable alternative at input 'stage.$'`). |
 | Cross-sector joins in 360° profiling (e.g. Auth + Egress) | Decoupled parallel micro-queries | Multi-stage queries are inner joins; joining orthogonal sectors silently drops entities with zero events in either sector. |
 | Inverting `principal` vs `target` for User profiling | Use `target.user.userid` for `USER_LOGIN`; use `principal.user.userid` for Cloud CRUD, Workspace, Network, Endpoint | Login events target an account (`target.user.userid`); operational events are initiated by an actor (`principal.user.userid`). Metrics filters must match these dimensions. |
@@ -303,11 +372,11 @@ When generating multi-stage search queries, determine the analyst's analytical i
 
 ### 2. Recommended Search Time Ranges by Query Archetype (`timeline-modes-guide.md`)
 
-* **⚡ Mode A — Single-Day Snapshot (Default for Active Triage)**: **`[D0 00:00Z, now]`** (1 UTC day; or `[D-2 00:00Z, now]` + `timestamp.get_date(...) = "<D0>"` when joining `DERIVED_CONTEXT` / `GLOBAL_CONTEXT`).
-  * *Why:* Anchors the 30-day baseline strictly to `[D-31, D-1)` (or `[D-32, D-2)` for graph-joined queries) with zero self-contamination.
-* **📅 Mode B — Fixed-Baseline Timeline**: **`2 to 7 Days`** (`[D0 00:00Z, endTime]`, hard engine ceiling `<= 14d` for multi-stage queries) with `by 1d`.
-  * *Why:* Evaluates each UTC day in the 2–7d window against one shared 30-day baseline `[D0 - 30d, D0)` in a single `udm_search` call.
-* **🔁 Mode C — Per-Day Baseline Timeline (`run_command` present)**: **`2 to 14+ Days`** via 1-day `udm_search` shards collated by `scripts/timeline_assembler.py`.
+* **⚡ Mode A — Last Complete UTC Day Snapshot (Default for Active Triage)**: **`[yesterday 00:00Z, today 00:00Z)`** (1 complete UTC day; or **`[D-2 00:00Z, today 00:00Z)`** + `timestamp.get_date(...) = "<scored UTC day, YYYY-MM-DD>"` when joining `DERIVED_CONTEXT` / `GLOBAL_CONTEXT`). Optional **`"Today So Far"`** (`--today-so-far`, `[today 00:00Z, now]`) is an explicit partial-day option labeled low-biased against the full-day baseline.
+  * *Why:* Anchors the 30-day baseline strictly to `[yesterday-30d, yesterday)` (or `[D-32, D-2)` for graph-joined queries) with full-day vs full-day parity and zero self-contamination.
+* **📅 Mode B — Fixed-Baseline Timeline**: **`2 to 3 Days`** (default & cap 3 days; `[D0 00:00Z, endTime]` with `by 1d`).
+  * *Why:* Evaluates each UTC day in the 2–3d window against one shared 30-day baseline `[D0 - 30d, D0)` in a single `udm_search` call without excessive baseline staleness.
+* **🔁 Mode C — Per-Day Baseline Timeline (`run_command` present)**: **`Up to 30 Days`** (paced in batches of ≤10 shards) via 1-day `udm_search` shards collated by `scripts/timeline_assembler.py`.
   * *Why:* Gives every scored day `d_k` its own uncontaminated trailing 30-day baseline `[d_k - 30d, d_k)`.
 * **📐 Exception — `MAD` (`mad_robust_z_4stage.yl2` / `mad.yl2`)**: **`14 to 30 Days`** raw search window (1 event stage, so the 14-day multi-stage UDM join limit does not block a 30-day scan), gated by `$in_scoring_window = 1` in root `condition:`.
 
@@ -403,7 +472,7 @@ In Google SecOps, the **Entity Graph** pre-computes trailing prevalence context 
 1. **Source Type Filter**: Always set `$graph.graph.metadata.source_type = "DERIVED_CONTEXT"`.
 2. **Day Count Anchor**: Always set `$graph.graph.entity.<type>.prevalence.day_count = 10` to distinguish Prevalence from First/Last Seen records.
 3. **Non-Zero Bound**: Always include `rolling_max > 0` alongside `rolling_max <= 3` to avoid false positives on unpopulated entity stubs.
-4. **Mode A Freshness**: Set `startTime` to two days back at 00:00Z (D-2) and add `timestamp.get_date(metadata.event_timestamp.seconds) = "<today UTC, YYYY-MM-DD>"` to every event stage. A window that starts today 00:00Z overlaps no built prevalence records, so zero rows from it are a freshness gap, not a clean hunt. Mode B keeps its window and omits the date filter. See `references/entity-context-graph-guide.md`, Rule 5.
+4. **Mode A Freshness**: Set `startTime` to the scored UTC day minus 2 at `00:00:00Z` (`D-2`, with `endTime` = `today 00:00:00Z` by default, or `now` in explicit `"Today So Far"` / `--today-so-far`) and add `timestamp.get_date(metadata.event_timestamp.seconds) = "<scored UTC day, YYYY-MM-DD>"` to every event stage (`[D-32, D-2)` baseline shift disclosed). A window that starts today `00:00Z` overlaps no built prevalence records, so zero rows from it are a freshness gap, not a clean hunt. Mode B (2–3d) anchors `startTime` at `min(anchor_day, D-2)` with `timestamp.get_date(...) >= "<anchor_day>"`. See `references/entity-context-graph-guide.md`, Rule 5.
 
 ### 3. Hard Platform Limitation: 10-Day Period Invariant (`day_count = 10`):
 * **Platform Invariant**: In Google SecOps Entity Graph, prevalence tables are indexed strictly on a **fixed 10-day rolling window**.
@@ -520,17 +589,19 @@ For automated threat hunting and headless pipeline execution, the agent and quer
 
 ## 18. Pre-Composed Multi-Stage Pipeline Library
 
-To prevent runtime syntactic improvisation and avoid streaming rule syntax confusion, the skill maintains 33 complete composite pipeline templates in `templates/pipelines/`:
+To prevent runtime syntactic improvisation and avoid streaming rule syntax confusion, the skill maintains 34 complete composite pipeline templates in `templates/pipelines/`:
 
 | Pipeline Template File | Stages | Analytical Model | Primary Use Case |
 | :--- | :--- | :--- | :--- |
-| **`mad_robust_z_4stage.yl2`** | 4 Stages (1 event stage) | True Median Absolute Deviation / Modified $Z$ ($M_Z$) next to the 30d metrics $Z$ | Heavy-tailed or burst-contaminated baselines (egress bytes, DNS volume); exposes $Z$ masking via `$z_gap`. Search window ~30d = robust baseline. |
-| **`standard_z_score_2stage.yl2`** | 2 Stages | Parametric Standard $Z$-Score ($Z$) | Volumetric bursts, auth attempts, process counts. |
-| **`poisson_rarity_2stage.yl2`** | 2 Stages | Discrete Poisson Rarity ($Z_P$) | Rare administrative binary launches, low $\lambda$. |
-| **`longitudinal_cusum_2stage.yl2`** | 2 Stages | Longitudinal CUSUM Drift ($S^+$) | Multi-day low-and-slow exfiltration and behavioral drift. |
-| **`macd_momentum_velocity_2stage.yl2`** | 2 Stages | MACD Dual-Spine Momentum ($\Delta Z = Z_{\text{fast}} - Z_{\text{slow}}$) | Kinetic acceleration breakouts past 30-day ceiling and historical max. |
-| **`circadian_von_mises_2stage.yl2`** | 2 Stages | Circadian von Mises Temporal Distance ($D_{\text{circ}}^2 / 72.0$) | Cyclic 24-hour clock-face departures, off-hours authentication & bandwidth. |
-| **`c2_beacon_flow_frequency_2stage.yl2`** | 2 Stages | Outbound Flow Frequency Baseline ($Z_{\text{flows}}$) | High-frequency micro-session C2 beaconing and keep-alive heartbeats. |
+| **`mad_robust_z_4stage.yl2`** | 4 Stages (1 event stage) | True Median Absolute Deviation / Modified $Z$ ($M_Z$) + pre-scoring raw $Z$ (`WS1-03`) | Heavy-tailed or burst-contaminated baselines (egress bytes, DNS volume); exposes $Z$ masking via `$z_gap`. Search window ~30d = robust baseline. |
+| **`quantile_iqr_skew_3stage.yl2`** | 3 Stages (1 event stage) | 1-Stage Quantiles, Bowley Skewness (`1.35`) & Skew-Adjusted Tukey Scale-Excess | Heavy-tailed volumetric breakouts in 3 stages (`window.percentile`), saving 1 stage for ECG or peer joins. |
+| **`standard_z_score_2stage.yl2`** | 2 Stages | Parametric Standard $Z$-Score ($Z$) | Volumetric bursts, auth attempts, process counts (`$active_days >= 7`, D8 floor). |
+| **`poisson_rarity_2stage.yl2`** | 2 Stages | Discrete Poisson / NB Rarity ($Z_P$, $\lambda = S/30$) | Rare administrative binary launches, low $\lambda$ discrete counts. |
+| **`first_seen_novelty_2stage.yl2`** | 2 Stages | First-Seen 30-Day Boolean Novelty (`metric: first_seen, agg: min`) | Primary 30d novelty detector (`$prior_first_seen = 0`, boolean flag + `last_seen`/`period_start_for_max` context, never $\sigma$). |
+| **`longitudinal_cusum_2stage.yl2`** | 2 Stages | Windowed Slack Sum Prefilter ($W = \sum \max(0, Z_t - 0.5)$) | Lossless multi-day drift prefilter (`Mode A` blocked; Page's $S_t \le W$ evaluated in `scripts/cusum_helper.py`). |
+| **`longitudinal_cusum_series_3stage.yl2`** | 3 Stages | Ungated Active-Day Standardized Series Extractor (`WS6-01`) | Emits ungated per-day series (`<=14d`) for Windowed Slack Sum survivors into `scripts/cusum_helper.py` (`calculate_page_cusum_series`). |
+| **`macd_momentum_velocity_2stage.yl2`** | 2 Stages | Above-Historical-Max Z ($Z_{\text{personal}} + \max(0, \text{obs} - \text{max}_{30\text{d}})/\sigma_{\text{safe}}$) | Linear peak exceedance breakouts past 30-day ceiling and historical max. |
+| **`c2_beacon_flow_frequency_2stage.yl2`** | 2 Stages | Outbound Flow Surge ($Z_{\text{flows}}$) | Daily outbound session-count surges and destination breadth (sub-hour C2 callback jitter hands off to `secops-statistical-hunter` `C2_BEACONING_JITTER`). |
 | **`http_error_ratio_surge_2stage.yl2`** | 2 Stages | HTTP Failure Baseline + Error Ratio Surge | Web application/proxy $4xx/5xx$ fuzzing, API enumeration, broken C2 loops. |
 | **`http_target_surge_2stage.yl2`** | 2 Stages | Target-Centric HTTP Surge (`target.hostname`) | Web server hammering, automated scraping, cloud API gateway abuse. |
 | **`cloud_repository_scope_dual_branch.yl2`** | 3 Stages | Dual-Branch Cloud Repository & Origin IP Isolation | 5-tuple service account resource CRUD isolation + unseen source IP pivot. |
@@ -552,7 +623,6 @@ To prevent runtime syntactic improvisation and avoid streaming rule syntax confu
 | **`hybrid_metric_http_ua_prevalence_2stage.yl2`** | 2 Stages | HTTP User-Agent Token Fleet Prevalence Shield | Hyperbolic fleet adopter dampening ($1 / (k_{\text{fleet}} + 1)$) for custom/rare user-agent strings. |
 | **`hybrid_metric_fleet_prevalence_2stage.yl2`** | 2 Stages | Cross-Sectional Token Fleet Prevalence Shield | Normalizes host/user surges against concurrent enterprise token adoption. |
 | **`hybrid_metric_entropy_concentration_2stage.yl2`** | 2 Stages | Metric Baseline + Target Concentration / Diversity Deficit | Fuses 30-day volume surge with single-destination elephant flow concentration. |
-| **`hybrid_metric_orthogonal_space_2stage.yl2`** | 2 Stages | Metric Baseline + Orthogonal Companion Dimension | Fuses 30-day metric baseline with unindexed raw UDM companion dimensions. |
 | **`hybrid_metric_raw_enrichment_2stage.yl2`** | 2 Stages | Metric Baseline + Raw Forensic Enrichment | Projects distinct command lines, URIs, and IPs onto 30-day metric outliers. |
 | **`rare_destination_ecg_3stage.yl2`** | 3 Stages + Root (2 UDM + graph) | Sector $Z$ filtered to Entity Graph-rare destinations | "Unusual outbound bytes / DNS / HTTP to low-prevalence domains or IPs" (domain via `target.hostname` or `network.dns.questions.name`; IP via `target.ip`). |
 | **`fusion_rare_destination_3stage.yl2`** | 3 Stages + Root (2 UDM + graph) | Dual-sector rectified $D$ through rare destinations | Two sectors on one host where the second is per (host, destination) and the destination is rare (e.g. DNS volume + HTTP to rare domains). |
@@ -579,7 +649,7 @@ When comparing an individual to a team cohort, single-tier comparisons create bl
    - **Personal Historical $Z$**: $Z_{\text{personal}} = (\text{obs} - \mu_{\text{personal}}) / \max(\sigma_{\text{personal}}, 1.0)$
    - **Team Cross-Sectional $Z$**: $Z_{\text{vs\_team}} = (\text{obs} - \mu_{\text{team}}) / \max(\sigma_{\text{team}}, 1.0)$
    - **Enterprise Cross-Sectional $Z$**: $Z_{\text{vs\_enterprise}} = (\text{obs} - \mu_{\text{enterprise}}) / \max(\sigma_{\text{enterprise}}, 1.0)$
-   - **Group vs Enterprise**: $Z_{\text{team\_vs\_enterprise}} = (\mu_{\text{team}} - \mu_{\text{enterprise}}) / \sigma_{\text{enterprise}}$ (`$z_team_vs_enterprise`; triad: `$z*_team_vs_enterprise`, `$d_team_vs_fleet_sq`). This is the defined user → group → enterprise path: the user against the group, and the group against the whole.
+   - **Group vs Enterprise**: $Z_{\text{team\_vs\_enterprise}} = (\mu_{\text{team}} - \mu_{\text{enterprise}}) / \sigma_{\text{enterprise}}$ (`$z_team_vs_enterprise` in `part_of_the_whole_multilevel.yl2`; omitted in the 4-stage triad template so `team_cohort_stats` stays within `maxJoinCount = 4`). This is the defined user → group → enterprise path: the user against the group, and the group against the whole.
 4. **Peer group rule**: no peers mentioned → delete the template's `// >>> TEAM COHORT` blocks (personal + fleet, rank by `$z_vs_enterprise`). Peers named → keep the blocks and rank by `$z_vs_team`. Peers mentioned but not named ("vs his team", "his group") → run the **AD TEAM LOOKUP** below in Turn 1, fill the roster from it, and show it in the Pre-Flight as `• Peer Cohort & Roster: <team> (AD department | AD group): <members>` above a candidate query that already contains the filled TEAM COHORT blocks. Ask for the roster only if the lookup finds no team for the subject; never drop the comparison silently. A roster from any source (named, supplied in a later turn, or AD) keeps the blocks. The roster is a list of identifiers in the query (`$u = "a" or $u = "b"`), subject included.
 
    **AD TEAM LOOKUP** (Active Directory records in the Entity Graph, `ENTITY_CONTEXT`). This is the one Turn 1 query allowed besides the compiler probe: it reads AD user records only, never events, so it is context resolution, not hunt execution. Window: the last 30 days (AD records are not daily prevalence records, so Rule 5 freshness does not apply). Replace `frank.kolzig` with the subject. Run it exactly as written: the `match:` / `outcome:` block is what returns members. The bare filter lines alone return event names with no user or department fields, so a roster can never be read from them. Report only the members the `$members` column returns; output shape: `<department>` → `<user_a>, <user_b>, …`.
@@ -602,7 +672,7 @@ When comparing an individual to a team cohort, single-tier comparisons create bl
    * `$has_subject = 1` → that department is the team.
    * `$has_subject = 0` or no row → run it once more keyed on AD group membership: replace the `$dept` lines with `$grp = graph.relations.entity.group.group_display_name`, `$grp != ""`, `$grp != "Domain Users"` and `match: $grp`. Ordering by `$team_size asc` picks the smallest group the subject belongs to; name that group in the Pre-Flight so the analyst can change it.
    * Still `$has_subject = 0` → ask the analyst for the roster and yield.
-   * Team size below 7 → keep the team stage and flag `⚠️ Sparse Baseline Caution (N < 7)`.
+   * Team size below 7 → keep the team stage and flag `⚠️ Sparse Baseline Caution (N < 7)`. Because Chronicle `stddev()` computes sample SD ($N - 1$ df) with the subject included (`PF-2` / `WS1-09`), the Samuelson bound caps $\max Z \le (N - 1) / \sqrt{N}$ ($3.0\sigma$ requires $N \ge 11$; triad $D^2 \ge 12.25$ requires $N \ge 6$ via $3(N - 1)^2 / N$); when $(N - 1)/\sqrt{N}$ is below the gate, report `"cohort too small"` and either lower `anomaly_threshold` or evaluate against the enterprise fleet.
 
 This produces 4 diagnostic states: **Individual Rogue** (high $Z_{\text{team}}$ & high $Z_{\text{enterprise}}$), **Role Benign** (low $Z_{\text{team}}$ & high $Z_{\text{enterprise}}$), **Stealth Compromise** (high $Z_{\text{team}}$ & low $Z_{\text{enterprise}}$), and **Team Campaign/Rollout** (low $Z_{\text{team}}$ & high $Z_{\text{team\_vs\_enterprise}}$).
 
@@ -610,10 +680,10 @@ This produces 4 diagnostic states: **Individual Rogue** (high $Z_{\text{team}}$ 
 When hunting within a single telemetry vector, single-metric evaluations can obscure behavioral context:
 * **The Sibling Metric Advantage**: One stage observes 3 sibling metrics of the same family (e.g. `auth_attempts_total`, `auth_attempts_fail`, `auth_attempts_success`) for one entity, so all three get personal and fleet baselines without extra UDM stages.
 * **Peer group is optional (default = fleet only)**: keep the template's `// >>> TEAM COHORT` blocks only when a roster is known (named, supplied later, or from the AD TEAM LOOKUP in the Peer group rule above). Without a peer list the team stage recomputes the fleet, so delete the blocks and rank by `$d_vs_fleet_sq`.
-* **Math (as the template computes it)**: For each metric $m \in \{1, 2, 3\}$: $Z_{\text{personal}, m}$ and $Z_{\text{vs\_enterprise}, m}$ (plus $Z_{\text{vs\_team}, m}$ with a peer group), fused into
-  $$D_{\text{vs\_fleet}}^2 = \sum_{m=1}^3 Z_{\text{vs\_enterprise}, m}^2$$
+* **Math (as the template computes it)**: For each metric $m \in \{1, 2, 3\}$: $Z_{\text{personal}, m}$ and leave-one-out $Z_{\text{vs\_enterprise}, m}$ (plus leave-one-out $Z_{\text{vs\_team}, m}$ with a peer group, excluding `SYSTEM`, `LOCAL SERVICE`, `NETWORK SERVICE`, and trailing `$` machine accounts on human user cohorts), positive-rectified (`max(0, Z)`) and fused into
+  $$D_{\text{vs\_fleet}}^2 = \sum_{m=1}^3 \max(0, Z_{\text{vs\_enterprise}, m})^2$$
   ($D_{\text{vs\_team}}^2$ likewise when a peer group is kept).
-  The terms are two-sided: a collapse (success drops while fail rises) also raises $D$.
+  Positive rectification prevents quiet peers ($Z < 0$) from inflating $D^2$ and outranking surging outliers.
 * **Valid triads and every slot value**: `references/metric-sector-catalog.md` § *Sibling triads* (Auth, DNS, HTTP, Network bytes, Network flows). It gives the shared stage filter, the conditional-sum observed values and the entity fields valid for all three metrics. Do not build a triad from the individual metric rows: pasting one metric's own filter line into the shared stage zeroes its siblings.
 * **No process or cloud-resource triads**: `file_executions_*` and `resource_*` are composite-only (no entity-only baseline), so the single-entity triad stage cannot carry them.
 
@@ -667,7 +737,8 @@ When hunting within a single telemetry vector, single-metric evaluations can obs
    - **Multi-Sector Threat Fusion Affirmative Template Selection**:
      When hunting for coordinated anomalies across ANY two metric sectors for the same entity (e.g. DNS failures + HTTP requests, HTTP requests + outbound bytes, auth failures + outbound bytes, process execution + DNS) using Euclidean threat distance:
      * Both sectors have an entity-only baseline: `templates/pipelines/dual_sector_fusion_3stage.yl2` (or `multi_sector_fusion_4stage.yl2` for cross-sectional fleet $\Delta Z$).
-     * One sector is composite-only (`file_executions_*`, `resource_*`, `alert_event_name_count`): `templates/pipelines/rollup_sector_fusion_4stage.yl2` (or `_5stage.yl2`). A detail stage scores each (entity, companion key) against its own baseline; a stage-to-stage roll-up keeps the max per-key Z per entity.
+     * One sector is composite-only (`file_executions_*`, `resource_*`, `alert_event_name_count`): `templates/pipelines/rollup_sector_fusion_4stage.yl2` (or `_5stage.yl2`). A detail stage scores each (entity, companion key) against its own baseline; a stage-to-stage roll-up subtracts $\sqrt{2 \ln K_{\text{eff}}}$ (`math.sqrt(2.0 * math.log($k_eff))`), which is an **approximation of the Gaussian expected maximum** across $K_{\text{eff}}$ active sub-keys — **not a Bonferroni correction**.
+     * **Inter-Sector Correlation & Fleet Multiplicity Caveat (`WS7-03`)**: Multi-sector Euclidean fusion ($D = \sqrt{\sum \max(0, Z_i)^2}$) carries no covariance matrix, so fusion false-positive rates depend directly on **inter-sector correlation** (positively correlated sectors such as Network + DNS + Web HTTP, or sibling metrics in a family, produce higher tail rates than independent $\chi^2_k$ assumptions). Likewise, across a fleet of $N$ entities, $\sqrt{2 \ln N}$ approximates the expected maximum of $N$ standard Gaussians, not a Bonferroni family-wise error correction.
      * Fill every `{{sector_a_*}}` / `{{sector_b_*}}` slot from the metric's row in `references/metric-sector-catalog.md`, and apply the **Fusion pairing rules** at the top of that file (entity kind, identifier, roll-up limits, `// ADVISORY:` lines). Those rules are authoritative; they are not restated here.
      * Root Stage: joins on `$entity` and fuses the rectified, baseline-gated `$z_a` and `$z_b` into `$composite_threat_norm_sq = $z_a_sq + $z_b_sq` (take `math.sqrt($composite_threat_norm_sq)` for $D$).
    - Attempting to chain 3 or 4 independent named UDM stages in a single search query violates `SourceCount["udm"] <= 2` (`Number of UDM events exceeded max limit: 3 > 2`) and `maxJoinCount = 4` (`compilation error maximum number of joins exceeded. limit query to at most 4 joins`).
@@ -787,7 +858,7 @@ Threat hunting follows a two-tier investigative lifecycle:
 
 ### Tier 1: Fleet/Vector Outlier Hunting (Broad Discovery)
 * **Goal**: Surface top anomalous identities or resources across an entire fleet or category on a specific vector (e.g. Cloud CRUD, Network Bytes, Authentication Spikes).
-* **Execution**: Single atomic multi-stage YARA-L query (Mode A current-day snapshot or Mode B 2–7d fixed-baseline timeline); Mode C runs that same query once per day (`timeline-modes-guide.md`).
+* **Execution**: Single atomic multi-stage YARA-L query (Mode A last complete UTC day snapshot by default — or explicit `"Today So Far"` — or Mode B 2–3d fixed-baseline timeline); Mode C runs that same query once per day up to 30 days (`timeline-modes-guide.md`).
 * **Reporting Standard**:
   * **Pillar 1**: Renders the distribution or timeline of the *target hunt itself* (e.g., bar chart of observed vs baseline $\mu$ for Mode A, or multi-day inception curve for Mode B).
   * **Pillars 2–5**: Ranked outlier summary & provenance stamp (Pillar 2), forensic vector breakdown & `[1]`/`[2]`/`[3]` next steps (Pillar 3), Chronicle UI manual pivot in `text` fence (Pillar 4), and collapsible technical appendix with the verbatim executed query (Pillar 5).
@@ -833,12 +904,12 @@ Under no circumstances should the assistant treat a follow-up query as a prompt 
    * If the entity is a display name with spaces, apply the **Identity Disambiguation Protocol** (spot-check $\le 5$ events; if 0 events match, halt and ask for technical account identifier).
 
 3. **Time Horizon Substitution & Anchor Mapping**:
-   * Standard snapshot queries operate in **Mode A** (current-day snapshot vs 30d baseline).
-   * Follow-up phrases such as *"looking backwards 14 days starting from [Date]"* or *"14-day timeline"* are timeline requests. Up to 7 days: **Mode B: Fixed-Baseline Timeline (`TIMELINE_BREAKDOWN`)**. Longer, or when per-day accuracy matters: **Mode C: Per-Day Baseline Timeline** if `run_command` is present; otherwise offer the 7-day Mode B and state that longer windows need a client that can run local scripts (`timeline-modes-guide.md`).
-   * **Date-Anchor Resolution** (Mode B, N ≤ 7 days):
+   * Standard snapshot queries operate in **Mode A** (last complete UTC day `[yesterday 00:00Z, today 00:00Z)` vs 30d baseline by default; or explicit `"Today So Far"` `[today 00:00Z, now)` with partial-day low-bias warning).
+   * Follow-up phrases such as *"looking backwards 14 days starting from [Date]"* or *"14-day timeline"* are timeline requests. For 2–3 days: **Mode B: Fixed-Baseline Timeline (`TIMELINE_BREAKDOWN`, capped at 3 days)**. Longer (>3 days, up to 30 days), or when per-day accuracy matters: **Mode C: Per-Day Baseline Timeline** if `run_command` is present; otherwise offer the 3-day Mode B and state that per-day baselines and timelines longer than 3 days need a client that can run local scripts (`timeline-modes-guide.md`).
+   * **Date-Anchor Resolution** (Mode B, N ≤ 3 days):
      $$\text{endTime} = \text{Anchor Date} + 1\text{d (e.g. 2026-08-19T00:00:00Z)}$$
-     $$\text{startTime} = \text{endTime} - N\text{d (e.g. 2026-08-12T00:00:00Z for N = 7)}$$
-     Mode C instead runs one shard per day in `[Anchor Date − N + 1, Anchor Date]`.
+     $$\text{startTime} = \text{endTime} - N\text{d (e.g. 2026-08-16T00:00:00Z for N = 3)}$$
+     Mode C instead runs one shard per day in `[Anchor Date − N + 1, Anchor Date]` (up to 30 days, paced in batches of ≤10).
    * **Timeline Query Semantics**: Multi-stage YARA-L groups daily observations with `match: $entity by 1d`. In one request every scored day reuses the single 30-day baseline anchored at `startTime` (`timeline-modes-guide.md` §1).
 
 4. **Follow-Up Clearance Protocol**:
@@ -851,7 +922,7 @@ When the analyst asks questions, requests methodological explanations, or adjust
 2. **Context Retention**: Maintain the active entity scope, telemetry vectors, and baseline configuration in working memory without restarting discovery.
 3. **Specification Refresh**: Present the refreshed Pre-Flight Hunting Specification Card reflecting updated thresholds or models.
 4. **Query Re-Verification**: When query logic changes, re-probe the event filter (`udm_search(query="<single_event_filter>", maxEvents=1)`; never the candidate) and display the updated candidate query block.
-5. **Prompt for Clearance**: Conclude by asking whether to proceed with Mode A (Today vs 30-Day Baseline) or Mode B (2–7 Day Fixed-Baseline Timeline), plus Mode C (Per-Day Baseline) when `run_command` is present, and yield the turn.
+5. **Prompt for Clearance**: Conclude by asking whether to proceed with Mode A (Last Complete UTC Day vs 30-Day Baseline, or explicit Mode A — Today So Far) or Mode B (2–3 Day Fixed-Baseline Timeline), plus Mode C (Per-Day Baseline) when `run_command` is present, and yield the turn.
 
 
 ---
@@ -911,15 +982,16 @@ Before outputting any candidate multi-stage YARA-L query in the Phase 1B Pre-Fli
 ### A. Template-First Assembly (template selection rule)
 To eliminate runtime syntax failures and semantic distortions, assemble every multi-stage query from the canonical templates below rather than authoring one from scratch. Open the chosen `.yl2` with `view_file` and fill in its placeholders — the template files are the authoritative source, and no script needs to be read or run to select one:
 1. **Stage 1 Extractors (`templates/stage1_extractors/`)**: Provide guaranteed 6-point outcome tuples (`$observed_val`, `$historical_avg`, `$historical_stddev`, `$historical_active_days`, `$historical_max`, `$historical_sum`) with immutable entity bindings.
-2. **Stage 2 Math Models (`templates/stage2_math_models/`)**: Provide clean AST implementations of all 17 models: Standard $Z$, True MAD / Modified $Z$ (attachable to any extractor, `references/model-concordance-guide.md` §2), Relative Deviation (fold change), Discrete Poisson Rarity, Fano Factor Dispersion, Coefficient of Variation, Hourly Temporal $Z$, Bayesian Gamma & Beta-Binomial, Longitudinal CUSUM, Two-Part Hurdle, Asymmetric Directional ReLU, Piecewise Winsorized CRI, Fleet Prevalence Shield, Adaptive Context Sensitivity, MACD Momentum Velocity, and Circadian von Mises Temporal Distance.
-3. **Pre-Composed Pipelines (`templates/pipelines/`)**: End-to-end validated pipelines for complex multi-stage hunts (all 33 listed in §18 above). Quick scenario-to-template routing:
+2. **Stage 2 Math Models (`templates/stage2_math_models/`)**: Provide clean AST implementations of all 14 active models (`references/model-concordance-guide.md` §2): Standard $Z$ (`standard_z_score.yl2`, merged `asymmetric_directional_z.yl2` per `D1`), True MAD / Modified $Z$ (`mad.yl2`), 1-Stage Quantile IQR Skew (`quantile_iqr_skew.yl2`), Relative Deviation (`relative_deviation.yl2`), Discrete Poisson / NB Rarity (`poisson_rarity.yl2`), Baseline Dispersion Screen (`variance_fano.yl2`), Regular-Volume Surge (`coefficient_of_variation.yl2`), Empirical Bayes Gamma (`poisson_gamma_bayesian.yl2`) & Paired Beta-Binomial (`beta_binomial_bayesian.yl2`), Longitudinal CUSUM Windowed Slack Sum (`longitudinal_cusum.yl2`), Two-Part Hurdle (`two_part_hurdle.yl2`), Off-Hours Adaptive Context Threshold (`adaptive_context_threshold.yl2`), Above-Historical-Max Z (`macd_momentum_velocity.yl2`), and First-Seen 30-Day Novelty (`first_seen_novelty.yl2`). *(Retired under `D1`: `piecewise_cri.yl2` -> Python `ueba_constants.calculate_cri`; `fleet_prevalence_shield.yl2` -> `hybrid_metric_fleet_prevalence_2stage.yl2`; `hourly_temporal_zscore.yl2` & `circadian_von_mises.yl2` -> handoff to `secops-statistical-hunter` `HOUR_OF_DAY_PROFILE`.)*
+3. **Pre-Composed Pipelines (`templates/pipelines/`)**: End-to-end validated pipelines for complex multi-stage hunts (all 34 listed in §18 above). Quick scenario-to-template routing:
    - *Single-sector volumetric / count Z-score*: `standard_z_score_2stage.yl2` (or `stage1_extractors/<metric>.yl2` + `stage2_math_models/<model>.yl2`)
-   - *Heavy-tailed / burst-contaminated MAD*: `mad_robust_z_4stage.yl2` (or `stage2_math_models/mad.yl2`)
+   - *Heavy-tailed / burst-contaminated MAD or Tukey quantiles*: `mad_robust_z_4stage.yl2` or `quantile_iqr_skew_3stage.yl2`
+   - *30-day first-seen novelty (`first_seen = 0`, boolean flag)*: `first_seen_novelty_2stage.yl2`
    - *Rare binary / low-$\lambda$ Poisson*: `poisson_rarity_2stage.yl2`
-   - *Multi-day low-and-slow drift*: `longitudinal_cusum_2stage.yl2`
-   - *Dual-spine velocity / acceleration*: `macd_momentum_velocity_2stage.yl2`
-   - *Off-hours / circadian anomaly*: `circadian_von_mises_2stage.yl2`
-   - *Outbound flow-frequency C2 beaconing*: `c2_beacon_flow_frequency_2stage.yl2`
+   - *Multi-day low-and-slow drift*: `longitudinal_cusum_2stage.yl2` (Windowed Slack Sum prefilter) + `longitudinal_cusum_series_3stage.yl2` + `scripts/cusum_helper.py`
+   - *Above-historical-max peak breakout*: `macd_momentum_velocity_2stage.yl2`
+   - *Off-hours / hour-of-day anomaly*: hand off to `secops-statistical-hunter` `HOUR_OF_DAY_PROFILE` (`circadian_von_mises_2stage.yl2` retired per D1)
+   - *Outbound flow surge*: `c2_beacon_flow_frequency_2stage.yl2` (sub-hour C2 jitter hands off to `secops-statistical-hunter` `C2_BEACONING_JITTER`)
    - *HTTP 4xx/5xx error ratio or target surge*: `http_error_ratio_surge_2stage.yl2`, `http_target_surge_2stage.yl2`
    - *Service account 4-CRUD repository + caller IP scope*: `cloud_repository_scope_dual_branch.yl2`
    - *Fleet rollout / Patch Tuesday subtraction*: `dual_baseline_delta_z_3stage.yl2` or `hybrid_metric_fleet_prevalence_2stage.yl2`
@@ -927,7 +999,7 @@ To eliminate runtime syntax failures and semantic distortions, assemble every mu
    - *2-sector Euclidean fusion*: `dual_sector_fusion_3stage.yl2`, `multi_sector_fusion_4stage.yl2`, `rollup_sector_fusion_4stage.yl2`
    - *6-sector 360° Behavioral Risk Radar*: `radar_360_decoupled_sector.yl2`, `radar_360_sector_web_http.yl2`, `radar_360_sector_alert.yl2`
    - *Entity Graph rarity / novelty / WHOIS fusion*: `hybrid_metric_derived_file_prevalence_2stage.yl2`, `hybrid_metric_derived_domain_prevalence_2stage.yl2`, `hybrid_metric_derived_asset_age_2stage.yl2`, `hybrid_metric_whois_domain_lifecycle_2stage.yl2`, `rare_destination_ecg_3stage.yl2`, `fusion_rare_destination_3stage.yl2`
-   - *Macro baseline + micro raw telemetry enrichment / concentration / orthogonal breadth / Data Table bridge*: `hybrid_metric_raw_enrichment_2stage.yl2`, `hybrid_metric_entropy_concentration_2stage.yl2`, `hybrid_metric_orthogonal_space_2stage.yl2`, `hybrid_metric_http_ua_prevalence_2stage.yl2`, `hybrid_data_table_bridge_2stage.yl2`
+   - *Macro baseline + micro raw telemetry enrichment / concentration / Data Table bridge*: `hybrid_metric_raw_enrichment_2stage.yl2`, `hybrid_metric_entropy_concentration_2stage.yl2`, `hybrid_metric_http_ua_prevalence_2stage.yl2`, `hybrid_data_table_bridge_2stage.yl2`
 
 ### B. The `RAW_LOG_DUMP_DETECTED` Post-Flight Inspection Rule
 Before generating any report, audit which responses the analysis rests on. Two things separate a legitimate call from a violation: its position in the hunt lifecycle, and whether it carries its own aggregation.
@@ -1009,13 +1081,13 @@ To provide maximum analytical value without compromising mathematical integrity,
    Rather than attempting to calculate second-level timing across millions of raw events or relying solely on volume, the agent leverages **Entity Graph Derived Context** to screen for external destinations with isolated enterprise prevalence ($\le 3$ internal hosts over 10 days).
 2. **The Compilable Multi-Stage Query (`PIPE-09-PREVALENCE`)**:
    The query pairs raw `NETWORK_CONNECTION` events with `metrics.network_bytes_outbound` (for host-level historical context) and joins with `graph.entity.artifact.prevalence` (`rolling_max <= 3`, `day_count = 10`).
-   **Mode A window**: `startTime` two days back at 00:00Z (D-2), `endTime` now, and today's UTC date in the `get_date` line. A window that starts today 00:00Z matches no built graph days; zero rows from it are a freshness gap, not a clean hunt. For Mode B, delete the `get_date` line and keep the 2–7 day window (Rule 5, `references/entity-context-graph-guide.md`).
+   **Mode A window**: `startTime` at the scored UTC day minus 2 at `00:00:00Z` (`D-2`), `endTime` at `today 00:00:00Z` by default (or `now` in explicit `"Today So Far"` / `--today-so-far`), and the scored UTC date in the `get_date` line (`[D-32, D-2)` baseline shift disclosed). A window that starts today `00:00Z` matches no built graph days; zero rows from it are a freshness gap, not a clean hunt. For Mode B (2–3 days), anchor `startTime` at `min(anchor_day, D-2)` with `timestamp.get_date(...) >= "<anchor_day>"` (Rule 5, `references/entity-context-graph-guide.md`).
    ```yara
    // Stage 1: Measure outbound network connection activity and 30-day baseline per host and external IP
    stage host_egress {
        network.sent_bytes > 0
        network.sent_bytes < 1000000000000000
-       timestamp.get_date(metadata.event_timestamp.seconds) = "<today UTC, YYYY-MM-DD>"   // Mode A only
+       timestamp.get_date(metadata.event_timestamp.seconds) = "<scored UTC day, YYYY-MM-DD>"   // Mode A: startTime D-2 00:00Z
        principal.asset.hostname = $host
        target.ip = $dst_ip
 
@@ -1119,7 +1191,7 @@ To provide maximum analytical value without compromising mathematical integrity,
 
 ### A. The Hard Pre-Flight Clearance Gate (NO QUERY = NO CLEARANCE)
 A critical guardrail failure occurs when an agent presents a Pre-Flight Hunting Specification Card, omits the YARA-L query preview (due to probe failure or compiler hesitation), and yet proceeds to ask the Step 5 clearance question:
-> *"Would you like to run Mode A (Today vs 30-Day Baseline) or Mode B (2–7 Day Fixed-Baseline Timeline)?"* (add Mode C (Per-Day Baseline) when `run_command` is present)
+> *"Would you like to run Mode A (Last Complete UTC Day vs 30-Day Baseline) [or Mode A — Today So Far] or Mode B (2–3 Day Fixed-Baseline Timeline)?"* (add Mode C (Per-Day Baseline) when `run_command` is present)
 
 Under the **Hard Pre-Flight Clearance Gate**, this sequence is strictly prohibited:
 1. **Query Preview Is Mandatory for Clearance**: Step 5 clearance question MUST NEVER be asked unless a valid, compilable multi-stage YARA-L query has been successfully probed (200 OK via `udm_search`) and displayed in a ````yara code block under the Pre-Flight Card on that turn.
@@ -1194,98 +1266,8 @@ To operationalize advanced statistical models without tripping Chronicle's join 
   $$\text{Concentration Ratio} = \frac{\text{Peak Single Event Transfer}}{\sum \text{Raw Transfers} + 1.0}$$
   A high ratio ($\ge 0.75$) isolates massive single-destination transfers (elephant flows) from diffuse distributed web traffic.
 
-### Archetype 2: Orthogonal Threat Space (`hybrid_metric_orthogonal_space_2stage.yl2`)
-* **Routing Triggers**: Dormant account awakening, cold-start entity activity, sub-threshold multi-target probing, orthogonal threat space, joint Bayesian log-odds fusion, or multi-dimensional threat distance norm ($D^2$).
-* **Match Topology**: Symmetrical entity match (`$entity by 1d`).
-* **Telemetry Join**: Macro historical intensity baseline $\bowtie$ Contemporary forensic breadth hits.
-* **Model 3: Joint Bayesian Additive Log-Odds Score**:
-  $$\text{Joint Odds} = (0.6 \cdot Z_{\text{intensity}}) + (0.4 \cdot Z_{\text{breadth}})$$
-  Fuses two sub-threshold anomalies ($Z \approx 2.2\sigma$) that individually escape alerting into a high-confidence compound detection.
-* **Model 4: Two-Part Hurdle Model (Dormant Account / Cold-Start Awakening)**:
-  $$\text{Condition: } \text{Active Days} \le 2 \land \text{Breadth} \ge 3 \land N_{\text{raw}} \ge 1$$
-  Accounts for zero-inflated distributions by checking the discrete hurdle (was entity dormant?) before measuring contemporary burst volume.
-* **Model 5: 2D Euclidean Threat Distance Norm**:
-  $$D^2 = Z_{\text{intensity}}^2 + Z_{\text{breadth}}^2 \ge 16.0 \quad (\implies D \ge 4.0\sigma)$$
-  Evaluates geometric distance from nominal behavior in coordinate space. Ranking directly by squared threat norm ($D^2$) avoids unnecessary square root computations; when deriving Euclidean distance $D$, use namespaced `math.sqrt($norm_sq)` (bare `sqrt()` is invalid).
-* **Canonical YARA-L 2.0 Multi-Stage Search DAG**:
-  ```yara
-  // Stage 1: Macro Baseline (Axis 1: Historical Intensity)
-  stage stage1_macro_intensity {
-      network.sent_bytes > 0
-      network.sent_bytes < 1000000000000000
-      principal.asset.hostname = $host
-      $host != ""
-
-    match:
-      $host by 1d
-
-    outcome:
-      $observed_intensity = sum(network.sent_bytes)
-      $hist_mean = max(metrics.network_bytes_outbound(
-          period: 1d, window: 30d, metric: value_sum, agg: avg,
-          principal.asset.hostname: principal.asset.hostname
-      ))
-      $hist_stddev = max(metrics.network_bytes_outbound(
-          period: 1d, window: 30d, metric: value_sum, agg: stddev,
-          principal.asset.hostname: principal.asset.hostname
-      ))
-      $hist_active_days = max(metrics.network_bytes_outbound(
-          period: 1d, window: 30d, metric: value_sum, agg: num_metric_periods,
-          principal.asset.hostname: principal.asset.hostname
-      ))
-
-      $z_intensity = ($observed_intensity - $hist_mean) / if($hist_stddev > 0, $hist_stddev, 1.0)
-  }
-
-  // Stage 2: Micro Telemetry (Axis 2: Contemporary Forensic Breadth)
-  stage stage2_micro_breadth {
-      metadata.event_type = "NETWORK_CONNECTION"
-      principal.asset.hostname = $host
-      $host != ""
-      target.ip != ""
-
-    match:
-      $host by 1d
-
-    outcome:
-      $raw_hits = count(metadata.id)
-      $distinct_breadth = count_distinct(target.ip)
-      $destination_sample = array_distinct(target.ip)
-  }
-
-  // Root Stage: Common Compiler Orthogonal Threat Space Fusion
-  $host = $stage1_macro_intensity.host
-  $host = $stage2_micro_breadth.host
-
-  match:
-    $host by 1d
-
-  outcome:
-    $z_intensity = max($stage1_macro_intensity.z_intensity)
-    $hist_days = max($stage1_macro_intensity.hist_active_days)
-    $raw_hits = max($stage2_micro_breadth.raw_hits)
-    $breadth_count = max($stage2_micro_breadth.distinct_breadth)
-
-    // Standardized Micro Breadth Score (Zero-dispersion floor safe)
-    $z_breadth = ($breadth_count - 1.0) / (2.0 + 1.0)
-
-    // Model 5: 2D Euclidean Threat Distance (Squared Norm)
-    $intensity_sq = $z_intensity * $z_intensity
-    $breadth_sq = $z_breadth * $z_breadth
-    $threat_distance_sq = $intensity_sq + $breadth_sq
-
-    // Model 3: Joint Bayesian Additive Log-Odds Score
-    $joint_odds_score = (0.6 * $z_intensity) + (0.4 * $z_breadth)
-
-    // Continuous Linear Outcome Regularization
-    $z = (0.5 * $joint_odds_score) + (0.5 * $threat_distance_sq)
-
-  condition:
-    $threat_distance_sq >= 16.0 or ($joint_odds_score >= 2.5 and $raw_hits >= 3) or ($hist_days <= 2 and $breadth_count >= 3 and $raw_hits >= 1)
-
-  order:
-    $threat_distance_sq desc
-  ```
+### Archetype 2: Retired (`hybrid_metric_orthogonal_space_2stage.yl2` — D1)
+* **Disposition (D1)**: Retired. Uncalibrated micro-breadth Z standardization (`(breadth - 1.0) / 3.0`) and arbitrary `0.6 / 0.4` weights have been removed. Use `dual_sector_fusion_3stage.yl2` / `multi_sector_fusion_4stage.yl2` for calibrated two-sector Euclidean fusion, or `two_part_hurdle.yl2` (`StatisticalModel.TWO_PART_HURDLE`) for dormant-entity awakening.
 
 ### Archetype 3: Fleet Prevalence Normalization (`hybrid_metric_fleet_prevalence_2stage.yl2`)
 * **Routing Triggers**: Workstations with abnormal file execution spikes launching rare binaries or unfamiliar hashes, Patch Tuesday fleet rollouts, corporate software rollout shielding, or fleet-wide token prevalence normalization (`prevalence.rolling_max <= 3`).
@@ -1303,7 +1285,7 @@ To operationalize advanced statistical models without tripping Chronicle's join 
   For rare binary or rare domain hunting, pair primary UDM telemetry with Entity Graph Derived Context:
   ```yara
   metadata.event_type = "PROCESS_LAUNCH"
-  timestamp.get_date(metadata.event_timestamp.seconds) = "<today UTC, YYYY-MM-DD>"   // Mode A: startTime D-2 00:00Z (Rule 5)
+  timestamp.get_date(metadata.event_timestamp.seconds) = "<scored UTC day, YYYY-MM-DD>"   // Mode A: startTime D-2 00:00Z, endTime today 00:00Z (Rule 5)
   principal.process.file.sha256 = $token
   $graph.graph.metadata.entity_type = "FILE"
   $graph.graph.metadata.source_type = "DERIVED_CONTEXT"
@@ -1330,31 +1312,31 @@ Key Invariants:
 
 ---
 
-## 33. Network Session Frequency & C2 Beaconing Detection (`metrics.network_flows_*`)
+## 33. Outbound Network Session Surge (`metrics.network_flows_*` — Outbound Flow Surge)
 
-### A. The Volumetric Blindspot in Command & Control (C2)
-Traditional network anomaly detection relies heavily on `metrics.network_bytes_outbound` to catch data exfiltration. However, advanced command-and-control (C2) implants, reverse shells, and automated keep-alive polling exhibit the opposite profile:
-* **Payload Footprint**: Extremely low (e.g. 64–512 bytes per packet).
-* **Connection Frequency**: Exceptionally high (hundreds or thousands of periodic sessions per day).
+### A. The Byte-Volume Blindspot on Micro-Session Bursts
+Byte-volume anomaly detection (`metrics.network_bytes_outbound`) catches bulk data transfers, but micro-session API scraping, port/host sweeps, and automated connection bursts exhibit the opposite profile:
+* **Payload Footprint**: Small per-connection byte payloads (e.g. 64–512 bytes per session).
+* **Session Count**: Hundreds or thousands of outbound connections within a UTC day.
 
-When evaluated against a host's volumetric baseline (e.g. 500 MB/day), 2,000 beaconing sessions transferring a total of 1 MB will produce **zero baseline deviation** ($Z_{\text{bytes}} \approx 0.0\sigma$).
+When evaluated only against a host's byte baseline (e.g. 500 MB/day), 2,000 small outbound sessions transferring 1 MB total produce near-zero byte deviation ($Z_{\text{bytes}} \approx 0.0\sigma$). *(Note per `D1`: a daily flow-count total does NOT measure callback interval regularity; sub-hour C2 callback periodicity and inter-arrival jitter hand off to `secops-statistical-hunter` `C2_BEACONING_JITTER`.)*
 
-### B. The Flow-Frequency Solution (`metrics.network_flows_outbound`)
-To detect stealthy beaconing, micro-session tunneling, and port/host sweeps, the pipeline queries `metrics.network_flows_outbound`:
+### B. Daily Outbound Flow Surge (`metrics.network_flows_outbound`)
+To detect daily outbound connection-count surges, micro-session enumeration, and host/port fan-out, the pipeline queries `metrics.network_flows_outbound`:
 * **Engine Pre-Computation**: Shards 10, 11, and 12 in Malachite aggregate every non-zero byte session as `1 AS total_events`.
 * **Compiler Rule**: Strictly requires `metric: event_count_sum`.
-* **Behavioral Baseline**: Evaluates whether the host is opening an abnormal number of outbound connections compared to its personal 30-day baseline ($Z_{\text{flows}} \ge 3.0\sigma$).
+* **Behavioral Baseline**: Evaluates whether the mature host (`$active_days >= 7`) is opening an abnormal number of outbound connections compared to its personal 30-day baseline ($Z_{\text{flows}} \ge 3.0\sigma$).
 
 ### C. Payload Density & Elephant Flow Classification
 By combining observed outbound bytes with observed outbound flows in Stage 1, the pipeline calculates **Payload Concentration (Bytes per Flow)**:
 
 $$\text{Payload Concentration} = \frac{\sum \text{network.sent\_bytes}}{\text{count}(\text{metadata.id}) + 0.001}$$
 
-* **Low Payload Concentration (< 2,048 bytes/flow) + High $Z_{\text{flows}}$**: Confirms lightweight C2 heartbeats, port scanning, or recon polling.
-* **High Payload Concentration (> 1,000,000 bytes/flow) + High $Z_{\text{bytes}}$**: Confirms bulk exfiltration or "Elephant Flow" data staging.
+* **Low Payload Concentration (< 2,048 bytes/flow) + High $Z_{\text{flows}}$**: Indicates micro-session connection surges, port scanning, or automated endpoint polling.
+* **High Payload Concentration (> 1,000,000 bytes/flow) + High $Z_{\text{bytes}}$**: Indicates bulk exfiltration or "Elephant Flow" data staging.
 
-### D. Canonical Pipeline Template: `c2_beacon_flow_frequency_2stage.yl2`
-Use the pre-built pipeline in `templates/pipelines/c2_beacon_flow_frequency_2stage.yl2` for out-of-the-box C2 beaconing detection combining flow frequency baselining with target IP persistence analysis.
+### D. Canonical Pipeline Template: `c2_beacon_flow_frequency_2stage.yl2` (Outbound Flow Surge)
+Use `templates/pipelines/c2_beacon_flow_frequency_2stage.yl2` (`build_outbound_flow_surge_query`) for daily outbound flow-count surge detection combining `metrics.network_flows_outbound` baselining with single-scan target IP/port breadth. Sub-hour callback periodicity and interval jitter hand off to `secops-statistical-hunter` `C2_BEACONING_JITTER`.
 
 ---
 

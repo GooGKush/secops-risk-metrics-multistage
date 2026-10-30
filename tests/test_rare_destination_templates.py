@@ -77,11 +77,13 @@ class TestRareDestinationTemplates(unittest.TestCase):
     slots.update({
         "{{sector_filter}}": "network.sent_bytes > 0\n    network.sent_bytes < 1000000000000000",
         "{{sector_observation_agg}}": "sum(network.sent_bytes)",
-        "{{sector_metric_func_avg}}": "metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: avg, principal.asset.ip: $host)",
-        "{{sector_metric_func_stddev}}": "metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: stddev, principal.asset.ip: $host)",
+        "{{sector_metric_func_avg}}": "metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: avg, principal.asset.ip: principal.asset.ip)",
+        "{{sector_metric_func_stddev}}": "metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: stddev, principal.asset.ip: principal.asset.ip)",
+        "{{sector_metric_func_active_days}}": "metrics.network_bytes_outbound(period: 1d, window: 30d, metric: value_sum, agg: num_metric_periods, principal.asset.ip: principal.asset.ip)",
         "{{host_field}}": "principal.asset.ip",
         "{{contact_filter}}": HTTP_FILTER,
         "{{dest_field}}": "target.hostname",
+        "{{min_baseline_days}}": "7",
         "{{anomaly_threshold}}": "3.0",
     })
     for k, v in slots.items():

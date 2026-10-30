@@ -116,12 +116,12 @@
       "id": 10,
       "name": "eval_mode_b_cap_without_shell",
       "prompt": "Run a 14-day timeline of outbound bytes anomalies for the fleet using risk metrics.",
-      "expected_output": "In a client without run_command, does not offer Mode C. Offers Mode B capped at 7 days, states the fixed-baseline dates and bias, and notes that per-day baselines and longer windows need a client that can run local scripts.",
+      "expected_output": "In a client without run_command, does not offer Mode C. Offers Mode B capped at 3 days, states the fixed-baseline dates and bias, and notes that per-day baselines and longer windows need a client that can run local scripts.",
       "assertions": [
         "Mode C is not offered when run_command is absent",
-        "Mode B horizon is capped at 7 days",
+        "Mode B horizon is capped at 3 days",
         "Pre-Flight card or response states the single baseline window dates applied to all scored days",
-        "Response notes that per-day baselines and windows beyond 7 days need a client that can run local scripts"
+        "Response notes that per-day baselines and windows beyond 3 days need a client that can run local scripts"
       ]
     },
     {

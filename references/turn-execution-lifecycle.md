@@ -87,14 +87,14 @@ An analyst with deep domain knowledge may specify both a mathematical model and 
    • Baseline Horizon Spine: 30-Day (period: 1d, 30d)
    • Peer Cohort & Roster:   [Team/Dept, e.g. IT (Frank, Tim)]
    • Entity Graph Dimension: [Prevalence (rolling_max <= 3) / N/A]
-   • Evaluation Horizon Mode:[chosen mode only: A today | B 2–7d + baseline dates]
+   • Evaluation Horizon Mode:[chosen mode only: A last complete UTC day (default) or Today So Far (partial-day low-bias warning) | B 2–3d + baseline dates | C per-day shards]
    • Statistical Model:      [Model & Template, e.g. CUSUM Drift (`longitudinal_cusum.yl2`)]
    • Significance Threshold: [Model gate from model-concordance-guide.md §2.1: Z >= 3.0σ | 2.0σ <= Z < 3.0σ | >= 2.0× baseline | D >= 3.5σ | N/A (Fano)]
    ```
    The `Significance Threshold` line and the query's root `condition:` MUST state the same gate (variable, operator, value). A threshold on the card with no matching `condition:` in the query is a concordance failure.
 4. **Candidate Query Preview**: Render the multi-stage query assembled from `templates/pipelines/` inside a ````yara block.
 5. **Clearance Question (Final sentence of Turn 1, then yield)**:
-   > *"Would you like me to proceed with **Mode A (Today vs 30-Day Baseline)** or **Mode B (2–7 Day Fixed-Baseline Timeline)**[, or **Mode C (Per-Day Baseline)** if `run_command` is present]? (Adjust noise level/significance threshold before execution if desired.)"*
+   > *"Would you like me to proceed with **Mode A (Last Complete UTC Day vs 30-Day Baseline)** [or **Mode A — Today So Far (Partial UTC Day)**], **Mode B (2–3 Day Fixed-Baseline Timeline)**[, or **Mode C (Per-Day Baseline)** if `run_command` is present]? (Adjust noise level/significance threshold before execution if desired.)"*
    *(Mode B and C mechanics, baseline anchoring, and the no-shell note: `timeline-modes-guide.md`.)*
    *(If a specific target date was requested: "Proceed with executing for [Target Date] now?")*
 

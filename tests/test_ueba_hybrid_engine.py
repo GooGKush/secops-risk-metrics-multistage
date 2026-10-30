@@ -37,14 +37,75 @@ class TestUEBAHybridEngineCompile(unittest.TestCase):
   """Tests compile_hunt_pipeline across models, metrics, architectures, planes, and modes."""
 
   def test_compile_all_17_statistical_models_ast_valid(self):
-    """Every StatisticalModel enum value must compile cleanly with 0 AST or statistical errors."""
+    """Active StatisticalModels compile cleanly; retired time-of-day models hand off to HOUR_OF_DAY_PROFILE."""
+    retired_handoff_models = {
+        StatisticalModel.HOURLY_TEMPORAL_ZSCORE,
+        StatisticalModel.CIRCADIAN_VON_MISES,
+    }
+    retired_error_models = {
+        StatisticalModel.PIECEWISE_CRI: r"retired \(D1\).*calculate_cri",
+        StatisticalModel.FLEET_PREVALENCE_SHIELD: r"retired \(D1\).*hybrid_metric_fleet_prevalence_2stage",
+    }
     for model in StatisticalModel:
-      res = compile_hunt_pipeline(
-          statistical_model=model.value,
-          metrics="network_bytes_outbound",
-          entity_type="ASSET",
-          mode="A",
-      )
+      if model in retired_handoff_models:
+        res_ho = compile_hunt_pipeline(
+            statistical_model=model.value,
+            metrics="network_bytes_outbound",
+            entity_type="ASSET",
+            entity_value="wkst-tod-01",
+            mode="A",
+        )
+        self.assertEqual(res_ho["status"], "HANDOFF_REQUIRED", f"Expected HANDOFF_REQUIRED for {model}")
+        self.assertEqual(res_ho["target_skill"], "secops-statistical-hunter")
+        self.assertEqual(res_ho["model_routed"], "HOUR_OF_DAY_PROFILE")
+        self.assertEqual(res_ho["compiled_query"], "")
+        self.assertIn("```json:secops-threat-hunt-handoff-v1", res_ho["handoff_card"])
+        continue
+      if model in retired_error_models:
+        with self.assertRaisesRegex(ValueError, retired_error_models[model]):
+          compile_hunt_pipeline(
+              statistical_model=model.value,
+              metrics="network_bytes_outbound",
+              entity_type="ASSET",
+              mode="A",
+          )
+        continue
+      if model == StatisticalModel.LONGITUDINAL_CUSUM:
+        with self.assertRaisesRegex(ValueError, "LONGITUDINAL_CUSUM cannot run in single-day Mode A"):
+          compile_hunt_pipeline(
+              statistical_model=model.value,
+              metrics="network_bytes_outbound",
+              entity_type="ASSET",
+              mode="A",
+          )
+        res = compile_hunt_pipeline(
+            statistical_model=model.value,
+            metrics="network_bytes_outbound",
+            entity_type="ASSET",
+            mode="B",
+            window_days=3,
+        )
+      elif model in (StatisticalModel.POISSON, StatisticalModel.BAYESIAN_BETA_BINOMIAL):
+        with self.assertRaises(ValueError):
+          compile_hunt_pipeline(
+              statistical_model=model.value,
+              metrics="network_bytes_outbound",
+              entity_type="ASSET",
+              mode="A",
+          )
+        res = compile_hunt_pipeline(
+            statistical_model=model.value,
+            metrics="auth_attempts_total",
+            entity_type="USER",
+            mode="A",
+        )
+      else:
+        res = compile_hunt_pipeline(
+            statistical_model=model.value,
+            metrics="network_bytes_outbound",
+            entity_type="ASSET",
+            mode="A",
+        )
       self.assertEqual(res["status"], "COMPILED", f"Failed for {model}: {res['ast_errors']}")
       self.assertTrue(res["ast_valid"], f"AST errors for {model}: {res['ast_errors']}")
       self.assertEqual(res["ast_errors"], [])
@@ -53,7 +114,7 @@ class TestUEBAHybridEngineCompile(unittest.TestCase):
       self.assertIn("```yara", res["preflight_card_markdown"])
 
   def test_compile_shorthand_model_aliases(self):
-    """Shorthand model names (zscore, mad, fano, poisson, cv, cusum, hurdle, cri, macd, circadian) must resolve."""
+    """Active shorthand model names resolve and compile; time-of-day aliases hand off to HOUR_OF_DAY_PROFILE."""
     aliases = [
         ("zscore", StatisticalModel.STANDARD_Z_SCORE.value),
         ("mad", StatisticalModel.MAD.value),
@@ -61,26 +122,209 @@ class TestUEBAHybridEngineCompile(unittest.TestCase):
         ("fano", StatisticalModel.VARIANCE.value),
         ("poisson", StatisticalModel.POISSON.value),
         ("cv", StatisticalModel.COEFFICIENT_OF_VARIATION.value),
-        ("hourly_zscore", StatisticalModel.HOURLY_TEMPORAL_ZSCORE.value),
         ("bayesian_gamma", StatisticalModel.BAYESIAN_GAMMA.value),
         ("beta_binomial", StatisticalModel.BAYESIAN_BETA_BINOMIAL.value),
         ("cusum", StatisticalModel.LONGITUDINAL_CUSUM.value),
         ("hurdle", StatisticalModel.TWO_PART_HURDLE.value),
-        ("asymmetric_z", StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z.value),
-        ("cri", StatisticalModel.PIECEWISE_CRI.value),
-        ("patch_tuesday_shield", StatisticalModel.FLEET_PREVALENCE_SHIELD.value),
+        ("ASYMMETRIC_DIRECTIONAL_Z", StatisticalModel.STANDARD_Z_SCORE.value),
         ("adaptive_threshold", StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD.value),
         ("macd", StatisticalModel.MACD_MOMENTUM_VELOCITY.value),
-        ("circadian", StatisticalModel.CIRCADIAN_VON_MISES.value),
     ]
     for alias, expected_model in aliases:
+      mode_kwargs = {"mode": "B", "window_days": 3} if expected_model == StatisticalModel.LONGITUDINAL_CUSUM.value else {}
       res = compile_hunt_pipeline(
           statistical_model=alias,
           metrics="auth_attempts_total",
           entity_type="USER",
+          **mode_kwargs,
       )
       self.assertEqual(res["statistical_model"], expected_model)
       self.assertTrue(res["ast_valid"], f"Alias {alias} failed AST: {res['ast_errors']}")
+
+  def test_ws2_02_time_of_day_and_circadian_handoff_to_statistical_hunter(self):
+    """WS2-02 (D1): HOURLY_TEMPORAL_ZSCORE, CIRCADIAN_VON_MISES, and time-of-day aliases emit HOUR_OF_DAY_PROFILE handoff cards."""
+    from scripts import ueba_hybrid_engine as engine_mod
+    from scripts.ueba_hybrid_engine import resolve_statistical_model
+
+    tod_aliases = (
+        "HOURLY_TEMPORAL_ZSCORE",
+        "hourly_zscore",
+        "TEMPORAL_ZSCORE",
+        "INTRADAY_Z",
+        "CIRCADIAN_VON_MISES",
+        "circadian",
+        "VON_MISES",
+        "OFF_HOURS",
+        "TIME_OF_DAY",
+        "HOUR_OF_DAY_PROFILE",
+    )
+    for alias in tod_aliases:
+      with self.subTest(alias=alias, fn="resolve_statistical_model"):
+        with self.assertRaises(ValueError) as ctx:
+          resolve_statistical_model(alias)
+        self.assertIn("HOUR_OF_DAY_PROFILE", str(ctx.exception))
+        self.assertIn("secops-statistical-hunter", str(ctx.exception))
+
+      with self.subTest(alias=alias, fn="compile_hunt_pipeline"):
+        res = compile_hunt_pipeline(
+            statistical_model=alias,
+            metrics="auth_attempts_total",
+            entity_type="USER",
+            entity_value="charles.hardy",
+        )
+        self.assertEqual(res["status"], "HANDOFF_REQUIRED")
+        self.assertEqual(res["target_skill"], "secops-statistical-hunter")
+        self.assertEqual(res["model_routed"], "HOUR_OF_DAY_PROFILE")
+        self.assertEqual(res["compiled_query"], "")
+        self.assertIn("```json:secops-threat-hunt-handoff-v1", res["handoff_card"])
+        self.assertEqual(res["handoff_payload"]["intent"], "HOUR_OF_DAY_PROFILE")
+        self.assertEqual(res["handoff_payload"]["target_entity"]["value"], "charles.hardy")
+
+    # Architecture-level circadian_von_mises_2stage and compile_hunt_plan also hand off cleanly
+    for arch in ("circadian_von_mises_2stage", "circadian_von_mises"):
+      res_arch = engine_mod.compile_hunt_plan(
+          architecture=arch,
+          metrics="auth_attempts_total",
+          entity_type="USER",
+          entity_value="charles.hardy",
+      )
+      self.assertEqual(res_arch["status"], "HANDOFF_REQUIRED")
+      self.assertEqual(res_arch["model_routed"], "HOUR_OF_DAY_PROFILE")
+
+  def test_ws2_05_silence_and_dropout_aliases_raise_not_supported(self):
+    """WS2-05: SILENCE_DETECTION, DROP_OUT, SILENCE, and DROPOUT must raise 'not supported' instead of upper-tail Z."""
+    from scripts import ueba_hybrid_engine as engine_mod
+    from scripts.ueba_hybrid_engine import resolve_statistical_model
+
+    for alias in ("SILENCE_DETECTION", "DROP_OUT", "SILENCE", "DROPOUT", "silence_detection", "drop-out"):
+      with self.subTest(alias=alias, fn="resolve_statistical_model"):
+        with self.assertRaises(ValueError) as ctx:
+          resolve_statistical_model(alias)
+        self.assertIn("not supported", str(ctx.exception).lower())
+
+      with self.subTest(alias=alias, fn="compile_hunt_pipeline"):
+        with self.assertRaises(ValueError) as ctx_compile:
+          compile_hunt_pipeline(
+              statistical_model=alias,
+              metrics="auth_attempts_total",
+              entity_type="USER",
+          )
+        self.assertIn("not supported", str(ctx_compile.exception).lower())
+
+    compile_plan_fn = getattr(engine_mod, "compile_hunt_plan", None)
+    self.assertIsNotNone(compile_plan_fn, "compile_hunt_plan alias must be exported")
+    with self.assertRaises(ValueError) as ctx_plan:
+      compile_plan_fn(statistical_model="SILENCE_DETECTION", metrics="auth_attempts_total", entity_type="USER")
+    self.assertIn("not supported", str(ctx_plan.exception).lower())
+
+  def test_ws2_05_jitter_and_beacon_aliases_handoff_to_statistical_hunter(self):
+    """WS2-05: JITTER / BEACON_REGULARITY hand off to secops-statistical-hunter C2_BEACONING_JITTER (never daily CV)."""
+    from scripts import ueba_hybrid_engine as engine_mod
+    from scripts.ueba_hybrid_engine import resolve_statistical_model
+
+    for alias in ("JITTER", "BEACON_REGULARITY", "BEACON", "C2_BEACONING_JITTER", "C2_JITTER", "jitter", "beacon-regularity"):
+      with self.subTest(alias=alias, fn="resolve_statistical_model"):
+        with self.assertRaises(ValueError) as ctx:
+          resolve_statistical_model(alias)
+        self.assertIn("secops-statistical-hunter", str(ctx.exception))
+        self.assertIn("C2_BEACONING_JITTER", str(ctx.exception))
+
+      with self.subTest(alias=alias, fn="compile_hunt_pipeline"):
+        res = compile_hunt_pipeline(
+            statistical_model=alias,
+            metrics="network_flows_outbound",
+            entity_type="ASSET",
+            entity_value="wkst-c2-01",
+        )
+        self.assertEqual(res["status"], "HANDOFF_REQUIRED")
+        self.assertEqual(res["target_skill"], "secops-statistical-hunter")
+        self.assertEqual(res["model_routed"], "C2_BEACONING_JITTER")
+        self.assertEqual(res["compiled_query"], "")
+        self.assertNotIn("COEFFICIENT_OF_VARIATION", res.get("statistical_model", ""))
+        self.assertIn("```json:secops-threat-hunt-handoff-v1", res["handoff_card"])
+        self.assertNotIn("```yara", res["handoff_card"])
+        self.assertEqual(res["handoff_payload"]["target_skill"], "secops-statistical-hunter")
+        self.assertEqual(res["handoff_payload"]["intent"], "C2_BEACONING_JITTER")
+        self.assertEqual(res["handoff_payload"]["target_entity"]["value"], "wkst-c2-01")
+
+    # Also verify MICRO_RAW plane does not silently render local jitter CV when JITTER/BEACON is passed
+    res_micro = compile_hunt_pipeline(
+        statistical_model="JITTER",
+        plane="MICRO_RAW",
+        entity_type="ASSET",
+        entity_value="proxy-edge-01",
+    )
+    self.assertEqual(res_micro["status"], "HANDOFF_REQUIRED")
+    self.assertEqual(res_micro["target_skill"], "secops-statistical-hunter")
+    self.assertEqual(res_micro["model_routed"], "C2_BEACONING_JITTER")
+
+    compile_plan_fn = getattr(engine_mod, "compile_hunt_plan", None)
+    self.assertIsNotNone(compile_plan_fn, "compile_hunt_plan alias must be exported")
+    res_plan = compile_plan_fn(statistical_model="BEACON_REGULARITY", entity_type="ASSET", entity_value="srv-01")
+    self.assertEqual(res_plan["status"], "HANDOFF_REQUIRED")
+    self.assertEqual(res_plan["model_routed"], "C2_BEACONING_JITTER")
+
+  def test_ws2_06_unknown_and_retired_models_raise_value_error(self):
+    """WS2-06: Unknown models raise ValueError (no silent STANDARD_Z_SCORE fallback); retired aliases raise clear error."""
+    from scripts import ueba_hybrid_engine as engine_mod
+    from scripts.ueba_hybrid_engine import resolve_statistical_model
+
+    # Empty / None still defaults cleanly to STANDARD_Z_SCORE
+    self.assertEqual(resolve_statistical_model(None), StatisticalModel.STANDARD_Z_SCORE)  # type: ignore[arg-type]
+    self.assertEqual(resolve_statistical_model(""), StatisticalModel.STANDARD_Z_SCORE)
+    self.assertEqual(resolve_statistical_model("   "), StatisticalModel.STANDARD_Z_SCORE)
+
+    # Quantile aliases resolve cleanly
+    for q_alias in ("QUANTILE_IQR_SKEW", "bowley_skew", "tukey_fence", "tukey_skew_fence"):
+      self.assertEqual(resolve_statistical_model(q_alias), StatisticalModel.QUANTILE_IQR_SKEW)
+
+    # Unknown model strings raise ValueError everywhere
+    for bad_model in ("MADE_UP_MODEL", "BOGUS_Z", "NOT_A_MODEL", "UNKNOWN_ALGO"):
+      with self.subTest(bad_model=bad_model, fn="resolve_statistical_model"):
+        with self.assertRaises(ValueError) as ctx:
+          resolve_statistical_model(bad_model)
+        self.assertIn("Unknown statistical model", str(ctx.exception))
+        self.assertIn(bad_model, str(ctx.exception))
+
+      with self.subTest(bad_model=bad_model, fn="compile_hunt_plan"):
+        with self.assertRaises(ValueError) as ctx_plan:
+          engine_mod.compile_hunt_plan(
+              statistical_model=bad_model,
+              metrics="auth_attempts_total",
+              entity_type="USER",
+          )
+        self.assertIn("Unknown statistical model", str(ctx_plan.exception))
+
+      with self.subTest(bad_model=bad_model, fn="compile_hunt_plan_micro_raw"):
+        with self.assertRaises(ValueError):
+          engine_mod.compile_hunt_plan(
+              statistical_model=bad_model,
+              plane="MICRO_RAW",
+              entity_type="ASSET",
+          )
+
+      with self.subTest(bad_model=bad_model, fn="render_forensic_dossier"):
+        with self.assertRaises(ValueError):
+          render_forensic_dossier(
+              rows=[],
+              executed_query="",
+              statistical_model=bad_model,
+              skip_postflight_audit=True,
+          )
+
+    # Retired model registry raises clear "is retired; use <replacement>." error
+    self.assertTrue(hasattr(engine_mod, "RETIRED_MODEL_ALIASES"))
+    self.assertIsInstance(engine_mod.RETIRED_MODEL_ALIASES, dict)
+    with patch.dict(engine_mod.RETIRED_MODEL_ALIASES, {"LEGACY_TEST_MODEL": "STANDARD_Z_SCORE"}, clear=False):
+      with self.assertRaises(ValueError) as ctx_ret:
+        resolve_statistical_model("legacy-test-model")
+      self.assertEqual(
+          str(ctx_ret.exception),
+          "Statistical model 'LEGACY_TEST_MODEL' is retired; use STANDARD_Z_SCORE.",
+      )
+      with self.assertRaises(ValueError) as ctx_ret_plan:
+        engine_mod.compile_hunt_plan(statistical_model="LEGACY_TEST_MODEL", entity_type="USER")
+      self.assertIn("is retired; use STANDARD_Z_SCORE.", str(ctx_ret_plan.exception))
 
   def test_compile_all_38_catalog_metrics(self):
     """All 38 metrics in METRIC_CATALOG must compile cleanly via compile_hunt_pipeline."""
@@ -111,11 +355,11 @@ class TestUEBAHybridEngineCompile(unittest.TestCase):
         ("rare_destination", "network_bytes_outbound", "ASSET"),
         ("fusion_rare_destination", "auth_attempts_total,http_queries_total", "ASSET"),
         ("failure_ratio", "http_queries_fail", "ASSET"),
+        ("outbound_flow_surge", "network_flows_outbound", "ASSET"),
         ("c2_beacon_flow", "network_flows_outbound", "ASSET"),
         ("alert_surge", "alert_event_name_count", "ASSET"),
         ("hybrid_enrichment", "network_bytes_outbound", "ASSET"),
         ("hybrid_entropy_concentration", "network_bytes_outbound", "ASSET"),
-        ("hybrid_orthogonal_space", "network_bytes_outbound", "ASSET"),
         ("hybrid_fleet_prevalence", "file_executions_total", "ASSET"),
         ("hybrid_derived_file_prevalence", "file_executions_total", "ASSET"),
         ("hybrid_derived_domain_prevalence", "http_queries_total", "ASSET"),
@@ -135,6 +379,22 @@ class TestUEBAHybridEngineCompile(unittest.TestCase):
           f"Architecture {arch} failed AST validation: {res['ast_errors']}",
       )
       self.assertEqual(res["statistical_violations"], [], f"Stat violations in {arch}")
+    for retired_arch in ("hybrid_orthogonal_space", "hybrid_metric_orthogonal_space_2stage"):
+      with self.assertRaisesRegex(ValueError, r"retired \(D1\)"):
+        compile_hunt_pipeline(
+            architecture=retired_arch,
+            metrics="network_bytes_outbound",
+            entity_type="ASSET",
+            entity_value="srv-prod-01",
+        )
+    for retired_implied_model in ("ORTHOGONAL_THREAT_SPACE", "BAYESIAN_JOINT_ODDS"):
+      with self.assertRaisesRegex(ValueError, r"retired \(D1\)"):
+        compile_hunt_pipeline(
+            statistical_model=retired_implied_model,
+            metrics="network_bytes_outbound",
+            entity_type="ASSET",
+            entity_value="srv-prod-01",
+        )
 
   def test_compile_360_radar_generates_all_6_sectors(self):
     """360_radar architecture must populate sector_queries with all 6 decoupled sectors."""
@@ -193,7 +453,7 @@ class TestUEBAHybridEngineCompile(unittest.TestCase):
     """Tests time window computation across Modes A, B, C, D and ECG 72h anchor."""
     ref_time = datetime.datetime(2026, 10, 17, 15, 30, 0, tzinfo=datetime.timezone.utc)
 
-    # Mode A standard metric -> today 00:00:00Z
+    # Mode A standard metric -> last complete UTC day [yesterday 00:00:00Z, today 00:00:00Z) per D3 / WS1-01
     res_a = compile_hunt_pipeline(
         statistical_model="zscore",
         metrics="auth_attempts_total",
@@ -201,12 +461,12 @@ class TestUEBAHybridEngineCompile(unittest.TestCase):
         mode="A",
         reference_time=ref_time,
     )
-    self.assertEqual(res_a["start_time"], "2026-10-17T00:00:00Z")
-    self.assertEqual(res_a["end_time"], "2026-10-17T15:30:00Z")
+    self.assertEqual(res_a["start_time"], "2026-10-16T00:00:00Z")
+    self.assertEqual(res_a["end_time"], "2026-10-17T00:00:00Z")
     self.assertEqual(res_a["probe_start_time"], "2026-10-17T15:20:00Z")
     self.assertFalse(res_a["search_window"]["ecg_72h_anchor_applied"])
 
-    # Mode A with ECG (`graph.`) -> -2d at 00:00:00Z (72h anchor)
+    # Mode A with ECG (`graph.`) -> scored day -2d at 00:00:00Z (72h anchor on 2026-10-16 -> 2026-10-14T00:00:00Z)
     res_ecg = compile_hunt_pipeline(
         architecture="hybrid_derived_file_prevalence",
         metrics="file_executions_total",
@@ -215,22 +475,24 @@ class TestUEBAHybridEngineCompile(unittest.TestCase):
         reference_time=ref_time,
     )
     self.assertTrue(res_ecg["search_window"]["ecg_72h_anchor_applied"])
-    self.assertEqual(res_ecg["start_time"], "2026-10-15T00:00:00Z")
+    self.assertEqual(res_ecg["start_time"], "2026-10-14T00:00:00Z")
+    self.assertEqual(res_ecg["end_time"], "2026-10-17T00:00:00Z")
+    self.assertIn('"2026-10-16"', res_ecg["compiled_query"])
 
-    # Mode B 7-day fixed-baseline timeline
+    # Mode B 3-day fixed-baseline timeline (D9 / WS1-10 default & cap = 3 days)
     res_b = compile_hunt_pipeline(
         statistical_model="zscore",
         metrics="network_bytes_outbound",
         entity_type="ASSET",
         mode="B",
-        window_days=7,
+        window_days=3,
         reference_time=ref_time,
     )
     self.assertEqual(res_b["mode"], "B")
-    self.assertEqual(res_b["window_days"], 7)
-    self.assertEqual(res_b["start_time"], "2026-10-11T00:00:00Z")
-    self.assertEqual(res_b["search_window"]["baseline_start_date"], "2026-09-11")
-    self.assertEqual(res_b["search_window"]["baseline_end_date"], "2026-10-10")
+    self.assertEqual(res_b["window_days"], 3)
+    self.assertEqual(res_b["start_time"], "2026-10-15T00:00:00Z")
+    self.assertEqual(res_b["search_window"]["baseline_start_date"], "2026-09-15")
+    self.assertEqual(res_b["search_window"]["baseline_end_date"], "2026-10-14")
 
     # Mode C 5-day rolling shards
     res_c = compile_hunt_pipeline(
@@ -443,24 +705,105 @@ class TestUEBAHybridEngineDossier(unittest.TestCase):
     self.assertIn("Sparse Baseline Caution", res_sparse["dossier_markdown"])
 
   def test_render_with_360_radar_scores_and_mode_c_shards(self):
-    """Tests 360° radar score integration and Mode C shard tuple collation."""
+    """WS4 / D6-G1..G3: 360° radar integration requires raw udm_search sector payloads and prints provenance."""
     shards = [
         ("2026-10-15", [{"user": "alex.smith", "observed_val": 25, "historical_avg": 10, "historical_stddev": 2, "z_score": 7.5}]),
         ("2026-10-16", [{"user": "alex.smith", "observed_val": 40, "historical_avg": 10, "historical_stddev": 2, "z_score": 15.0}]),
     ]
+    raw_sector_payloads = {
+        "auth": {
+            "stats": {
+                "results": [
+                    {"column": "user", "values": [{"value": {"stringVal": "alex.smith"}}]},
+                    {"column": "observed", "values": [{"value": {"int64Val": "23"}}]},
+                    {"column": "baseline", "values": [{"value": {"doubleVal": 10.0}}]},
+                    {"column": "dispersion", "values": [{"value": {"doubleVal": 2.0}}]},
+                    {"column": "z", "values": [{"value": {"doubleVal": 6.5}}]},
+                ]
+            }
+        },
+        "cloud": {
+            "stats": {
+                "results": [
+                    {"column": "user", "values": [{"value": {"stringVal": "alex.smith"}}]},
+                    {"column": "observed", "values": [{"value": {"int64Val": "52"}}]},
+                    {"column": "baseline", "values": [{"value": {"doubleVal": 10.0}}]},
+                    {"column": "dispersion", "values": [{"value": {"doubleVal": 10.0}}]},
+                    {"column": "z", "values": [{"value": {"doubleVal": 4.2}}]},
+                ]
+            }
+        },
+        "workspace": {},
+        "network": {},
+        "dns": {},
+        "web": {},
+    }
     res = render_forensic_dossier(
         rows=shards,
         executed_query=self.sample_query,
         metric_name="auth_attempts_total",
         entity_type="USER",
         mode="C",
-        radar_scores="auth:6.5,cloud:4.2,workspace:1.1,network:0.5,dns:0.2,web:0.8",
+        radar_sector_payloads=raw_sector_payloads,
     )
     self.assertFalse(res["is_zero_row"])
     self.assertIsNotNone(res["radar_payload"])
     self.assertGreater(res["radar_payload"]["composite_risk_distance"], 7.0)
+    self.assertIn("provenance", res["radar_payload"])
+    prov = res["radar_payload"]["provenance"]
+    self.assertEqual(prov["helper_version"], "2.3.0")
+    self.assertEqual(len(prov["payload_sha256"]), 64)
+    self.assertEqual(len(prov["query_sha256"]), 64)
     self.assertIn("360° Multi-Sector Behavioral Risk Radar Summary", res["dossier_markdown"])
     self.assertIn("Multi-Day Timeline Breakdown", res["dossier_markdown"])
+    self.assertIn(prov["payload_sha256"], res["dossier_markdown"])
+    self.assertIn(prov["query_sha256"], res["dossier_markdown"])
+
+    # Also verify backward-compatible radar_scores parameter accepts raw sector payload dicts
+    res_compat = render_forensic_dossier(
+        rows=shards,
+        executed_query=self.sample_query,
+        metric_name="auth_attempts_total",
+        entity_type="USER",
+        mode="C",
+        radar_scores=raw_sector_payloads,
+    )
+    self.assertGreater(res_compat["radar_payload"]["composite_risk_distance"], 7.0)
+
+  def test_render_forensic_dossier_rejects_g1_typed_radar_scores(self):
+    """WS4 / D6-G1: render_forensic_dossier rejects string or float-dict radar_scores and raw event dumps."""
+    sample_rows = [
+        {"entity": "alex.smith", "observed": 25, "hist_avg": 10, "hist_stddev": 2, "z_score": 7.5}
+    ]
+    with self.assertRaises(ValueError) as str_ctx:
+      render_forensic_dossier(
+          rows=sample_rows,
+          executed_query=self.sample_query,
+          metric_name="auth_attempts_total",
+          entity_type="USER",
+          radar_scores="auth:6.5,cloud:4.2,workspace:1.1,network:0.5,dns:0.2,web:0.8",
+      )
+    self.assertIn("G1", str(str_ctx.exception))
+
+    with self.assertRaises(ValueError) as dict_ctx:
+      render_forensic_dossier(
+          rows=sample_rows,
+          executed_query=self.sample_query,
+          metric_name="auth_attempts_total",
+          entity_type="USER",
+          radar_scores={"auth": 6.5, "cloud": 4.2},
+      )
+    self.assertIn("G1", str(dict_ctx.exception))
+
+    with self.assertRaises(ValueError) as dump_ctx:
+      render_forensic_dossier(
+          rows=sample_rows,
+          executed_query=self.sample_query,
+          metric_name="auth_attempts_total",
+          entity_type="USER",
+          radar_sector_payloads={"auth": {"events": [{"metadata": {"id": "evt-1"}}]}},
+      )
+    self.assertIn("RAW_LOG_DUMP_DETECTED", str(dump_ctx.exception))
 
   def test_postflight_audit_blocks_raw_log_dump(self):
     """Passing raw UDM events without stats must trigger RAW_LOG_DUMP_DETECTED."""
@@ -481,7 +824,7 @@ class TestUEBAHybridEngineCLIAndCatalog(unittest.TestCase):
   def test_catalog_summary_and_facade(self):
     summary = UEBAHybridEngine.get_metric_catalog_summary()
     self.assertEqual(summary["total_metrics"], 38)
-    self.assertEqual(len(summary["statistical_models"]), 18)
+    self.assertEqual(len(summary["statistical_models"]), 19)
     self.assertEqual(len(summary["handoff_intents"]), len(SUPPORTED_INTENTS))
 
     dns_only = get_metric_catalog_summary(sector="dns", entity_type="ASSET")
@@ -522,11 +865,19 @@ class TestUEBAHybridEngineCLIAndCatalog(unittest.TestCase):
 
   def test_compile_cusum_and_mad_mode_b_window_alignment(self):
     """Verifies LONGITUDINAL_CUSUM multi-day gate and MAD Mode B scoring window alignment."""
+    with self.assertRaisesRegex(ValueError, "LONGITUDINAL_CUSUM cannot run in single-day Mode A"):
+      compile_hunt_pipeline(
+          statistical_model="LONGITUDINAL_CUSUM",
+          metrics="network_bytes_outbound",
+          entity_type="ASSET",
+          mode="A",
+      )
     res_cusum = compile_hunt_pipeline(
         statistical_model="LONGITUDINAL_CUSUM",
         metrics="network_bytes_outbound",
         entity_type="ASSET",
-        mode="A",
+        mode="B",
+        window_days=3,
     )
     self.assertTrue(res_cusum["ast_valid"])
     self.assertIn("stage stage2_daily_drift", res_cusum["compiled_query"])
@@ -538,11 +889,649 @@ class TestUEBAHybridEngineCLIAndCatalog(unittest.TestCase):
         metrics="auth_attempts_total",
         entity_type="USER",
         mode="B",
-        window_days=5,
+        window_days=3,
         reference_time=ref_time,
     )
+    self.assertEqual(res_mad_b["mode"], "B")
+    self.assertEqual(res_mad_b["window_days"], 3)
     self.assertTrue(res_mad_b["ast_valid"])
     self.assertIn("$in_scoring_window = 1", res_mad_b["compiled_query"])
+
+  def test_ws6_01_cusum_blocked_in_mode_a_and_allowed_in_modes_b_c(self):
+    """WS6-01: LONGITUDINAL_CUSUM / CUSUM / longitudinal_cusum_2stage must raise ValueError in Mode A and succeed in Mode B/C."""
+    from scripts.ueba_hybrid_engine import _compute_execution_windows
+
+    expected_msg = (
+        "LONGITUDINAL_CUSUM cannot run in single-day Mode A; "
+        "sequential drift requires a multi-day Mode B or Mode C window."
+    )
+
+    for call_kwargs in (
+        {"statistical_model": "CUSUM", "metrics": "auth_attempts_total", "entity_type": "USER", "mode": "A"},
+        {"statistical_model": "LONGITUDINAL_CUSUM", "metrics": "network_bytes_outbound", "entity_type": "ASSET", "mode": "A"},
+        {"architecture": "longitudinal_cusum_2stage", "metrics": "auth_attempts_total", "entity_type": "USER", "mode": "A"},
+        {"statistical_model": "CUSUM", "metrics": "auth_attempts_total", "entity_type": "USER"},
+    ):
+      with self.subTest(call_kwargs=call_kwargs):
+        with self.assertRaises(ValueError) as ctx:
+          compile_hunt_pipeline(**call_kwargs)
+        self.assertEqual(str(ctx.exception), expected_msg)
+
+    with self.subTest("window_helper_mode_a"):
+      with self.assertRaises(ValueError) as ctx:
+        _compute_execution_windows(
+            mode="A",
+            window_days=1,
+            compiled_query="",
+            statistical_model=StatisticalModel.LONGITUDINAL_CUSUM,
+        )
+      self.assertEqual(str(ctx.exception), expected_msg)
+
+    with self.subTest("mode_b_allowed"):
+      res_b = compile_hunt_pipeline(
+          statistical_model="CUSUM",
+          metrics="auth_attempts_total",
+          entity_type="USER",
+          mode="B",
+          window_days=3,
+      )
+      self.assertEqual(res_b["status"], "COMPILED")
+      self.assertTrue(res_b["ast_valid"])
+
+    with self.subTest("mode_c_allowed"):
+      res_c = compile_hunt_pipeline(
+          statistical_model="LONGITUDINAL_CUSUM",
+          metrics="auth_attempts_total",
+          entity_type="USER",
+          mode="C",
+          window_days=5,
+      )
+      self.assertEqual(res_c["status"], "COMPILED")
+      self.assertTrue(res_c["ast_valid"])
+
+  def test_ws2_01_resource_entity_filter_injection_and_composite_grouping(self):
+    """WS2-01: compile_hunt_plan binds $resource on EntityType.RESOURCE and preserves composite Root match keys."""
+    from scripts.ueba_hybrid_engine import compile_hunt_plan
+
+    res_resource = compile_hunt_plan(
+        statistical_model="STANDARD_Z_SCORE",
+        metrics="resource_read_total",
+        entity_type="RESOURCE",
+        entity_value="projects/gus-sdl/buckets/prod",
+    )
+    self.assertTrue(res_resource["ast_valid"], msg=res_resource["ast_errors"])
+    self.assertEqual(res_resource["entity_type"], "RESOURCE")
+    self.assertIn('$resource = "projects/gus-sdl/buckets/prod"', res_resource["compiled_query"])
+    self.assertNotIn('$sa = "projects/gus-sdl/buckets/prod"', res_resource["compiled_query"])
+    self.assertIn("match:\n  $sa, $vendor, $product, $resource, $ws by 1d", res_resource["compiled_query"])
+
+    # Default metric when entity_type="RESOURCE" and metrics is omitted must be resource_read_total (valid for RESOURCE).
+    res_default_resource = compile_hunt_plan(
+        statistical_model="STANDARD_Z_SCORE",
+        entity_type="RESOURCE",
+        entity_value="projects/gus-sdl/buckets/prod",
+    )
+    self.assertTrue(res_default_resource["ast_valid"], msg=res_default_resource["ast_errors"])
+    self.assertEqual(res_default_resource["primary_metric"], "resource_read_total")
+    self.assertEqual(res_default_resource["entity_type"], "RESOURCE")
+    self.assertIn('$resource = "projects/gus-sdl/buckets/prod"', res_default_resource["compiled_query"])
+
+    res_proc = compile_hunt_plan(
+        statistical_model="STANDARD_Z_SCORE",
+        metrics="file_executions_total",
+        entity_type="ASSET",
+        entity_value="srv-prod-01",
+    )
+    self.assertTrue(res_proc["ast_valid"], msg=res_proc["ast_errors"])
+    self.assertIn('$host = "srv-prod-01"', res_proc["compiled_query"])
+    self.assertIn("match:\n  $host, $sha256, $ws by 1d", res_proc["compiled_query"])
+
+  def test_ws2_03_360_radar_sectors_are_no_gate_and_fuse_sub_3sigma_to_6_9(self):
+    """WS2-03: 360_radar sector_queries must be built NO-GATE so 2.8-sigma across 6 sectors fuses to D ~ 6.86."""
+    from scripts.preflight_validator import MalachiteASTValidator
+    from scripts.template_router import MultiStageTemplateRouter
+    from scripts.ueba_hybrid_engine import compile_hunt_plan
+
+    res_user = compile_hunt_plan(
+        architecture="360_radar",
+        entity_type="USER",
+        entity_value="charles.hardy",
+    )
+    self.assertEqual(
+        set(res_user["sector_queries"].keys()),
+        {"auth", "cloud", "workspace", "network", "dns", "web"},
+    )
+    for sec_name, sq in res_user["sector_queries"].items():
+      with self.subTest(entity_type="USER", sector=sec_name):
+        self.assertIsNone(
+            MultiStageTemplateRouter.root_condition(sq),
+            msg=f"USER sector '{sec_name}' still has a root condition gate: {MultiStageTemplateRouter.root_condition(sq)}",
+        )
+        self.assertNotIn("\ncondition:", sq, msg=f"USER sector '{sec_name}' still has condition: block")
+        self.assertIn("NONE (NO-GATE decoupled sector for post-query Euclidean fusion)", sq)
+        self.assertEqual(MalachiteASTValidator.validate_query(sq), [], msg=f"AST error in USER sector '{sec_name}'")
+
+    res_asset = compile_hunt_plan(
+        architecture="360_radar",
+        entity_type="ASSET",
+        entity_value="wkst-fin-09",
+    )
+    self.assertEqual(
+        set(res_asset["sector_queries"].keys()),
+        {"auth", "alerts", "endpoint", "network", "dns", "web"},
+    )
+    for sec_name, sq in res_asset["sector_queries"].items():
+      with self.subTest(entity_type="ASSET", sector=sec_name):
+        self.assertIsNone(
+            MultiStageTemplateRouter.root_condition(sq),
+            msg=f"ASSET sector '{sec_name}' still has a root condition gate: {MultiStageTemplateRouter.root_condition(sq)}",
+        )
+        self.assertNotIn("\ncondition:", sq, msg=f"ASSET sector '{sec_name}' still has condition: block")
+        self.assertIn("NONE (NO-GATE decoupled sector for post-query Euclidean fusion)", sq)
+        self.assertEqual(MalachiteASTValidator.validate_query(sq), [], msg=f"AST error in ASSET sector '{sec_name}'")
+
+    # Fleet-wide 360_radar must not inject literal $sa = "fleet" into cloud sector
+    res_fleet = compile_hunt_plan(architecture="360_radar", entity_type="USER", entity_value="fleet")
+    self.assertNotIn('$sa = "fleet"', res_fleet["sector_queries"]["cloud"])
+
+    # Synthetic entity at +2.8 sigma across all 6 sectors (each below 3.0 sigma, so pre-fix SQL >= 3.0
+    # would have censored all 6 sectors to 0 rows -> D = 0.0) now returns ungated rows that fuse to D = 6.86 (~6.9).
+    def _sector_stats_2_8(z_col: str, obs_col: str = "observed", avg_col: str = "hist_avg", std_col: str = "hist_stddev"):
+      return {
+          "stats": {
+              "results": [
+                  {"column": "user", "values": [{"value": {"stringVal": "charles.hardy"}}]},
+                  {"column": obs_col, "values": [{"value": {"int64Val": "38"}}]},
+                  {"column": avg_col, "values": [{"value": {"doubleVal": 10.0}}]},
+                  {"column": std_col, "values": [{"value": {"doubleVal": 10.0}}]},
+                  {"column": z_col, "values": [{"value": {"doubleVal": 2.8}}]},
+              ]
+          }
+      }
+
+    sub_threshold_payloads = {
+        "auth": _sector_stats_2_8("personal_z"),
+        "cloud": _sector_stats_2_8("dest_z", obs_col="obs"),
+        "workspace": _sector_stats_2_8("personal_z"),
+        "network": _sector_stats_2_8("personal_z"),
+        "dns": _sector_stats_2_8("personal_z"),
+        "web": _sector_stats_2_8("personal_z"),
+    }
+    dossier = render_forensic_dossier(
+        rows=[{"user": "charles.hardy", "observed": 38, "hist_avg": 10.0, "hist_stddev": 10.0, "personal_z": 2.8}],
+        executed_query=res_user["sector_queries"]["auth"],
+        metric_name="auth_attempts_total",
+        entity_type="USER",
+        radar_sector_payloads=sub_threshold_payloads,
+        radar_sector_queries=res_user["sector_queries"],
+    )
+    self.assertAlmostEqual(dossier["radar_payload"]["composite_risk_distance"], 6.86, places=2)
+    self.assertTrue(dossier["radar_payload"]["is_anomalous"])
+
+  def test_ws1_02_quantile_iqr_skew_widens_mode_a_b_windows_and_normalizes_scores(self):
+    """WS1-02: QUANTILE_IQR_SKEW widens Mode A/B raw windows to 30d like MAD and normalizes quantile scores."""
+    from scripts.ueba_hybrid_engine import (
+        _compute_execution_windows,
+        _extract_and_normalize_rows,
+        resolve_statistical_model,
+    )
+
+    ref_time = datetime.datetime(2026, 10, 28, 8, 0, 0, tzinfo=datetime.timezone.utc)
+
+    with self.subTest(check="mode_a_30d_raw_window"):
+      res_mad_a = compile_hunt_pipeline(
+          statistical_model="MAD",
+          metrics="auth_attempts_total",
+          entity_type="USER",
+          mode="A",
+          reference_time=ref_time,
+      )
+      res_q_a = compile_hunt_pipeline(
+          statistical_model="QUANTILE_IQR_SKEW",
+          metrics="auth_attempts_total",
+          entity_type="USER",
+          mode="A",
+          reference_time=ref_time,
+      )
+      self.assertEqual(res_q_a["start_time"], res_mad_a["start_time"])
+      start_dt_a = datetime.datetime.fromisoformat(res_q_a["start_time"].replace("Z", "+00:00"))
+      end_dt_a = datetime.datetime.fromisoformat(res_q_a["end_time"].replace("Z", "+00:00"))
+      self.assertGreaterEqual((end_dt_a - start_dt_a).days, 29)
+      self.assertIn("$in_scoring_window = 1", res_q_a["compiled_query"])
+
+    with self.subTest(check="mode_b_30d_raw_window"):
+      win_mad_b = _compute_execution_windows(
+          "stage s1 { match: $u by 1d outcome: $o = count(metadata.id) }\n$u = $s1.u\nmatch:\n  $u\noutcome:\n  $z = max($s1.o)",
+          mode="B",
+          window_days=3,
+          statistical_model=StatisticalModel.MAD,
+          reference_time=ref_time,
+      )
+      win_q_b = _compute_execution_windows(
+          "stage s1 { match: $u by 1d outcome: $o = count(metadata.id) }\n$u = $s1.u\nmatch:\n  $u\noutcome:\n  $z = max($s1.o)",
+          mode="B",
+          window_days=3,
+          statistical_model=StatisticalModel.QUANTILE_IQR_SKEW,
+          reference_time=ref_time,
+      )
+      self.assertEqual(win_q_b["start_time"], win_mad_b["start_time"])
+      start_dt_b = datetime.datetime.fromisoformat(win_q_b["start_time"].replace("Z", "+00:00"))
+      end_dt_b = datetime.datetime.fromisoformat(win_q_b["end_time"].replace("Z", "+00:00"))
+      self.assertGreaterEqual((end_dt_b - start_dt_b).days, 29)
+
+    with self.subTest(check="score_extraction"):
+      quantile_stats_payload = {
+          "stats": {
+              "results": [
+                  {"column": "user", "values": [{"value": {"stringVal": "charles.hardy"}}]},
+                  {"column": "observed", "values": [{"value": {"int64Val": "785"}}]},
+                  {"column": "q50_val", "values": [{"value": {"doubleVal": 152.0}}]},
+                  {"column": "safe_iqr", "values": [{"value": {"doubleVal": 84.0}}]},
+                  {"column": "raw_active_days", "values": [{"value": {"int64Val": "10"}}]},
+                  {"column": "personal_z", "values": [{"value": {"doubleVal": 0.45}}]},
+                  {"column": "tukey_fence_ratio", "values": [{"value": {"doubleVal": 2.65}}]},
+              ]
+          }
+      }
+      norm_rows, _ = _extract_and_normalize_rows(quantile_stats_payload)
+      self.assertEqual(len(norm_rows), 1)
+      self.assertEqual(norm_rows[0]["entity"], "charles.hardy")
+      self.assertAlmostEqual(norm_rows[0]["z_score"], 2.65, places=2)
+
+      norm_qz, _ = _extract_and_normalize_rows([{"user": "charles.hardy", "observed": 785, "personal_z": 0.45, "quantile_z": 4.12}])
+      self.assertAlmostEqual(norm_qz[0]["z_score"], 4.12, places=2)
+
+      norm_fz, _ = _extract_and_normalize_rows([{"user": "charles.hardy", "observed": 785, "personal_z": 0.45, "fence_z": 3.88}])
+      self.assertAlmostEqual(norm_fz[0]["z_score"], 3.88, places=2)
+
+      norm_tez, _ = _extract_and_normalize_rows([{"user": "charles.hardy", "observed": 785, "personal_z": 0.45, "tukey_excess_z": 3.66}])
+      self.assertAlmostEqual(norm_tez[0]["z_score"], 3.66, places=2)
+
+    for alias in ("QUANTILE_IQR_SKEW", "QUANTILE", "IQR_FENCE", "TUKEY_FENCE", "BOWLEY_SKEW"):
+      with self.subTest(alias=alias):
+        self.assertEqual(resolve_statistical_model(alias), StatisticalModel.QUANTILE_IQR_SKEW)
+
+  def test_ws3_quantile_bowley_135_and_scale_excess_z(self):
+    """WS3-QUANTILE: Bowley constant recalibrated from 3.0 to 1.35 and obs/fence ratio replaced by robust scale-excess."""
+    import math
+    from pathlib import Path
+    from scripts.preflight_validator import MalachiteASTValidator
+
+    res = compile_hunt_pipeline(
+        statistical_model="QUANTILE_IQR_SKEW",
+        metrics="auth_attempts_total",
+        entity_type="USER",
+        mode="A",
+        reference_time=datetime.datetime(2026, 10, 28, 8, 0, 0, tzinfo=datetime.timezone.utc),
+    )
+    query = res["compiled_query"]
+    self.assertIn("1.35 *", query)
+    self.assertNotIn("3.0 * if($bowley_skew", query)
+    self.assertIn("$robust_scale = $safe_iqr / 1.349", query)
+    self.assertIn("$tukey_excess_z = ($observed - $adj_upper_fence) / $robust_scale", query)
+    self.assertIn("$in_scoring_window = 1 and $raw_active_days >= 7 and $tukey_excess_z >= 1.0", query)
+    self.assertIn("order:\n  $tukey_excess_z desc", query)
+    self.assertEqual(MalachiteASTValidator.validate_query(query), [])
+
+    pipe_raw = (Path(__file__).resolve().parent.parent / "templates" / "pipelines" / "quantile_iqr_skew_3stage.yl2").read_text(encoding="utf-8")
+    self.assertIn("1.35 *", pipe_raw)
+    self.assertIn("$tukey_excess_z = ($observed - $adj_upper_fence) / $robust_scale", pipe_raw)
+    self.assertIn("$tukey_excess_z >= {{tukey_excess_threshold}}", pipe_raw)
+
+    def _eval_tukey_excess_z(observed: float, q25: float, q50: float, q75: float) -> float:
+      iqr = q75 - q25
+      q50_floor = q50 * 0.05 + 1.0
+      safe_iqr = iqr if iqr > 0 else q50_floor
+      bowley = (q75 + q25 - 2.0 * q50) / safe_iqr
+      pos_skew = bowley if bowley > 0 else 0.0
+      adj_fence = q75 + 1.5 * math.exp(1.35 * pos_skew) * safe_iqr
+      robust_scale = safe_iqr / 1.349
+      return (observed - adj_fence) / robust_scale
+
+    # Right-skewed baseline (B_skew = +1.0): obs=200 exceeds recalibrated fence (~145.72) with excess >= 1.0
+    # whereas old exp(3.0 * 1.0) inflated fence to ~632.57 and blinded the breakout.
+    skew_excess = _eval_tukey_excess_z(observed=200.0, q25=10.0, q50=10.0, q75=30.0)
+    self.assertGreaterEqual(skew_excess, 3.5)
+
+    # Near-zero baseline (Q25=0, Q50=1, Q75=2): quiet day obs=3 stays negative; real spike obs=10 alerts cleanly.
+    self.assertLess(_eval_tukey_excess_z(observed=3.0, q25=0.0, q50=1.0, q75=2.0), 0.0)
+    self.assertAlmostEqual(_eval_tukey_excess_z(observed=10.0, q25=0.0, q50=1.0, q75=2.0), 3.3725, places=3)
+
+  def test_ws1_01_mode_a_defaults_to_last_complete_utc_day_and_labels_today_so_far(self):
+    """WS1-01 / D3: Default Mode A scores last complete UTC day; Today So Far is an explicit low-bias-labeled option."""
+    from scripts.ueba_hybrid_engine import main as cli_main
+
+    ref_time = datetime.datetime(2026, 10, 28, 8, 0, 0, tzinfo=datetime.timezone.utc)
+
+    with self.subTest("default_mode_a_last_complete_utc_day"):
+      res_default = compile_hunt_pipeline(
+          statistical_model="STANDARD_Z_SCORE",
+          metrics="auth_attempts_total",
+          entity_type="USER",
+          entity_value="charles.hardy",
+          mode="A",
+          reference_time=ref_time,
+      )
+      self.assertEqual(res_default["start_time"], "2026-10-27T00:00:00Z")
+      self.assertEqual(res_default["end_time"], "2026-10-28T00:00:00Z")
+      self.assertEqual(res_default["search_window"]["baseline_start_date"], "2026-09-27")
+      self.assertEqual(res_default["search_window"]["baseline_end_date"], "2026-10-26")
+      self.assertEqual(res_default["evaluation_mode_label"], "Mode A: Last Complete UTC Day (2026-10-27)")
+      self.assertFalse(res_default["is_partial_day"])
+      self.assertIsNone(res_default["partial_day_warning"])
+      self.assertEqual(res_default["shards"][0]["day"], "2026-10-27")
+      self.assertEqual(res_default["shards"][0]["start_time"], "2026-10-27T00:00:00Z")
+      self.assertEqual(res_default["shards"][0]["end_time"], "2026-10-28T00:00:00Z")
+
+    with self.subTest("mad_and_quantile_default_mode_a_gate_yesterday"):
+      for model_name in ("MAD", "QUANTILE_IQR_SKEW"):
+        res_mq = compile_hunt_pipeline(
+            statistical_model=model_name,
+            metrics="auth_attempts_total",
+            entity_type="USER",
+            mode="A",
+            reference_time=ref_time,
+        )
+        self.assertEqual(res_mq["start_time"], "2026-09-28T00:00:00Z")
+        self.assertEqual(res_mq["end_time"], "2026-10-28T00:00:00Z")
+        self.assertIn('>= "2026-10-27"', res_mq["compiled_query"])
+
+    with self.subTest("ecg_default_mode_a_pins_yesterday_and_d_minus_2"):
+      res_ecg = compile_hunt_pipeline(
+          architecture="hybrid_derived_file_prevalence",
+          metrics="file_executions_total",
+          entity_type="ASSET",
+          mode="A",
+          reference_time=ref_time,
+      )
+      self.assertEqual(res_ecg["start_time"], "2026-10-25T00:00:00Z")
+      self.assertEqual(res_ecg["end_time"], "2026-10-28T00:00:00Z")
+      self.assertIn('"2026-10-27"', res_ecg["compiled_query"])
+
+    with self.subTest("today_so_far_explicit_flag_and_aliases"):
+      for call_kwargs in (
+          {"mode": "A", "today_so_far": True},
+          {"mode": "A_TODAY"},
+          {"mode": "A_PARTIAL"},
+      ):
+        res_today = compile_hunt_pipeline(
+            statistical_model="STANDARD_Z_SCORE",
+            metrics="auth_attempts_total",
+            entity_type="USER",
+            entity_value="charles.hardy",
+            reference_time=ref_time,
+            **call_kwargs,
+        )
+        self.assertEqual(res_today["mode"], "A")
+        self.assertEqual(res_today["start_time"], "2026-10-28T00:00:00Z")
+        self.assertEqual(res_today["end_time"], "2026-10-28T08:00:00Z")
+        self.assertEqual(
+            res_today["evaluation_mode_label"],
+            "Mode A: Today So Far (Partial UTC Day — Low-Biased vs Full-Day Baseline)",
+        )
+        self.assertTrue(res_today["is_partial_day"])
+        self.assertTrue(res_today["partial_day_warning"])
+        self.assertIn("Low-Biased", res_today["preflight_card_markdown"])
+        self.assertIn("low-biased", res_today["partial_day_warning"].lower())
+
+    with self.subTest("cli_today_so_far_and_dossier_pillar3_warning"):
+      buf = io.StringIO()
+      with patch("sys.stdout", buf):
+        rc = cli_main(["compile", "--metrics", "auth_attempts_total", "--mode", "A", "--today-so-far", "--format", "json"])
+      self.assertEqual(rc, 0)
+      cli_res = json.loads(buf.getvalue())
+      self.assertTrue(cli_res["is_partial_day"])
+      self.assertIn("Today So Far", cli_res["evaluation_mode_label"])
+
+      sample_row = [{"user": "charles.hardy", "observed": 120, "hist_avg": 164.6, "hist_stddev": 114.49, "z_score": -0.39, "active_days": 14}]
+      dossier = render_forensic_dossier(
+          rows=sample_row,
+          executed_query=cli_res["compiled_query"],
+          statistical_model="STANDARD_Z_SCORE",
+          metric_name="auth_attempts_total",
+          entity_type="USER",
+          mode="A",
+          today_so_far=True,
+          skip_postflight_audit=True,
+      )
+      self.assertTrue(dossier["is_partial_day"])
+      self.assertIn("Today So Far", dossier["dossier_markdown"])
+      pillar3_idx = dossier["dossier_markdown"].index("#### 3. Forensic Vector Breakdown")
+      pillar4_idx = dossier["dossier_markdown"].index("#### 4. Chronicle UI Manual Pivot")
+      pillar3_slice = dossier["dossier_markdown"][pillar3_idx:pillar4_idx]
+      self.assertIn("low-biased", pillar3_slice.lower())
+      # Verify zero elapsed-fraction scaling of observed or z_score
+      self.assertEqual(dossier["outliers"][0]["observed"], 120.0)
+
+  def test_ws1_10_mode_b_defaults_and_caps_at_3_days_or_redirects_to_mode_c(self):
+    """WS1-10 / D9: Mode B defaults to 3d, redirects >3d to Mode C when run_command is available, or caps at 3d otherwise."""
+    from scripts.ueba_hybrid_engine import _compute_execution_windows, main as cli_main
+
+    ref_time = datetime.datetime(2026, 10, 28, 12, 0, 0, tzinfo=datetime.timezone.utc)
+
+    with self.subTest("mode_b_default_is_3_days"):
+      res_b_default = compile_hunt_pipeline(
+          statistical_model="STANDARD_Z_SCORE",
+          metrics="auth_attempts_total",
+          entity_type="USER",
+          mode="B",
+          reference_time=ref_time,
+      )
+      self.assertEqual(res_b_default["mode"], "B")
+      self.assertEqual(res_b_default["window_days"], 3)
+      self.assertEqual(res_b_default["start_time"], "2026-10-26T00:00:00Z")
+
+      win_b_default = _compute_execution_windows(
+          compiled_query="",
+          mode="B",
+          window_days=1,
+          reference_time=ref_time,
+      )
+      self.assertEqual(win_b_default["window_days"], 3)
+
+    with self.subTest("mode_b_7d_redirects_to_mode_c_with_run_command"):
+      res_redirect = compile_hunt_pipeline(
+          statistical_model="STANDARD_Z_SCORE",
+          metrics="network_bytes_outbound",
+          entity_type="ASSET",
+          mode="B",
+          window_days=7,
+          has_run_command=True,
+          reference_time=ref_time,
+      )
+      self.assertEqual(res_redirect["mode"], "C")
+      self.assertEqual(res_redirect["redirected_from_mode"], "B")
+      self.assertEqual(res_redirect["window_days"], 7)
+      self.assertEqual(len(res_redirect["shards"]), 7)
+      self.assertTrue(res_redirect["mode_notice"])
+      self.assertIn("Mode C", res_redirect["mode_notice"])
+      self.assertIn("Mode C", res_redirect["preflight_card_markdown"])
+
+    with self.subTest("mode_b_7d_caps_at_3d_without_run_command_and_via_cli"):
+      res_capped = compile_hunt_pipeline(
+          statistical_model="STANDARD_Z_SCORE",
+          metrics="network_bytes_outbound",
+          entity_type="ASSET",
+          mode="B",
+          window_days=7,
+          has_run_command=False,
+          reference_time=ref_time,
+      )
+      self.assertEqual(res_capped["mode"], "B")
+      self.assertEqual(res_capped["window_days"], 3)
+      self.assertEqual(res_capped["capped_from_days"], 7)
+      self.assertTrue(res_capped["mode_notice"])
+      self.assertIn("3 days", res_capped["mode_notice"])
+      self.assertIn("run_command", res_capped["mode_notice"])
+      self.assertIn("timeline_assembler.py", res_capped["mode_notice"])
+      self.assertIn("3 days", res_capped["preflight_card_markdown"])
+
+      win_capped = _compute_execution_windows(
+          compiled_query="",
+          mode="B",
+          window_days=7,
+          reference_time=ref_time,
+      )
+      self.assertEqual(win_capped["mode"], "B")
+      self.assertEqual(win_capped["window_days"], 3)
+      self.assertEqual(win_capped["capped_from_days"], 7)
+
+      buf = io.StringIO()
+      with patch("sys.stdout", buf):
+        rc = cli_main(["compile", "--metrics", "network_bytes_outbound", "--mode", "B", "--window-days", "7", "--no-run-command", "--format", "json"])
+      self.assertEqual(rc, 0)
+      cli_capped = json.loads(buf.getvalue())
+      self.assertEqual(cli_capped["mode"], "B")
+      self.assertEqual(cli_capped["window_days"], 3)
+      self.assertEqual(cli_capped["capped_from_days"], 7)
+
+    with self.subTest("cusum_exception_allows_single_request_up_to_14d"):
+      res_cusum_b = compile_hunt_pipeline(
+        statistical_model="LONGITUDINAL_CUSUM",
+        metrics="auth_attempts_total",
+        entity_type="USER",
+        mode="B",
+        window_days=7,
+        reference_time=ref_time,
+      )
+      self.assertEqual(res_cusum_b["mode"], "B")
+      self.assertEqual(res_cusum_b["window_days"], 7)
+
+  def test_ws2_04_three_or_more_metrics_rejects_silent_slicing_and_routes_valid_triads(self):
+    """WS2-04: Passing >= 3 non-triad metrics raises ValueError citing PF-7 instead of slicing [:2]; valid 3-metric sibling triads route to triad."""
+    from scripts.ueba_hybrid_engine import compile_hunt_plan
+
+    # 1. Heterogeneous >= 3 metrics with default architecture must raise ValueError (never slice [:2])
+    for bad_metrics in (
+        ["auth_attempts_fail", "network_bytes_outbound", "dns_queries_total"],
+        "auth_attempts_fail,http_queries_fail,dns_queries_fail",
+        ["auth_attempts_fail", "network_bytes_outbound", "dns_queries_total", "http_queries_total"],
+    ):
+      with self.subTest(bad_metrics=bad_metrics, arch="single_metric"):
+        with self.assertRaises(ValueError) as ctx:
+          compile_hunt_plan(
+              metrics=bad_metrics,
+              entity_type="ASSET",
+              entity_value="wkst-01",
+          )
+        err = str(ctx.exception)
+        self.assertIn("2 UDM", err)
+        self.assertIn("PF-7", err)
+        self.assertIn("360_radar", err)
+
+    # 2. Explicit fusion architectures with >= 3 metrics must also raise ValueError (never slice [:2])
+    for fusion_arch in (
+        "sector_fusion",
+        "dual_sector_fusion_3stage",
+        "multi_sector_fusion_4stage",
+        "fusion_rare_destination",
+    ):
+      with self.subTest(arch=fusion_arch):
+        with self.assertRaises(ValueError) as ctx_f:
+          compile_hunt_plan(
+              architecture=fusion_arch,
+              metrics=["auth_attempts_total", "http_queries_total", "dns_queries_total"],
+              entity_type="ASSET",
+          )
+        self.assertIn("PF-7", str(ctx_f.exception))
+        self.assertIn("360_radar", str(ctx_f.exception))
+
+    # 3. Valid 3-metric sibling triads with default single_metric auto-route cleanly to PART_OF_THE_WHOLE_TRIAD_MULTILEVEL
+    res_auth_triad = compile_hunt_plan(
+        metrics=["auth_attempts_total", "auth_attempts_fail", "auth_attempts_success"],
+        entity_type="USER",
+        entity_value="charles.hardy",
+    )
+    self.assertEqual(res_auth_triad["status"], "COMPILED")
+    self.assertEqual(
+        res_auth_triad["architecture"],
+        PipelineArchitecture.PART_OF_THE_WHOLE_TRIAD_MULTILEVEL.value,
+    )
+    self.assertTrue(res_auth_triad["ast_valid"], msg=res_auth_triad["ast_errors"])
+    for m_name in ("auth_attempts_total", "auth_attempts_fail", "auth_attempts_success"):
+      self.assertIn(f"metrics.{m_name}", res_auth_triad["compiled_query"])
+
+    res_net_triad = compile_hunt_plan(
+        metrics="network_bytes_outbound,network_bytes_inbound,network_bytes_total",
+        entity_type="ASSET",
+        entity_value="srv-prod-01",
+    )
+    self.assertEqual(
+        res_net_triad["architecture"],
+        PipelineArchitecture.PART_OF_THE_WHOLE_TRIAD_MULTILEVEL.value,
+    )
+    self.assertTrue(res_net_triad["ast_valid"], msg=res_net_triad["ast_errors"])
+
+    # 4. Passing >= 4 metrics even with architecture="triad" must raise ValueError (never slice [:3])
+    with self.assertRaises(ValueError):
+      compile_hunt_plan(
+          architecture="triad",
+          metrics=[
+              "network_bytes_outbound",
+              "network_bytes_inbound",
+              "network_bytes_total",
+              "network_flows_total",
+          ],
+          entity_type="ASSET",
+      )
+
+  def test_ws3_d1_retired_and_merged_models_and_linear_above_max_z(self):
+    """WS3-D1: Retires FLEET_PREVALENCE_SHIELD & PIECEWISE_CRI, merges ASYMMETRIC_DIRECTIONAL_Z into STANDARD_Z_SCORE, and linearizes Above-Historical-Max Z."""
+    from scripts.ueba_hybrid_engine import (
+        SECTOR_HYBRID_MODELS,
+        calculate_macd_momentum,
+        compile_hunt_plan,
+        resolve_statistical_model,
+    )
+
+    for shield_alias in ("FLEET_PREVALENCE_SHIELD", "PATCH_TUESDAY_SHIELD", "PREVALENCE_SHIELD", "patch_tuesday_shield"):
+      with self.subTest(shield_alias=shield_alias):
+        with self.assertRaisesRegex(ValueError, r"retired \(D1\).*hybrid_metric_fleet_prevalence_2stage"):
+          resolve_statistical_model(shield_alias)
+        with self.assertRaisesRegex(ValueError, r"retired \(D1\).*hybrid_metric_fleet_prevalence_2stage"):
+          compile_hunt_pipeline(statistical_model=shield_alias, metrics="auth_attempts_total", entity_type="USER")
+
+    for cri_alias in ("PIECEWISE_CRI", "CRI", "CALIBRATED_RISK_INDEX", "SIGMOID_CRI", "cri"):
+      with self.subTest(cri_alias=cri_alias):
+        with self.assertRaisesRegex(ValueError, r"retired \(D1\).*calculate_cri"):
+          resolve_statistical_model(cri_alias)
+        with self.assertRaisesRegex(ValueError, r"retired \(D1\).*calculate_cri"):
+          compile_hunt_pipeline(statistical_model=cri_alias, metrics="auth_attempts_total", entity_type="USER")
+
+    # ASYMMETRIC_DIRECTIONAL_Z maps cleanly to STANDARD_Z_SCORE with advisory; separate ASYMMETRIC_Z / DIRECTIONAL_Z aliases are removed
+    self.assertEqual(resolve_statistical_model("ASYMMETRIC_DIRECTIONAL_Z"), StatisticalModel.STANDARD_Z_SCORE)
+    res_asym = compile_hunt_pipeline(
+        statistical_model="ASYMMETRIC_DIRECTIONAL_Z",
+        metrics="auth_attempts_total",
+        entity_type="USER",
+    )
+    self.assertEqual(res_asym["statistical_model"], StatisticalModel.STANDARD_Z_SCORE.value)
+    self.assertTrue(any("merged into STANDARD_Z_SCORE" in a for a in res_asym.get("advisories", [])))
+    self.assertIn("$personal_z", res_asym["compiled_query"])
+    self.assertNotIn("$upper_tail_z", res_asym["compiled_query"])
+
+    for removed_alias in ("ASYMMETRIC_Z", "DIRECTIONAL_Z", "asymmetric_z"):
+      with self.subTest(removed_alias=removed_alias):
+        with self.assertRaisesRegex(ValueError, "STANDARD_Z_SCORE"):
+          resolve_statistical_model(removed_alias)
+
+    # SECTOR_HYBRID_MODELS must not contain retired or merged models
+    for sector_name, models in SECTOR_HYBRID_MODELS.items():
+      for forbidden in ("fleet_prevalence_shield", "piecewise_cri", "asymmetric_directional_z"):
+        self.assertNotIn(forbidden, models, f"Sector {sector_name} still references {forbidden}")
+
+    # Linear Above-Historical-Max Z: fixes dropped personal_z + term and prevents byte quadratic overflow
+    # Sub-peak surge: obs=150, avg=100, std=10, hmax=200 -> personal_z=5.0, above_max_z=0.0 -> 5.0
+    self.assertAlmostEqual(calculate_macd_momentum(150.0, 100.0, 10.0, 200.0), 5.0, places=4)
+    # Peak breakout: obs=250, avg=100, std=10, hmax=200 -> personal_z=15.0, above_max_z=5.0 -> 20.0 (monotone > 10.0 at obs=200!)
+    self.assertAlmostEqual(calculate_macd_momentum(200.0, 100.0, 10.0, 200.0), 10.0, places=4)
+    self.assertAlmostEqual(calculate_macd_momentum(250.0, 100.0, 10.0, 200.0), 20.0, places=4)
+    # 10 GB egress breakout (10e9 vs avg=1e9, std=5e8, hmax=2e9): personal_z=18.0, above_max_z=16.0 -> linear 34.0 (NOT quadratic 90.0!)
+    self.assertAlmostEqual(
+        calculate_macd_momentum(10_000_000_000.0, 1_000_000_000.0, 500_000_000.0, 2_000_000_000.0, dispersion_floor=1.0),
+        34.0,
+        places=4,
+    )
 
 
 if __name__ == "__main__":

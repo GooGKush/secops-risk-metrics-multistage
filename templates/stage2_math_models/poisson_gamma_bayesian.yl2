@@ -1,5 +1,5 @@
-// Domain note: count-based model (metric: event_count_sum); do not apply to byte-volume metrics (value_sum) where variance scales quadratically.
-// Root Stage: Poisson-Gamma Bayesian Conjugate Updating & Credibility Shrinkage
+// Domain note: Empirical Bayes Gamma(alpha0, beta0) fleet prior with Negative-Binomial posterior-predictive residual Z (WS3-BAYES).
+// Root Stage: Empirical Bayes Poisson-Gamma Conjugate Updating & NB Predictive Residual Z
 $entity = $stage1_extract.entity
 $ws = $stage1_extract.window_start
 
@@ -7,39 +7,36 @@ match:
   $entity, $ws by 1d
 
 outcome:
-  $observed_24h = max($stage1_extract.observed_val)
-  $avg_30d = max($stage1_extract.historical_avg)
-  $stddev_30d = max($stage1_extract.historical_stddev)
+  $observed = max($stage1_extract.observed_val)
+  $hist_sum = max($stage1_extract.historical_sum)
+  $hist_avg = max($stage1_extract.historical_avg)
+  $hist_stddev = max($stage1_extract.historical_stddev)
   $active_days = max($stage1_extract.historical_active_days)
-  $max_30d = max($stage1_extract.historical_max)
 
-  // 1. Method of Moments: Gamma Prior Hyperparameters (alpha_0, beta_0)
-  $variance_raw = math.pow($stddev_30d, 2)
-  $safe_variance = if($variance_raw > 0, $variance_raw, 1.0)
-  $beta_prior = $avg_30d / $safe_variance
-  $alpha_prior = $avg_30d * $beta_prior
+  // 1. Rebuilt 30-day calendar rate & extra-Poisson dispersion (PF-1, B-E10, WS1-05)
+  $mu_cal = $hist_sum / 30.0
+  $df_minus_one = if($active_days > 1, $active_days, 1) - 1
+  $sum_x2 = ($df_minus_one * $hist_stddev * $hist_stddev) + ($active_days * $hist_avg * $hist_avg)
+  $raw_var_cal = ($sum_x2 / 30.0) - ($mu_cal * $mu_cal)
+  $var_cal = if($raw_var_cal > 0.0, $raw_var_cal, 0.0)
+  $raw_excess_var = $var_cal - $mu_cal
+  $excess_var = if($active_days >= 2 and $raw_excess_var > 0.0, $raw_excess_var, 0.0)
 
-  // 2. Conjugate Posterior Updating with 24h Evidence (k = observed_24h, t = 1)
-  $alpha_post = $alpha_prior + $observed_24h
-  $beta_post = $beta_prior + 1.0
+  // 2. Fleet Empirical Bayes Gamma(alpha0, beta0) Posterior Rate over 30-Day Baseline
+  $post_alpha_pre = {{prior_alpha0}} + $hist_sum
+  $post_beta_pre = {{prior_beta0}} + 30.0
+  $posterior_rate = $post_alpha_pre / $post_beta_pre
+  $post_rate_var = $post_alpha_pre / ($post_beta_pre * $post_beta_pre)
 
-  // 3. Posterior Expected Arrival Rate (Bayesian Shrinkage Mean)
-  $posterior_mean = $alpha_post / $beta_post
-
-  // 4. Credibility & Evidence Weighting
-  $prior_weight = $beta_prior / $beta_post
-  $evidence_weight = 1.0 / $beta_post
-
-  // 5. Standard Parametric Z-Score & Bayesian Belief Shift Ratio
-  $diff = $observed_24h - $avg_30d
-  $safe_stddev = if($stddev_30d > 0, $stddev_30d, 1.0)
-  $z_score = $diff / $safe_stddev
-  $safe_avg = if($avg_30d > 0, $avg_30d, 1.0)
-  $bayes_shift_ratio = $posterior_mean / $safe_avg
+  // 3. Posterior-Predictive Negative-Binomial Residual Z (no double-counting of mu)
+  $cred_w = $active_days / ($active_days + {{prior_beta0}})
+  $pred_var = $posterior_rate + $post_rate_var + ($cred_w * $excess_var)
+  $safe_pred_sd = math.sqrt(if($pred_var > 1.0, $pred_var, 1.0))
+  $bayesian_z = ($observed - $posterior_rate) / $safe_pred_sd
 
 // Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
 condition:
-  $bayes_shift_ratio >= {{fold_change_threshold}}
+  $bayesian_z >= {{anomaly_threshold}}
 
 order:
-  $bayes_shift_ratio desc
+  $bayesian_z desc

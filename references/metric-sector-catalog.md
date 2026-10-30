@@ -49,8 +49,12 @@ elsewhere still fails if the combined set is not listed. Example: `auth_attempts
    most one sector per query may be a roll-up. Its Z is the largest per-key Z for the entity (per binary,
    product or rule), not a Z of the entity's total volume: no entity-only baseline exists. Add an
    `// ADVISORY:` line saying so. Its entity must be the only entity dimension of one listed roll-up set.
-5. Two metrics of the same family (e.g. `auth_attempts_fail` + `auth_attempts_total`) are allowed but
-   correlated; add an `// ADVISORY:` line to the query header saying so.
+5. **Inter-sector correlation (`WS7-03`).** Fusion carries no covariance matrix, so false-positive rates
+   depend on how correlated the sectors are: same-family pairs (e.g. `auth_attempts_fail` +
+   `auth_attempts_total`) and coupled network planes (`network_bytes_*` + `dns_queries_*` + `http_queries_*`)
+   exceed independent $\chi^2_k$ tail rates; add an `// ADVISORY:` line to the query header saying so.
+   In roll-up fusion, `sqrt(2 * ln(K_eff))` approximates the Gaussian expected maximum across active
+   sub-keys — it is not a Bonferroni correction.
 6. `email_addresses`, `ip` and `mac` are repeated fields: one event can fan out to several entities.
 7. **Identifier coverage (probe first).** A field valid in the config can still be empty in a sector's
    data. Make the pre-flight probe do this check: probe the sector most likely to lack the field with
@@ -166,10 +170,11 @@ elsewhere still fails if the combined set is not listed. Example: `auth_attempts
 ### `metrics.dns_bytes_outbound`
 
 * **Family**: dns
-* **Baseline counts**: sent_bytes != 0 and ((ip_protocol = UDP and target.port = 53) or (ip_protocol = TCP and target.port in (53, 3000))); no event_type filter
+* **Baseline counts**: sent_bytes != 0 and sent_bytes < 1e15 and ((ip_protocol = UDP and target.port = 53) or (ip_protocol = TCP and target.port in (53, 3000))); no event_type filter
 * **Observed event filter**:
   ```yara
   network.sent_bytes > 0
+  network.sent_bytes < 1000000000000000
   ((network.ip_protocol = "UDP" and target.port = 53) or (network.ip_protocol = "TCP" and (target.port = 53 or target.port = 3000)))
   ```
 * **Observed value**: `sum(network.sent_bytes)`
@@ -397,12 +402,12 @@ elsewhere still fails if the combined set is not listed. Example: `auth_attempts
 ### `metrics.network_bytes_total`
 
 * **Family**: network
-* **Baseline counts**: (received_bytes in (0, 1e15)) or (sent_bytes in (0, 1e15)); value = sent + received; no event_type filter
+* **Baseline counts**: (received_bytes in (0, 1e15)) or (sent_bytes in (0, 1e15)); value = clamped_sent + clamped_received; no event_type filter
 * **Observed event filter**:
   ```yara
   ((network.sent_bytes > 0 and network.sent_bytes < 1000000000000000) or (network.received_bytes > 0 and network.received_bytes < 1000000000000000))
   ```
-* **Observed value**: `sum(network.sent_bytes) + sum(network.received_bytes)`
+* **Observed value**: `sum(if(network.sent_bytes > 0 and network.sent_bytes < 1000000000000000, 1.0, 0.0) * network.sent_bytes) + sum(if(network.received_bytes > 0 and network.received_bytes < 1000000000000000, 1.0, 0.0) * network.received_bytes)`
 * **Metric arg**: `metric: value_sum`
 * **Entity identifier fields** (valid alone):
   * PRINCIPAL_DEVICE (device): `principal.asset.product_object_id`, `principal.asset.ip`, `principal.asset.mac`, `principal.asset.asset_id`, `principal.asset.hostname`
@@ -864,28 +869,30 @@ elsewhere still fails if the combined set is not listed. Example: `auth_attempts
 ### `metrics.workspace_emails_sent_total`
 
 * **Family**: workspace
-* **Baseline counts**: network message present (sent_bytes is not null) and product_name in ('GMAIL', 'gmail') (case-sensitive); no event_type filter
+* **Baseline counts**: network message present (sent_bytes > 0) and product_name matches Gmail case-insensitively; no event_type filter
 * **Observed event filter**:
   ```yara
-  (metadata.product_name = "GMAIL" or metadata.product_name = "gmail")
+  re.regex(metadata.product_name, `(?i)^gmail$`)
+  network.sent_bytes > 0
   ```
 * **Observed value**: `count(metadata.id)`
 * **Metric arg**: `metric: event_count_sum`
 * **Entity identifier fields** (valid alone):
   * PRINCIPAL_USER (user): `principal.user.product_object_id`, `principal.user.email_addresses`, `principal.user.userid`, `principal.user.windows_sid`, `principal.user.employee_id`
 * **Other valid dimension sets**: PRINCIPAL_USER + SECURITY_RULE_ID; PRINCIPAL_APPLICATION + PRINCIPAL_IP + PRINCIPAL_USER; PRINCIPAL_IP + PRINCIPAL_USER; PRINCIPAL_IP + PRINCIPAL_USER + TARGET_IP; PRINCIPAL_USER + TARGET_IP; EMAIL_FROM_ADDRESS + EMAIL_TO_ADDRESS; MAIL_ID + PRINCIPAL_USER; PRINCIPAL_APPLICATION + PRINCIPAL_USER
-* **Note**: The product_name match is case-sensitive in the baseline: gus-sdl logs 'Gmail', which the baseline does not count.
-* **Note**: The 'network message present' condition cannot be expressed in YARA-L and is not applied.
+* **Note**: Case-insensitive Gmail regex covers 'GMAIL', 'gmail', and 'Gmail' logs; network.sent_bytes > 0 excludes empty-network / inbound-only rows.
 
 ### `metrics.workspace_network_bytes_outbound`
 
 * **Family**: workspace
-* **Baseline counts**: network message present and product_name in ('GMAIL', 'gmail'); value = sent_bytes
+* **Baseline counts**: network message present (sent_bytes in (0, 1e15)) and product_name matches Gmail case-insensitively; value = sent_bytes
 * **Observed event filter**:
   ```yara
-  (metadata.product_name = "GMAIL" or metadata.product_name = "gmail")
+  re.regex(metadata.product_name, `(?i)^gmail$`)
+  network.sent_bytes > 0
+  network.sent_bytes < 1000000000000000
   ```
-* **Observed value**: `sum(network.sent_bytes)`
+* **Observed value**: `sum(if(network.sent_bytes > 0 and network.sent_bytes < 1000000000000000, 1.0, 0.0) * network.sent_bytes)`
 * **Metric arg**: `metric: value_sum`
 * **Entity identifier fields** (valid alone):
   * PRINCIPAL_USER (user): `principal.user.product_object_id`, `principal.user.email_addresses`, `principal.user.userid`, `principal.user.windows_sid`, `principal.user.employee_id`
@@ -894,12 +901,13 @@ elsewhere still fails if the combined set is not listed. Example: `auth_attempts
 ### `metrics.workspace_network_bytes_total`
 
 * **Family**: workspace
-* **Baseline counts**: network message present and product_name in ('GMAIL', 'gmail'); value = sent + received
+* **Baseline counts**: network message present ((sent_bytes in (0, 1e15)) or (received_bytes in (0, 1e15))) and product_name matches Gmail case-insensitively; value = clamped_sent + clamped_received
 * **Observed event filter**:
   ```yara
-  (metadata.product_name = "GMAIL" or metadata.product_name = "gmail")
+  re.regex(metadata.product_name, `(?i)^gmail$`)
+  ((network.sent_bytes > 0 and network.sent_bytes < 1000000000000000) or (network.received_bytes > 0 and network.received_bytes < 1000000000000000))
   ```
-* **Observed value**: `sum(network.sent_bytes) + sum(network.received_bytes)`
+* **Observed value**: `sum(if(network.sent_bytes > 0 and network.sent_bytes < 1000000000000000, 1.0, 0.0) * network.sent_bytes) + sum(if(network.received_bytes > 0 and network.received_bytes < 1000000000000000, 1.0, 0.0) * network.received_bytes)`
 * **Metric arg**: `metric: value_sum`
 * **Entity identifier fields** (valid alone):
   * PRINCIPAL_USER (user): `principal.user.product_object_id`, `principal.user.email_addresses`, `principal.user.userid`, `principal.user.windows_sid`, `principal.user.employee_id`
@@ -945,8 +953,9 @@ it would just recompute the fleet, so delete them and rank by `$d_vs_fleet_sq`. 
 peers without naming them ("vs his team"), resolve the team with the AD TEAM LOOKUP
 (`references/multi-stage-metrics-guide.md`, Peer group rule) and ask for the roster only if AD has no
 team; never drop the comparison. With a
-peer group the template also scores the group as a whole against the fleet (`$z*_team_vs_enterprise`,
-`$d_team_vs_fleet_sq`). Because one stage carries all three metrics:
+peer group `team_cohort_stats` stays decoupled from `enterprise_stats` so the 4-stage triad pipeline
+remains within Chronicle's `maxJoinCount = 4` ceiling (`$d_vs_team_sq` + `$d_vs_fleet_sq`). Because one
+stage carries all three metrics:
 
 1. **One entity field for all three.** It must be valid alone for every metric (listed per triad).
    Bind it once: `<entity field> = $user` (or `$host`) in the stage and `<entity field>: <entity field>` in all
@@ -964,11 +973,12 @@ peer group the template also scores the group as a whole against the fleet (`$z*
    have no entity-only baseline. For process execution use a per-(host, hash) pipeline or a roll-up
    sector. Do not mix families into a triad (e.g. `dns_bytes_outbound` with DNS query counts: it counts
    port-53 traffic, not DNS messages); use a sector fusion instead.
-5. **Math (as the template computes it).** Per metric: $Z_{personal}$ and $Z_{vs\_enterprise}$ (plus
-   $Z_{vs\_team}$ with a peer group). Composite: $D_{vs\_fleet}^2 = \sum_{m=1}^{3} Z_{vs\_enterprise,m}^2$
-   ($D_{vs\_team}^2$ likewise with a peer group). The terms are **two-sided**, so a collapse (e.g.
-   success drops while fail rises) also raises $D$. To score surges only, rectify each term in the root
-   outcome: `$z1_sq = if($z1_vs_enterprise > 0, $z1_vs_enterprise * $z1_vs_enterprise, 0)`.
+5. **Math (as the template computes it).** Per metric: $Z_{personal}$ and leave-one-out $Z_{vs\_enterprise}$
+   (plus leave-one-out $Z_{vs\_team}$ with a peer group; human user cohorts exclude `SYSTEM`,
+   `LOCAL SERVICE`, `NETWORK SERVICE`, and trailing-`$` machine accounts). Composite:
+   $D_{vs\_fleet}^2 = \sum_{m=1}^{3} \max(0, Z_{vs\_enterprise,m})^2$ ($D_{vs\_team}^2$ likewise with a
+   peer group). Each term is **upper-tail rectified** (`if($z > 0.0, $z, 0.0)`) before squaring so quiet
+   peers with negative Z-scores never outrank surging outliers.
 6. Byte triads observe `sum(network.sent_bytes)` / `sum(network.received_bytes)` over the union of
    rows; the per-metric `< 1000000000000000` guard is not applied per metric, so a single corrupt
    row (>= 1e15 bytes) can inflate one observed value.
@@ -1021,7 +1031,7 @@ peer group the template also scores the group as a whole against the fleet (`$z*
   ((network.sent_bytes > 0 and network.sent_bytes < 1000000000000000) or (network.received_bytes > 0 and network.received_bytes < 1000000000000000))
   ```
 * **Observed values**:
-  * `m1_observation_agg` (network_bytes_total): `sum(network.sent_bytes) + sum(network.received_bytes)`; metric arg `metric: value_sum`
+  * `m1_observation_agg` (network_bytes_total): `sum(if(network.sent_bytes > 0 and network.sent_bytes < 1000000000000000, 1.0, 0.0) * network.sent_bytes) + sum(if(network.received_bytes > 0 and network.received_bytes < 1000000000000000, 1.0, 0.0) * network.received_bytes)`; metric arg `metric: value_sum`
   * `m2_observation_agg` (network_bytes_outbound): `sum(network.sent_bytes)`; metric arg `metric: value_sum`
   * `m3_observation_agg` (network_bytes_inbound): `sum(network.received_bytes)`; metric arg `metric: value_sum`
 
@@ -1057,19 +1067,21 @@ peer group the template also scores the group as a whole against the fleet (`$z*
 * **Entity dimensions valid for all three**: PRINCIPAL_USER (user, default `principal.user.userid`). Any field of the chosen dimension works (see *Dimension → UDM fields*).
 * **Stage event filter** (`event_filter` slot):
   ```yara
-  (metadata.product_name = "GMAIL" or metadata.product_name = "gmail")
+  re.regex(metadata.product_name, `(?i)^gmail$`)
+  ((((network.sent_bytes > 0 and network.sent_bytes < 1000000000000000) or (network.received_bytes > 0 and network.received_bytes < 1000000000000000))) or (network.sent_bytes > 0 and network.sent_bytes < 1000000000000000) or (network.sent_bytes > 0))
   ```
 * **Observed values**:
-  * `m1_observation_agg` (workspace_network_bytes_total): `sum(network.sent_bytes) + sum(network.received_bytes)`; metric arg `metric: value_sum`
-  * `m2_observation_agg` (workspace_network_bytes_outbound): `sum(network.sent_bytes)`; metric arg `metric: value_sum`
-  * `m3_observation_agg` (workspace_emails_sent_total): `count(metadata.id)`; metric arg `metric: event_count_sum`
+  * `m1_observation_agg` (workspace_network_bytes_total): `sum(if(network.sent_bytes > 0 and network.sent_bytes < 1000000000000000, 1.0, 0.0) * network.sent_bytes) + sum(if(network.received_bytes > 0 and network.received_bytes < 1000000000000000, 1.0, 0.0) * network.received_bytes)`; metric arg `metric: value_sum`
+  * `m2_observation_agg` (workspace_network_bytes_outbound): `sum(if(network.sent_bytes > 0 and network.sent_bytes < 1000000000000000, 1.0, 0.0) * network.sent_bytes)`; metric arg `metric: value_sum`
+  * `m3_observation_agg` (workspace_emails_sent_total): `sum(if(network.sent_bytes > 0, 1, 0))`; metric arg `metric: event_count_sum`
 
 ## Entity Graph filters (`DERIVED_CONTEXT`)
 
 A graph stage narrows a metric hunt to rare entities. It is an inner join, so it is a **filter**:
 entities without a graph record drop out (absent is not the same as rare). It does not count against
-the two-UDM-stage limit. Freshness: in Mode A start the search window two days back at 00:00Z and put
-`timestamp.get_date(metadata.event_timestamp.seconds) = "<today, YYYY-MM-DD>"` (UTC) in every event stage
+the two-UDM-stage limit. Freshness: in Mode A start the search window at the scored UTC day minus 2 at `00:00:00Z`
+(`endTime` = `today 00:00:00Z` by default, or `now` in explicit `"Today So Far"` / `--today-so-far`) and put
+`timestamp.get_date(metadata.event_timestamp.seconds) = "<scored UTC day, YYYY-MM-DD>"` in every event stage
 (`references/entity-context-graph-guide.md`, Rule 5).
 
 | Rare entity | Graph stage predicates | Event join field(s) |

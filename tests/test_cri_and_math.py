@@ -1,18 +1,17 @@
 """Unit tests for statistical math formulations and Calibrated Risk Index (CRI)."""
 
 import math
+import os
+import sys
 import unittest
 
+REPO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if REPO_DIR not in sys.path:
+  sys.path.insert(0, REPO_DIR)
 
-def calculate_cri(z_score: float) -> int:
-  """Calibrated Risk Index logistic sigmoid function [0-100].
-
-  Mirrors scripts/radar_collector.py: the score is clamped at zero, then passed
-  through the sigmoid. The sigmoid never reaches 0, so a fully nominal entity
-  floors at CRI = 14 rather than 0. Short-circuiting non-positive scores to 0
-  would introduce a 15-point cliff between S = 0.0 and S = 0.05.
-  """
-  return round(100.0 / (1.0 + math.exp(-0.6 * (max(0.0, z_score) - 3.0))))
+from scripts.preflight_validator import EntityType, PipelineArchitecture, StatisticalModel
+from scripts.template_router import MultiStageTemplateRouter
+from scripts.ueba_constants import calculate_cri
 
 
 def calculate_cusum_drift(daily_z_scores: list[float], slack: float = 0.5) -> list[float]:
@@ -30,59 +29,63 @@ def calculate_z_score(observed: float, mean: float, stddev: float, std_floor: fl
   return (observed - mean) / safe_std
 
 
-def calculate_two_part_hurdle(observed: float, mean: float, stddev: float, active_days: int) -> float:
-  """Two-part hurdle model: dormant awakening penalty vs continuous intensity."""
-  if active_days <= 2:
-    return observed * 2.0
-  safe_std = stddev if stddev > 0 else 1.0
-  return (observed - mean) / safe_std
+def calculate_two_part_hurdle(
+    observed: float,
+    mean: float,
+    stddev: float,
+    active_days: int,
+    hist_max: float = 0.0,
+    min_baseline_days: int = 7,
+    min_awakening_volume: float = 25.0,
+) -> float:
+  """Evaluates remediated two_part_hurdle.yl2: dormant breakout (< min_baseline_days) vs mature rectified Z."""
+  if active_days < min_baseline_days:
+    if observed >= min_awakening_volume and observed > hist_max:
+      denom = max(hist_max, min_awakening_volume)
+      awakening_ratio = max(1.0, observed / denom)
+      return 3.0 + math.log(awakening_ratio)
+    return 0.0
+  dispersion_floor = math.sqrt(max(mean, 1.0))
+  safe_std = max(stddev, dispersion_floor)
+  return max(0.0, (observed - mean) / safe_std)
 
 
 def calculate_asymmetric_z(observed: float, mean: float, stddev: float) -> float:
-  """Asymmetric directional Z-score with ReLU activation."""
-  diff = observed - mean
-  excess = diff if diff > 0 else 0.0
-  safe_std = stddev if stddev > 0 else 1.0
+  """Asymmetric directional Z-score (D1 upper-tail equivalence with STANDARD_Z_SCORE + D8 floor)."""
+  excess = max(0.0, observed - mean)
+  dispersion_floor = math.sqrt(max(mean, 1.0))
+  safe_std = max(stddev, dispersion_floor)
   return excess / safe_std
 
 
-def calculate_piecewise_cri(z_score: float) -> float:
-  """Winsorized Z-score and piecewise linear CRI mapping [0-100]."""
-  clamped_low = -4.0 if z_score < -4.0 else z_score
-  clamped_z = 6.0 if clamped_low > 6.0 else clamped_low
-  if clamped_z >= 4.0:
-    return 95.0
-  elif clamped_z >= 3.0:
-    return 85.0
-  elif clamped_z >= 2.0:
-    return 65.0
-  elif clamped_z >= 1.0:
-    return 40.0
-  return 15.0
-
-
-def calculate_fleet_shield(z_score: float, fleet_count: int) -> float:
-  """Fleet prevalence concurrency discounting."""
-  factor = 0.15 if fleet_count > 10 else 1.0
-  return z_score * factor
-
-
-def calculate_adaptive_excess(z_score: float, active_days: int) -> float:
-  """Context-modulated adaptive sensitivity tightening."""
-  dynamic_threshold = 1.75 if active_days <= 5 else 3.00
-  return z_score - dynamic_threshold
+def calculate_adaptive_z(
+    observed: float,
+    mean: float,
+    stddev: float,
+    off_hours_obs: float,
+    active_days: int = 10,
+    min_baseline_days: int = 7,
+) -> float:
+  """Evaluates remediated adaptive_context_threshold.yl2 schedule-modulated Z."""
+  if active_days < min_baseline_days:
+    return 0.0
+  safe_obs = max(observed, 1.0)
+  off_hours_share = off_hours_obs / safe_obs
+  dispersion_floor = math.sqrt(max(mean, 1.0))
+  safe_std = max(stddev, dispersion_floor)
+  personal_z = (observed - mean) / safe_std
+  effective_gate = 1.75 if off_hours_share >= 0.5 else 3.00
+  return personal_z * 3.0 / effective_gate
 
 
 class TestStatisticalModels(unittest.TestCase):
 
   def test_cri_nominal_baseline(self):
-    """Zero or negative deviations clamp to S = 0 and yield the nominal floor CRI = 14."""
-    self.assertEqual(calculate_cri(0.0), 14)
-    self.assertEqual(calculate_cri(-1.5), 14)
-
-    # No cliff at the origin: a hair above zero must not jump by more than a point.
-    # A short-circuit to CRI = 0 would make this delta 15.
-    self.assertLessEqual(abs(calculate_cri(0.05) - calculate_cri(0.0)), 1)
+    """WS7-01 / D5: Zero or negative deviations yield CRI = 0; missing/NaN inputs return None."""
+    self.assertEqual(calculate_cri(0.0), 0)
+    self.assertEqual(calculate_cri(-1.5), 0)
+    self.assertIsNone(calculate_cri(None))
+    self.assertIsNone(calculate_cri(float("nan")))
 
   def test_cri_medium_outlier_boundary(self):
     """Z = 3.0σ must strictly map to CRI = 50 (Medium Outlier boundary)."""
@@ -116,48 +119,74 @@ class TestStatisticalModels(unittest.TestCase):
     self.assertEqual(stealth_drift, [1.0, 2.0, 3.0, 4.0])
 
   def test_two_part_hurdle_logic(self):
-    """Dormant accounts (active <= 2) trigger dormant multiplier; active accounts evaluate Z."""
-    # Dormant account awakening with 5 actions
-    dormant_score = calculate_two_part_hurdle(observed=5.0, mean=0.1, stddev=0.2, active_days=1)
-    self.assertEqual(dormant_score, 10.0)
+    """Dormant accounts (< 7 active days) require genuine breakout above min_awakening_volume and hist_max; mature accounts evaluate rectified Z."""
+    # Sub-hurdle dormant noise (5 actions < 25 min_awakening_volume) is suppressed to 0.0
+    self.assertEqual(calculate_two_part_hurdle(observed=5.0, mean=0.1, stddev=0.2, active_days=1, hist_max=1.0), 0.0)
 
-    # Active account with 20 active days
-    active_score = calculate_two_part_hurdle(observed=50.0, mean=20.0, stddev=10.0, active_days=20)
+    # Genuine dormant breakout (50 actions >= 25 and > hist_max=10): 3.0 + ln(50 / 25) = 3.0 + ln(2)
+    dormant_score = calculate_two_part_hurdle(observed=50.0, mean=5.0, stddev=2.0, active_days=2, hist_max=10.0)
+    self.assertAlmostEqual(dormant_score, 3.0 + math.log(2.0), places=9)
+
+    # Mature account with 20 active days (mean=20, stddev=10, obs=50) -> Z = 3.0
+    active_score = calculate_two_part_hurdle(observed=50.0, mean=20.0, stddev=10.0, active_days=20, hist_max=40.0)
     self.assertEqual(active_score, 3.0)
 
   def test_asymmetric_directional_z_relu(self):
-    """Drops below baseline mean must be zeroed out; surges must produce positive Z."""
+    """Drops below baseline mean must be zeroed out; surges apply D8 floor sqrt(max(mean, 1.0)) and match STANDARD_Z_SCORE."""
     # Surge: 50 observed vs 20 mean, stddev 10 -> Z = 3.0
     self.assertEqual(calculate_asymmetric_z(observed=50.0, mean=20.0, stddev=10.0), 3.0)
+
+    # Constant positive baseline (mean=25, stddev=0): D8 floor sqrt(25) = 5.0 -> (40 - 25) / 5.0 = 3.0
+    self.assertEqual(calculate_asymmetric_z(observed=40.0, mean=25.0, stddev=0.0), 3.0)
 
     # Quiescence / Drop: 5 observed vs 20 mean, stddev 10 -> excess = 0.0
     self.assertEqual(calculate_asymmetric_z(observed=5.0, mean=20.0, stddev=10.0), 0.0)
 
   def test_piecewise_cri_tier_mapping(self):
-    """Winsorized clamping and step function tiering across boundaries."""
-    self.assertEqual(calculate_piecewise_cri(0.5), 15.0)   # Nominal
-    self.assertEqual(calculate_piecewise_cri(1.5), 40.0)   # Guarded
-    self.assertEqual(calculate_piecewise_cri(2.5), 65.0)   # Elevated
-    self.assertEqual(calculate_piecewise_cri(3.5), 85.0)   # High
-    self.assertEqual(calculate_piecewise_cri(5.5), 95.0)   # Critical
-    self.assertEqual(calculate_piecewise_cri(150.0), 95.0) # Clamped at 6.0 -> 95.0
-    self.assertEqual(calculate_piecewise_cri(-10.0), 15.0) # Clamped at -4.0 -> 15.0
+    """WS7-01 / WS2-02: PIECEWISE_CRI YARA-L model is retired in favor of monotonic ueba_constants.calculate_cri."""
+    router = MultiStageTemplateRouter()
+    with self.assertRaisesRegex(ValueError, r"retired.*calculate_cri"):
+      router.build_query(
+          target_metric="http_queries_total",
+          entity_type=EntityType.ASSET,
+          statistical_model=StatisticalModel.PIECEWISE_CRI,
+      )
+    self.assertEqual(calculate_cri(-10.0), 0)
+    self.assertLess(calculate_cri(1.5), 50)
+    self.assertEqual(calculate_cri(3.0), 50)
+    self.assertGreater(calculate_cri(4.5), 65)
+    self.assertGreaterEqual(calculate_cri(6.0), 84)
+    self.assertEqual(calculate_cri(150.0), 100)
 
   def test_fleet_prevalence_discounting(self):
-    """Isolated host spikes retain full score; mass spikes (>10 hosts) are discounted by 85%."""
-    # Isolated spike (2 hosts)
-    self.assertEqual(calculate_fleet_shield(z_score=4.0, fleet_count=2), 4.0)
-
-    # Enterprise mass spike (50 hosts) -> 4.0 * 0.15 = 0.60
-    self.assertAlmostEqual(calculate_fleet_shield(z_score=4.0, fleet_count=50), 0.60)
+    """WS4-02 / D1: FLEET_PREVALENCE_SHIELD is retired; real cross-entity adopter gates suppress mass rollouts."""
+    router = MultiStageTemplateRouter()
+    with self.assertRaisesRegex(ValueError, r"retired.*hybrid_metric_fleet_prevalence_2stage"):
+      router.build_query(
+          target_metric="http_queries_total",
+          entity_type=EntityType.ASSET,
+          statistical_model=StatisticalModel.FLEET_PREVALENCE_SHIELD,
+      )
+    q_ua = router.build_pipeline_query(
+        pipeline_type=PipelineArchitecture.HYBRID_METRIC_HTTP_UA_PREVALENCE_2STAGE,
+        entity_type=EntityType.ASSET,
+        max_fleet_adopters=2,
+    )
+    self.assertIn("$fleet_adopters <= 2", q_ua)
+    # Hyperbolic rarity dampener 1.0 / (k_fleet + 1.0) in hybrid_metric_http_ua_prevalence_2stage.yl2
+    self.assertAlmostEqual(4.0 * (1.0 / (1.0 + 1.0)), 2.0)
+    self.assertLess(4.0 * (1.0 / (50.0 + 1.0)), 0.10)
 
   def test_adaptive_context_thresholding(self):
-    """Sparse / off-hours entities have lower detection hurdle (1.75) than routine entities (3.00)."""
-    # Standard account (active_days = 20) with Z = 2.5 -> excess = 2.5 - 3.0 = -0.5 (not flagged)
-    self.assertAlmostEqual(calculate_adaptive_excess(z_score=2.5, active_days=20), -0.5)
+    """WS3-ADAPTIVE / D1: Off-hours share >= 0.5 tightens gate from 3.00 to 1.75 on mature baselines (active_days >= 7)."""
+    # Mature business-hours activity (off_hours_obs=0 of 40, mean=20, std=10 -> Z=2.0): gate=3.0 -> adaptive_z=2.0 (< 3.0)
+    self.assertAlmostEqual(calculate_adaptive_z(40.0, 20.0, 10.0, off_hours_obs=0.0, active_days=20), 2.0)
 
-    # Off-hours / sparse account (active_days = 3) with Z = 2.5 -> excess = 2.5 - 1.75 = +0.75 (flagged!)
-    self.assertAlmostEqual(calculate_adaptive_excess(z_score=2.5, active_days=3), 0.75)
+    # Mature off-hours activity (off_hours_obs=40 of 40 -> share=1.0): gate=1.75 -> adaptive_z = 2.0 * 3.0 / 1.75 = 3.4286 (>= 3.0)
+    self.assertAlmostEqual(calculate_adaptive_z(40.0, 20.0, 10.0, off_hours_obs=40.0, active_days=20), 2.0 * 3.0 / 1.75)
+
+    # Immature baseline (active_days = 3 < 7) is suppressed (0.0), NOT rewarded with a tighter threshold
+    self.assertEqual(calculate_adaptive_z(40.0, 20.0, 10.0, off_hours_obs=40.0, active_days=3), 0.0)
 
   def test_native_math_rounding_precision(self):
     """Verifies that 2-decimal rounding matches Chronicle math.round behavior."""
@@ -190,40 +219,40 @@ class TestStatisticalModels(unittest.TestCase):
     self.assertEqual((base_ts + 3600) // 86400, day0)
     self.assertEqual((base_ts + 86399) // 86400, day0)
 
-
   def test_log_scaled_hurdle_and_inverse_log_fleet_shield(self):
-    """Verifies log-scaled Two-Part Hurdle dormant score and inverse-log Fleet Prevalence Shield."""
-    # Log-scaled dormant awakening: 10.0 + ln(obs + 1.0)
-    dormant_1 = 10.0 + math.log(1.0 + 1.0)
-    dormant_100 = 10.0 + math.log(100.0 + 1.0)
-    self.assertGreater(dormant_1, 10.0)
-    self.assertGreater(dormant_100, dormant_1)
-    self.assertLess(dormant_100, 20.0)
+    """Verifies log-scaled Two-Part Hurdle awakening ratio score and hyperbolic UA adopter dampener."""
+    # Log-scaled dormant breakout in two_part_hurdle.yl2: 3.0 + ln(obs / max(hist_max, 25.0))
+    dormant_26 = calculate_two_part_hurdle(observed=26.0, mean=2.0, stddev=1.0, active_days=2, hist_max=5.0)
+    dormant_250 = calculate_two_part_hurdle(observed=250.0, mean=2.0, stddev=1.0, active_days=2, hist_max=5.0)
+    self.assertGreater(dormant_26, 3.0)
+    self.assertGreater(dormant_250, dormant_26)
+    self.assertAlmostEqual(dormant_250, 3.0 + math.log(10.0), places=9)
 
-    # Inverse-log fleet prevalence shield: personal_z / (1.0 + ln(fleet_count))
-    z_isolated = 6.0 / (1.0 + math.log(1.0))
-    z_wave = 6.0 / (1.0 + math.log(100.0))
-    self.assertAlmostEqual(z_isolated, 6.0)
-    self.assertLess(z_wave, 1.2)
+    # Hyperbolic fleet adopter dampener in hybrid_metric_http_ua_prevalence_2stage.yl2: personal_z / (k_fleet + 1.0)
+    z_isolated = 6.0 / (1.0 + 1.0)
+    z_wave = 6.0 / (100.0 + 1.0)
+    self.assertAlmostEqual(z_isolated, 3.0)
+    self.assertLess(z_wave, 0.1)
 
   def test_macd_monotone_breakout_and_circadian_clock_weights(self):
-    """Verifies monotone MACD ceiling breakout and Circadian 24h clock weights (1.917x at 03:00 UTC, 2.0x at 02:00 UTC)."""
-    # MACD: fast_z = 4.0, slow_z = 3.0 -> macd_diff = 1.0 > 0 -> score = fast_z + macd_diff * velocity_ratio
-    fast_z, slow_z, velocity_ratio = 4.0, 3.0, 1.25
-    macd_diff = fast_z - slow_z
-    macd_score = fast_z + (macd_diff * velocity_ratio) if macd_diff > 0 else fast_z
-    self.assertGreater(macd_score, fast_z)
-    self.assertAlmostEqual(macd_score, 5.25)
+    """Verifies linear Above-Historical-Max Z breakout (macd_momentum_velocity.yl2) and CIRCADIAN_VON_MISES retirement."""
+    # Linear peak exceedance: personal_z = (obs - avg) / safe_std; above_max_z = max(0, obs - hist_max) / safe_std
+    obs, hist_avg, hist_std, hist_max = 65.0, 25.0, 10.0, 50.0
+    safe_std = max(hist_std, math.sqrt(max(hist_avg, 1.0)))
+    personal_z = (obs - hist_avg) / safe_std  # 4.0
+    above_max_z = max(0.0, obs - hist_max) / safe_std  # 1.5
+    macd_z = personal_z + above_max_z  # 5.5 (strictly linear in obs, zero quadratic overflow)
+    self.assertGreater(macd_z, personal_z)
+    self.assertAlmostEqual(macd_z, 5.5)
 
-    # Circadian clock distance from 14:00 UTC center: weight = 1.0 + circ_dist / 12.0
-    def circadian_weight(hour_utc: float) -> float:
-      abs_diff = abs(hour_utc - 14.0)
-      circ_dist = 24.0 - abs_diff if abs_diff > 12.0 else abs_diff
-      return 1.0 + (circ_dist / 12.0)
-
-    self.assertAlmostEqual(circadian_weight(14.0), 1.0)
-    self.assertAlmostEqual(circadian_weight(3.0), 1.0 + 11.0 / 12.0, places=3)  # ~1.917x
-    self.assertAlmostEqual(circadian_weight(2.0), 2.0)  # 02:00 UTC antipode
+    # CIRCADIAN_VON_MISES fixed 14:00 UTC antipode clock weight is retired in favor of HOUR_OF_DAY_PROFILE
+    router = MultiStageTemplateRouter()
+    with self.assertRaisesRegex(ValueError, r"retired.*HOUR_OF_DAY_PROFILE"):
+      router.build_query(
+          target_metric="http_queries_total",
+          entity_type=EntityType.ASSET,
+          statistical_model=StatisticalModel.CIRCADIAN_VON_MISES,
+      )
 
 
 if __name__ == '__main__':

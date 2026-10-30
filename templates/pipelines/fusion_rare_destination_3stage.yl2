@@ -13,8 +13,9 @@
 // ENTITY GRAPH FRESHNESS (references/entity-context-graph-guide.md, Rule 5):
 //   Daily graph records (every prevalence.* filter) are built once a day and lag about a
 //   day; a window starting today 00:00Z overlaps none of them, the inner join drops every
-//   row, and zero rows are structural, not a true negative. Start the search window two
-//   days back at 00:00Z; the today_date slot (today's UTC date, YYYY-MM-DD) keeps both
+//   row, and zero rows are structural, not a true negative. Start the search window at the
+//   scored UTC day minus 2 at 00:00Z (endTime = today 00:00Z by default, or now in Today So Far);
+//   the today_date slot (the scored UTC day, YYYY-MM-DD — yesterday by default in Mode A) keeps both
 //   event stages on the analysis day. The graph stage matches by key only (no time predicate).
 //   Zero rows from a window starting today is a freshness gap: rerun, do not report clean.
 // FILTER ONLY: the graph stage is an inner join. Destinations with no graph record drop out
@@ -53,7 +54,10 @@ stage sector_a {
     $obs = {{sector_a_observation_agg}}
     $avg = max({{sector_a_metric_func_avg}})
     $std = max({{sector_a_metric_func_stddev}})
-    $z = ($obs - $avg) / if($std > 0, $std, 1.0)
+    $days = max({{sector_a_metric_func_active_days}})
+    $a_floor = math.sqrt(if($avg > 1.0, $avg, 1.0))
+    $raw_z = ($obs - $avg) / if($std > $a_floor, $std, $a_floor)
+    $z = if($days >= {{min_baseline_days}}, $raw_z, 0.0)
 }
 
 // Stage 2: Sector B personal baseline per (host, destination) (today only)
@@ -64,6 +68,7 @@ stage sector_b_detail {
     {{dest_field}} = $dest
     $host != ""
     $dest != ""
+    not re.regex($dest, `(?i)\.(in-addr\.arpa|ip6\.arpa|local)$`)
 
   match:
     $host, $dest by 1d
@@ -72,7 +77,10 @@ stage sector_b_detail {
     $obs = {{sector_b_observation_agg}}
     $avg = max({{sector_b_metric_func_avg}})
     $std = max({{sector_b_metric_func_stddev}})
-    $z = ($obs - $avg) / if($std > 0, $std, 1.0)
+    $days = max({{sector_b_metric_func_active_days}})
+    $b_floor = math.sqrt(if($avg > 1.0, $avg, 1.0))
+    $raw_z = ($obs - $avg) / if($std > $b_floor, $std, $b_floor)
+    $z = if($days >= {{min_baseline_days}}, $raw_z, 0.0)
 }
 
 // Stage 3: Entity Graph rarity filter (matched by destination key only)

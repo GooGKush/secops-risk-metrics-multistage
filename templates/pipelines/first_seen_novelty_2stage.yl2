@@ -1,0 +1,57 @@
+// ============================================================================
+// ARCHITECTURE: 2-STAGE FIRST-SEEN 30-DAY NOVELTY PIPELINE (PF-11 / WS1-12)
+// Skill: secops-risk-metrics-multistage
+// Purpose: Primary 30-day novelty detector ahead of ECG — flags entities or composite
+//   (entity, sub-key) tuples (e.g. user + application, host + destination hostname,
+//   host + binary SHA-256) never seen in the prior 30-day metrics.* baseline window
+//   (`metric: first_seen, agg: min` == 0), enriched with `last_seen` and
+//   `period_start_for_max` context. Reported strictly as a boolean novelty flag, NEVER as σ.
+// ============================================================================
+
+stage stage1_extract {
+    {{event_filter}}
+    {{entity_field}} = {{entity_var}}
+    {{entity_var}} != ""
+{{subkey_binding_block}}
+  match:
+    {{match_keys}} by 1d
+
+  outcome:
+    $observed_val = {{observed_aggregation}}
+    $prior_first_seen = min(metrics.{{target_metric_name}}(
+        period: 1d, window: 30d, metric: first_seen, agg: min,
+        {{dimensions_block}}
+    ))
+    $prior_last_seen = max(metrics.{{target_metric_name}}(
+        period: 1d, window: 30d, metric: last_seen, agg: max,
+        {{dimensions_block}}
+    ))
+    $peak_period_start = max(metrics.{{target_metric_name}}(
+        period: 1d, window: 30d, metric: {{metric_type_val}}, agg: period_start_for_max,
+        {{dimensions_block}}
+    ))
+    $historical_active_days = max(metrics.{{target_metric_name}}(
+        period: 1d, window: 30d, metric: {{metric_type_val}}, agg: num_metric_periods,
+        {{dimensions_block}}
+    ))
+}
+
+{{root_entity_bindings}}
+$ws = $stage1_extract.window_start
+
+match:
+  {{match_keys}}, $ws by 1d
+
+outcome:
+  $observed = max($stage1_extract.observed_val)
+  $prior_first_seen = min($stage1_extract.prior_first_seen)
+  $prior_last_seen = max($stage1_extract.prior_last_seen)
+  $peak_period_start = max($stage1_extract.peak_period_start)
+  $active_days = max($stage1_extract.historical_active_days)
+  $novelty_flag = if($prior_first_seen = 0 and $observed >= {{min_novelty_events}}, 1, 0)
+
+condition:
+  $novelty_flag = 1
+
+order:
+  $novelty_flag desc

@@ -15,7 +15,7 @@ class TestStatisticalAssumptions(unittest.TestCase):
     random.seed(42)
 
   def test_assumption_1_skewness_and_dispersion_floor(self):
-    """Assumption 1: Security telemetry is heavy-tailed; dispersion floor prevents division-by-zero on quiet accounts."""
+    """Assumption 1: Security telemetry is heavy-tailed; D8 dispersion floor sqrt(max(mu, 1.0)) prevents sigma=0 explosions."""
     # Synthetic quiet host telemetry: 28 days of 0 events, 2 days of 1 event
     quiet_history = [0] * 28 + [1, 1]
     mu = statistics.mean(quiet_history)
@@ -29,11 +29,18 @@ class TestStatisticalAssumptions(unittest.TestCase):
     naive_z = (obs_today - mu) / sigma
     self.assertGreater(naive_z, 30.0)  # Extreme, fragile 30+ sigma
 
-    # Robust calculation with dispersion floor (std >= 1.0)
-    safe_sigma = max(sigma, 1.0)
+    # D8 count dispersion floor: sqrt(max(mu, 1.0)) = 1.0 when mu < 1.0, and sqrt(mu) when mu > 1.0
+    safe_sigma = max(sigma, math.sqrt(max(mu, 1.0)))
+    self.assertEqual(safe_sigma, 1.0)
     floored_z = (obs_today - mu) / safe_sigma
     self.assertAlmostEqual(floored_z, (10 - mu), delta=0.2)
     self.assertLess(floored_z, 15.0)
+
+    # Constant positive baseline (mu = 25.0, sigma = 0.0): Poisson floor scales as sqrt(25.0) = 5.0, NOT 1.0
+    mu_const, sigma_const = 25.0, 0.0
+    safe_sigma_const = max(sigma_const, math.sqrt(max(mu_const, 1.0)))
+    self.assertEqual(safe_sigma_const, 5.0)
+    self.assertAlmostEqual((40.0 - mu_const) / safe_sigma_const, 3.0)
 
   def test_assumption_2_weekend_seasonality_distortion(self):
     """Assumption 2: Weekday vs Weekend cyclic patterns distort non-seasonal 30-day blended baselines."""
@@ -112,51 +119,54 @@ class TestStatisticalAssumptions(unittest.TestCase):
     self.assertAlmostEqual(empirical_std_delta_z, math.sqrt(2), delta=0.05)
 
   def test_assumption_4_empirical_bayes_shrinkage_on_sparse_entities(self):
-    """Assumption 4: Empirical Bayes hyperprior shrinkage regularizes sparse accounts (N < 7 days)."""
-    # Fleet hyperprior: fleet mean = 50, fleet variance = 100
-    fleet_mu = 50.0
-    fleet_var = 100.0
-    beta_fleet = fleet_mu / fleet_var  # 0.5
-    alpha_fleet = fleet_mu * beta_fleet  # 25.0
+    """Assumption 4: Pre-observation 30d Empirical Bayes Gamma-NB shrinkage regularizes sparse entities without leaking obs."""
+    # Fleet hyperprior over daily calendar rates: fleet_mu = 5.0/day, fleet_var = 2.5 -> beta0 = 2.0, alpha0 = 10.0
+    # Wait: test strong fleet hyperprior beta0 = 15.0, alpha0 = 75.0 (fleet_mu = 5.0/day, equivalent to 15 days of prior exposure)
+    fleet_mu = 5.0
+    beta0 = 15.0
+    alpha0 = fleet_mu * beta0  # 75.0
 
-    # New host with only 2 days of sparse data: 2 observed events
-    host_obs_24h = 80
-    host_avg = 10.0
-    host_std = 1.0  # Artificially low variance from small sample
+    # New host with only 2 active days in the 30d baseline (hist_sum = 20, active-day avg = 10.0, active-day std = 1.0)
+    # Calendar-day rate mu_cal = 20 / 30 = 0.667; today's observation = 80 events
+    hist_sum = 20.0
+    host_obs_24h = 80.0
+    host_avg_active = 10.0
+    host_std_active = 1.0
 
-    # Naive Z-score: (80 - 10) / 1.0 = +70 sigma (wildly misleading)
-    naive_z = (host_obs_24h - host_avg) / host_std
+    # Naive active-day Z-score: (80 - 10) / 1.0 = +70 sigma (wildly inflated by n=2 active-day sample variance)
+    naive_z = (host_obs_24h - host_avg_active) / host_std_active
     self.assertEqual(naive_z, 70.0)
 
-    # Empirical Bayes posterior calculation (blending host + fleet hyperprior)
-    alpha_post = alpha_fleet + host_obs_24h
-    beta_post = beta_fleet + 1.0
-    posterior_expected_rate = alpha_post / beta_post  # (25 + 80) / 1.5 = 70.0
+    # Pre-observation 30-day conjugate posterior rate (poisson_gamma_bayesian.yl2 / hierarchical_empirical_bayes_3stage.yl2):
+    # Today's observation is NEVER added to post_alpha_pre!
+    post_alpha_pre = alpha0 + hist_sum       # 75 + 20 = 95.0
+    post_beta_pre = beta0 + 30.0             # 15 + 30 = 45.0
+    posterior_rate = post_alpha_pre / post_beta_pre  # 95 / 45 = 2.111...
 
-    # Prior credibility weight: beta_fleet / (beta_fleet + 1) = 0.5 / 1.5 = 33.3%
-    prior_weight = beta_fleet / (beta_fleet + 1.0)
-    evidence_weight = 1.0 / (beta_fleet + 1.0)
+    prior_weight = beta0 / (beta0 + 30.0)     # 15 / 45 = 1/3
+    evidence_weight = 30.0 / (beta0 + 30.0)   # 30 / 45 = 2/3
+    mu_cal = hist_sum / 30.0
 
-    self.assertAlmostEqual(prior_weight, 0.333, delta=0.01)
-    self.assertAlmostEqual(evidence_weight, 0.667, delta=0.01)
-    self.assertAlmostEqual(posterior_expected_rate, 70.0, delta=0.1)
+    self.assertAlmostEqual(prior_weight, 1.0 / 3.0, places=9)
+    self.assertAlmostEqual(evidence_weight, 2.0 / 3.0, places=9)
+    self.assertAlmostEqual(posterior_rate, prior_weight * fleet_mu + evidence_weight * mu_cal, places=9)
+    self.assertGreater(posterior_rate, mu_cal)
+    self.assertLess(posterior_rate, fleet_mu)
 
   def test_assumption_4b_shrinkage_behavior_under_extreme_sparsity_n_less_than_3(self):
-    """Asserts that entities with extreme baseline sparsity (N < 3 days) shrink towards fleet prior."""
+    """Asserts that sparse entities (hist_sum=2 over N=1 active day) shrink toward fleet prior mu0 = alpha0/beta0."""
     fleet_mu = 20.0
-    fleet_var = 40.0
-    beta_fleet = fleet_mu / fleet_var  # 0.5
-    alpha_fleet = fleet_mu * beta_fleet  # 10.0
+    beta0 = 30.0
+    alpha0 = fleet_mu * beta0  # 600.0 (30 prior exposure days at 20/day)
 
-    # Entity with 1 single active baseline day (N = 1)
-    obs_count = 5
-    alpha_post = alpha_fleet + obs_count
-    beta_post = beta_fleet + 1.0
-    post_rate = alpha_post / beta_post  # (10 + 5) / 1.5 = 10.0
+    # Entity with 1 active baseline day (hist_sum = 2, mu_cal = 2/30 = 0.0667)
+    hist_sum = 2.0
+    mu_cal = hist_sum / 30.0
+    post_rate = (alpha0 + hist_sum) / (beta0 + 30.0)  # 602 / 60 = 10.0333
 
-    self.assertGreater(post_rate, obs_count)
+    self.assertGreater(post_rate, mu_cal)
     self.assertLess(post_rate, fleet_mu)
-    self.assertAlmostEqual(post_rate, 10.0, delta=0.1)
+    self.assertAlmostEqual(post_rate, 602.0 / 60.0, places=9)
 
 
 if __name__ == '__main__':

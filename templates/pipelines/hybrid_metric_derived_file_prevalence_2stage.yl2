@@ -12,14 +12,15 @@
 // ENTITY GRAPH FRESHNESS (references/entity-context-graph-guide.md, Rule 5):
 //   Daily graph records (every prevalence.* filter) are built once a day and lag about a
 //   day; a window starting today 00:00Z overlaps none of them, the inner join drops every
-//   row, and zero rows are structural, not a true negative. Start the search window two
-//   days back at 00:00Z; the today_date slot (today's UTC date, YYYY-MM-DD) keeps the event
+//   row, and zero rows are structural, not a true negative. Start the search window at the
+//   scored UTC day minus 2 at 00:00Z (endTime = today 00:00Z by default, or now in Today So Far);
+//   the today_date slot (the scored UTC day, YYYY-MM-DD — yesterday by default in Mode A) keeps the event
 //   stage on the analysis day. The graph stage matches by key only (no time predicate).
 //   Zero rows from a window starting today is a freshness gap: rerun, do not report clean.
 // FILTER ONLY: the graph stage is an inner join. Entities with no graph record drop out
 //   (absent from the graph is not the same as rare); say so in the report.
-// Baseline days are evidence, not a gate: a gate on active days would exclude exactly the
-//   new binaries the novelty multiplier exists to catch.
+// MATURITY & NOVELTY POLICY: Parametric Z-scores require >= min_baseline_days (default 7);
+//   Day-0 / unseen binaries (< 7 active days) route to WS1-12 metrics.* first_seen novelty.
 // ============================================================================
 
 // Stage 1: Macro 30-Day Process Execution Baseline (metrics.file_executions_total)
@@ -28,7 +29,8 @@ stage stage1_process_baseline {
     timestamp.get_date(metadata.event_timestamp.seconds) = "{{today_date}}"
     $event_type = metadata.event_type
     principal.asset.hostname = $host
-    principal.process.file.sha256 = $sha256
+    $sha256 = strings.coalesce(target.process.file.sha256, principal.process.file.sha256)
+    principal.process.file.sha256 != ""
     $host != ""
     $sha256 != ""
 
@@ -71,7 +73,7 @@ stage stage2_file_derived_context {
     $file.graph.metadata.entity_type = "FILE"
     $file.graph.entity.file.sha256 = $sha256
     $file.graph.entity.file.prevalence.day_count = 10
-    $file.graph.entity.file.prevalence.rolling_max <= 3
+    $file.graph.entity.file.prevalence.rolling_max <= {{max_fleet_prevalence}}
     $file.graph.entity.file.prevalence.rolling_max > 0
     $sha256 != ""
 
@@ -97,7 +99,8 @@ outcome:
   $observed_execs = max($stage1_process_baseline.observed_val)
   $mean_execs = max($stage1_process_baseline.hist_mean)
   $stddev_execs = max($stage1_process_baseline.hist_stddev)
-  $z_score = ($observed_execs - $mean_execs) / if($stddev_execs > 0, $stddev_execs, 1.0)
+  $dispersion_floor = math.sqrt(if($mean_execs > 1.0, $mean_execs, 1.0))
+  $z_score = ($observed_execs - $mean_execs) / if($stddev_execs > $dispersion_floor, $stddev_execs, $dispersion_floor)
   $active_baseline_days = max($stage1_process_baseline.hist_active_days)
 
   $fleet_prevalence = max($stage2_file_derived_context.enterprise_rolling_max)
@@ -109,6 +112,8 @@ outcome:
   $binary_age_days = if($first_seen > 0, $raw_age_days, 9999.0)
 
   // Rare Binary Multiplier: 2.5x threat score boost for binaries first seen <= 7 days ago, 1.5x for isolated binaries
+  // WS1-08 / PF-8: when first_seen_time = 0, <7d ECG novelty boost is disabled; prefer metrics.* first_seen (WS1-12)
+  $ecg_novelty_disabled = if($first_seen <= 0, 1.0, 0.0)
   $is_novel_binary = if($first_seen > 0 and $binary_age_days <= 7.0 and $binary_age_days >= 0.0, 1.0, 0.0)
   $rarity_multiplier = if($is_novel_binary = 1.0, 2.5, 1.5)
   $threat_score = $z_score * $rarity_multiplier
@@ -117,7 +122,8 @@ outcome:
   $sample_paths = array_distinct($stage1_process_baseline.sample_path)
 
 condition:
-  $z_score >= {{anomaly_threshold}}
+  $active_baseline_days >= {{min_baseline_days}}
+  and $z_score >= {{anomaly_threshold}}
   and $fleet_prevalence <= {{max_fleet_prevalence}}
 
 order:

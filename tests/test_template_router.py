@@ -3,7 +3,7 @@
 from pathlib import Path
 import unittest
 from scripts import malachite_catalog as mc
-from scripts.preflight_validator import EntityType, MatchMode, PipelineArchitecture, StatisticalModel
+from scripts.preflight_validator import EntityType, MalachiteASTValidator, MatchMode, PipelineArchitecture, StatisticalModel
 from scripts.statistical_validator import StatisticalAntipatternAuditor
 from scripts.template_router import MultiStageTemplateRouter
 
@@ -76,7 +76,7 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
         min_threshold=2.0,
         max_threshold=3.0,
     )
-    self.assertIn("condition:\n  $personal_z >= 2.0 and $personal_z < 3.0", query)
+    self.assertIn("condition:\n  $active_days >= 7 and ($personal_z >= 2.0 and $personal_z < 3.0)", query)
     self.assertIn("order:\n  $personal_z desc", query)
     # Ensure condition precedes order
     cond_pos = query.find("condition:")
@@ -113,18 +113,17 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
         min_threshold=2.0,
         max_threshold=3.5,
     )
-    self.assertIn("condition:\n  ($composite_risk >= 2.0 and $composite_risk < 3.5) and ($dest_days >= 7 or $dest_days = 0 or $obs_deletes > 0 or $obs_writes > 0)", query)
+    self.assertIn("condition:\n  $composite_risk >= 2.0 and $composite_risk < 3.5", query)
+    self.assertNotIn("$dest_days = 0", query)
     self.assertIn("order:\n  $composite_risk desc", query)
 
   def test_stage2_new_models_routing_and_antipattern_cleanliness(self):
-    """Verifies that all 6 new Stage 2 math models route correctly and have zero statistical violations."""
+    """Verifies active Stage 2 math models route cleanly and retired D1 models raise clear ValueErrors."""
     test_models = [
         (StatisticalModel.LONGITUDINAL_CUSUM, "cusum_drift_score"),
         (StatisticalModel.TWO_PART_HURDLE, "hurdle_threat_score"),
-        (StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z, "upper_tail_z"),
-        (StatisticalModel.PIECEWISE_CRI, "cri_score"),
-        (StatisticalModel.FLEET_PREVALENCE_SHIELD, "shielded_z"),
-        (StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD, "sensitivity_excess"),
+        (StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z, "personal_z"),
+        (StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD, "adaptive_z"),
     ]
 
     for model, order_var in test_models:
@@ -135,11 +134,29 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
           anomaly_threshold=2.5,
       )
       self.assertIn(f"order:\n  ${order_var} desc", query)
+      if model == StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z:
+        self.assertTrue(
+            any("merged into STANDARD_Z_SCORE" in adv for adv in self.router.last_advisories),
+            f"Expected merge advisory on ASYMMETRIC_DIRECTIONAL_Z, got {self.router.last_advisories}",
+        )
       violations = StatisticalAntipatternAuditor.audit_query(query)
       self.assertEqual(
           violations,
           [],
           f"Model {model.value} produced unexpected statistical violations: {violations}",
+      )
+
+    with self.assertRaisesRegex(ValueError, r"retired \(D1\).*calculate_cri"):
+      self.router.build_query(
+          target_metric="network_bytes_outbound",
+          entity_type=EntityType.ASSET,
+          statistical_model=StatisticalModel.PIECEWISE_CRI,
+      )
+    with self.assertRaisesRegex(ValueError, r"retired \(D1\).*hybrid_metric_fleet_prevalence_2stage"):
+      self.router.build_query(
+          target_metric="network_bytes_outbound",
+          entity_type=EntityType.ASSET,
+          statistical_model=StatisticalModel.FLEET_PREVALENCE_SHIELD,
       )
 
   def test_part_of_the_whole_multilevel_pipeline(self):
@@ -205,12 +222,97 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
     self.assertIn("$z2_vs_team =", query)
     self.assertIn("$z3_vs_team =", query)
     self.assertIn("$d_vs_team_sq =", query)
+    self.assertIn("$samuelson_max_z =", query)
+    self.assertIn("$samuelson_max_d_sq =", query)
+    self.assertIn("$cohort_too_small =", query)
+    self.assertIn("$z1_vs_enterprise =", query)
+    self.assertIn("$z2_vs_enterprise =", query)
+    self.assertIn("$z3_vs_enterprise =", query)
     self.assertIn("$d_vs_fleet_sq =", query)
-    self.assertIn("$z1_team_vs_enterprise =", query)
-    self.assertIn("$d_team_vs_fleet_sq =", query)
+    self.assertNotIn("$z1_team_vs_enterprise", query)
+    self.assertNotIn("$z2_team_vs_enterprise", query)
+    self.assertNotIn("$z3_team_vs_enterprise", query)
+    self.assertNotIn("$d_team_vs_fleet_sq", query)
+    team_stage_body = query.split("stage team_cohort_stats {", 1)[1].split("}", 1)[0]
+    self.assertNotIn("$enterprise_stats", team_stage_body)
+    self.assertEqual(MalachiteASTValidator.validate_query(query), [])
+    self.assertEqual(MalachiteASTValidator.count_query_joins(query), 4)
     self.assertIn("order:\n  $d_vs_team_sq desc", query)
     self.assertNotIn("TEAM COHORT\n", query.split("// ======", 2)[-1])
     self.assertNotIn("{{", query)
+
+  def test_ws4_live_fixes_join_count_ceiling_and_125_covering_suite(self):
+    """Enforces <=4 total joins offline in MalachiteASTValidator and across all 125 covering suite queries."""
+    from tests.live.live_compile_harness import build_covering_compile_suite
+
+    # 1. Synthetic 5-join query (1 metrics.* + 1 join in team_cohort_stats + 2 in loo_scores + 1 in root = 5 > 4)
+    five_join_query = """// Goal: Verify offline 4-join ceiling catches 5-join DAG
+stage all_entities {
+    metadata.event_type = "USER_LOGIN"
+    target.user.userid = $user
+    $user != ""
+  match:
+    $user by 1d
+  outcome:
+    $m1_obs = count(metadata.id)
+    $m1_avg = max(metrics.auth_attempts_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, target.user.userid: target.user.userid))
+}
+stage enterprise_stats {
+    $ws = $all_entities.window_start
+  match:
+    $ws by 1d
+  outcome:
+    $f_avg = avg($all_entities.m1_obs)
+}
+stage team_cohort_stats {
+    $u = $all_entities.user
+    $ws = $all_entities.window_start
+    $ws = $enterprise_stats.ws
+    ($u = "alice" or $u = "bob")
+  match:
+    $ws by 1d
+  outcome:
+    $t_avg = avg($all_entities.m1_obs)
+    $diff = $t_avg - max($enterprise_stats.f_avg)
+}
+stage loo_scores {
+    $user = $all_entities.user
+    $ws = $all_entities.window_start
+    $ws = $team_cohort_stats.ws
+    $ws = $enterprise_stats.ws
+  match:
+    $user, $ws by 1d
+  outcome:
+    $z = max($all_entities.m1_obs) - max($team_cohort_stats.t_avg) - max($enterprise_stats.f_avg)
+}
+$user = $all_entities.user
+$ws = $all_entities.window_start
+$user = $loo_scores.user
+$ws = $loo_scores.ws
+match:
+  $user, $ws by 1d
+outcome:
+  $score = max($loo_scores.z)
+order:
+  $score desc
+"""
+    self.assertEqual(MalachiteASTValidator.count_query_joins(five_join_query), 5)
+    errs = MalachiteASTValidator.validate_query(five_join_query)
+    self.assertTrue(
+        any("JOIN_LIMIT_EXCEEDED" in e for e in errs),
+        f"Expected JOIN_LIMIT_EXCEEDED on 5-join query, got {errs}",
+    )
+    pipe_errs = MultiStageTemplateRouter.validate_rendered_pipeline(five_join_query)
+    self.assertTrue(any("JOIN_LIMIT_EXCEEDED" in e for e in pipe_errs))
+
+    # 2. All 126 covering suite queries (including longitudinal_cusum_series_3stage.yl2 and part_of_the_whole_triad_multilevel.yl2#named_cohort) must have <= 4 joins
+    suite = build_covering_compile_suite()
+    self.assertEqual(len(suite), 126)
+    for mq in suite:
+      joins = MalachiteASTValidator.count_query_joins(mq.query)
+      self.assertLessEqual(joins, 4, msg=f"{mq.query_id} has {joins} joins (> 4)")
+      ast_errs = MalachiteASTValidator.validate_query(mq.query)
+      self.assertEqual(ast_errs, [], msg=f"{mq.query_id}: {ast_errs}")
 
   def test_part_of_the_whole_triad_fleet_only_without_cohort(self):
     """No peer group: the team stage would recompute the fleet, so it is dropped."""
@@ -441,13 +543,21 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
           self.assertEqual(MalachiteASTValidator.validate_query(q), [])
 
   def test_c2_beacon_flow_and_alert_surge_queries(self):
-    """build_c2_beacon_flow_query and build_alert_surge_query must render valid multi-stage queries."""
+    """WS4-D1 (D1): build_outbound_flow_surge_query (and build_c2_beacon_flow_query alias) and build_alert_surge_query render valid queries."""
+    import re
     from scripts.preflight_validator import MalachiteASTValidator
     for flow_metric in ("network_flows_outbound", "network_flows_inbound", "network_flows_total"):
       for et in (EntityType.ASSET, EntityType.USER):
-        q = self.router.build_c2_beacon_flow_query(target_metric=flow_metric, entity_type=et)
+        q = self.router.build_outbound_flow_surge_query(target_metric=flow_metric, entity_type=et)
+        q_alias = self.router.build_c2_beacon_flow_query(target_metric=flow_metric, entity_type=et)
+        self.assertEqual(q, q_alias)
+        self.assertIn("OUTBOUND FLOW SURGE", q)
+        self.assertNotIn("timing regularity", q.lower())
         self.assertIn(f"metrics.{flow_metric}(", q)
-        self.assertIn("$beacon_score =", q)
+        self.assertIn("$flow_surge_score = $flow_z", q)
+        self.assertIn("$dispersion_floor = math.sqrt(if($hist_flow_avg > 1.0, $hist_flow_avg, 1.0))", q)
+        self.assertIn("$active_days >= 7", q)
+        self.assertEqual(len(re.findall(r"^stage\s+\w+\s*\{", q, re.M)), 1)
         self.assertEqual(mc.observed_filter_gaps(q), [])
         self.assertEqual(MalachiteASTValidator.validate_query(q), [])
         self.assertEqual(StatisticalAntipatternAuditor.audit_query(q), [])
@@ -487,7 +597,8 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
     self.assertTrue(pre["valid"])
 
     # Invalid bare %table without column should trigger AST error
-    bad_dt = rendered.replace("= %ueba_hunt_bridge.hostname", "= %ueba_hunt_bridge")
+    self.assertIn("%ueba_hunt_bridge.entity", rendered)
+    bad_dt = rendered.replace("%ueba_hunt_bridge.entity", "%ueba_hunt_bridge")
     errors = MalachiteASTValidator.validate_query(bad_dt)
     self.assertTrue(any("Data Table" in e for e in errors))
 
@@ -515,6 +626,1231 @@ class TestTemplateRouterMultiDatabase(unittest.TestCase):
           self.assertEqual(mc.observed_filter_gaps(q), [], f"{path_name}:{key}")
           self.assertEqual(MalachiteASTValidator.validate_query(q), [], f"{path_name}:{key}")
           self.assertEqual(StatisticalAntipatternAuditor.audit_query(q), [], f"{path_name}:{key}")
+
+  def test_ws2_05_router_rejects_silence_and_jitter_aliases(self):
+    """WS2-05: MultiStageTemplateRouter.build_query raises clear ValueErrors on SILENCE/DROP_OUT and JITTER/BEACON."""
+    for silence_alias in ("SILENCE_DETECTION", "DROP_OUT", "SILENCE", "DROPOUT"):
+      with self.subTest(alias=silence_alias):
+        with self.assertRaises(ValueError) as ctx:
+          self.router.build_query(
+              target_metric="auth_attempts_total",
+              entity_type=EntityType.USER,
+              statistical_model=silence_alias,  # type: ignore[arg-type]
+          )
+        self.assertIn("not supported", str(ctx.exception).lower())
+        with self.assertRaises(ValueError) as ctx_res:
+          self.router.build_query(
+              target_metric="resource_read_total",
+              entity_type=EntityType.USER,
+              statistical_model=silence_alias,  # type: ignore[arg-type]
+          )
+        self.assertIn("not supported", str(ctx_res.exception).lower())
+
+    for jitter_alias in ("JITTER", "BEACON_REGULARITY", "BEACON", "C2_BEACONING_JITTER", "C2_JITTER"):
+      with self.subTest(alias=jitter_alias):
+        with self.assertRaises(ValueError) as ctx:
+          self.router.build_query(
+              target_metric="network_flows_outbound",
+              entity_type=EntityType.ASSET,
+              statistical_model=jitter_alias,  # type: ignore[arg-type]
+          )
+        self.assertIn("secops-statistical-hunter", str(ctx.exception))
+        self.assertIn("C2_BEACONING_JITTER", str(ctx.exception))
+
+  def test_ws2_06_router_rejects_unknown_models_and_preserves_non_z_on_resource_user(self):
+    """WS2-06: build_query rejects unknown/invalid models everywhere and keeps non-Z models on (resource_*, USER)."""
+    from unittest.mock import patch
+    from scripts import ueba_hybrid_engine as engine_mod
+    from scripts.preflight_validator import MalachiteASTValidator
+
+    for bad_model in ("MADE_UP_MODEL", "BOGUS_Z", "", "   ", "diversity_deficit", None, 123):
+      for metric in ("auth_attempts_total", "resource_read_total"):
+        with self.subTest(bad_model=bad_model, metric=metric):
+          with self.assertRaises(ValueError):
+            self.router.build_query(
+                target_metric=metric,
+                entity_type=EntityType.USER,
+                statistical_model=bad_model,  # type: ignore[arg-type]
+            )
+
+    if hasattr(engine_mod, "RETIRED_MODEL_ALIASES"):
+      with patch.dict(engine_mod.RETIRED_MODEL_ALIASES, {"LEGACY_TEST_MODEL": "STANDARD_Z_SCORE"}, clear=False):
+        with self.assertRaises(ValueError) as ctx_ret:
+          self.router.build_query(
+              target_metric="resource_read_total",
+              entity_type=EntityType.USER,
+              statistical_model="legacy-test-model",  # type: ignore[arg-type]
+          )
+        self.assertIn("is retired; use STANDARD_Z_SCORE.", str(ctx_ret.exception))
+
+    # STANDARD_Z_SCORE (enum or string alias) on (resource_read_total, USER) keeps CLOUD_REPOSITORY_SCOPE_DUAL_BRANCH
+    for z_arg in (StatisticalModel.STANDARD_Z_SCORE, "STANDARD_Z_SCORE", "zscore"):
+      q_z = self.router.build_query(
+          target_metric="resource_read_total",
+          entity_type=EntityType.USER,
+          statistical_model=z_arg,  # type: ignore[arg-type]
+      )
+      self.assertIn("order:\n  $composite_risk desc", q_z)
+
+    # Non-Z models on (resource_read_total, USER) must render the requested model, NOT redirect to CLOUD_REPOSITORY_SCOPE
+    non_z_expectations = [
+        (StatisticalModel.POISSON, "$poisson_z"),
+        (StatisticalModel.COEFFICIENT_OF_VARIATION, "$cv"),
+        (StatisticalModel.LONGITUDINAL_CUSUM, "$cusum_drift_score"),
+        (StatisticalModel.RELATIVE_DEVIATION, "$fold_change"),
+    ]
+    for model_enum, expected_var in non_z_expectations:
+      with self.subTest(model=model_enum.value):
+        q = self.router.build_query(
+            target_metric="resource_read_total",
+            entity_type=EntityType.USER,
+            statistical_model=model_enum,
+        )
+        self.assertIn(expected_var, q)
+        self.assertNotIn("$observed_reads", q)
+        self.assertNotIn("order:\n  $composite_risk desc", q)
+        self.assertEqual(MalachiteASTValidator.validate_query(q), [])
+        if model_enum == StatisticalModel.LONGITUDINAL_CUSUM:
+          with self.assertRaises(ValueError) as ctx_cusum_a:
+            engine_mod.compile_hunt_plan(
+                statistical_model=model_enum.value,
+                metrics="resource_read_total",
+                entity_type="USER",
+                mode="A",
+            )
+          self.assertIn("LONGITUDINAL_CUSUM cannot run in single-day Mode A", str(ctx_cusum_a.exception))
+          res_engine = engine_mod.compile_hunt_plan(
+              statistical_model=model_enum.value,
+              metrics="resource_read_total",
+              entity_type="USER",
+              mode="B",
+              window_days=3,
+          )
+        else:
+          res_engine = engine_mod.compile_hunt_plan(
+              statistical_model=model_enum.value,
+              metrics="resource_read_total",
+              entity_type="USER",
+          )
+        self.assertEqual(res_engine["architecture"], PipelineArchitecture.LOCAL_2STAGE.value)
+        self.assertIn(expected_var, res_engine["compiled_query"])
+
+  def test_ws2_01_composite_keys_expanded_across_all_18_models_and_modes(self):
+    """WS2-01: All 18 Stage-2 models and both MatchModes preserve composite baseline keys in Root match:."""
+    import re
+    from scripts.preflight_validator import MalachiteASTValidator
+
+    composite_cases = [
+        ("file_executions_total", EntityType.ASSET, "$host, $sha256"),
+        ("file_executions_total", EntityType.USER, "$host, $sha256"),
+        ("file_executions_fail", EntityType.ASSET, "$host, $sha256"),
+        ("alert_event_name_count", EntityType.ASSET, "$host, $rule_name"),
+        ("resource_read_total", EntityType.RESOURCE, "$sa, $vendor, $product, $resource"),
+        ("resource_read_total", EntityType.USER, "$sa, $vendor, $product, $resource"),
+    ]
+
+    retired_models = {
+        StatisticalModel.HOURLY_TEMPORAL_ZSCORE: r"retired.*HOUR_OF_DAY_PROFILE",
+        StatisticalModel.CIRCADIAN_VON_MISES: r"retired.*HOUR_OF_DAY_PROFILE",
+        StatisticalModel.PIECEWISE_CRI: r"retired.*calculate_cri",
+        StatisticalModel.FLEET_PREVALENCE_SHIELD: r"retired.*hybrid_metric_fleet_prevalence_2stage",
+    }
+    for metric_name, ent_type, expected_tuple in composite_cases:
+      for model in StatisticalModel:
+        if model in retired_models:
+          with self.assertRaisesRegex(ValueError, retired_models[model]):
+            self.router.build_query(
+                target_metric=metric_name,
+                entity_type=ent_type,
+                statistical_model=model,
+            )
+          continue
+        if metric_name == "alert_event_name_count" and model == StatisticalModel.BAYESIAN_BETA_BINOMIAL:
+          with self.assertRaisesRegex(ValueError, r"BAYESIAN_BETA_BINOMIAL.*paired|unpaired|_fail"):
+            self.router.build_query(
+                target_metric=metric_name,
+                entity_type=ent_type,
+                statistical_model=model,
+            )
+          continue
+        if (
+            metric_name == "resource_read_total"
+            and ent_type == EntityType.USER
+            and model == StatisticalModel.STANDARD_Z_SCORE
+        ):
+          # Default (resource_*, USER, STANDARD_Z_SCORE) routes to CLOUD_REPOSITORY_SCOPE_DUAL_BRANCH,
+          # which already isolates baselines per ($sa, $vendor, $product, $resource).
+          q_scope = self.router.build_query(
+              target_metric=metric_name,
+              entity_type=ent_type,
+              statistical_model=model,
+          )
+          self.assertIn("$sa, $vendor, $product, $resource", q_scope)
+          self.assertEqual(MalachiteASTValidator.validate_query(q_scope), [])
+          self.assertEqual(MalachiteASTValidator.validate_model_concordance(q_scope, model), [])
+          continue
+
+        for mode in (MatchMode.TIMELINE_BREAKDOWN, MatchMode.FLEET_ROLLUP):
+          with self.subTest(metric=metric_name, entity=ent_type.value, model=model.value, mode=mode.value):
+            q = self.router.build_query(
+                target_metric=metric_name,
+                entity_type=ent_type,
+                statistical_model=model,
+                match_mode=mode,
+                scoring_end_date="2026-10-27",
+            )
+            self.assertEqual(MalachiteASTValidator.validate_query(q), [], f"AST error on {metric_name}/{model.value}/{mode.value}")
+            self.assertEqual(
+                MalachiteASTValidator.validate_model_concordance(q, model),
+                [],
+                f"Concordance error on {metric_name}/{model.value}/{mode.value}",
+            )
+
+            clean = re.sub(r"//[^\n]*", "", q)
+            clean = re.sub(r"/\*.*?\*/", "", clean, flags=re.S)
+            root_body = re.sub(r"stage\s+[A-Za-z0-9_]+\s*\{.*?\n\}", "", clean, flags=re.S)
+            root_match = re.search(r"\bmatch:\s*\n\s*([^\n]+)", root_body)
+            self.assertIsNotNone(root_match)
+            root_keys = root_match.group(1).strip()
+
+            if model == StatisticalModel.LONGITUDINAL_CUSUM:
+              self.assertIn(f"match:\n    {expected_tuple}, $day_ws by 1d", clean)
+              self.assertEqual(root_keys, expected_tuple)
+            elif model in (StatisticalModel.MAD, StatisticalModel.QUANTILE_IQR_SKEW):
+              self.assertEqual(root_keys, f"{expected_tuple}, $ws by 1d")
+            else:
+              expected_root = f"{expected_tuple}, $ws by 1d" if mode == MatchMode.TIMELINE_BREAKDOWN else expected_tuple
+              self.assertEqual(root_keys, expected_root)
+
+    # Also verify _mad_group_keys handles multi-arg single-line metrics.* calls and drops non-dimension match vars ($ip).
+    synthetic_stage1 = (
+        'stage stage1_extract {\n'
+        '    metadata.event_type = "RESOURCE_READ"\n'
+        '    $sa = principal.user.userid\n'
+        '    $ip = principal.ip\n'
+        '    $vendor = metadata.vendor_name\n'
+        '    $product = metadata.product_name\n'
+        '    $resource = target.resource.name\n'
+        '  match:\n'
+        '    $sa, $ip, $vendor, $product, $resource by 1d\n'
+        '  outcome:\n'
+        '    $observed_val = count(metadata.id)\n'
+        '    $historical_avg = max(metrics.resource_read_total(period: 1d, window: 30d, metric: event_count_sum, agg: avg, principal.user.userid: principal.user.userid, metadata.vendor_name: metadata.vendor_name, metadata.product_name: metadata.product_name, target.resource.name: target.resource.name))\n'
+        '}\n'
+    )
+    keys, dropped = self.router._mad_group_keys(synthetic_stage1)
+    self.assertEqual(keys, ["$sa", "$vendor", "$product", "$resource"])
+    self.assertEqual(dropped, ["$ip"])
+
+  def test_ws2_03_include_significance_gate_false_emits_no_gate_queries(self):
+    """WS2-03: include_significance_gate=False strips significance thresholds while keeping AST validity."""
+    from scripts.preflight_validator import MalachiteASTValidator
+
+    q_z = self.router.build_query(
+        target_metric="auth_attempts_total",
+        entity_type=EntityType.USER,
+        statistical_model=StatisticalModel.STANDARD_Z_SCORE,
+        include_significance_gate=False,
+    )
+    self.assertIsNone(MultiStageTemplateRouter.root_condition(q_z))
+    self.assertNotIn("\ncondition:", q_z)
+    self.assertIn("// Significance Gate: NONE (NO-GATE decoupled sector for post-query Euclidean fusion)", q_z)
+    self.assertEqual(MalachiteASTValidator.validate_query(q_z), [])
+
+    # MAD retains structural scoring-window and sample-size guards while dropping $modified_z >= 3.5
+    q_mad = self.router.build_query(
+        target_metric="auth_attempts_total",
+        entity_type=EntityType.USER,
+        statistical_model=StatisticalModel.MAD,
+        scoring_end_date="2026-10-27",
+        include_significance_gate=False,
+    )
+    self.assertEqual(
+        MultiStageTemplateRouter.root_condition(q_mad),
+        "$in_scoring_window = 1 and $raw_active_days >= 7",
+    )
+    self.assertNotIn("$modified_z >=", q_mad)
+    self.assertEqual(MalachiteASTValidator.validate_query(q_mad), [])
+
+    # Cloud repository scope spoke (both direct and via (resource_*, USER, STANDARD_Z_SCORE) build_query)
+    for q_cloud in (
+        self.router.build_cloud_repository_scope_query(
+            service_account="charles.hardy",
+            include_significance_gate=False,
+        ),
+        self.router.build_query(
+            target_metric="resource_read_total",
+            entity_type=EntityType.USER,
+            statistical_model=StatisticalModel.STANDARD_Z_SCORE,
+            include_significance_gate=False,
+        ),
+    ):
+      self.assertIsNone(MultiStageTemplateRouter.root_condition(q_cloud))
+      self.assertNotIn("\ncondition:", q_cloud)
+      self.assertIn("// Significance Gate: NONE (NO-GATE decoupled sector for post-query Euclidean fusion)", q_cloud)
+      self.assertEqual(MalachiteASTValidator.validate_query(q_cloud), [])
+
+    # Alert surge spoke (both ASSET and USER)
+    for ent in (EntityType.ASSET, EntityType.USER):
+      q_alert = self.router.build_alert_surge_query(
+          entity_type=ent,
+          include_significance_gate=False,
+      )
+      self.assertIsNone(MultiStageTemplateRouter.root_condition(q_alert))
+      self.assertNotIn("\ncondition:", q_alert)
+      self.assertIn("// Significance Gate: NONE (NO-GATE decoupled sector for post-query Euclidean fusion)", q_alert)
+      self.assertEqual(MalachiteASTValidator.validate_query(q_alert), [])
+
+    # Default include_significance_gate=True behavior enforces maturity + significance gate
+    self.assertEqual(
+        MultiStageTemplateRouter.root_condition(
+            self.router.build_query("auth_attempts_total", EntityType.USER, StatisticalModel.STANDARD_Z_SCORE)
+        ),
+        "$active_days >= 7 and $personal_z >= 3.0",
+    )
+    self.assertIn(
+        "$alert_z >= 3.0",
+        self.router.build_alert_surge_query(entity_type=EntityType.ASSET),
+    )
+
+  def test_ws3_d1_model_renames_and_killchain_routing(self):
+    """WS3-D1: Renames CV to regular-volume surge and MACD to above-historical-max Z; killchain avoids retired PIECEWISE_CRI."""
+    from scripts.preflight_validator import MalachiteASTValidator
+    from scripts.template_router import ChainedHuntRouter
+
+    cv_desc = MultiStageTemplateRouter.MODEL_DESCRIPTIONS[StatisticalModel.COEFFICIENT_OF_VARIATION].lower()
+    self.assertIn("regular-volume surge", cv_desc)
+    q_cv = self.router.build_query(
+        target_metric="auth_attempts_total",
+        entity_type=EntityType.USER,
+        statistical_model=StatisticalModel.COEFFICIENT_OF_VARIATION,
+    )
+    self.assertIn("regular-volume surge", q_cv.lower())
+    self.assertIn("$active_days >= 7", q_cv)
+
+    macd_desc = MultiStageTemplateRouter.MODEL_DESCRIPTIONS[StatisticalModel.MACD_MOMENTUM_VELOCITY].lower()
+    self.assertIn("above-historical-max z", macd_desc)
+    for q_macd in (
+        self.router.build_query(
+            target_metric="network_bytes_outbound",
+            entity_type=EntityType.ASSET,
+            statistical_model=StatisticalModel.MACD_MOMENTUM_VELOCITY,
+        ),
+        self.router.build_pipeline_query(
+            PipelineArchitecture.MACD_MOMENTUM_VELOCITY_2STAGE,
+            target_metric="network_bytes_outbound",
+            entity_type=EntityType.ASSET,
+        ),
+    ):
+      self.assertIn("above-historical-max z", q_macd.lower())
+      self.assertIn("$exceed_raw = $observed - $hist_max", q_macd)
+      self.assertIn("$above_max_z =", q_macd)
+      self.assertIn("$macd_z = $personal_z + $above_max_z", q_macd)
+      self.assertNotIn("$velocity_ratio", q_macd)
+      self.assertNotIn("* $velocity_ratio", q_macd)
+      self.assertEqual(MalachiteASTValidator.validate_query(q_macd), [])
+
+    killchain_plan = ChainedHuntRouter().build_cross_entity_killchain_plan(
+        "USER_WORKSPACE_HOARDING_TO_HOST_EGRESS"
+    )
+    self.assertIn("phase1_query", killchain_plan)
+    self.assertEqual(MalachiteASTValidator.validate_query(killchain_plan["phase1_query"]), [])
+
+  def test_ws3_reldev_continuous_floor_and_z_equiv(self):
+    """WS3-RELDEV: Continuous max(avg, 1.0) floor eliminates 0 -> 0.05 jump discontinuity and emits Z-equivalent."""
+    from scripts.preflight_validator import MalachiteASTValidator
+
+    q = self.router.build_query(
+        target_metric="auth_attempts_total",
+        entity_type=EntityType.USER,
+        statistical_model=StatisticalModel.RELATIVE_DEVIATION,
+    )
+    self.assertIn("$safe_hist_avg = if($hist_avg > 1.0, $hist_avg, 1.0)", q)
+    self.assertNotIn("if($hist_avg > 0,", q)
+    self.assertIn("$dev = $observed - $safe_hist_avg", q)
+    self.assertIn("$ratio = $dev / $safe_hist_avg", q)
+    self.assertIn("$fold_change = $observed / $safe_hist_avg", q)
+    self.assertIn("$rel_dev_z_equiv = if($raw_z_equiv > 0.0, $raw_z_equiv, 0.0)", q)
+    self.assertEqual(MalachiteASTValidator.validate_query(q), [])
+    self.assertEqual(MalachiteASTValidator.validate_model_concordance(q, StatisticalModel.RELATIVE_DEVIATION), [])
+
+    def _eval_reldev(observed: float, hist_avg: float) -> tuple[float, float, float]:
+      safe_avg = hist_avg if hist_avg > 1.0 else 1.0
+      dev = observed - safe_avg
+      ratio = dev / safe_avg
+      fold_change = observed / safe_avg
+      raw_z_equiv = 3.0 * ratio
+      z_equiv = raw_z_equiv if raw_z_equiv > 0.0 else 0.0
+      return fold_change, ratio, z_equiv
+
+    # Continuous across hist_avg in [0.0, 1.0]: no 20x jump at hist_avg = 0.05
+    for avg in (0.0, 0.05, 0.5, 1.0):
+      fc, ratio, z_eq = _eval_reldev(observed=5.0, hist_avg=avg)
+      self.assertAlmostEqual(fc, 5.0)
+      self.assertAlmostEqual(ratio, 4.0)
+      self.assertAlmostEqual(z_eq, 12.0)
+
+    # At default 2.0x gate, fold_change=2.0 -> ratio=1.0 -> z_equiv=3.0; below baseline -> z_equiv=0.0
+    self.assertEqual(_eval_reldev(observed=200.0, hist_avg=100.0), (2.0, 1.0, 3.0))
+    self.assertEqual(_eval_reldev(observed=80.0, hist_avg=100.0), (0.8, -0.2, 0.0))
+
+  def test_ws3_poisson_blocks_byte_metrics_and_handles_overdispersion(self):
+    """WS3-POISSON: Rejects value_sum byte metrics and switches to NB scale when calendar Fano > 2.0."""
+    from scripts import malachite_catalog as mc
+    from scripts.preflight_validator import METRIC_CATALOG, MalachiteASTValidator
+    from scripts.statistical_validator import StatisticalAntipatternAuditor
+    import scripts.ueba_hybrid_engine as engine_mod
+
+    byte_metrics = [m for m in METRIC_CATALOG if mc.baseline_semantics(m).metric_arg == "value_sum"]
+    self.assertEqual(len(byte_metrics), 6)
+    for bm in byte_metrics:
+      et = METRIC_CATALOG[bm].supported_entity_types[0]
+      with self.assertRaisesRegex(ValueError, r"POISSON.*event_count_sum|value_sum|byte"):
+        self.router.build_query(
+            target_metric=bm,
+            entity_type=et,
+            statistical_model=StatisticalModel.POISSON,
+        )
+      with self.assertRaisesRegex(ValueError, r"POISSON.*event_count_sum|value_sum|byte"):
+        engine_mod.compile_hunt_pipeline(
+            statistical_model="POISSON",
+            metrics=bm,
+            entity_type=et.value,
+        )
+
+    q = self.router.build_query(
+        target_metric="auth_attempts_fail",
+        entity_type=EntityType.USER,
+        statistical_model=StatisticalModel.POISSON,
+    )
+    self.assertEqual(MalachiteASTValidator.validate_query(q), [])
+    self.assertEqual(MalachiteASTValidator.validate_model_concordance(q, StatisticalModel.POISSON), [])
+    self.assertEqual(StatisticalAntipatternAuditor.audit_query(q), [])
+    self.assertIn("$fano_cal = $var_cal / $safe_lambda", q)
+    self.assertIn("$eff_var = if($active_days >= 2 and $fano_cal > 2.0, $nb_var, $safe_lambda)", q)
+    self.assertIn("$safe_poisson_sd = math.sqrt($eff_var)", q)
+    self.assertIn("$poisson_z = $diff / $safe_poisson_sd", q)
+
+    pipe_raw = (self.router.template_dir / "pipelines" / "poisson_rarity_2stage.yl2").read_text(encoding="utf-8")
+    self.assertIn("$fano_cal = $var_cal / $safe_lambda", pipe_raw)
+    self.assertIn("$poisson_z = $diff / $safe_poisson_sd", pipe_raw)
+
+    # Low dispersion (Fano <= 2.0): uses pure Poisson sqrt(safe_lambda) = 1.0 -> (5 - 1) / 1 = 4.0
+    z_poisson = engine_mod.calculate_poisson_rarity_z(
+        observed=5.0,
+        hist_sum=30.0,
+        active_days=30,
+        hist_avg=1.0,
+        hist_stddev=1.0,
+    )
+    self.assertAlmostEqual(z_poisson, 4.0, places=4)
+
+    # Overdispersed count baseline (charles.hardy: Fano_cal = 181.34 > 2.0): uses calendar NB scale ~99.75 instead of 7.41
+    z_overdisp = engine_mod.calculate_poisson_rarity_z(
+        observed=785.0,
+        hist_sum=1646.0,
+        active_days=10,
+        hist_avg=164.6,
+        hist_stddev=114.4875,
+    )
+    self.assertAlmostEqual(z_overdisp, 7.3186, places=4)
+
+  def test_ws3_bayesian_gamma_empirical_bayes_shrinkage_and_10sigma_spike(self):
+    """WS3-BAYES: Fleet Empirical Bayes Gamma(alpha0, beta0) shrinks sparse entities and fires on +10sigma spikes."""
+    from scripts.preflight_validator import MalachiteASTValidator
+    from scripts.statistical_validator import StatisticalAntipatternAuditor
+    from scripts.submission_tests import validate_template_fragments
+    from scripts.template_router import fit_gamma_prior_from_fleet
+    import scripts.ueba_hybrid_engine as engine_mod
+
+    # 1. Fleet prior fitting via Method of Moments on entity daily rates (hist_sum / 30.0)
+    # Rates = [2.0, 4.0, 6.0, 8.0] -> mean = 5.0, sample_var = 6.6667 -> beta0 = 0.75, alpha0 = 3.75
+    fleet_rows = [
+        {"entity": "u1", "hist_sum": 60.0, "active_days": 15},
+        {"entity": "u2", "hist_sum": 120.0, "active_days": 20},
+        {"entity": "u3", "hist_sum": 180.0, "active_days": 25},
+        {"entity": "u4", "hist_sum": 240.0, "active_days": 30},
+    ]
+    alpha0, beta0 = fit_gamma_prior_from_fleet(fleet_rows)
+    self.assertAlmostEqual(alpha0 / beta0, 5.0, places=3)
+    self.assertAlmostEqual(alpha0, 3.75, places=3)
+    self.assertAlmostEqual(beta0, 0.75, places=3)
+
+    # Empty / degenerate fleet falls back safely to positive weak defaults
+    fb_a, fb_b = fit_gamma_prior_from_fleet([])
+    self.assertGreater(fb_a, 0.0)
+    self.assertGreater(fb_b, 0.0)
+
+    # 2. Router & Engine render slots cleanly and pass AST + fragment + antipattern audits
+    q = self.router.build_query(
+        target_metric="auth_attempts_total",
+        entity_type=EntityType.USER,
+        statistical_model=StatisticalModel.BAYESIAN_GAMMA,
+        fleet_prior_payload=fleet_rows,
+    )
+    self.assertNotIn("{{", q)
+    self.assertIn("$post_alpha_pre = 3.75 + $hist_sum", q)
+    self.assertIn("$post_beta_pre = 0.75 + 30.0", q)
+    self.assertIn("$bayesian_z = ($observed - $posterior_rate) / $safe_pred_sd", q)
+    self.assertEqual(MultiStageTemplateRouter.root_condition(q), "$bayesian_z >= 3.0")
+    self.assertEqual(MalachiteASTValidator.validate_query(q), [])
+    self.assertEqual(MalachiteASTValidator.validate_model_concordance(q, StatisticalModel.BAYESIAN_GAMMA), [])
+    self.assertEqual(StatisticalAntipatternAuditor.audit_query(q), [])
+    self.assertEqual(validate_template_fragments(), [])
+
+    plan = engine_mod.compile_hunt_pipeline(
+        statistical_model="BAYESIAN_GAMMA",
+        metrics="auth_attempts_total",
+        entity_type="USER",
+        prior_alpha0=20.0,
+        prior_beta0=4.0,
+    )
+    self.assertIn("$post_alpha_pre = 20.0 + $hist_sum", plan["compiled_query"])
+    self.assertIn("$post_beta_pre = 4.0 + 30.0", plan["compiled_query"])
+
+    # 3. Golden test A: Sparse entity shrinks dramatically more toward prior mean (5.0) than mature entity
+    sparse = engine_mod.calculate_bayesian_gamma_posterior(
+        observed=3.0,
+        hist_sum=2.0,
+        active_days=2,
+        hist_avg=1.0,
+        hist_stddev=0.0,
+        prior_alpha0=20.0,
+        prior_beta0=4.0,
+    )
+    mature = engine_mod.calculate_bayesian_gamma_posterior(
+        observed=10.0,
+        hist_sum=300.0,
+        active_days=30,
+        hist_avg=10.0,
+        hist_stddev=3.0,
+        prior_alpha0=20.0,
+        prior_beta0=4.0,
+    )
+    sparse_rel_pull = abs(sparse["posterior_rate"] - sparse["mu_cal"]) / max(sparse["mu_cal"], 1e-6)
+    mature_rel_pull = abs(mature["posterior_rate"] - mature["mu_cal"]) / max(mature["mu_cal"], 1e-6)
+    self.assertGreater(sparse_rel_pull, 5.0 * mature_rel_pull)
+    self.assertLess(sparse["cred_w"], mature["cred_w"])
+
+    # 4. Golden test B: +10sigma spike on a mature stable host STILL FIRES (fixing old inverted 1.01x miss!)
+    spike_poisson = engine_mod.calculate_bayesian_gamma_posterior(
+        observed=200.0,
+        hist_sum=3000.0,
+        active_days=30,
+        hist_avg=100.0,
+        hist_stddev=10.0,
+    )
+    self.assertEqual(spike_poisson["excess_var"], 0.0)  # B-E10: no double-counting of mu!
+    self.assertGreaterEqual(spike_poisson["bayesian_z"], 9.5)
+
+    spike_overdisp = engine_mod.calculate_bayesian_gamma_posterior(
+        observed=350.0,
+        hist_sum=3000.0,
+        active_days=30,
+        hist_avg=100.0,
+        hist_stddev=25.0,
+    )
+    self.assertGreater(spike_overdisp["excess_var"], 400.0)
+    self.assertGreaterEqual(spike_overdisp["bayesian_z"], 9.5)
+
+    # High-volume nominal host on an average day must NOT false-alert under default weak prior
+    nominal_busy = engine_mod.calculate_bayesian_gamma_posterior(
+        observed=10000.0,
+        hist_sum=300000.0,
+        active_days=30,
+        hist_avg=10000.0,
+        hist_stddev=100.0,
+    )
+    self.assertLess(abs(nominal_busy["bayesian_z"]), 1.0)
+
+  def test_ws3_beta_binomial_paired_metrics_and_golden_alerts(self):
+    """WS3-BETA-BINOMIAL: Pairs *_fail/*_total in Stage 1, fits fleet Beta(a0,b0), and verifies 1/1 vs 15/20 golden alerts."""
+    from scripts.preflight_validator import METRIC_CATALOG, MalachiteASTValidator
+    from scripts.statistical_validator import StatisticalAntipatternAuditor
+    from scripts.template_router import fit_beta_prior_from_fleet, resolve_beta_binomial_pair
+    import scripts.ueba_hybrid_engine as engine_mod
+
+    paired_prefixes = (
+        "auth_attempts_",
+        "dns_queries_",
+        "http_queries_",
+        "file_executions_",
+        "resource_creation_",
+        "resource_deletion_",
+        "resource_read_",
+        "resource_written_",
+    )
+    paired_count = 0
+    unpaired_count = 0
+    for mname, mdef in METRIC_CATALOG.items():
+      ent = mdef.supported_entity_types[0]
+      if mname.startswith(paired_prefixes):
+        paired_count += 1
+        fail_m, total_m = resolve_beta_binomial_pair(mname)
+        self.assertTrue(fail_m.endswith("_fail"))
+        self.assertTrue(total_m.endswith("_total"))
+        q = self.router.build_query(
+            target_metric=mname,
+            entity_type=ent,
+            statistical_model=StatisticalModel.BAYESIAN_BETA_BINOMIAL,
+        )
+        self.assertIn("$obs_total = count(metadata.id)", q)
+        self.assertIn("$obs_fail = sum(if(", q)
+        self.assertIn(f"metrics.{fail_m}(", q)
+        self.assertIn(f"metrics.{total_m}(", q)
+        self.assertIn("$beta_binomial_z = ($obs_fail - $pred_mean) / $safe_pred_sd", q)
+        self.assertEqual(MalachiteASTValidator.validate_query(q), [], mname)
+        self.assertEqual(MalachiteASTValidator.validate_model_concordance(q, StatisticalModel.BAYESIAN_BETA_BINOMIAL), [], mname)
+        violations = StatisticalAntipatternAuditor.audit_query(q)
+        if mname.startswith("resource_"):
+          violations = [v for v in violations if v.antipattern.name != "UNPROFILED_SERVICE_ACCOUNT"]
+        self.assertEqual(violations, [], mname)
+      else:
+        unpaired_count += 1
+        with self.assertRaisesRegex(ValueError, r"BAYESIAN_BETA_BINOMIAL.*paired|unpaired|_fail"):
+          self.router.build_query(
+              target_metric=mname,
+              entity_type=ent,
+              statistical_model=StatisticalModel.BAYESIAN_BETA_BINOMIAL,
+          )
+    self.assertEqual(paired_count, 24)
+    self.assertEqual(unpaired_count, 14)
+
+    # Empirical Bayes fleet Beta(alpha0, beta0) moment-matching fit
+    fleet_rows = [
+        {"hist_fail_sum": f, "hist_total_sum": 1000.0}
+        for f in (30.0, 45.0, 50.0, 55.0, 70.0, 40.0, 60.0, 50.0, 35.0, 65.0)
+    ]
+    a0, b0 = fit_beta_prior_from_fleet(fleet_rows)
+    self.assertGreater(a0, 0.5)
+    self.assertGreater(b0, 10.0)
+    self.assertAlmostEqual(a0 / (a0 + b0), 0.05, places=2)
+
+    q_fleet = self.router.build_query(
+        target_metric="auth_attempts_fail",
+        entity_type=EntityType.USER,
+        statistical_model=StatisticalModel.BAYESIAN_BETA_BINOMIAL,
+        fleet_prior_payload=fleet_rows,
+    )
+    self.assertIn(f"$alpha_pre = {a0} + $hist_fail_sum", q_fleet)
+    self.assertIn(f"$beta_pre = {b0} + $hist_succ_sum", q_fleet)
+
+    # Golden Test 1: 1 failure out of 1 attempt -> shrinks toward 5% prior, Z = 1.90 < 3.0 (DOES NOT ALERT)
+    one_of_one = engine_mod.calculate_beta_binomial_posterior(
+        obs_fail=1.0,
+        obs_total=1.0,
+        hist_fail_sum=0.0,
+        hist_total_sum=0.0,
+        prior_alpha0=1.0,
+        prior_beta0=19.0,
+    )
+    self.assertAlmostEqual(one_of_one["posterior_fail_rate"], 2.0 / 21.0, places=4)
+    self.assertAlmostEqual(one_of_one["beta_binomial_z"], 1.90, places=2)
+    self.assertLess(one_of_one["beta_binomial_z"], 3.0)
+
+    # Golden Test 2: 15 failures out of 20 attempts -> Z = 10.41 >= 3.0 (ALERTS)
+    real_surge = engine_mod.calculate_beta_binomial_posterior(
+        obs_fail=15.0,
+        obs_total=20.0,
+        hist_fail_sum=0.0,
+        hist_total_sum=0.0,
+        prior_alpha0=1.0,
+        prior_beta0=19.0,
+    )
+    self.assertAlmostEqual(real_surge["posterior_fail_rate"], 0.40, places=4)
+    self.assertGreaterEqual(real_surge["beta_binomial_z"], 3.0)
+    self.assertGreater(real_surge["beta_binomial_z"], 10.0)
+
+    # Golden Test 3: Mature entity with 2% baseline (6 / 300) surging to 12 / 20 today -> ALERTS
+    mature_surge = engine_mod.calculate_beta_binomial_posterior(
+        obs_fail=12.0,
+        obs_total=20.0,
+        hist_fail_sum=6.0,
+        hist_total_sum=300.0,
+        prior_alpha0=1.0,
+        prior_beta0=19.0,
+    )
+    self.assertGreaterEqual(mature_surge["beta_binomial_z"], 3.0)
+
+  def test_ws3_cusum_windowed_slack_sum_and_site_dc_maturity_guard(self):
+    """WS3-CUSUM: Names in-query sum Windowed Slack Sum and zeros/blocks immature entities (SITE-DC$)."""
+    from pathlib import Path
+    from scripts.preflight_validator import DEFAULT_SIGNIFICANCE_GATES, MalachiteASTValidator
+    import scripts.ueba_hybrid_engine as engine_mod
+
+    self.assertIn("Windowed Slack Sum", DEFAULT_SIGNIFICANCE_GATES[StatisticalModel.LONGITUDINAL_CUSUM])
+    self.assertIn("Windowed Slack Sum", MultiStageTemplateRouter.MODEL_DESCRIPTIONS[StatisticalModel.LONGITUDINAL_CUSUM])
+
+    q = self.router.build_query(
+        target_metric="auth_attempts_total",
+        entity_type=EntityType.USER,
+        statistical_model=StatisticalModel.LONGITUDINAL_CUSUM,
+    )
+    self.assertIn("Windowed Slack Sum", q)
+    self.assertIn("$daily_excess = if($active_days >= 7 and $z_minus_slack > 0, $z_minus_slack, 0.0)", q)
+    self.assertIn("$windowed_slack_sum = $cusum_drift", q)
+    self.assertIn("$active_days >= 7 and $cusum_drift_score >= 3.0 and $drift_days >= 2", q)
+    self.assertEqual(MalachiteASTValidator.validate_query(q), [])
+    self.assertEqual(MalachiteASTValidator.validate_model_concordance(q, StatisticalModel.LONGITUDINAL_CUSUM), [])
+
+    repo_root = Path(__file__).resolve().parent.parent
+    pipe_2stage = (repo_root / "templates" / "pipelines" / "longitudinal_cusum_2stage.yl2").read_text(encoding="utf-8")
+    self.assertIn("Windowed Slack Sum", pipe_2stage)
+    self.assertIn("$daily_excess = if($historical_active_days >= {{min_baseline_days}} and $deviation > 0.0, $deviation, 0.0)", pipe_2stage)
+    self.assertIn("$windowed_slack_sum = $cusum_drift", pipe_2stage)
+    self.assertIn("$active_days >= {{min_baseline_days}} and $cusum_drift_score >= {{anomaly_threshold}} and $drift_days >= 2", pipe_2stage)
+
+    # Golden SITE-DC$ cold-start maturity reproduction (active_days=0 and active_days=2): zero slack & blocked
+    for immature_n in (0, 2):
+      site_dc = engine_mod.calculate_windowed_slack_sum(
+          daily_observations=[8622, 8100, 7900, 7800, 7700, 7600, 7500, 7700, 7657],
+          hist_avg=0.0,
+          hist_stddev=0.0,
+          active_days=immature_n,
+      )
+      self.assertEqual(site_dc["windowed_slack_sum"], 0.0)
+      self.assertEqual(site_dc["drift_days"], 0)
+      self.assertFalse(site_dc["alerts"])
+
+    # Mature creeping drift (4 days at +1.5 sigma -> daily excess 1.0 -> W = 4.0 >= 3.0 across 4 drift days)
+    creeping = engine_mod.calculate_windowed_slack_sum(
+        daily_observations=[115.0, 115.0, 115.0, 115.0],
+        hist_avg=100.0,
+        hist_stddev=10.0,
+        active_days=20,
+    )
+    self.assertAlmostEqual(creeping["windowed_slack_sum"], 4.0, places=4)
+    self.assertEqual(creeping["drift_days"], 4)
+    self.assertTrue(creeping["alerts"])
+
+  def test_ws3_hurdle_awakening_volume_hist_max_and_maya_goodman_ranking(self):
+    """WS3-HURDLE: Dormant branch requires min_awakening_volume & > hist_max; maya.goodman scores 0 below charles.hardy."""
+    from scripts.preflight_validator import MalachiteASTValidator
+    from scripts.statistical_validator import StatisticalAntipatternAuditor
+    import scripts.ueba_hybrid_engine as engine_mod
+
+    q_default = self.router.build_query(
+        target_metric="auth_attempts_total",
+        entity_type=EntityType.USER,
+        statistical_model=StatisticalModel.TWO_PART_HURDLE,
+    )
+    self.assertIn("$hist_max = max($stage1_extract.historical_max)", q_default)
+    self.assertIn("$dormant_days = 30.0 - $active_days", q_default)
+    self.assertIn("$is_dormant_awakening = if($active_days < 7 and $observed >= 25 and $observed > $hist_max, 1.0, 0.0)", q_default)
+    self.assertIn("$intensity_z = if($raw_z > 0.0, $raw_z, 0.0)", q_default)
+    self.assertIn("$hurdle_threat_score = if($active_days < 7, $dormant_score, $intensity_z)", q_default)
+    self.assertEqual(MultiStageTemplateRouter.root_condition(q_default), "$hurdle_threat_score >= 3.0")
+    self.assertEqual(MalachiteASTValidator.validate_query(q_default), [])
+    self.assertEqual(MalachiteASTValidator.validate_model_concordance(q_default, StatisticalModel.TWO_PART_HURDLE), [])
+    self.assertEqual(StatisticalAntipatternAuditor.audit_query(q_default), [])
+
+    # Custom min_awakening_volume slot override via router & compile_hunt_pipeline
+    q_custom = self.router.build_query(
+        target_metric="auth_attempts_total",
+        entity_type=EntityType.USER,
+        statistical_model=StatisticalModel.TWO_PART_HURDLE,
+        min_awakening_volume=50,
+    )
+    self.assertIn("$observed >= 50 and $observed > $hist_max", q_custom)
+    compiled = engine_mod.compile_hunt_pipeline(
+        statistical_model="TWO_PART_HURDLE",
+        metrics="auth_attempts_total",
+        entity_type="USER",
+        min_awakening_volume=40,
+    )
+    self.assertTrue(compiled["ast_valid"])
+    self.assertIn("$observed >= 40 and $observed > $hist_max", compiled["compiled_query"])
+
+    # V-live maya.goodman (obs=4, n=2, hist_avg=50.5, hist_sd=65.76, hist_max=97) vs charles.hardy (obs=785, n=10, avg=164.6, sd=114.49, max=350)
+    maya_score = engine_mod.calculate_two_part_hurdle(
+        observed_val=4.0,
+        baseline_mean=50.5,
+        baseline_stddev=65.76,
+        active_days=2,
+        hist_max=97.0,
+    )
+    charles_score = engine_mod.calculate_two_part_hurdle(
+        observed_val=785.0,
+        baseline_mean=164.6,
+        baseline_stddev=114.49,
+        active_days=10,
+        hist_max=350.0,
+    )
+    self.assertEqual(maya_score, 0.0)
+    self.assertGreater(charles_score, 5.4)
+    self.assertGreater(charles_score, maya_score)
+
+    # Active entity with negative Z is rectified to 0.0
+    neg_active = engine_mod.calculate_two_part_hurdle(
+        observed_val=50.0,
+        baseline_mean=100.0,
+        baseline_stddev=15.0,
+        active_days=20,
+        hist_max=140.0,
+    )
+    self.assertEqual(neg_active, 0.0)
+
+    # Genuine dormant awakening (obs=50 >= 25 and obs=50 > hist_max=10, n=2) alerts (>= 3.0) + supports optional last_seen dormancy
+    awaken_details = engine_mod.calculate_two_part_hurdle_details(
+        observed_val=50.0,
+        baseline_mean=10.0,
+        baseline_stddev=0.0,
+        active_days=2,
+        hist_max=10.0,
+        last_seen_seconds=1700000000.0,
+        eval_timestamp_seconds=1700000000.0 + 18.0 * 86400.0,
+    )
+    self.assertTrue(awaken_details["is_dormant_awakening"])
+    self.assertGreaterEqual(awaken_details["hurdle_threat_score"], 3.0)
+    self.assertAlmostEqual(awaken_details["dormant_days"], 18.0, places=4)
+    self.assertFalse(awaken_details["is_true_sigma"])
+
+    # Dossier ranking: hurdle_threat_score is NOT formatted with sigma and charles.hardy ranks above maya.goodman
+    dossier = engine_mod.render_forensic_dossier(
+        rows=[
+            {"entity": "maya.goodman", "observed": 4, "hist_avg": 50.5, "hist_stddev": 65.76, "active_days": 2, "hurdle_threat_score": maya_score},
+            {"entity": "charles.hardy", "observed": 785, "hist_avg": 164.6, "hist_stddev": 114.49, "active_days": 10, "hurdle_threat_score": charles_score},
+        ],
+        executed_query=q_default,
+        statistical_model="TWO_PART_HURDLE",
+        metric_name="auth_attempts_total",
+        entity_type="USER",
+    )
+    self.assertEqual(dossier["outliers"][0]["entity"], "charles.hardy")
+    self.assertFalse(dossier["outliers"][0]["is_true_sigma"])
+    self.assertNotIn("σ", dossier["outliers"][0]["score_display"])
+
+  def test_ws3_adaptive_context_schedule_and_golden_alerts(self):
+    """WS3-ADAPTIVE (D1c): off-hours/weekend schedule in {{tenant_tz}}, 1.75σ/3.0σ gates, Z-equivalent adaptive_z, and WS5-HOD learned hours."""
+    from scripts.preflight_validator import MalachiteASTValidator
+    from scripts.ueba_constants import cri_from_model_score
+    from scripts import ueba_hybrid_engine as engine_mod
+
+    # 1. Default UTC Mon-Fri 08:00-18:00 schedule + concordance 1.75 / 3.0 gates + adaptive_z
+    q_default = self.router.build_query(
+        target_metric="auth_attempts_total",
+        entity_type=EntityType.USER,
+        statistical_model=StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD,
+    )
+    self.assertIn('$hour = timestamp.get_hour(metadata.event_timestamp.seconds, "UTC")', q_default)
+    self.assertIn('$dow = timestamp.get_day_of_week(metadata.event_timestamp.seconds, "UTC")', q_default)
+    self.assertIn("$dow >= 2 and $dow <= 6 and $hour >= 8 and $hour < 18", q_default)
+    self.assertIn("$off_hours_obs = sum(if($dow >= 2 and $dow <= 6 and $hour >= 8 and $hour < 18, 0, 1))", q_default)
+    self.assertIn("$effective_gate = if($off_hours_share >= 0.5, 1.75, 3.0)", q_default)
+    self.assertIn("$adaptive_z = ($personal_z * 3.0) / $effective_gate", q_default)
+    self.assertEqual(
+        MultiStageTemplateRouter.root_condition(q_default),
+        "$active_days >= 7 and $adaptive_z >= 3.0",
+    )
+    self.assertIn("order:\n  $adaptive_z desc", q_default)
+    self.assertNotIn("$sparse_threshold", q_default)
+
+    # 2. All 5 Stage-1 $observed_val shapes pass AST, concordance, and antipattern checks
+    shape_metrics = [
+        ("auth_attempts_total", EntityType.USER),
+        ("network_bytes_outbound", EntityType.ASSET),
+        ("network_bytes_inbound", EntityType.ASSET),
+        ("network_bytes_total", EntityType.ASSET),
+        ("workspace_network_bytes_total", EntityType.USER),
+    ]
+    for metric_name, ent_type in shape_metrics:
+      with self.subTest(metric=metric_name):
+        q_shape = self.router.build_query(
+            target_metric=metric_name,
+            entity_type=ent_type,
+            statistical_model=StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD,
+            tenant_tz="America/Los_Angeles",
+            biz_start_hour=9,
+            biz_end_hour=17,
+        )
+        self.assertIn('"America/Los_Angeles"', q_shape)
+        self.assertIn("$hour >= 9 and $hour < 17", q_shape)
+        self.assertEqual(MalachiteASTValidator.validate_query(q_shape), [])
+        self.assertEqual(
+            MalachiteASTValidator.validate_model_concordance(q_shape, StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD),
+            [],
+        )
+        self.assertEqual(StatisticalAntipatternAuditor.audit_query(q_shape), [])
+
+    # 3. Per-entity learned active hours from WS5-HOD (HOUR_OF_DAY_PROFILE) via compile_hunt_pipeline
+    compiled_hod = engine_mod.compile_hunt_pipeline(
+        statistical_model="ADAPTIVE_CONTEXT_THRESHOLD",
+        metrics="auth_attempts_total",
+        entity_type="USER",
+        tenant_tz="America/New_York",
+        learned_active_hours=[8, 9, 10, 11, 12, 13, 14, 15, 16],
+    )
+    self.assertTrue(compiled_hod["ast_valid"], compiled_hod["ast_errors"])
+    self.assertEqual(compiled_hod["statistical_violations"], [])
+    self.assertIn('"America/New_York"', compiled_hod["compiled_query"])
+    self.assertIn("$hour >= 8 and $hour <= 16", compiled_hod["compiled_query"])
+    self.assertNotIn("$dow >= 2", compiled_hod["compiled_query"])
+
+    # 4. Golden alerts: off-hours 2.0σ alerts (CRI >= 50, NOT 14); identical 2.0σ in business hours does not alert
+    off_hours_res = engine_mod.calculate_adaptive_context_z(
+        observed=120.0,
+        hist_avg=100.0,
+        hist_stddev=10.0,
+        active_days=20,
+        event_hour=2,
+        event_dow=7,  # Saturday 02:00
+    )
+    self.assertAlmostEqual(off_hours_res["personal_z"], 2.0, places=4)
+    self.assertEqual(off_hours_res["effective_gate"], 1.75)
+    self.assertAlmostEqual(off_hours_res["adaptive_z"], round(2.0 * 3.0 / 1.75, 4), places=4)
+    self.assertTrue(off_hours_res["alerts"])
+    self.assertGreaterEqual(cri_from_model_score("adaptive_z", off_hours_res["adaptive_z"]), 50)
+
+    in_hours_res = engine_mod.calculate_adaptive_context_z(
+        observed=120.0,
+        hist_avg=100.0,
+        hist_stddev=10.0,
+        active_days=20,
+        event_hour=10,
+        event_dow=3,  # Tuesday 10:00
+    )
+    self.assertAlmostEqual(in_hours_res["personal_z"], 2.0, places=4)
+    self.assertEqual(in_hours_res["effective_gate"], 3.0)
+    self.assertAlmostEqual(in_hours_res["adaptive_z"], 2.0, places=4)
+    self.assertFalse(in_hours_res["alerts"])
+
+    # 5. Learned night-shift schedule [22, 23, 0, 1, 2, 3]: 02:00 is normal (no alert at 2.0σ), 14:00 is off-schedule (alerts at 2.0σ)
+    night_in_sched = engine_mod.calculate_adaptive_context_z(
+        observed=120.0,
+        hist_avg=100.0,
+        hist_stddev=10.0,
+        active_days=20,
+        event_hour=2,
+        event_dow=7,
+        learned_active_hours=[22, 23, 0, 1, 2, 3],
+    )
+    self.assertEqual(night_in_sched["effective_gate"], 3.0)
+    self.assertFalse(night_in_sched["alerts"])
+
+    night_off_sched = engine_mod.calculate_adaptive_context_z(
+        observed=120.0,
+        hist_avg=100.0,
+        hist_stddev=10.0,
+        active_days=20,
+        event_hour=14,
+        event_dow=3,
+        learned_active_hours=[22, 23, 0, 1, 2, 3],
+    )
+    self.assertEqual(night_off_sched["effective_gate"], 1.75)
+    self.assertTrue(night_off_sched["alerts"])
+
+    # 6. Negative / zero Z yields CRI 0 and never alerts
+    quiet_res = engine_mod.calculate_adaptive_context_z(
+        observed=80.0,
+        hist_avg=100.0,
+        hist_stddev=10.0,
+        active_days=20,
+        event_hour=2,
+        event_dow=1,
+    )
+    self.assertLess(quiet_res["adaptive_z"], 0.0)
+    self.assertFalse(quiet_res["alerts"])
+    self.assertEqual(cri_from_model_score("adaptive_z", quiet_res["adaptive_z"]), 0)
+
+  def test_ws4_d1_outbound_flow_surge_cusum_macd_and_orthogonal_retirement(self):
+    """WS4-D1: Outbound flow surge rename + single scan, CUSUM 2stage h=4.0/NO-GATE & byte floor, MACD linear Z, and D1 orthogonal retirement."""
+    import re
+    from scripts.preflight_validator import MalachiteASTValidator
+    import scripts.ueba_hybrid_engine as engine_mod
+
+    repo_root = Path(__file__).resolve().parent.parent
+
+    # 1. c2_beacon_flow_frequency_2stage.yl2 renamed to Outbound Flow Surge, single UDM scan, active_days >= 7, continuous Poisson floor
+    flow_tpl = (repo_root / "templates" / "pipelines" / "c2_beacon_flow_frequency_2stage.yl2").read_text(encoding="utf-8")
+    self.assertIn("OUTBOUND FLOW SURGE", flow_tpl.upper())
+    self.assertNotIn("stage2_target_dispersion", flow_tpl)
+    self.assertEqual(len(re.findall(r"^stage\s+\w+\s*\{", flow_tpl, re.M)), 1)
+    self.assertIn("$dispersion_floor = math.sqrt(if($hist_flow_avg > 1.0, $hist_flow_avg, 1.0))", flow_tpl)
+    self.assertIn("$active_days >= 7", flow_tpl)
+    self.assertIn("$flow_surge_score = $flow_z", flow_tpl)
+    self.assertEqual(MalachiteASTValidator.validate_query(flow_tpl), [])
+
+    res_flow = engine_mod.compile_hunt_pipeline(
+        architecture="outbound_flow_surge",
+        metrics="network_flows_outbound",
+        entity_type="ASSET",
+        entity_value="srv-01",
+    )
+    self.assertTrue(res_flow["ast_valid"], res_flow["ast_errors"])
+    self.assertEqual(res_flow["architecture"], "OUTBOUND_FLOW_SURGE_2STAGE")
+
+    # 2. longitudinal_cusum_2stage.yl2 via build_longitudinal_cusum_pipeline_query:
+    #    default cusum_h_threshold = 4.0, byte vs count dispersion floor, and NO-GATE prefilter mode.
+    cusum_bytes = self.router.build_longitudinal_cusum_pipeline_query(
+        target_metric="network_bytes_outbound",
+        entity_type=EntityType.ASSET,
+    )
+    self.assertIn("Windowed Slack Sum", cusum_bytes)
+    self.assertIn("$dispersion_floor = 44979.0", cusum_bytes)
+    self.assertIn("$active_days >= 7 and $cusum_drift_score >= 4.0 and $drift_days >= 2", cusum_bytes)
+    self.assertEqual(MalachiteASTValidator.validate_query(cusum_bytes), [])
+
+    cusum_counts_nogate = self.router.build_longitudinal_cusum_pipeline_query(
+        target_metric="dns_queries_total",
+        entity_type=EntityType.ASSET,
+        include_significance_gate=False,
+    )
+    self.assertIn("$dispersion_floor = math.sqrt(if($historical_avg > 1.0, $historical_avg, 1.0))", cusum_counts_nogate)
+    self.assertIn("// Significance Gate: NONE", cusum_counts_nogate)
+    self.assertIsNone(MultiStageTemplateRouter.root_condition(cusum_counts_nogate))
+    self.assertEqual(MalachiteASTValidator.validate_query(cusum_counts_nogate), [])
+
+    # 3. macd_momentum_velocity_2stage.yl2: above-historical-max Z naming, linear math, active_days >= 7, byte/count floor
+    macd_bytes = self.router.build_pipeline_query(
+        PipelineArchitecture.MACD_MOMENTUM_VELOCITY_2STAGE,
+        target_metric="network_bytes_outbound",
+        entity_type=EntityType.ASSET,
+    )
+    self.assertIn("ABOVE-HISTORICAL-MAX Z", macd_bytes.upper())
+    self.assertIn("$dispersion_floor = 44979.0", macd_bytes)
+    self.assertIn("$macd_z = $personal_z + $above_max_z", macd_bytes)
+    self.assertIn("$active_days >= 7 and $macd_z >= 3.0", macd_bytes)
+    self.assertEqual(MalachiteASTValidator.validate_query(macd_bytes), [])
+
+  def test_ws4_bayes_asset_fleet_eb_and_asset_age_maturity(self):
+    """WS4-BAYES-ASSET: Real fleet Empirical Bayes 3-stage pipeline & Derived Asset Age maturity/novelty routing."""
+    from pathlib import Path
+    from scripts.preflight_validator import MalachiteASTValidator
+
+    # 1. EMPIRICAL_BAYES_3STAGE: mature fleet Gamma(alpha0, beta0) + NB posterior-predictive residual $bayesian_z
+    eb_default = self.router.build_pipeline_query(
+        PipelineArchitecture.EMPIRICAL_BAYES_3STAGE,
+        target_metric="http_queries_total",
+        entity_type=EntityType.ASSET,
+        anomaly_threshold=3.5,
+    )
+    self.assertEqual(MalachiteASTValidator.validate_query(eb_default), [])
+    self.assertIn("agg: sum", eb_default)
+    self.assertIn("$mu_cal = $hist_sum / 30.0", eb_default)
+    self.assertIn("$raw_excess_var = $var_cal - $mu_cal", eb_default)
+    self.assertIn("$post_alpha_pre = $alpha0 + $hist_sum", eb_default)
+    self.assertIn("$post_beta_pre = $beta0 + 30.0", eb_default)
+    self.assertIn("$bayesian_z = ($obs_24h - $posterior_rate) / $safe_pred_sd", eb_default)
+    self.assertEqual(MultiStageTemplateRouter.root_condition(eb_default), "$bayesian_z >= 3.5")
+    self.assertIn("order:\n  $bayesian_z desc", eb_default)
+
+    eb_payload = self.router.build_pipeline_query(
+        PipelineArchitecture.EMPIRICAL_BAYES_3STAGE,
+        target_metric="auth_attempts_fail",
+        entity_type=EntityType.USER,
+        fleet_prior_payload=[
+            {"hist_sum": 60, "active_days": 10},
+            {"hist_sum": 150, "active_days": 15},
+            {"hist_sum": 240, "active_days": 20},
+        ],
+    )
+    self.assertEqual(MalachiteASTValidator.validate_query(eb_payload), [])
+    self.assertNotIn("{{", eb_payload)
+    # Rates are [2.0, 5.0, 8.0] -> mean=5.0, var=9.0 -> beta0=0.555556, alpha0=2.77778
+    self.assertIn("2.77778", eb_payload)
+    self.assertIn("0.555556", eb_payload)
+
+    eb_explicit = self.router.build_pipeline_query(
+        PipelineArchitecture.EMPIRICAL_BAYES_3STAGE,
+        target_metric="http_queries_total",
+        entity_type=EntityType.ASSET,
+        prior_alpha0=2.25,
+        prior_beta0=0.75,
+    )
+    self.assertEqual(MalachiteASTValidator.validate_query(eb_explicit), [])
+    self.assertIn("2.25", eb_explicit)
+    self.assertIn("0.75", eb_explicit)
+
+    # 2. HYBRID_METRIC_DERIVED_ASSET_AGE_2STAGE: $active_days >= {{min_active_days}} (default 7),
+    # continuous count/byte floor, and explicit WS1-12 first_seen novelty routing documentation.
+    tpl_path = Path(__file__).resolve().parent.parent / "templates" / "pipelines" / "hybrid_metric_derived_asset_age_2stage.yl2"
+    tpl_raw = tpl_path.read_text(encoding="utf-8")
+    self.assertIn("$active_days >= {{min_active_days}}", tpl_raw)
+    self.assertIn("first_seen", tpl_raw)
+    self.assertIn("WS1-12", tpl_raw)
+
+    age_default = self.router.build_hybrid_derived_asset_age_query(
+        target_metric="auth_attempts_total",
+        entity_type=EntityType.ASSET,
+        anomaly_threshold=3.0,
+    )
+    self.assertEqual(MalachiteASTValidator.validate_query(age_default), [])
+    self.assertIn("$dispersion_floor = math.sqrt(if($mean > 1.0, $mean, 1.0))", age_default)
+    self.assertIn("$active_days >= 7", MultiStageTemplateRouter.root_condition(age_default) or "")
+    self.assertIn("WS1-12", age_default)
+
+    age_custom = self.router.build_hybrid_derived_asset_age_query(
+        target_metric="network_bytes_outbound",
+        entity_type=EntityType.ASSET,
+        anomaly_threshold=3.0,
+        min_active_days=10,
+        max_asset_age_days=21.0,
+    )
+    self.assertEqual(MalachiteASTValidator.validate_query(age_custom), [])
+    self.assertIn("$dispersion_floor = 44979.0", age_custom)
+    self.assertIn("$active_days >= 10", MultiStageTemplateRouter.root_condition(age_custom) or "")
+    self.assertIn("$asset_age_days <= 21.0", MultiStageTemplateRouter.root_condition(age_custom) or "")
+
+  def test_ws4_fusion_deltaz_union_robust_center_and_d_sq_wiring(self):
+    """WS4-FUSION-DELTAZ: union sector spine, mature robust window.median fleet center, rollup multiplicity, and D^2 threshold wiring."""
+    from scripts import malachite_catalog as mc
+    from scripts.preflight_validator import MalachiteASTValidator
+
+    # 1. dual_baseline_delta_z_3stage.yl2: mature >=7d + dispersion floor BEFORE robust window.median fleet shift
+    dz_count = self.router.build_pipeline_query(
+        PipelineArchitecture.DUAL_BASELINE_3STAGE,
+        target_metric="http_queries_total",
+        entity_type=EntityType.ASSET,
+    )
+    self.assertEqual(MalachiteASTValidator.validate_query(dz_count), [])
+    self.assertIn("$host_extract.hist_active_days >= 7", dz_count)
+    self.assertIn("$fleet_z_median = window.median($host_extract.personal_z, false)", dz_count)
+    self.assertIn("$fleet_z_winsor_avg = avg($host_extract.personal_z_winsor)", dz_count)
+    self.assertIn("$fleet_z = max($fleet_stats.fleet_z_median)", dz_count)
+    self.assertNotIn("$fleet_z = max($fleet_stats.fleet_z_avg)", dz_count)
+
+    dz_bytes = self.router.build_pipeline_query(
+        PipelineArchitecture.DUAL_BASELINE_3STAGE,
+        target_metric="network_bytes_outbound",
+        entity_type=EntityType.ASSET,
+    )
+    self.assertEqual(MalachiteASTValidator.validate_query(dz_bytes), [])
+    self.assertIn("$dispersion_floor = 44979.0", dz_bytes)
+
+    # 2. dual_sector_fusion_3stage & multi_sector_fusion_4stage: single-stage sector_union (no inner-join drop),
+    # uint64-safe 1.0/0.0 byte conditional sum, strings.coalesce for distinct entity fields, and mature window.median
+    ds_user = self.router.build_pipeline_query(
+        PipelineArchitecture.DUAL_SECTOR_FUSION_3STAGE,
+        entity_type=EntityType.USER,
+    )
+    self.assertEqual(MalachiteASTValidator.validate_query(ds_user), [])
+    self.assertIn("stage sector_union", ds_user)
+    self.assertNotIn("stage sector_a", ds_user)
+    self.assertNotIn("stage sector_b", ds_user)
+    self.assertIn("$entity = strings.coalesce(target.user.userid, principal.user.userid)", ds_user)
+    self.assertIn("sum(if(", ds_user)
+    self.assertIn(", 1.0, 0.0) * network.sent_bytes)", ds_user)
+
+    ms_user = self.router.build_pipeline_query(
+        PipelineArchitecture.MULTI_SECTOR_FUSION_4STAGE,
+        entity_type=EntityType.USER,
+    )
+    self.assertEqual(MalachiteASTValidator.validate_query(ms_user), [])
+    self.assertIn("stage sector_union", ms_user)
+    self.assertIn("stage fleet_sector_norm", ms_user)
+    self.assertIn("($sector_union.a_days >= 7 or $sector_union.b_days >= 7)", ms_user)
+    self.assertIn("$fleet_z_a_median = window.median($sector_union.z_a, false)", ms_user)
+    self.assertIn("$fleet_z_b_median = window.median($sector_union.z_b, false)", ms_user)
+    self.assertNotIn("Z_a^2 + Z_b^2 + dZ_a^2 + dZ_b^2", ms_user)
+
+    # Total-byte conditional sum uses per-branch < 1e15 clamps on sent_bytes and received_bytes
+    ds_total_bytes = self.router.build_sector_fusion_query(
+        mc.SectorSpec("network_bytes_total", "principal.asset.hostname"),
+        mc.SectorSpec("dns_queries_fail", "principal.asset.hostname"),
+    )
+    self.assertEqual(MalachiteASTValidator.validate_query(ds_total_bytes), [])
+    self.assertIn(", 1.0, 0.0) * network.sent_bytes) + sum(if(", ds_total_bytes)
+    self.assertIn(", 1.0, 0.0) * network.received_bytes)", ds_total_bytes)
+
+    # 3. rollup_sector_fusion_4stage & _5stage: union spine in both UDM stages, per-key >=7d + floor,
+    # sqrt(2 * ln(K)) multiplicity offset, mature window.median fleet center, and reconciled Math header
+    for four_stage in (False, True):
+      q_roll = self.router.build_sector_fusion_query(
+          mc.SectorSpec("file_executions_total", "principal.asset.hostname"),
+          mc.SectorSpec("network_bytes_outbound", "principal.asset.hostname"),
+          four_stage=four_stage,
+      )
+      self.assertEqual(MalachiteASTValidator.validate_query(q_roll), [])
+      self.assertEqual(mc.observed_filter_gaps(q_roll), [])
+      self.assertIn("$b_floor = 44979.0", q_roll)
+      self.assertIn("$d_novel = if($d_obs > 0 and $d_days = 0, 1, 0)", q_roll)
+      self.assertIn("$multiplicity_offset = math.sqrt(2.0 * math.log($k_eff))", q_roll)
+      # Companion != "" must NOT sit bare at top-level of sector_a_detail where it would drop Sector-B-only rows
+      detail_events = q_roll.split("stage sector_a_detail")[1].split("match:")[0]
+      self.assertNotRegex(detail_events, r"(?m)^\s*\$principal_process_file_hash\s*!=\s*\"\"\s*$")
+      # Both sector_a_detail and sector_b union both event filters so neither inner join drops single-sector entities
+      sb_events = q_roll.split("stage sector_b")[1].split("match:")[0]
+      self.assertIn('metadata.event_type = "PROCESS_LAUNCH"', sb_events)
+      self.assertIn("network.sent_bytes > 0", detail_events)
+      if four_stage:
+        self.assertIn("window.median($sector_a.z_a, false)", q_roll)
+        self.assertIn("window.median($sector_b.z_b, false)", q_roll)
+        self.assertNotIn("D^2 = Z_a^2 + Z_b^2 + dZ_a^2 + dZ_b^2", q_roll)
+
+    # 4. min_threshold / max_threshold supplied in linear D sigma-distance units must square when gating *_sq
+    q_ds_min = self.router.build_pipeline_query(
+        PipelineArchitecture.DUAL_SECTOR_FUSION_3STAGE,
+        min_threshold=4.0,
+    )
+    self.assertEqual(MultiStageTemplateRouter.root_condition(q_ds_min), "$composite_threat_norm_sq >= 16.0")
+
+    q_ms_band = self.router.build_pipeline_query(
+        PipelineArchitecture.MULTI_SECTOR_FUSION_4STAGE,
+        min_threshold=2.5,
+        max_threshold=4.0,
+    )
+    self.assertEqual(
+        MultiStageTemplateRouter.root_condition(q_ms_band),
+        "$composite_threat_norm_sq >= 6.25 and $composite_threat_norm_sq < 16.0",
+    )
+
+    q_triad_min = self.router.build_pipeline_query(
+        PipelineArchitecture.PART_OF_THE_WHOLE_TRIAD_MULTILEVEL,
+        entity_type=EntityType.USER,
+        min_threshold=3.5,
+    )
+    self.assertEqual(MultiStageTemplateRouter.root_condition(q_triad_min), "$d_vs_fleet_sq >= 12.25")
+
+  def test_ws4_part_of_the_whole_loo_service_account_exclusion_and_rectified_triad(self):
+    """WS4-RADAR-COHORT: Part-of-the-whole templates exclude machine/system accounts, compute LOO stats, and rectify triad Zs."""
+    from scripts.preflight_validator import MalachiteASTValidator
+    q_user_multi = self.router.build_pipeline_query(
+        PipelineArchitecture.PART_OF_THE_WHOLE_MULTILEVEL,
+        target_metric="auth_attempts_total",
+        entity_type=EntityType.USER,
+        cohort_entities=["charles.hardy", "jacob.smith", "maya.goodman"],
+        target_entity="charles.hardy",
+    )
+    self.assertIn(
+        "not re.regex($user, `(?i)^(system|local service|network service|.*\\$$)`)",
+        q_user_multi,
+    )
+    self.assertIn("$fleet_sum = sum($all_entities.obs)", q_user_multi)
+    self.assertIn("$team_sum = sum($all_entities.obs)", q_user_multi)
+    self.assertIn("$e_loo_avg = (max($enterprise_stats.fleet_sum) - $observed) / max($enterprise_stats.fleet_peer_n)", q_user_multi)
+    self.assertIn("$t_loo_avg = (max($team_cohort_stats.team_sum) - $observed) / max($team_cohort_stats.team_peer_n)", q_user_multi)
+    self.assertEqual(MalachiteASTValidator.validate_query(q_user_multi), [])
+    self.assertEqual(StatisticalAntipatternAuditor.audit_query(q_user_multi), [])
+
+    # Asset cohorts must NOT filter $host with the Windows user service-account regex
+    q_asset_multi = self.router.build_pipeline_query(
+        PipelineArchitecture.PART_OF_THE_WHOLE_MULTILEVEL,
+        target_metric="network_bytes_outbound",
+        entity_type=EntityType.ASSET,
+    )
+    self.assertNotIn("local service", q_asset_multi)
+    self.assertEqual(MalachiteASTValidator.validate_query(q_asset_multi), [])
+
+    # Triad with cohort: machine/service exclusion + LOO + positive rectification before squaring
+    q_user_triad = self.router.build_pipeline_query(
+        PipelineArchitecture.PART_OF_THE_WHOLE_TRIAD_MULTILEVEL,
+        entity_type=EntityType.USER,
+        target_metrics=["auth_attempts_total", "auth_attempts_fail", "auth_attempts_success"],
+        cohort_entities=["charles.hardy", "jacob.smith"],
+        target_entity="charles.hardy",
+    )
+    self.assertIn(
+        "not re.regex($user, `(?i)^(system|local service|network service|.*\\$$)`)",
+        q_user_triad,
+    )
+    self.assertIn("$m1_fleet_sum = sum($all_entities.m1_obs)", q_user_triad)
+    self.assertIn("$m1_team_sum = sum($all_entities.m1_obs)", q_user_triad)
+    self.assertIn("if($z1_vs_enterprise > 0.0, $z1_vs_enterprise, 0.0)", q_user_triad)
+    self.assertIn("if($z1_vs_team > 0.0, $z1_vs_team, 0.0)", q_user_triad)
+    self.assertNotIn("$d_vs_fleet_sq = ($z1_vs_enterprise * $z1_vs_enterprise)", q_user_triad)
+    self.assertNotIn("$d_vs_team_sq = ($z1_vs_team * $z1_vs_team)", q_user_triad)
+    self.assertEqual(MalachiteASTValidator.validate_query(q_user_triad), [])
+    self.assertEqual(StatisticalAntipatternAuditor.audit_query(q_user_triad), [])
 
 
 if __name__ == "__main__":

@@ -104,8 +104,9 @@ class TestFederatedHandoff(unittest.TestCase):
     self.assertEqual(ack.get("action"), "STEP_OUT_CONFIRMED")
     self.assertEqual(ack.get("model_routed"), "PRIVILEGED_LATERAL_EXPANSION")
     self.assertIn("stage daily_user_breadth", ack.get("compiled_query", ""))
+    self.assertIn("stage user_target_history", ack.get("compiled_query", ""))
+    self.assertIn("stage window_user_breadth", ack.get("compiled_query", ""))
     self.assertIn("stage user_breadth_baseline", ack.get("compiled_query", ""))
-    self.assertIn("stage current_breadth", ack.get("compiled_query", ""))
     self.assertIn("order:\n  $z_score desc", ack.get("compiled_query", ""))
 
 

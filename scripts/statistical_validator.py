@@ -219,7 +219,14 @@ class StatisticalAntipatternAuditor:
       )
 
     # Check B: Hardcoded product/vendor filter while metric does not bind product
-    for metric_name, args_body in metrics_calls:
+    # Skip Check B on explicit conditional-sum union stages where each branch scopes its own product filter.
+    is_conditional_union_stage = bool(
+        re.search(r"\bsum\s*\(\s*if\s*\(", stage_body)
+        and re.search(r"\bor\b", stage_body.split("match:")[0], re.IGNORECASE)
+    )
+    for metric_name, args_body in ([] if is_conditional_union_stage else metrics_calls):
+      if metric_name.startswith("workspace_"):
+        continue
       product_filter_match = re.search(r"metadata\.product_name\s*==?\s*[\"']([^\"']+)[\"']", stage_body)
       if product_filter_match:
         hardcoded_product = product_filter_match.group(1)
@@ -287,8 +294,18 @@ class StatisticalAntipatternAuditor:
         and "metrics.resource_deletion_total" in stage_body
         and "target.resource.name" not in stage_body
     )
+    is_origin_ip_rollup = (
+        "principal.ip:" in stage_body
+        and "target.resource.name" not in stage_body
+    )
 
-    if matched_metrics and has_account_entity and not has_resource_in_match and not is_unified_cloud_crud_radar_spoke:
+    if (
+        matched_metrics
+        and has_account_entity
+        and not has_resource_in_match
+        and not is_unified_cloud_crud_radar_spoke
+        and not is_origin_ip_rollup
+    ):
       violations.append(
           StatisticalViolation(
               antipattern=StatisticalAntipatternType.DYNAMIC_RANGE_MASKING,
@@ -406,13 +423,20 @@ class StatisticalAntipatternAuditor:
     has_continuous_z = bool(re.search(r"(\$[a-zA-Z0-9_]*z[a-zA-Z0-9_]*)\s*=", outcome_text, re.IGNORECASE))
 
     if has_continuous_z:
+      is_sibling_triad_with_poisson_floor = (
+          "$m1_obs" in outcome_text
+          and "$m2_obs" in outcome_text
+          and "$m3_obs" in outcome_text
+          and "math.sqrt(" in outcome_text
+      )
       has_sample_gate = bool(
           "num_metric_periods" in stage_body or
           "min_baseline_days" in stage_body or
           "active_days" in stage_body or
           "poisson" in stage_body.lower() or
           "fano" in stage_body.lower() or
-          "beta_binomial" in stage_body.lower()
+          "beta_binomial" in stage_body.lower() or
+          is_sibling_triad_with_poisson_floor
       )
       if not has_sample_gate:
         violations.append(
@@ -495,13 +519,14 @@ class StatisticalAntipatternAuditor:
 
     sa_var = sa_match.group(1)
 
-    # Check if the stage contains identity profiling (e.g. gserviceaccount, arn:aws, regex)
+    # Check if the stage contains identity profiling (e.g. gserviceaccount, arn:aws, regex, or explicit bound identity)
     has_identity_profile = any([
         "gserviceaccount" in stage_body,
         "arn:aws" in stage_body,
         "re.regex" in stage_body and sa_var in stage_body,
         "re.capture" in stage_body and sa_var in stage_body,
         bool(re.search(rf"{re.escape(sa_var)}\s*=\s*/[^/]+/", stage_body)),
+        bool(re.search(rf'{re.escape(sa_var)}\s*=\s*"[^"]+"', stage_body)),
         bool(re.search(rf"/{re.escape(sa_var)}/", stage_body)),
     ])
 

@@ -1,0 +1,48 @@
+// ============================================================================
+// ARCHITECTURE: CANONICAL 360° RADAR SECTOR 5 (USER) — DNS Resolution
+// Copy verbatim; substitute only {{entity_id}} with the verified user.userid.
+// ============================================================================
+
+stage dns_risk {
+    (network.dns.questions.name != "" or network.dns.answers.name != "" or network.dns.id != 0)
+    principal.user.userid = "{{entity_id}}"
+    $user = principal.user.userid
+
+  match:
+    $user by 1d
+
+  outcome:
+    $obs = count(metadata.id)
+    $avg = max(metrics.dns_queries_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: avg,
+        principal.user.userid: principal.user.userid
+    ))
+    $std = max(metrics.dns_queries_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: stddev,
+        principal.user.userid: principal.user.userid
+    ))
+    $days = max(metrics.dns_queries_total(
+        period: 1d, window: 30d, metric: event_count_sum, agg: num_metric_periods,
+        principal.user.userid: principal.user.userid
+    ))
+    $floor = math.sqrt(if($avg > 1.0, $avg, 1.0))
+    $safe_std = if($std > $floor, $std, $floor)
+    $raw_z = ($obs - $avg) / $safe_std
+    $z = if($days >= 7, $raw_z, 0.0)
+}
+
+$user = $dns_risk.user
+
+match:
+  $user by 1d
+
+outcome:
+  $z = max($dns_risk.z)
+  $observed = max($dns_risk.obs)
+  $baseline = max($dns_risk.avg)
+  $dispersion = max($dns_risk.std)
+  $active_days = max($dns_risk.days)
+
+// NO-GATE: 360 radar sector micro-query; every sector is reported and fused client-side.
+order:
+  $z desc

@@ -14,8 +14,9 @@
 // ENTITY GRAPH FRESHNESS (references/entity-context-graph-guide.md, Rule 5):
 //   Daily graph records (every prevalence.* filter) are built once a day and lag about a
 //   day; a window starting today 00:00Z overlaps none of them, the inner join drops every
-//   row, and zero rows are structural, not a true negative. Start the search window two
-//   days back at 00:00Z; the today_date slot (today's UTC date, YYYY-MM-DD) keeps the event
+//   row, and zero rows are structural, not a true negative. Start the search window at the
+//   scored UTC day minus 2 at 00:00Z (endTime = today 00:00Z by default, or now in Today So Far);
+//   the today_date slot (the scored UTC day, YYYY-MM-DD — yesterday by default in Mode A) keeps the event
 //   stage on the analysis day. The graph stage matches by key only (no time predicate).
 //   Zero rows from a window starting today is a freshness gap: rerun, do not report clean.
 // FILTER ONLY: the graph stage is an inner join. Entities with no graph record drop out
@@ -51,6 +52,7 @@ stage stage1_query_baseline {
     {{domain_field}} = $domain
     $host != ""
     $domain != ""
+    not re.regex($domain, `(?i)\.(in-addr\.arpa|ip6\.arpa|local)$`)
 
   match:
     $host, $domain by 1d
@@ -71,7 +73,7 @@ stage stage2_domain_derived_context {
     $dom.graph.metadata.entity_type = "DOMAIN_NAME"
     $dom.graph.entity.domain.name = $domain
     $dom.graph.entity.domain.prevalence.day_count = 10
-    $dom.graph.entity.domain.prevalence.rolling_max <= 3
+    $dom.graph.entity.domain.prevalence.rolling_max <= {{max_fleet_prevalence}}
     $dom.graph.entity.domain.prevalence.rolling_max > 0
     $domain != ""
 
@@ -97,7 +99,8 @@ outcome:
   $observed_queries = max($stage1_query_baseline.observed_val)
   $mean_queries = max($stage1_query_baseline.hist_mean)
   $stddev_queries = max($stage1_query_baseline.hist_stddev)
-  $z_score = ($observed_queries - $mean_queries) / if($stddev_queries > 0, $stddev_queries, 1.0)
+  $dispersion_floor = math.sqrt(if($mean_queries > 1.0, $mean_queries, 1.0))
+  $z_score = ($observed_queries - $mean_queries) / if($stddev_queries > $dispersion_floor, $stddev_queries, $dispersion_floor)
   $active_baseline_days = max($stage1_query_baseline.hist_active_days)
 
   $fleet_prevalence = max($stage2_domain_derived_context.enterprise_rolling_max)
@@ -109,12 +112,15 @@ outcome:
   $domain_age_days = if($first_seen > 0, $raw_age_days, 9999.0)
 
   // Rare Domain Multiplier: 2.5x threat score boost for novel destinations seen enterprise-wide on <= 3 hosts or first seen <= 7 days ago
+  // WS1-08 / PF-8: when first_seen_time = 0, <7d ECG novelty boost is disabled; prefer metrics.* first_seen (WS1-12)
+  $ecg_novelty_disabled = if($first_seen <= 0, 1.0, 0.0)
   $is_novel_domain = if($first_seen > 0 and $domain_age_days <= 7.0 and $domain_age_days >= 0.0, 1.0, 0.0)
   $rarity_multiplier = if($is_novel_domain = 1.0, 2.5, 1.5)
   $threat_score = $z_score * $rarity_multiplier
 
 condition:
-  $z_score >= {{anomaly_threshold}}
+  $active_baseline_days >= {{min_baseline_days}}
+  and $z_score >= {{anomaly_threshold}}
   and $fleet_prevalence <= {{max_fleet_prevalence}}
 
 order:

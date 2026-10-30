@@ -4,7 +4,8 @@
 //   - PRINCIPAL_USER (principal.user.userid | email_addresses | employee_id | product_object_id | windows_sid)
 //   ip, mac and email_addresses are repeated fields: one event can count toward several entities.
 stage stage1_extract {
-    (metadata.product_name = "GMAIL" or metadata.product_name = "gmail")
+    re.regex(metadata.product_name, `(?i)^gmail$`)
+    network.sent_bytes > 0
     $event_type = metadata.event_type
     principal.user.userid = $user
     $user != ""

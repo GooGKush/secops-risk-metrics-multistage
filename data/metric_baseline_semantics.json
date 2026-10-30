@@ -62,9 +62,10 @@
     },
     "dns_bytes_outbound": {
       "event_types": [],
-      "baseline_sql_where": "sent_bytes != 0 and ((ip_protocol = UDP and target.port = 53) or (ip_protocol = TCP and target.port in (53, 3000))); no event_type filter",
+      "baseline_sql_where": "sent_bytes != 0 and sent_bytes < 1e15 and ((ip_protocol = UDP and target.port = 53) or (ip_protocol = TCP and target.port in (53, 3000))); no event_type filter",
       "observed_filter": [
         "network.sent_bytes > 0",
+        "network.sent_bytes < 1000000000000000",
         "((network.ip_protocol = \"UDP\" and target.port = 53) or (network.ip_protocol = \"TCP\" and (target.port = 53 or target.port = 3000)))"
       ],
       "observed_agg": "sum(network.sent_bytes)",
@@ -159,11 +160,11 @@
     },
     "network_bytes_total": {
       "event_types": [],
-      "baseline_sql_where": "(received_bytes in (0, 1e15)) or (sent_bytes in (0, 1e15)); value = sent + received; no event_type filter",
+      "baseline_sql_where": "(received_bytes in (0, 1e15)) or (sent_bytes in (0, 1e15)); value = clamped_sent + clamped_received; no event_type filter",
       "observed_filter": [
         "((network.sent_bytes > 0 and network.sent_bytes < 1000000000000000) or (network.received_bytes > 0 and network.received_bytes < 1000000000000000))"
       ],
-      "observed_agg": "sum(network.sent_bytes) + sum(network.received_bytes)",
+      "observed_agg": "sum(if(network.sent_bytes > 0 and network.sent_bytes < 1000000000000000, 1.0, 0.0) * network.sent_bytes) + sum(if(network.received_bytes > 0 and network.received_bytes < 1000000000000000, 1.0, 0.0) * network.received_bytes)",
       "metric_arg": "value_sum"
     },
     "network_flows_outbound": {
@@ -394,33 +395,36 @@
     },
     "workspace_emails_sent_total": {
       "event_types": [],
-      "baseline_sql_where": "network message present (sent_bytes is not null) and product_name in ('GMAIL', 'gmail') (case-sensitive); no event_type filter",
+      "baseline_sql_where": "network message present (sent_bytes > 0) and product_name matches Gmail case-insensitively; no event_type filter",
       "observed_filter": [
-        "(metadata.product_name = \"GMAIL\" or metadata.product_name = \"gmail\")"
+        "re.regex(metadata.product_name, `(?i)^gmail$`)",
+        "network.sent_bytes > 0"
       ],
       "observed_agg": "count(metadata.id)",
       "metric_arg": "event_count_sum",
       "notes": [
-        "The product_name match is case-sensitive in the baseline: gus-sdl logs 'Gmail', which the baseline does not count.",
-        "The 'network message present' condition cannot be expressed in YARA-L and is not applied."
+        "Case-insensitive Gmail regex covers 'GMAIL', 'gmail', and 'Gmail' logs; network.sent_bytes > 0 excludes empty-network / inbound-only rows."
       ]
     },
     "workspace_network_bytes_outbound": {
       "event_types": [],
-      "baseline_sql_where": "network message present and product_name in ('GMAIL', 'gmail'); value = sent_bytes",
+      "baseline_sql_where": "network message present (sent_bytes in (0, 1e15)) and product_name matches Gmail case-insensitively; value = sent_bytes",
       "observed_filter": [
-        "(metadata.product_name = \"GMAIL\" or metadata.product_name = \"gmail\")"
+        "re.regex(metadata.product_name, `(?i)^gmail$`)",
+        "network.sent_bytes > 0",
+        "network.sent_bytes < 1000000000000000"
       ],
-      "observed_agg": "sum(network.sent_bytes)",
+      "observed_agg": "sum(if(network.sent_bytes > 0 and network.sent_bytes < 1000000000000000, 1.0, 0.0) * network.sent_bytes)",
       "metric_arg": "value_sum"
     },
     "workspace_network_bytes_total": {
       "event_types": [],
-      "baseline_sql_where": "network message present and product_name in ('GMAIL', 'gmail'); value = sent + received",
+      "baseline_sql_where": "network message present ((sent_bytes in (0, 1e15)) or (received_bytes in (0, 1e15))) and product_name matches Gmail case-insensitively; value = clamped_sent + clamped_received",
       "observed_filter": [
-        "(metadata.product_name = \"GMAIL\" or metadata.product_name = \"gmail\")"
+        "re.regex(metadata.product_name, `(?i)^gmail$`)",
+        "((network.sent_bytes > 0 and network.sent_bytes < 1000000000000000) or (network.received_bytes > 0 and network.received_bytes < 1000000000000000))"
       ],
-      "observed_agg": "sum(network.sent_bytes) + sum(network.received_bytes)",
+      "observed_agg": "sum(if(network.sent_bytes > 0 and network.sent_bytes < 1000000000000000, 1.0, 0.0) * network.sent_bytes) + sum(if(network.received_bytes > 0 and network.received_bytes < 1000000000000000, 1.0, 0.0) * network.received_bytes)",
       "metric_arg": "value_sum"
     },
     "workspace_total_change_actions": {

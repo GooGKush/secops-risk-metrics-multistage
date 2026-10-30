@@ -4,7 +4,9 @@ Author: Greg Kushmerek
 """
 
 from dataclasses import dataclass
+import datetime
 from enum import Enum
+from pathlib import Path
 import re
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -12,6 +14,14 @@ try:
   from . import malachite_catalog as _mc
 except ImportError:  # imported as a top-level module
   import malachite_catalog as _mc  # type: ignore[no-redef]
+
+try:
+  from .ueba_constants import DEFAULT_MIN_BASELINE_DAYS
+except ImportError:
+  try:
+    from scripts.ueba_constants import DEFAULT_MIN_BASELINE_DAYS
+  except ImportError:
+    from ueba_constants import DEFAULT_MIN_BASELINE_DAYS  # type: ignore[no-redef]
 
 
 class EntityType(str, Enum):
@@ -46,6 +56,7 @@ class StatisticalModel(str, Enum):
   MACD_MOMENTUM_VELOCITY = "MACD_MOMENTUM_VELOCITY"
   CIRCADIAN_VON_MISES = "CIRCADIAN_VON_MISES"
   QUANTILE_IQR_SKEW = "QUANTILE_IQR_SKEW"
+  FIRST_SEEN_NOVELTY = "FIRST_SEEN_NOVELTY"
 
 
 # Pre-Flight card wording of each model's default root significance gate. Mirrors the default
@@ -55,21 +66,47 @@ DEFAULT_SIGNIFICANCE_GATES: Dict["StatisticalModel", str] = {
     StatisticalModel.STANDARD_Z_SCORE: "Z >= 3.0σ",
     StatisticalModel.MAD: "Modified Z >= 3.5",
     StatisticalModel.RELATIVE_DEVIATION: ">= 2.0× baseline",
-    StatisticalModel.VARIANCE: "N/A (dispersion screen)",
+    StatisticalModel.VARIANCE: "N/A (baseline dispersion screen)",
     StatisticalModel.POISSON: "Poisson Z >= 3.0σ",
     StatisticalModel.COEFFICIENT_OF_VARIATION: ">= 2.0× baseline, CV <= 0.5",
-    StatisticalModel.HOURLY_TEMPORAL_ZSCORE: "Hourly Z >= 3.0σ",
-    StatisticalModel.BAYESIAN_GAMMA: ">= 2.0× baseline (posterior)",
-    StatisticalModel.BAYESIAN_BETA_BINOMIAL: ">= 2.0× prior failure rate",
-    StatisticalModel.LONGITUDINAL_CUSUM: "Drift above 0.5σ slack",
-    StatisticalModel.TWO_PART_HURDLE: "Dormant awakening OR Z >= 3.0σ",
-    StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z: "Upper-tail Z >= 3.0σ",
-    StatisticalModel.PIECEWISE_CRI: "Z >= 3.0σ (CRI >= 85)",
-    StatisticalModel.FLEET_PREVALENCE_SHIELD: "Shielded Z >= 3.0σ",
-    StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD: "Z >= context threshold",
-    StatisticalModel.MACD_MOMENTUM_VELOCITY: "Fast Z >= 3.0σ",
-    StatisticalModel.CIRCADIAN_VON_MISES: "Circadian score >= 3.0",
-    StatisticalModel.QUANTILE_IQR_SKEW: "Skew-Adjusted Fence >= 2.0×",
+    StatisticalModel.HOURLY_TEMPORAL_ZSCORE: "RETIRED (D1 -> HOUR_OF_DAY_PROFILE)",
+    StatisticalModel.BAYESIAN_GAMMA: "Bayesian Z >= 3.0σ",
+    StatisticalModel.BAYESIAN_BETA_BINOMIAL: "Beta-Binomial Z >= 3.0σ",
+    StatisticalModel.LONGITUDINAL_CUSUM: "Windowed Slack Sum >= 3.0σ (>= 2 drift days)",
+    StatisticalModel.TWO_PART_HURDLE: "Hurdle Score >= 3.0 (Dormant >= 25 & > Max, OR Active Z >= 3.0σ)",
+    StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z: "Z >= 3.0σ (merged into STANDARD_Z_SCORE)",
+    StatisticalModel.PIECEWISE_CRI: "RETIRED (D1 -> ueba_constants.calculate_cri)",
+    StatisticalModel.FLEET_PREVALENCE_SHIELD: "RETIRED (D1 -> hybrid_metric_fleet_prevalence_2stage.yl2)",
+    StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD: "Adaptive Z >= 3.0 (1.75σ off / 3.0σ)",
+    StatisticalModel.MACD_MOMENTUM_VELOCITY: "Above-Max Z >= 3.0σ",
+    StatisticalModel.CIRCADIAN_VON_MISES: "RETIRED (D1 -> HOUR_OF_DAY_PROFILE)",
+    StatisticalModel.QUANTILE_IQR_SKEW: "Tukey Scale-Excess >= 1.0",
+    StatisticalModel.FIRST_SEEN_NOVELTY: "Novelty Flag = 1 (30d first_seen = 0)",
+}
+
+
+RETIRED_STATISTICAL_MODELS: Dict[StatisticalModel, str] = {
+    StatisticalModel.HOURLY_TEMPORAL_ZSCORE: (
+        "Statistical model 'HOURLY_TEMPORAL_ZSCORE' is retired (D1 / PF-10): metrics.* provides only "
+        "daily (period: 1d, window: 30d) baselines and cannot standardize 1h buckets without scale "
+        "bias; hand off to 'secops-statistical-hunter' model 'HOUR_OF_DAY_PROFILE'."
+    ),
+    StatisticalModel.CIRCADIAN_VON_MISES: (
+        "Statistical model 'CIRCADIAN_VON_MISES' is retired (D1 / PF-10): metrics.* provides only "
+        "daily (period: 1d, window: 30d) baselines and cannot profile per-hour-of-day circular "
+        "means; hand off to 'secops-statistical-hunter' model 'HOUR_OF_DAY_PROFILE'."
+    ),
+    StatisticalModel.PIECEWISE_CRI: (
+        "Statistical model 'PIECEWISE_CRI' is retired (D1): CRI is a reporting-only translation "
+        "computed canonically via ueba_constants.calculate_cri (WS7-01); query with STANDARD_Z_SCORE "
+        "(or another active model) instead of piecewise_cri.yl2."
+    ),
+    StatisticalModel.FLEET_PREVALENCE_SHIELD: (
+        "Statistical model 'FLEET_PREVALENCE_SHIELD' is retired (D1): raw active-entity counting "
+        "(1 + ln(fleet_count)) suppresses attacks on any active telemetry day; use "
+        "hybrid_metric_fleet_prevalence_2stage.yl2 (PipelineArchitecture.HYBRID_METRIC_FLEET_PREVALENCE_2STAGE) "
+        "or dual_baseline_delta_z_3stage.yl2 (PipelineArchitecture.DUAL_BASELINE_3STAGE)."
+    ),
 }
 
 
@@ -94,6 +131,7 @@ class PipelineArchitecture(str, Enum):
   CLOUD_REPOSITORY_SCOPE_DUAL_BRANCH = "CLOUD_REPOSITORY_SCOPE_DUAL_BRANCH"
   HYBRID_METRIC_RAW_ENRICHMENT_2STAGE = "HYBRID_METRIC_RAW_ENRICHMENT_2STAGE"
   HYBRID_METRIC_ENTROPY_CONCENTRATION_2STAGE = "HYBRID_METRIC_ENTROPY_CONCENTRATION_2STAGE"
+  DESTINATION_DIVERSITY_CONCENTRATION_2STAGE = "HYBRID_METRIC_ENTROPY_CONCENTRATION_2STAGE"
   HYBRID_METRIC_ORTHOGONAL_SPACE_2STAGE = "HYBRID_METRIC_ORTHOGONAL_SPACE_2STAGE"
   HYBRID_METRIC_FLEET_PREVALENCE_2STAGE = "HYBRID_METRIC_FLEET_PREVALENCE_2STAGE"
   PART_OF_THE_WHOLE_MULTILEVEL = "PART_OF_THE_WHOLE_MULTILEVEL"
@@ -109,8 +147,183 @@ class PipelineArchitecture(str, Enum):
   HYBRID_METRIC_DERIVED_ASSET_AGE_2STAGE = "HYBRID_METRIC_DERIVED_ASSET_AGE_2STAGE"
   MACD_MOMENTUM_VELOCITY_2STAGE = "MACD_MOMENTUM_VELOCITY_2STAGE"
   CIRCADIAN_VON_MISES_2STAGE = "CIRCADIAN_VON_MISES_2STAGE"
+  CIRCADIAN_VON_MISES = "CIRCADIAN_VON_MISES_2STAGE"
   RARE_DESTINATION_ECG_3STAGE = "RARE_DESTINATION_ECG_3STAGE"
   FUSION_RARE_DESTINATION_3STAGE = "FUSION_RARE_DESTINATION_3STAGE"
+  FIRST_SEEN_NOVELTY_2STAGE = "FIRST_SEEN_NOVELTY_2STAGE"
+  LONGITUDINAL_CUSUM_SERIES_3STAGE = "LONGITUDINAL_CUSUM_SERIES_3STAGE"
+
+
+# Empirically verified 23/38 metrics returning non-zero `(period: 1h, window: today)` rows in `gus-sdl`
+# (`WS0-03` / `PF-10`, `tests/live/baseline_gus_sdl.json`). All 38/38 compile when paired with a
+# companion `(period: 1d, window: 30d)` anchor (`PF-10b`); the remaining 15/38 returned 0 rows in the
+# reference tenant (`workspace_*`, `resource_deletion_*`, `resource_written_*`, `resource_creation_fail`,
+# `file_executions_success`, `alert_event_name_count`).
+PF10_SUPPORTED_HOURLY_TODAY_METRICS: frozenset[str] = frozenset({
+    "auth_attempts_fail",
+    "auth_attempts_success",
+    "auth_attempts_total",
+    "dns_bytes_outbound",
+    "dns_queries_fail",
+    "dns_queries_success",
+    "dns_queries_total",
+    "file_executions_fail",
+    "file_executions_total",
+    "http_queries_fail",
+    "http_queries_success",
+    "http_queries_total",
+    "network_bytes_inbound",
+    "network_bytes_outbound",
+    "network_bytes_total",
+    "network_flows_inbound",
+    "network_flows_outbound",
+    "network_flows_total",
+    "resource_creation_success",
+    "resource_creation_total",
+    "resource_read_fail",
+    "resource_read_success",
+    "resource_read_total",
+})
+
+
+def _parse_utc_iso_strict(ts: str) -> datetime.datetime:
+  """Parses a UTC ISO-8601 timestamp string into a timezone-aware UTC datetime."""
+  s = str(ts or "").strip()
+  if not s:
+    raise ValueError("Expected non-empty UTC ISO-8601 timestamp.")
+  if s.endswith("Z"):
+    dt = datetime.datetime.fromisoformat(s[:-1] + "+00:00")
+  else:
+    dt = datetime.datetime.fromisoformat(s)
+    if dt.tzinfo is None:
+      raise ValueError(f"Timestamp '{ts}' must specify UTC ('Z' or '+00:00').")
+    dt = dt.astimezone(datetime.timezone.utc)
+  return dt
+
+
+def validate_intraday_hourly_window(
+    start_time: str,
+    end_time: str,
+    *,
+    allow_short_window: bool = False,
+) -> Dict[str, Any]:
+  """Enforces WS1-13 / PF-10 Guardrails R1-R3 on `(period: 1h, window: today)` query windows.
+
+  Guardrails:
+    - R1: `start_time` must be UTC hour-aligned (`minute == 0, second == 0, microsecond == 0`)
+      so `[00:00Z, startTime)` aligns cleanly to pre-computed 1h UEBA buckets without double-counting.
+    - R2: `end_time - start_time >= 4h` by default due to Chronicle's ~3-4h hourly rollup
+      materialization lag (`allow_short_window=True` overrides with an explicit lag warning).
+    - R3: Window must remain within a single UTC date (`end_time` on `start_time.date()` or exact
+      next-day `00:00:00Z`). When `start_time` is `00:00:00Z`, explicitly flags
+      `empty_earlier_today_interval=True` explaining that `[00:00Z, startTime)` has 0 prior hours
+      so `metrics.*(period: 1h, window: today)` returns `0`.
+  """
+  start_dt = _parse_utc_iso_strict(start_time)
+  end_dt = _parse_utc_iso_strict(end_time)
+  if end_dt <= start_dt:
+    raise ValueError(f"end_time ({end_time}) must be strictly after start_time ({start_time}).")
+
+  if start_dt.minute != 0 or start_dt.second != 0 or start_dt.microsecond != 0:
+    raise ValueError(
+        f"R1 violation: intraday_hourly (period: 1h, window: today) requires a UTC hour-aligned "
+        f"start_time (MM:SS = 00:00Z) so [00:00Z, startTime) aligns to 1h buckets; got '{start_time}'."
+    )
+
+  utc_midnight = start_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+  next_midnight = utc_midnight + datetime.timedelta(days=1)
+  if end_dt > next_midnight:
+    raise ValueError(
+        f"R3 / PF-10 violation: intraday_hourly (period: 1h, window: today) must stay within a "
+        f"single UTC date ({utc_midnight.strftime('%Y-%m-%d')}); got {start_time} .. {end_time}."
+    )
+
+  raw_window_hours = (end_dt - start_dt).total_seconds() / 3600.0
+  short_window_warning: Optional[str] = None
+  if raw_window_hours < 4.0:
+    if not allow_short_window:
+      raise ValueError(
+          f"R2 violation: intraday_hourly (period: 1h, window: today) requires raw window >= 4h "
+          f"(end_time - start_time >= 4 hours) due to Chronicle's ~3-4h hourly rollup materialization lag; "
+          f"got {raw_window_hours:.2f}h ({start_time} .. {end_time}). Pass allow_short_window=True to override."
+      )
+    short_window_warning = (
+        f"Short intraday raw window ({raw_window_hours:.2f}h < 4.0h): Chronicle hourly UEBA rollups "
+        "exhibit ~3-4h materialization lag, so recent hours near start_time may not yet be populated in "
+        "metrics.*(period: 1h, window: today)."
+    )
+
+  earlier_today_hours = int((start_dt - utc_midnight).total_seconds() // 3600)
+  empty_earlier_today = earlier_today_hours == 0
+  start_iso = start_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+  end_iso = end_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+  midnight_iso = utc_midnight.strftime("%Y-%m-%dT00:00:00Z")
+  interval_note = (
+      f"start_time is {midnight_iso} (00:00Z), so the earlier-today interval [{midnight_iso}, {start_iso}) "
+      "is empty (0 prior hours) and metrics.*(period: 1h, window: today) returns 0; "
+      f"$full_today_so_far equals raw observed activity in [{start_iso}, {end_iso})."
+      if empty_earlier_today
+      else (
+          f"Earlier-today pre-computed metrics.*(period: 1h, window: today) covers [{midnight_iso}, {start_iso}) "
+          f"({earlier_today_hours} hourly bucket(s)) and stitches with raw events in [{start_iso}, {end_iso})."
+      )
+  )
+  return {
+      "utc_date": utc_midnight.strftime("%Y-%m-%d"),
+      "start_time": start_iso,
+      "end_time": end_iso,
+      "earlier_today_hours": earlier_today_hours,
+      "raw_window_hours": round(raw_window_hours, 4),
+      "empty_earlier_today_interval": empty_earlier_today,
+      "earlier_today_interval": f"[{midnight_iso}, {start_iso})",
+      "raw_window_interval": f"[{start_iso}, {end_iso})",
+      "earlier_today_interval_note": interval_note,
+      "short_window_warning": short_window_warning,
+  }
+
+
+# Empirically verified 21/38 metrics returning non-zero `metric: first_seen` rows in `gus-sdl`
+# (`WS0-03` / `PF-11`, `tests/live/baseline_gus_sdl.json`). All 38/38 compile; the remaining 17/38
+# returned 0 rows in the reference tenant (`resource_creation_*`, `resource_deletion_*`,
+# `resource_written_*`, `workspace_*`, `file_executions_success`, `alert_event_name_count`).
+PF11_POPULATED_FIRST_SEEN_METRICS: frozenset[str] = frozenset({
+    "auth_attempts_fail",
+    "auth_attempts_success",
+    "auth_attempts_total",
+    "dns_bytes_outbound",
+    "dns_queries_fail",
+    "dns_queries_success",
+    "dns_queries_total",
+    "file_executions_fail",
+    "file_executions_total",
+    "http_queries_fail",
+    "http_queries_success",
+    "http_queries_total",
+    "network_bytes_inbound",
+    "network_bytes_outbound",
+    "network_bytes_total",
+    "network_flows_inbound",
+    "network_flows_outbound",
+    "network_flows_total",
+    "resource_read_fail",
+    "resource_read_success",
+    "resource_read_total",
+})
+
+
+RETIRED_PIPELINE_ARCHITECTURES: Dict[PipelineArchitecture, str] = {
+    PipelineArchitecture.CIRCADIAN_VON_MISES_2STAGE: (
+        "Pipeline architecture 'CIRCADIAN_VON_MISES_2STAGE' is retired (D1 / PF-10): metrics.* "
+        "provides only daily (period: 1d, window: 30d) baselines; hand off to "
+        "'secops-statistical-hunter' model 'HOUR_OF_DAY_PROFILE'."
+    ),
+    PipelineArchitecture.HYBRID_METRIC_ORTHOGONAL_SPACE_2STAGE: (
+        "Pipeline architecture 'HYBRID_METRIC_ORTHOGONAL_SPACE_2STAGE' is retired (D1): "
+        "arbitrary micro-breadth Z standardization ((breadth - 1)/3) and ad-hoc 0.6/0.4 linear "
+        "weights are invalid; use 'DUAL_SECTOR_FUSION_3STAGE', 'MULTI_SECTOR_FUSION_4STAGE', or "
+        "StatisticalModel.TWO_PART_HURDLE instead."
+    ),
+}
 
 
 class KillChainArchetype(str, Enum):
@@ -738,7 +951,7 @@ class PreFlightValidator:
       peer_cohort: str,
       statistical_model: str,
       entity_graph_dimension: str = "N/A",
-      evaluation_mode: str = "Mode A: Today (Default)",
+      evaluation_mode: str = "Mode A: Last Complete UTC Day (Default)",
       significance_threshold: Optional[str] = None,
       active_days: Optional[int] = None,
       min_baseline_days: Optional[int] = None,
@@ -826,6 +1039,31 @@ class MalachiteASTValidator:
 
   CLOUD_RESOURCE_EVENTS = frozenset({"RESOURCE_CREATION", "RESOURCE_READ", "RESOURCE_WRITTEN", "RESOURCE_DELETION"})
   STANDARD_METRIC_PARAMS = frozenset({"period", "window", "metric", "agg", "filter"})
+  VALID_PERIOD_WINDOW_PAIRS = frozenset({("1d", "30d"), ("1h", "today")})
+  VALID_METRIC_TYPES = frozenset({
+      "event_count_sum",
+      "value_sum",
+      "first_seen",
+      "last_seen",
+      "num_unique_filter_values",
+  })
+  VALID_METRIC_AGGS = frozenset({
+      "max",
+      "min",
+      "avg",
+      "stddev",
+      "num_metric_periods",
+      "sum",
+      "period_start_for_max",
+      "period_start_for_min",
+  })
+  VALID_TIMESTAMP_METRIC_AGGS = frozenset({
+      "min",
+      "max",
+      "num_metric_periods",
+      "period_start_for_max",
+      "period_start_for_min",
+  })
 
   @staticmethod
   def _metric_filter_hint(m_lower: str, param: str, valid_filters: Set[str]) -> str:
@@ -854,6 +1092,8 @@ class MalachiteASTValidator:
     `location` is "stage '<name>'" or "root stage" and prefixes each message.
     """
     errors: List[str] = []
+    has_hourly_today = False
+    has_daily_30d = False
     for m_name, args_body in re.findall(r"metrics\.([a-zA-Z0-9_]+)\s*\(([^)]+)\)", body, re.DOTALL):
       m_lower = m_name.lower()
       called_params = re.findall(r"([a-zA-Z0-9_.]+)\s*:", args_body)
@@ -896,32 +1136,104 @@ class MalachiteASTValidator:
               f"{_mc.valid_dimension_sets_text(m_lower)}"
           )
 
-      # Metric type parameter (value_sum vs event_count_sum)
+      # Period / window validation (ueba.go:142-152 + ueba_validator.go: only (1d, 30d) and (1h, today))
+      period_match = re.search(r"\bperiod\s*:\s*([a-zA-Z0-9_]+)", args_body)
+      window_match = re.search(r"\bwindow\s*:\s*([a-zA-Z0-9_]+)", args_body)
+      if period_match and window_match and not has_slots:
+        pw_pair = (period_match.group(1), window_match.group(1))
+        if pw_pair == ("1h", "today"):
+          has_hourly_today = True
+        elif pw_pair == ("1d", "30d"):
+          has_daily_30d = True
+        if pw_pair not in MalachiteASTValidator.VALID_PERIOD_WINDOW_PAIRS:
+          errors.append(
+              f"INVALID_METRIC_PERIOD_WINDOW in {location}: Unsupported (period: {pw_pair[0]}, window: {pw_pair[1]}) "
+              f"for 'metrics.{m_name}'. Google SecOps Malachite strictly accepts (period: 1d, window: 30d) or "
+              "(period: 1h, window: today)."
+          )
+
+      # Aggregation parameter validation (ueba.go:180-219)
+      agg_match = re.search(r"\bagg\s*:\s*([a-zA-Z0-9_]+)", args_body)
+      agg_val = agg_match.group(1) if agg_match else None
+      if agg_val and not has_slots and agg_val not in MalachiteASTValidator.VALID_METRIC_AGGS:
+        errors.append(
+            f"INVALID_METRIC_AGG in {location}: Unsupported aggregation 'agg: {agg_val}' for 'metrics.{m_name}'. "
+            f"Valid aggregations: {sorted(MalachiteASTValidator.VALID_METRIC_AGGS)}."
+        )
+
+      # Metric type parameter & PF-11 capability validation (ueba.go + ueba_validator.go)
       if "metric_value_sum" in args_body:
         errors.append(
             f"INVALID_METRIC_TYPE in {location}: 'metric_value_sum' is invalid in Google SecOps YARA-L 2.0. "
             "Use 'metric: value_sum' for volume metrics or 'metric: event_count_sum' for count metrics."
         )
       m_type_match = re.search(r"\bmetric\s*:\s*([a-zA-Z0-9_]+)", args_body)
-      if m_type_match:
-        m_type_val = m_type_match.group(1)
+      m_type_val = m_type_match.group(1) if m_type_match else None
+      if m_type_val and not has_slots:
         if m_lower in _mc.known_metrics():
           expected = _mc.baseline_semantics(m_lower).metric_arg
         else:
           expected = "value_sum" if "bytes" in m_lower else "event_count_sum"
-        if m_type_val not in ("value_sum", "event_count_sum"):
+        if m_type_val not in MalachiteASTValidator.VALID_METRIC_TYPES:
           errors.append(
               f"INVALID_METRIC_TYPE in {location}: Unsupported metric type '{m_type_val}' for 'metrics.{m_name}'. "
-              "In Google SecOps YARA-L 2.0, metric baseline functions strictly accept 'value_sum' or 'event_count_sum'."
+              f"Supported metric types: {sorted(MalachiteASTValidator.VALID_METRIC_TYPES)}."
           )
-        elif expected == "value_sum" and m_type_val != "value_sum":
+        elif m_type_val in ("value_sum", "event_count_sum"):
+          if expected == "value_sum" and m_type_val != "value_sum":
+            errors.append(
+                f"METRIC_TYPE_MISMATCH in {location}: Byte-volume metric 'metrics.{m_name}' must use 'metric: value_sum', found '{m_type_val}'."
+            )
+          elif expected == "event_count_sum" and m_type_val == "value_sum":
+            errors.append(
+                f"METRIC_TYPE_MISMATCH in {location}: Count-based metric 'metrics.{m_name}' must use 'metric: event_count_sum', found '{m_type_val}'."
+            )
+        elif m_type_val in ("first_seen", "last_seen"):
+          if agg_val and agg_val not in MalachiteASTValidator.VALID_TIMESTAMP_METRIC_AGGS:
+            errors.append(
+                f"INVALID_TIMESTAMP_AGGREGATION in {location}: Timestamp metric 'metric: {m_type_val}' on "
+                f"'metrics.{m_name}' does not support 'agg: {agg_val}'. Use min, max, num_metric_periods, "
+                "period_start_for_max, or period_start_for_min."
+            )
+
+      # Wildcard '*' & num_unique_filter_values rules (ueba_validator.go)
+      if not has_slots:
+        filter_pairs: List[Tuple[str, str]] = []
+        for raw_arg in MalachiteASTValidator._split_top_level_csv(args_body):
+          if ":" not in raw_arg:
+            continue
+          k_raw, v_raw = raw_arg.split(":", 1)
+          k_clean = k_raw.strip()
+          if k_clean and k_clean not in MalachiteASTValidator.STANDARD_METRIC_PARAMS:
+            filter_pairs.append((k_clean, v_raw.strip()))
+        wildcard_keys = [k for k, v in filter_pairs if v == "*"]
+        concrete_keys = [k for k, v in filter_pairs if v != "*"]
+        for wk in wildcard_keys:
+          if wk.endswith(".namespace"):
+            errors.append(
+                f"INVALID_WILDCARD_NAMESPACE_FILTER in {location}: Wildcard '*' cannot be used on namespace "
+                f"dimension '{wk}' in 'metrics.{m_name}'."
+            )
+        if m_type_val == "num_unique_filter_values":
+          if len(wildcard_keys) != 1 or len(concrete_keys) < 1:
+            errors.append(
+                f"INVALID_NUM_UNIQUE_FILTER_VALUES in {location}: 'metric: num_unique_filter_values' on "
+                f"'metrics.{m_name}' requires exactly 1 wildcard '*' filter on a non-namespace dimension "
+                f"alongside at least 1 concrete dimension filter (found {len(wildcard_keys)} wildcard(s) and "
+                f"{len(concrete_keys)} concrete filter(s))."
+            )
+        elif wildcard_keys:
           errors.append(
-              f"METRIC_TYPE_MISMATCH in {location}: Byte-volume metric 'metrics.{m_name}' must use 'metric: value_sum', found '{m_type_val}'."
+              f"INVALID_WILDCARD_METRIC_FILTER in {location}: Wildcard '*' filter ({wildcard_keys}) on "
+              f"'metrics.{m_name}' is only valid with 'metric: num_unique_filter_values', not 'metric: {m_type_val}'."
           )
-        elif expected == "event_count_sum" and m_type_val == "value_sum":
-          errors.append(
-              f"METRIC_TYPE_MISMATCH in {location}: Count-based metric 'metrics.{m_name}' must use 'metric: event_count_sum', found '{m_type_val}'."
-          )
+    if has_hourly_today and not has_daily_30d:
+      errors.append(
+          f"MISSING_D30_COMPANION_FOR_HOURLY_TODAY in {location}: Queries invoking "
+          "metrics.*(period: 1h, window: today) must also include at least one companion "
+          "metrics.*(period: 1d, window: 30d) call in the same stage/query (PF-10b: native "
+          "SecOps UEBA backend requires an 86400s daily dimensional anchor)."
+      )
     return errors
 
 
@@ -938,6 +1250,7 @@ class MalachiteASTValidator:
     clean_code = re.sub(r"/\*.*?\*/", "", clean_code, flags=re.DOTALL)
 
     code_no_literals = re.sub(r'"(?:\\.|[^"\\])*"', '""', clean_code)
+    code_no_literals = re.sub(r"`[^`]*`", "``", code_no_literals)
     code_no_literals = re.sub(r'/(?:\\.|[^/\\])+/', '//', code_no_literals)
     if "^" in code_no_literals:
       errors.append("INVALID_EXPONENT_OPERATOR: '^' is invalid in YARA-L. Use 'math.pow($var, 2)' or '$var * $var' for squared terms.")
@@ -1022,6 +1335,14 @@ class MalachiteASTValidator:
           "(Chronicle Search caps total Entity Context Graph sources across all stages at 1)."
       )
 
+    # 2C. Multi-Stage Total Join Ceiling (maxJoinCount = 4)
+    total_joins = MalachiteASTValidator.count_query_joins(query_text)
+    if total_joins > 4:
+      errors.append(
+          f"JOIN_LIMIT_EXCEEDED: Multi-stage query requires {total_joins} joins, exceeding Chronicle Malachite "
+          "maxJoinCount = 4 ceiling (1 UEBA metrics.* join + sum over stages of max(0, distinct_referenced_sources - 1) <= 4)."
+      )
+
     # 3. Stage 1 Extraction Contracts
     for stage_name, stage_body in stage1_matches:
       # Check outcome count limit <= 20
@@ -1087,14 +1408,23 @@ class MalachiteASTValidator:
 
       # Anti-Pattern 6: Single-stage multi-vector cramming. OR'd event types are allowed only when they
       # all belong to the baselines of the metrics evaluated in the stage (e.g. resource_read_* counts
-      # RESOURCE_READ and USER_RESOURCE_ACCESS).
+      # RESOURCE_READ and USER_RESOURCE_ACCESS) OR when the stage is an explicit conditional-sum union spine.
+      is_conditional_union_stage = bool(
+          re.search(r"\bsum\s*\(\s*if\s*\(", stage_body)
+          and re.search(r"\bor\b", event_part, re.IGNORECASE)
+      )
       distinct_event_types = set(re.findall(r"metadata\.event_type\s*==?\s*[\"']([A-Z_]+)[\"']", stage_body))
       metrics_calls = re.findall(r"metrics\.([a-zA-Z0-9_]+)\s*\(", stage_body)
       allowed_event_types = set(MalachiteASTValidator.CLOUD_RESOURCE_EVENTS)
       for m in metrics_calls:
         if m in _mc.known_metrics():
           allowed_event_types |= set(_mc.baseline_semantics(m).event_types)
-      if len(distinct_event_types) > 1 and metrics_calls and not (distinct_event_types <= allowed_event_types):
+      if (
+          len(distinct_event_types) > 1
+          and metrics_calls
+          and not (distinct_event_types <= allowed_event_types)
+          and not is_conditional_union_stage
+      ):
         errors.append(
             f"ANTI-PATTERN 6 (Single-Stage Multi-Vector Cramming in stage '{stage_name}'): Stage contains multiple OR'd "
             f"event types {distinct_event_types} while evaluating metrics. Use independent DAG stages fused in Root stage."
@@ -1103,7 +1433,12 @@ class MalachiteASTValidator:
       # Anti-Pattern 6B: Multi-vector metric conflation within single stage
       metric_event_types = {METRIC_CATALOG[m].event_type for m in metrics_calls if m in METRIC_CATALOG}
       metric_families = {_mc.metric_family(m) for m in metrics_calls if m in METRIC_CATALOG}
-      if len(metric_event_types) > 1 and len(metric_families) > 1 and not (metric_event_types <= MalachiteASTValidator.CLOUD_RESOURCE_EVENTS):
+      if (
+          len(metric_event_types) > 1
+          and len(metric_families) > 1
+          and not (metric_event_types <= MalachiteASTValidator.CLOUD_RESOURCE_EVENTS)
+          and not is_conditional_union_stage
+      ):
         errors.append(
             f"MULTI_VECTOR_STAGE_CONFLATION in stage '{stage_name}': Stage attempts to evaluate metrics across different event types ({sorted(list(metric_event_types))}). "
             "Each telemetry vector must be evaluated in its own decoupled stage or micro-query."
@@ -1176,7 +1511,13 @@ class MalachiteASTValidator:
     # 4. Multi-Sector Fusion Architecture Validation
     if "MULTI_SECTOR" in query_text.upper() or "MULTI-SECTOR" in query_text.upper():
       min_required_stages = 3 if "4-STAGE" in query_text.upper() else 2
-      if len(named_stages) < min_required_stages:
+      union_bonus = sum(
+          1
+          for _, sb in stage1_matches
+          if re.search(r"\bsum\s*\(\s*if\s*\(", sb)
+          and re.search(r"\bor\b", sb.split("match:")[0], re.IGNORECASE)
+      )
+      if len(named_stages) + union_bonus < min_required_stages:
         errors.append(
             f"PIPELINE ARCHITECTURE MISMATCH: Multi-Sector Threat Fusion requires {min_required_stages} distinct extractor stages (found {len(named_stages)})."
         )
@@ -1184,6 +1525,95 @@ class MalachiteASTValidator:
             f"STAGE PARITY ERROR: Stage count ({len(named_stages)}) does not match required telemetry sectors ({min_required_stages})."
         )
 
+    # 5. D4 / WS1-07 Cross-Identifier Hostname-to-IP Join Check
+    if stage1_matches:
+      errors.extend(MalachiteASTValidator._check_cross_identifier_joins(stage1_matches, root_body))
+
+    return errors
+
+  @staticmethod
+  def _check_cross_identifier_joins(
+      stage1_matches: List[Tuple[str, str]],
+      root_body: str,
+  ) -> List[str]:
+    """Rejects direct equality joins equating a hostname-bound stage key with an IP-bound stage key without ASSET context."""
+    hostname_stage_refs: Set[str] = set()
+    ip_stage_refs: Set[str] = set()
+    host_udm_re = re.compile(r"^(?:principal|target|src|about|observer|intermediary)\.asset\.hostname$")
+    ip_udm_re = re.compile(r"^(?:principal|target|src|about|observer|intermediary)\.(?:asset\.)?ip$")
+
+    def _event_section(body: str) -> str:
+      no_comments = re.sub(r"//[^\n]*", "", body)
+      no_comments = re.sub(r"/\*.*?\*/", "", no_comments, flags=re.S)
+      m_sec = re.search(r"\b(?:match|outcome|condition|order)\s*:", no_comments)
+      return no_comments[:m_sec.start()] if m_sec else no_comments
+
+    for sname, sbody in stage1_matches:
+      ev = _event_section(sbody)
+      if ".graph." in ev:
+        continue
+      for raw_line in ev.splitlines():
+        line = raw_line.strip()
+        if not line or "=" not in line:
+          continue
+        eq = re.split(r"(?<![!<>])==?(?!=)", line, maxsplit=1)
+        if len(eq) != 2:
+          continue
+        lhs, rhs = eq[0].strip(), eq[1].strip()
+        if lhs.startswith("$") and not rhs.startswith("$"):
+          var_tok, field_tok = lhs, rhs
+        elif rhs.startswith("$") and not lhs.startswith("$"):
+          var_tok, field_tok = rhs, lhs
+        else:
+          continue
+        if not re.match(r"^\$[a-zA-Z0-9_]+$", var_tok):
+          continue
+        vname = var_tok.lstrip("$")
+        if host_udm_re.match(field_tok):
+          hostname_stage_refs.add(f"${sname}.{vname}")
+        elif ip_udm_re.match(field_tok):
+          ip_stage_refs.add(f"${sname}.{vname}")
+
+    if not hostname_stage_refs or not ip_stage_refs:
+      return []
+
+    errors: List[str] = []
+    token_re = re.compile(r"^\$[a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)?$")
+    for loc_name, body in [*(stage1_matches), ("root stage", root_body)]:
+      ev = _event_section(body)
+      adj: Dict[str, Set[str]] = {}
+      for raw_line in ev.splitlines():
+        line = raw_line.strip()
+        if not line or "=" not in line:
+          continue
+        eq = re.split(r"(?<![!<>])==?(?!=)", line, maxsplit=1)
+        if len(eq) != 2:
+          continue
+        lhs, rhs = eq[0].strip(), eq[1].strip()
+        if token_re.match(lhs) and token_re.match(rhs):
+          adj.setdefault(lhs, set()).add(rhs)
+          adj.setdefault(rhs, set()).add(lhs)
+      visited: Set[str] = set()
+      for node in adj:
+        if node in visited:
+          continue
+        comp: Set[str] = set()
+        stack = [node]
+        while stack:
+          cur = stack.pop()
+          if cur in visited:
+            continue
+          visited.add(cur)
+          comp.add(cur)
+          stack.extend(adj.get(cur, ()) - visited)
+        h_hits = sorted(comp & hostname_stage_refs)
+        i_hits = sorted(comp & ip_stage_refs)
+        if h_hits and i_hits:
+          errors.append(
+              f"UNBRIDGED_CROSS_IDENTIFIER_JOIN in {loc_name}: Direct join between hostname identifier ({h_hits[0]}) "
+              f"and IP identifier ({i_hits[0]}) compares hostnames to IP strings and yields 0 rows; "
+              "join hostnames to IPs only through Entity Graph ASSET context (entity.asset.hostname + entity.asset.ip)."
+          )
     return errors
 
   @staticmethod
@@ -1231,6 +1661,44 @@ class MalachiteASTValidator:
     return udm_count, ecg_count
 
   @staticmethod
+  def count_query_joins(query_text: str) -> int:
+    """Computes total Malachite SQL planner joins for a multi-stage YARA-L 2.0 search query.
+
+    Formula (`maxJoinCount = 4`):
+      - `1` join if the query invokes pre-computed `metrics.*(...)` UEBA dimensional exports, PLUS
+      - For each stage (named stages + unwrapped root stage):
+        `max(0, distinct_referenced_upstream_stages_or_events - 1)`, where distinct sources in a stage
+        are referenced upstream named stages (`$<stage>.*`) + UDM event sources + ECG sources + Data Tables.
+    """
+    stages, root_body = MalachiteASTValidator._extract_stage_blocks(query_text)
+    named_stage_set = {s.lstrip("$") for s, _ in stages}
+    all_blocks = [s_body for _, s_body in stages]
+    if root_body.strip():
+      all_blocks.append(root_body)
+    if not all_blocks:
+      return 0
+
+    has_metrics = False
+    inter_stage_joins = 0
+    for body in all_blocks:
+      clean = re.sub(r"//[^\n]*", "", body)
+      clean = re.sub(r"/\*.*?\*/", "", clean, flags=re.DOTALL)
+      clean = re.sub(r"\{\{[^}]*\}\}", "", clean)
+      clean = re.sub(r'"(?:\\.|[^"\\])*"', '""', clean)
+      clean = re.sub(r"`[^`]*`", "``", clean)
+      clean = re.sub(r"/(?:\\.|[^/\\])+/", "//", clean)
+      if re.search(r"\bmetrics\.[a-zA-Z0-9_]+\s*\(", clean):
+        has_metrics = True
+      u_cnt, e_cnt = MalachiteASTValidator._count_stage_data_sources(body, named_stage_set)
+      no_metrics = re.sub(r"metrics\.[a-zA-Z0-9_]+\s*\([^)]*\)", "", clean, flags=re.DOTALL)
+      ref_stages = {m for m in re.findall(r"\$([a-zA-Z0-9_]+)\.", no_metrics) if m in named_stage_set}
+      dt_tables = set(re.findall(r"%([a-zA-Z0-9_]+)\.", no_metrics))
+      distinct_sources = len(ref_stages) + u_cnt + e_cnt + len(dt_tables)
+      inter_stage_joins += max(0, distinct_sources - 1)
+
+    return (1 if has_metrics else 0) + inter_stage_joins
+
+  @staticmethod
   def _check_arithmetic_in_event_section(stage_name: str, event_part: str) -> List[str]:
     """Ensures no binary arithmetic is performed in event/stage join sections above match:."""
     errors = []
@@ -1258,8 +1726,24 @@ class MalachiteASTValidator:
     return errors
 
   @staticmethod
+  def _is_constant_literal_expr(expr: str) -> bool:
+    """Returns True if expr is a constant string, numeric, or boolean literal."""
+    s = expr.strip()
+    while s.startswith("(") and s.endswith(")") and len(s) >= 2:
+      s = s[1:-1].strip()
+    if re.match(r'^"(?:\\.|[^"\\])*"(?:\s+nocase)?$', s, flags=re.IGNORECASE):
+      return True
+    if re.match(r"^'(?:\\.|[^'\\])*'(?:\s+nocase)?$", s, flags=re.IGNORECASE):
+      return True
+    if re.match(r"^[+-]?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?$", s):
+      return True
+    if s.lower() in ("true", "false"):
+      return True
+    return False
+
+  @staticmethod
   def _check_match_placeholders_bound(stage_name: str, event_part: str, match_part: str) -> List[str]:
-    """Ensures every placeholder used in match: has an explicit binding in event_part."""
+    """Ensures every placeholder used in match: has a non-literal field/stage/function binding in event_part."""
     errors = []
     # Check for member access or stage-scoped dot references in match: (e.g. $s1.host)
     if re.search(r"\$[a-zA-Z0-9_]+\.[a-zA-Z0-9_.]+", match_part):
@@ -1268,24 +1752,57 @@ class MalachiteASTValidator:
           "stage-scoped dot references like '$s1.host'. In YARA-L, match variables must be simple identifiers ('$host'). "
           "Bind stage variables in events ('$host = $stage.host') before match:."
       )
+    clean_event = re.sub(r"/\*.*?\*/", "", event_part, flags=re.DOTALL)
     match_vars = re.findall(r"\$([a-zA-Z0-9_]+)", match_part)
     for mv in match_vars:
-      # Must be bound via $mv = ... or field = $mv
+      # Must be bound via $mv = ... or field = $mv (not only a constant literal)
       is_bound = False
-      for line in event_part.splitlines():
+      has_non_literal_binding = False
+      literal_rhs_seen: List[str] = []
+      for line in clean_event.splitlines():
         clean = re.sub(r"//.*", "", line).strip()
         if not clean or "=" not in clean:
           continue
-        parts = clean.split("=", 1)
-        lhs = parts[0].strip()
-        rhs = parts[1].strip()
-        if lhs == f"${mv}" or re.search(rf"\${mv}\b", rhs):
+        # Inspect equality predicates (excluding !=, <=, >=)
+        eq_parts = re.split(r"(?<![!<>])==?(?!=)", clean, maxsplit=1)
+        if len(eq_parts) != 2:
+          continue
+        lhs = eq_parts[0].strip()
+        rhs = eq_parts[1].strip()
+        if lhs == f"${mv}":
           is_bound = True
-          break
+          if MalachiteASTValidator._is_constant_literal_expr(rhs):
+            literal_rhs_seen.append(rhs)
+          else:
+            has_non_literal_binding = True
+        elif rhs == f"${mv}":
+          is_bound = True
+          if MalachiteASTValidator._is_constant_literal_expr(lhs):
+            literal_rhs_seen.append(lhs)
+          else:
+            has_non_literal_binding = True
+        elif re.search(rf"\${mv}\b", rhs) or re.search(rf"\${mv}\b", lhs):
+          # E.g. ($u = "a" or $u = "b") vs function/field involvement
+          sub_literals = re.findall(
+              rf"""\${mv}\s*==?\s*("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[+-]?\d+(?:\.\d+)?)""",
+              clean,
+          )
+          is_bound = True
+          if sub_literals:
+            literal_rhs_seen.extend(sub_literals)
+          else:
+            has_non_literal_binding = True
       if not is_bound:
         errors.append(
             f"UNBOUND_MATCH_VARIABLE in stage '{stage_name}': Match placeholder '${mv}' is not bound to any event field "
             "or stage field in the event section. Common Compiler requires all match variables to be explicitly assigned in events."
+        )
+      elif literal_rhs_seen and not has_non_literal_binding:
+        errors.append(
+            f"CONSTANT_LITERAL_MATCH_VARIABLE in stage '{stage_name}': Match placeholder '${mv}' is bound only to "
+            f"constant literal {literal_rhs_seen[0]} in the event section; Google SecOps Malachite compiler rejects "
+            "constant string/numeric literals in 'match:' (INVALID_ARGUMENT). Bind the match variable to a UDM event "
+            "field (e.g., '$event_type = metadata.event_type') or an upstream stage field."
         )
     return errors
 
@@ -1333,26 +1850,60 @@ class MalachiteASTValidator:
   @staticmethod
   def validate_model_concordance(query_text: str, model: StatisticalModel) -> List[str]:
     errors = []
-    stage_blocks = re.findall(r"(?:stage\s+([a-zA-Z0-9_]+)\s*\{)", query_text)
-    named_stages = [s for s in stage_blocks if s]
+    clean_query = re.sub(r"//[^\n]*", "", query_text)
+    clean_query = re.sub(r"/\*.*?\*/", "", clean_query, flags=re.S)
+    named_stages = re.findall(r"\bstage\s+([a-zA-Z0-9_]+)\s*\{", clean_query)
 
-    # Stage count & topology validation
-    if model == StatisticalModel.MAD:
-      # True MAD: stage1 extractor + mad_center (median) + mad_spread (MAD) + root.
-      for required in ("mad_center", "mad_spread"):
-        if required not in named_stages:
-          errors.append(f"STAGE_TOPOLOGY_MISMATCH: Model MAD requires named stage '{required}' (median -> MAD chain). Found {named_stages}.")
-    elif model in [StatisticalModel.STANDARD_Z_SCORE, StatisticalModel.RELATIVE_DEVIATION, StatisticalModel.POISSON,
-                 StatisticalModel.VARIANCE, StatisticalModel.COEFFICIENT_OF_VARIATION,
-                 StatisticalModel.HOURLY_TEMPORAL_ZSCORE, StatisticalModel.LONGITUDINAL_CUSUM,
-                 StatisticalModel.TWO_PART_HURDLE, StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z,
-                 StatisticalModel.PIECEWISE_CRI, StatisticalModel.FLEET_PREVALENCE_SHIELD,
-                 StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD, StatisticalModel.MACD_MOMENTUM_VELOCITY,
-                 StatisticalModel.CIRCADIAN_VON_MISES]:
-      if len(named_stages) != 1:
-        errors.append(f"STAGE_TOPOLOGY_MISMATCH: Model {model.value} requires a 2-stage DAG (1 named extractor + root stage). Found {len(named_stages)} named stage(s).")
-    elif "3STAGE" in model.value or model in [StatisticalModel.BAYESIAN_GAMMA, StatisticalModel.BAYESIAN_BETA_BINOMIAL]:
-      pass
+    if model in RETIRED_STATISTICAL_MODELS:
+      errors.append(f"RETIRED_MODEL: {RETIRED_STATISTICAL_MODELS[model]}")
+      return errors
+
+    # Dynamic stage count & topology validation derived from templates on disk (WS2-07)
+    templates_dir = Path(__file__).resolve().parent.parent / "templates"
+    try:
+      from .template_router import MultiStageTemplateRouter
+    except ImportError:
+      from template_router import MultiStageTemplateRouter  # type: ignore[no-redef]
+
+    if (
+        model == StatisticalModel.STANDARD_Z_SCORE
+        and "stage2_origin_rollup" in named_stages
+        and "metrics.resource_" in clean_query
+    ):
+      pipe_path = templates_dir / "pipelines" / "cloud_repository_scope_dual_branch.yl2"
+      if pipe_path.exists():
+        clean_pipe = re.sub(r"//[^\n]*", "", pipe_path.read_text(encoding="utf-8"))
+        clean_pipe = re.sub(r"/\*.*?\*/", "", clean_pipe, flags=re.S)
+        expected_pipe_stages = re.findall(r"\bstage\s+([a-zA-Z0-9_]+)\s*\{", clean_pipe)
+        for req_stage in expected_pipe_stages:
+          if req_stage not in named_stages:
+            errors.append(
+                f"STAGE_TOPOLOGY_MISMATCH: Cloud repository scope query requires named stage '{req_stage}'. Found {named_stages}."
+            )
+        if len(named_stages) != len(expected_pipe_stages):
+          errors.append(
+              f"STAGE_TOPOLOGY_MISMATCH: Cloud repository scope query requires {len(expected_pipe_stages)} named stage(s). Found {len(named_stages)}: {named_stages}."
+          )
+    else:
+      stage2_file = MultiStageTemplateRouter.STAGE2_TEMPLATES.get(model)
+      if stage2_file:
+        stage2_path = templates_dir / "stage2_math_models" / stage2_file
+        if stage2_path.exists():
+          clean_stage2 = re.sub(r"//[^\n]*", "", stage2_path.read_text(encoding="utf-8"))
+          clean_stage2 = re.sub(r"/\*.*?\*/", "", clean_stage2, flags=re.S)
+          expected_stage2_stages = re.findall(r"\bstage\s+([a-zA-Z0-9_]+)\s*\{", clean_stage2)
+          expected_total_named = 1 + len(expected_stage2_stages)
+          for req_stage in expected_stage2_stages:
+            if req_stage not in named_stages:
+              errors.append(
+                  f"STAGE_TOPOLOGY_MISMATCH: Model {model.value} requires named stage '{req_stage}' per template '{stage2_file}'. Found {named_stages}."
+              )
+          if len(named_stages) != expected_total_named:
+            errors.append(
+                f"STAGE_TOPOLOGY_MISMATCH: Model {model.value} requires {expected_total_named} named stage(s) "
+                f"(1 extractor + {len(expected_stage2_stages)} model stage(s) from '{stage2_file}'). "
+                f"Found {len(named_stages)} named stage(s): {named_stages}."
+            )
 
     # Mathematical formulation signature validation
     if model == StatisticalModel.MAD:
@@ -1360,21 +1911,77 @@ class MalachiteASTValidator:
         errors.append("MODEL_FORMULA_MISMATCH: MAD model must compute a true median and MAD via window.median(...) and scale by 0.6745 (MAD/0.6745 robust sigma).")
       if "$historical_stddev" in query_text and re.search(r"0\.6745\s*\*\s*\([^)]*\)\s*/\s*[^\n]*stddev", query_text):
         errors.append("MODEL_FORMULA_MISMATCH: 0.6745 * (x - mean) / stddev is a rescaled classical Z, not MAD.")
+    elif model == StatisticalModel.QUANTILE_IQR_SKEW:
+      if "window.percentile(" not in clean_query or "$tukey_excess_z" not in clean_query:
+        errors.append(
+            "MODEL_FORMULA_MISMATCH: QUANTILE_IQR_SKEW model must compute empirical quantiles via "
+            "window.percentile(...) and robust scale-excess $tukey_excess_z."
+        )
     elif model == StatisticalModel.RELATIVE_DEVIATION:
-      if "$ratio" not in query_text:
-        errors.append("MODEL_FORMULA_MISMATCH: Relative deviation model must compute $ratio = $dev / $safe_hist_avg.")
+      if "$ratio" not in query_text or "$rel_dev_z_equiv" not in query_text:
+        errors.append(
+            "MODEL_FORMULA_MISMATCH: Relative deviation model must compute $ratio = $dev / $safe_hist_avg "
+            "with continuous floor max(avg, 1.0) and Z-equivalent $rel_dev_z_equiv."
+        )
     elif model == StatisticalModel.POISSON:
-      if "sqrt" not in query_text.lower() and "poisson" not in query_text.lower():
-        errors.append("MODEL_FORMULA_MISMATCH: Discrete Poisson model must calculate standard Poisson residual using sqrt(lambda).")
-    elif model == StatisticalModel.STANDARD_Z_SCORE:
+      if "$fano_cal" not in query_text or "$safe_poisson_sd" not in query_text:
+        errors.append(
+            "MODEL_FORMULA_MISMATCH: Discrete Poisson model must check calendar Fano dispersion ($fano_cal) "
+            "and scale via $safe_poisson_sd."
+        )
+    elif model == StatisticalModel.BAYESIAN_GAMMA:
+      if "$posterior_rate" not in query_text or "$safe_pred_sd" not in query_text or "$bayesian_z" not in query_text:
+        errors.append(
+            "MODEL_FORMULA_MISMATCH: Empirical Bayes BAYESIAN_GAMMA must compute fleet-prior $posterior_rate, "
+            "posterior-predictive $safe_pred_sd, and $bayesian_z."
+        )
+    elif model == StatisticalModel.BAYESIAN_BETA_BINOMIAL:
+      if "$obs_fail" not in query_text or "$obs_total" not in query_text or "$beta_binomial_z" not in query_text:
+        errors.append(
+            "MODEL_FORMULA_MISMATCH: Paired Empirical Bayes BAYESIAN_BETA_BINOMIAL must extract $obs_fail and "
+            "$obs_total and score via posterior-predictive $beta_binomial_z."
+        )
+    elif model in (StatisticalModel.STANDARD_Z_SCORE, StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z):
       if "+ 1.0" not in query_text and "if(" not in query_text and "stddev" not in query_text.lower():
         errors.append("MODEL_FORMULA_MISMATCH: Standard Z-Score must apply dispersion floor (+ 1.0) or nested logic if($std > 0, $std, 1.0) to denominator.")
     elif model == StatisticalModel.MACD_MOMENTUM_VELOCITY:
-      if "macd" not in query_text.lower() and "slow_z" not in query_text:
-        errors.append("MODEL_FORMULA_MISMATCH: MACD model must include dual-spine momentum differential ($macd_diff).")
-    elif model == StatisticalModel.CIRCADIAN_VON_MISES:
-      if "circ" not in query_text.lower() and "von_mises" not in query_text.lower():
-        errors.append("MODEL_FORMULA_MISMATCH: Circadian von Mises model must compute circular distance on 24-hour clock.")
+      if "$above_max_z" not in query_text or "$macd_z" not in query_text:
+        errors.append(
+            "MODEL_FORMULA_MISMATCH: Above-Historical-Max Z (MACD_MOMENTUM_VELOCITY) must compute linear "
+            "$above_max_z and $macd_z = $personal_z + $above_max_z."
+        )
+    elif model == StatisticalModel.LONGITUDINAL_CUSUM:
+      if "$windowed_slack_sum" not in query_text or "$cusum_drift_score" not in query_text:
+        errors.append(
+            "MODEL_FORMULA_MISMATCH: LONGITUDINAL_CUSUM must emit Windowed Slack Sum "
+            "$windowed_slack_sum and $cusum_drift_score across mature baseline days."
+        )
+    elif model == StatisticalModel.TWO_PART_HURDLE:
+      if "$is_dormant_awakening" not in query_text or "$hist_max" not in query_text or "$hurdle_threat_score" not in query_text:
+        errors.append(
+            "MODEL_FORMULA_MISMATCH: TWO_PART_HURDLE must gate dormant awakenings on $hist_max and "
+            "awakening volume and score via $hurdle_threat_score."
+        )
+    elif model == StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD:
+      if (
+          "$off_hours_obs" not in query_text
+          or "$effective_gate" not in query_text
+          or "$adaptive_z" not in query_text
+      ):
+        errors.append(
+            "MODEL_FORMULA_MISMATCH: ADAPTIVE_CONTEXT_THRESHOLD must compute event-level "
+            "$off_hours_obs, concordance gate $effective_gate (1.75 / 3.0), and Z-equivalent $adaptive_z."
+        )
+    elif model == StatisticalModel.FIRST_SEEN_NOVELTY:
+      if (
+          "first_seen" not in clean_query
+          or "$prior_first_seen" not in clean_query
+          or "$novelty_flag" not in clean_query
+      ):
+        errors.append(
+            "MODEL_FORMULA_MISMATCH: FIRST_SEEN_NOVELTY must extract metrics.*(..., metric: first_seen, agg: min) "
+            "into $prior_first_seen and emit boolean $novelty_flag."
+        )
 
     return errors
 

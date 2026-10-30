@@ -61,17 +61,29 @@ match:
 
 outcome:
   $k = max($stage1_extract.observed_val)
-  $lambda = max($stage1_extract.historical_avg)
+  $hist_sum = max($stage1_extract.historical_sum)
+  $active_hist_avg = max($stage1_extract.historical_avg)
+  $hist_stddev = max($stage1_extract.historical_stddev)
   $active_days = max($stage1_extract.historical_active_days)
 
-  // Discrete Poisson Rarity Z-Score
-  $poisson_sigma = math.sqrt($lambda)
-  $poisson_z = ($k - $lambda) / if($poisson_sigma > 0, $poisson_sigma, 1.0)
+  // Per-calendar-day rate & rebuilt 30-day calendar statistics (PF-1, PF-2, WS1-05)
+  $lambda = $hist_sum / 30.0
+  $sum_x = $active_days * $active_hist_avg
+  $df_minus_one = if($active_days > 1, $active_days, 1) - 1
+  $sum_x2 = ($df_minus_one * $hist_stddev * $hist_stddev) + ($active_days * $active_hist_avg * $active_hist_avg)
+  $mu_cal = $sum_x / 30.0
+  $raw_var_cal = ($sum_x2 / 30.0) - ($mu_cal * $mu_cal)
+  $var_cal = if($raw_var_cal > 0.0, $raw_var_cal, 0.0)
 
-  // Model Concordance variable aliases
-  $observed = $k
-  $hist_avg = $lambda
-  $z_score = $poisson_z
+  // Dispersion-checked Poisson / Negative-Binomial residual (WS3-POISSON)
+  $safe_lambda = if($lambda > 1.0, $lambda, 1.0)
+  $fano_cal = $var_cal / $safe_lambda
+  $nb_var = if($var_cal > $safe_lambda, $var_cal, $safe_lambda)
+  $eff_var = if($active_days >= 2 and $fano_cal > 2.0, $nb_var, $safe_lambda)
+  $safe_poisson_sd = math.sqrt($eff_var)
+  $sqrt_lambda = math.sqrt($safe_lambda)
+  $diff = $k - $lambda
+  $poisson_z = $diff / $safe_poisson_sd
 
 // Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
 condition:

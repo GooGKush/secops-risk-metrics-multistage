@@ -14,9 +14,12 @@ from scripts.template_router import MultiStageTemplateRouter
 MODEL_AST_CONTRACTS = {
     StatisticalModel.STANDARD_Z_SCORE: {
         "template": "standard_z_score.yl2",
-        "mandatory_vars": ["$personal_diff", "$safe_stddev", "$personal_z"],
+        "mandatory_vars": ["$personal_diff", "$dispersion_floor", "$safe_stddev", "$personal_z"],
         "order_var": "$personal_z",
-        "required_ops": ["$personal_diff = $observed - $hist_avg", "if($hist_stddev > 0"],
+        "required_ops": [
+            "$personal_diff = $observed - $hist_avg",
+            "$safe_stddev = if($hist_stddev > $dispersion_floor, $hist_stddev, $dispersion_floor)",
+        ],
         "prohibited_substitutions": [],
     },
     StatisticalModel.MAD: {
@@ -35,9 +38,15 @@ MODEL_AST_CONTRACTS = {
     },
     StatisticalModel.RELATIVE_DEVIATION: {
         "template": "relative_deviation.yl2",
-        "mandatory_vars": ["$dev", "$safe_hist_avg", "$ratio"],
+        "mandatory_vars": ["$safe_hist_avg", "$dev", "$ratio", "$fold_change", "$rel_dev_z_equiv"],
         "order_var": "$ratio",
-        "required_ops": ["$dev = $observed - $hist_avg", "$ratio = $dev / $safe_hist_avg"],
+        "required_ops": [
+            "$safe_hist_avg = if($hist_avg > 1.0, $hist_avg, 1.0)",
+            "$dev = $observed - $safe_hist_avg",
+            "$ratio = $dev / $safe_hist_avg",
+            "$fold_change = $observed / $safe_hist_avg",
+            "$rel_dev_z_equiv = if($raw_z_equiv > 0.0, $raw_z_equiv, 0.0)",
+        ],
         "prohibited_substitutions": ["$personal_z"],
     },
     StatisticalModel.VARIANCE: {
@@ -49,9 +58,13 @@ MODEL_AST_CONTRACTS = {
     },
     StatisticalModel.POISSON: {
         "template": "poisson_rarity.yl2",
-        "mandatory_vars": ["$diff", "$safe_lambda", "$sqrt_lambda", "$poisson_z"],
+        "mandatory_vars": ["$diff", "$safe_lambda", "$fano_cal", "$safe_poisson_sd", "$sqrt_lambda", "$poisson_z"],
         "order_var": "$poisson_z",
-        "required_ops": ["math.sqrt($safe_lambda)", "$poisson_z = $diff / $sqrt_lambda"],
+        "required_ops": [
+            "$fano_cal = $var_cal / $safe_lambda",
+            "$safe_poisson_sd = math.sqrt($eff_var)",
+            "$poisson_z = $diff / $safe_poisson_sd",
+        ],
         "prohibited_substitutions": ["$personal_z"],
     },
     StatisticalModel.COEFFICIENT_OF_VARIATION: {
@@ -61,95 +74,219 @@ MODEL_AST_CONTRACTS = {
         "required_ops": ["$cv = $hist_stddev / $safe_hist_avg", "$surge_ratio = $observed / $safe_hist_avg"],
         "prohibited_substitutions": ["$personal_z"],
     },
-    StatisticalModel.HOURLY_TEMPORAL_ZSCORE: {
-        "template": "hourly_temporal_zscore.yl2",
-        "mandatory_vars": ["$observed_hour", "$avg_hourly", "$hourly_diff", "$safe_stddev_hourly", "$hourly_z", "$hourly_surge_ratio"],
-        "order_var": "$hourly_z",
-        "required_ops": ["by 1h", "$hourly_diff = $observed_hour - $avg_hourly", "$hourly_z = $hourly_diff / $safe_stddev_hourly"],
-        "prohibited_substitutions": [],
-    },
     StatisticalModel.BAYESIAN_GAMMA: {
         "template": "poisson_gamma_bayesian.yl2",
-        "mandatory_vars": ["$variance_raw", "$safe_variance", "$beta_prior", "$alpha_prior", "$alpha_post", "$beta_post", "$posterior_mean", "$bayes_shift_ratio"],
-        "order_var": "$bayes_shift_ratio",
-        "required_ops": ["$beta_prior = $avg_30d / $safe_variance", "$alpha_post = $alpha_prior + $observed_24h", "$posterior_mean = $alpha_post / $beta_post"],
-        "prohibited_substitutions": ["$personal_z"],
+        "mandatory_vars": [
+            "$mu_cal",
+            "$var_cal",
+            "$excess_var",
+            "$posterior_rate",
+            "$post_rate_var",
+            "$cred_w",
+            "$pred_var",
+            "$safe_pred_sd",
+            "$bayesian_z",
+        ],
+        "order_var": "$bayesian_z",
+        "required_ops": [
+            "$posterior_rate = $post_alpha_pre / $post_beta_pre",
+            "$pred_var = $posterior_rate + $post_rate_var + ($cred_w * $excess_var)",
+            "$bayesian_z = ($observed - $posterior_rate) / $safe_pred_sd",
+        ],
+        "prohibited_substitutions": ["$personal_z", "$bayes_shift_ratio"],
     },
     StatisticalModel.BAYESIAN_BETA_BINOMIAL: {
         "template": "beta_binomial_bayesian.yl2",
-        "mandatory_vars": ["$denom_scale", "$scaled_prior", "$scaled_obs", "$prior_rate", "$obs_rate", "$prior_alpha", "$prior_beta", "$post_alpha", "$post_denom", "$posterior_rate", "$safe_prior", "$posterior_lift"],
-        "order_var": "$posterior_lift",
-        "required_ops": ["$denom_scale = $observed + $hist_avg + 1.0", "$prior_alpha = $prior_rate * 10.0", "$post_alpha = $prior_alpha + ($obs_rate * 10.0)", "$posterior_rate = $post_alpha / $post_denom", "$posterior_lift = $posterior_rate / $safe_prior"],
-        "prohibited_substitutions": ["$personal_z"],
+        "mandatory_vars": [
+            "$obs_fail",
+            "$obs_total",
+            "$hist_fail_sum",
+            "$hist_total_sum",
+            "$prior_fail_rate",
+            "$posterior_fail_rate",
+            "$posterior_rate",
+            "$pred_mean",
+            "$pred_var",
+            "$safe_pred_sd",
+            "$beta_binomial_z",
+        ],
+        "order_var": "$beta_binomial_z",
+        "required_ops": [
+            "$posterior_fail_rate = ($alpha_pre + $obs_fail) / ($ab + $obs_total)",
+            "$beta_binomial_z = ($obs_fail - $pred_mean) / $safe_pred_sd",
+        ],
+        "prohibited_substitutions": ["$personal_z", "$posterior_lift"],
     },
     StatisticalModel.LONGITUDINAL_CUSUM: {
         "template": "longitudinal_cusum.yl2",
-        "mandatory_vars": ["$raw_drift", "$safe_stddev", "$slack_allowance", "$slack_excess", "$daily_excess", "$cusum_drift", "$cusum_drift_score", "$drift_days"],
+        "mandatory_vars": [
+            "$raw_drift",
+            "$safe_stddev",
+            "$slack_allowance",
+            "$slack_excess",
+            "$daily_excess",
+            "$cusum_drift",
+            "$windowed_slack_sum",
+            "$cusum_drift_score",
+            "$drift_days",
+        ],
         "order_var": "$cusum_drift_score",
-        "required_ops": ["0.5 * $safe_stddev", "$slack_excess = $raw_drift - $slack_allowance", "$cusum_drift = sum($stage2_daily_drift.daily_excess)", "$cusum_drift_score = $cusum_drift"],
+        "required_ops": [
+            "0.5 * $safe_stddev",
+            "$slack_excess = $raw_drift - $slack_allowance",
+            "$daily_excess = if($active_days >=",
+            "$cusum_drift = sum($stage2_daily_drift.daily_excess)",
+            "$windowed_slack_sum = $cusum_drift",
+            "$cusum_drift_score = $cusum_drift",
+        ],
         "prohibited_substitutions": ["$personal_z"],
     },
     StatisticalModel.TWO_PART_HURDLE: {
         "template": "two_part_hurdle.yl2",
-        "mandatory_vars": ["$is_dormant_awakening", "$raw_diff", "$safe_stddev", "$intensity_z", "$obs_plus_one", "$log_obs", "$dormant_score", "$hurdle_threat_score"],
+        "mandatory_vars": [
+            "$hist_max",
+            "$mu_cal",
+            "$dormant_days",
+            "$is_dormant_awakening",
+            "$awakening_ratio",
+            "$dormant_score",
+            "$safe_stddev",
+            "$raw_z",
+            "$intensity_z",
+            "$hurdle_threat_score",
+        ],
         "order_var": "$hurdle_threat_score",
-        "required_ops": ["$is_dormant_awakening = if($active_days <= 2 and $observed > 0", "$dormant_score = 10.0 + $log_obs", "$hurdle_threat_score = if($active_days <= 2"],
+        "required_ops": [
+            "$is_dormant_awakening = if($active_days <",
+            "$observed > $hist_max",
+            "$intensity_z = if($raw_z > 0.0, $raw_z, 0.0)",
+            "$hurdle_threat_score = if($active_days <",
+        ],
         "prohibited_substitutions": ["$personal_z"],
     },
     StatisticalModel.ASYMMETRIC_DIRECTIONAL_Z: {
-        "template": "asymmetric_directional_z.yl2",
-        "mandatory_vars": ["$diff", "$excess_surge", "$safe_stddev", "$upper_tail_z"],
-        "order_var": "$upper_tail_z",
-        "required_ops": ["$excess_surge = if($diff > 0, $diff, 0.0)", "$upper_tail_z = $excess_surge / $safe_stddev"],
-        "prohibited_substitutions": ["$personal_z"],
-    },
-    StatisticalModel.PIECEWISE_CRI: {
-        "template": "piecewise_cri.yl2",
-        "mandatory_vars": ["$diff", "$safe_stddev", "$raw_z", "$clamped_low", "$clamped_z", "$cri_tier4", "$cri_tier3", "$cri_tier2", "$cri_score"],
-        "order_var": "$cri_score",
-        "required_ops": ["$clamped_low = if($raw_z < -4.0, -4.0, $raw_z)", "$cri_score = if($clamped_z >= 1.0"],
-        "prohibited_substitutions": ["$personal_z"],
-    },
-    StatisticalModel.FLEET_PREVALENCE_SHIELD: {
-        "template": "fleet_prevalence_shield.yl2",
-        "mandatory_vars": ["$fleet_entities", "$raw_diff", "$safe_stddev", "$personal_z", "$fleet_count", "$log_fleet", "$prevalence_factor", "$shielded_z"],
-        "order_var": "$shielded_z",
-        "required_ops": ["$fleet_entities = count_distinct($stage1_extract", "$prevalence_factor = 1.0 + $log_fleet", "$shielded_z = $personal_z / $prevalence_factor"],
+        "template": "standard_z_score.yl2",
+        "mandatory_vars": ["$personal_diff", "$safe_stddev", "$personal_z"],
+        "order_var": "$personal_z",
+        "required_ops": [
+            "$personal_diff = $observed - $hist_avg",
+            "$safe_stddev = if($hist_stddev > $dispersion_floor, $hist_stddev, $dispersion_floor)",
+        ],
         "prohibited_substitutions": [],
     },
     StatisticalModel.ADAPTIVE_CONTEXT_THRESHOLD: {
         "template": "adaptive_context_threshold.yl2",
-        "mandatory_vars": ["$raw_diff", "$safe_stddev", "$personal_z", "$sparse_threshold", "$mature_threshold", "$effective_threshold", "$sensitivity_excess"],
-        "order_var": "$sensitivity_excess",
-        "required_ops": ["$effective_threshold = if($active_days < 7, $sparse_threshold, $mature_threshold)", "$sensitivity_excess = $personal_z - $effective_threshold"],
-        "prohibited_substitutions": [],
+        "mandatory_vars": [
+            "$off_hours_obs",
+            "$raw_diff",
+            "$safe_stddev",
+            "$personal_z",
+            "$off_hours_share",
+            "$effective_gate",
+            "$adaptive_z",
+            "$sensitivity_excess",
+        ],
+        "order_var": "$adaptive_z",
+        "required_ops": [
+            "$effective_gate = if($off_hours_share >= 0.5, 1.75, 3.0)",
+            "$adaptive_z = ($personal_z * 3.0) / $effective_gate",
+            "$sensitivity_excess = $personal_z - $effective_gate",
+        ],
+        "prohibited_substitutions": ["$personal_z"],
     },
     StatisticalModel.MACD_MOMENTUM_VELOCITY: {
         "template": "macd_momentum_velocity.yl2",
-        "mandatory_vars": ["$fast_diff", "$safe_stddev", "$fast_z", "$slow_diff", "$slow_z", "$macd_diff", "$safe_max", "$velocity_ratio", "$breakout_boost", "$breakout_score", "$macd_momentum_score"],
-        "order_var": "$macd_momentum_score",
-        "required_ops": ["$fast_diff = $observed - $hist_avg", "$slow_diff = $hist_max - $hist_avg", "$macd_diff = $fast_z - $slow_z", "$macd_momentum_score = if($macd_diff > 0"],
-        "prohibited_substitutions": ["$personal_z"],
-    },
-    StatisticalModel.CIRCADIAN_VON_MISES: {
-        "template": "circadian_von_mises.yl2",
-        "mandatory_vars": ["$avg_hourly", "$scaled_hourly_sd", "$safe_stddev_hourly", "$hourly_diff", "$hourly_z", "$event_hour", "$raw_hour_diff", "$abs_hour_diff", "$wrap_dist", "$circ_dist", "$norm_dist", "$circadian_weight", "$pos_z", "$circadian_threat_score"],
-        "order_var": "$circadian_threat_score",
-        "required_ops": ["by 1h", "max($stage1_extract.event_hour)", "$scaled_hourly_sd = $hist_stddev_daily / 4.899", "$circ_dist = if($abs_hour_diff > 12.0", "$circadian_weight = 1.0 + $norm_dist", "$circadian_threat_score = $pos_z * $circadian_weight"],
-        "prohibited_substitutions": ["$personal_z"],
+        "mandatory_vars": [
+            "$personal_diff",
+            "$safe_stddev",
+            "$personal_z",
+            "$exceed_raw",
+            "$exceed_pos",
+            "$above_max_z",
+            "$macd_z",
+            "$macd_momentum_score",
+        ],
+        "order_var": "$macd_z",
+        "required_ops": [
+            "$personal_diff = $observed - $hist_avg",
+            "$exceed_raw = $observed - $hist_max",
+            "$above_max_z = $exceed_pos / $safe_stddev",
+            "$macd_z = $personal_z + $above_max_z",
+        ],
+        "prohibited_substitutions": ["$ratio"],
     },
     StatisticalModel.QUANTILE_IQR_SKEW: {
         "template": "quantile_iqr_skew.yl2",
-        "mandatory_vars": ["$q25_val", "$q50_val", "$q75_val", "$iqr", "$safe_iqr", "$bowley_skew", "$tail_heaviness", "$adj_upper_fence", "$tukey_fence_ratio", "$personal_z", "$raw_active_days", "$in_scoring_window"],
-        "order_var": "$tukey_fence_ratio",
-        "required_ops": ["window.percentile($stage1_extract.observed_val, 25)", "window.percentile($stage1_extract.observed_val, 50)", "window.percentile($stage1_extract.observed_val, 75)", "$bowley_skew = ($q75_val + $q25_val - (2.0 * $q50_val)) / $safe_iqr", "$tukey_fence_ratio = $observed / $safe_fence"],
+        "mandatory_vars": [
+            "$q25_val",
+            "$q50_val",
+            "$q75_val",
+            "$iqr",
+            "$safe_iqr",
+            "$bowley_skew",
+            "$tail_heaviness",
+            "$adj_upper_fence",
+            "$robust_scale",
+            "$tukey_excess_z",
+            "$personal_z",
+            "$raw_active_days",
+            "$in_scoring_window",
+        ],
+        "order_var": "$tukey_excess_z",
+        "required_ops": [
+            "window.percentile($stage1_extract.observed_val, 25)",
+            "window.percentile($stage1_extract.observed_val, 50)",
+            "window.percentile($stage1_extract.observed_val, 75)",
+            "$bowley_skew = ($q75_val + $q25_val - (2.0 * $q50_val)) / $safe_iqr",
+            "1.35 *",
+            "$robust_scale = $safe_iqr / 1.349",
+            "$tukey_excess_z = ($observed - $adj_upper_fence) / $robust_scale",
+        ],
         "prohibited_substitutions": ["$personal_z", "$ratio"],
+    },
+    StatisticalModel.FIRST_SEEN_NOVELTY: {
+        "template": "first_seen_novelty.yl2",
+        "mandatory_vars": [
+            "$observed",
+            "$prior_first_seen",
+            "$prior_last_seen",
+            "$peak_period_start",
+            "$active_days",
+            "$novelty_flag",
+        ],
+        "order_var": "$novelty_flag",
+        "required_ops": [
+            "$prior_first_seen = min($stage1_extract.prior_first_seen)",
+            "$prior_last_seen = max($stage1_extract.prior_last_seen)",
+            "$peak_period_start = max($stage1_extract.peak_period_start)",
+            "$novelty_flag = if($prior_first_seen = 0 and $observed >= {{min_novelty_events}}, 1, 0)",
+        ],
+        "prohibited_substitutions": ["$personal_z", "$ratio"],
+    },
+}
+
+RETIRED_MODEL_CONTRACTS = {
+    StatisticalModel.HOURLY_TEMPORAL_ZSCORE: {
+        "removed_template": "hourly_temporal_zscore.yl2",
+        "replacement": "HOUR_OF_DAY_PROFILE",
+    },
+    StatisticalModel.CIRCADIAN_VON_MISES: {
+        "removed_template": "circadian_von_mises.yl2",
+        "replacement": "HOUR_OF_DAY_PROFILE",
+    },
+    StatisticalModel.PIECEWISE_CRI: {
+        "removed_template": "piecewise_cri.yl2",
+        "replacement": "ueba_constants.calculate_cri",
+    },
+    StatisticalModel.FLEET_PREVALENCE_SHIELD: {
+        "removed_template": "fleet_prevalence_shield.yl2",
+        "replacement": "hybrid_metric_fleet_prevalence_2stage.yl2",
     },
 }
 
 
 class TestModelConcordance(unittest.TestCase):
-  """Validates that all 16 models adhere to their AST concordance contracts."""
+  """Validates that active models adhere to AST concordance contracts and retired models fail closed."""
 
   def setUp(self):
     self.repo_root = Path(__file__).resolve().parent.parent
@@ -157,9 +294,39 @@ class TestModelConcordance(unittest.TestCase):
     self.router = MultiStageTemplateRouter()
 
   def test_all_statistical_models_covered_in_contracts(self):
-    """Every enum in StatisticalModel must have an explicit AST contract."""
+    """Every enum in StatisticalModel must have an active or retired AST contract."""
     for model in StatisticalModel:
-      self.assertIn(model, MODEL_AST_CONTRACTS, f"Model {model} missing from MODEL_AST_CONTRACTS")
+      self.assertTrue(
+          model in MODEL_AST_CONTRACTS or model in RETIRED_MODEL_CONTRACTS,
+          f"Model {model} missing from MODEL_AST_CONTRACTS / RETIRED_MODEL_CONTRACTS",
+      )
+
+  def test_retired_models_removed_from_disk_and_rejected_by_router_and_validator(self):
+    """WS2-02 (D1): Retired Stage-2 templates must be removed and raise clear replacement errors."""
+    from scripts.preflight_validator import MalachiteASTValidator
+
+    for model, spec in RETIRED_MODEL_CONTRACTS.items():
+      removed_path = self.templates_dir / spec["removed_template"]
+      self.assertFalse(removed_path.exists(), f"Retired template still on disk: {removed_path}")
+      with self.assertRaisesRegex(ValueError, rf"retired.*{spec['replacement']}"):
+        self.router.build_query(
+            target_metric="auth_attempts_total",
+            entity_type=EntityType.USER,
+            statistical_model=model,
+        )
+      errs = MalachiteASTValidator.validate_model_concordance("// dummy", model)
+      self.assertTrue(
+          any("RETIRED" in e.upper() and spec["replacement"] in e for e in errs),
+          f"Expected RETIRED error mentioning {spec['replacement']} for {model.value}, got {errs}",
+      )
+    self.assertFalse(
+        (self.repo_root / "templates" / "pipelines" / "circadian_von_mises_2stage.yl2").exists(),
+        "Retired circadian_von_mises_2stage.yl2 still on disk",
+    )
+    self.assertFalse(
+        (self.templates_dir / "asymmetric_directional_z.yl2").exists(),
+        "Merged asymmetric_directional_z.yl2 must be removed from disk (D1 -> standard_z_score.yl2)",
+    )
 
   def test_templates_exist_and_match_contract_definitions(self):
     """Each template file must exist and satisfy all mandatory AST contract items."""
@@ -229,7 +396,7 @@ class TestModelConcordance(unittest.TestCase):
     self.assertNotIn("timestamp.current_seconds()", query)
 
   def test_mad_renders_only_the_metrics_lookups_its_root_reads(self):
-    """MAD scores from raw daily values; metrics.* only feeds the Z cross-check (avg, stddev, active days)."""
+    """WS1-03: MAD/Quantile compute $personal_z from pre-scoring raw active days, keeping only 1 metrics.* lookup (num_metric_periods)."""
     router = MultiStageTemplateRouter()
     extractors = sorted((self.repo_root / "templates" / "stage1_extractors").glob("*.yl2"))
     self.assertTrue(extractors)
@@ -247,14 +414,14 @@ class TestModelConcordance(unittest.TestCase):
         self.assertIsNotNone(query, f"{path.stem}: no valid entity type")
         self.assertIn("stage mad_center", query, f"{path.stem}/{mode.value}")
         rendered += 1
-        self.assertEqual(query.count("metrics."), 3, f"{path.stem}/{mode.value}")
-        for kept in ("$historical_avg =", "$historical_stddev =", "$historical_active_days ="):
-          self.assertIn(kept, query, f"{path.stem}/{mode.value}")
-        for dropped in ("$historical_max =", "$historical_sum ="):
+        self.assertEqual(query.count("metrics."), 1, f"{path.stem}/{mode.value}")
+        self.assertIn("$historical_active_days =", query, f"{path.stem}/{mode.value}")
+        for dropped in ("$historical_avg =", "$historical_stddev =", "$historical_max =", "$historical_sum ="):
           self.assertNotIn(dropped, query, f"{path.stem}/{mode.value}")
     self.assertEqual(rendered, 2 * len(extractors))
-    pipeline = (self.repo_root / "templates" / "pipelines" / "mad_robust_z_4stage.yl2").read_text()
-    self.assertEqual(pipeline.count("metrics.{{target_metric_name}}("), 3)
+    for pipe_name in ("mad_robust_z_4stage.yl2", "quantile_iqr_skew_3stage.yl2"):
+      pipeline = (self.repo_root / "templates" / "pipelines" / pipe_name).read_text()
+      self.assertEqual(pipeline.count("metrics.{{target_metric_name}}("), 1, pipe_name)
 
   def test_mad_groups_every_stage_by_the_same_baseline_tuple(self):
     """stage1, mad_center, mad_spread and root must share one key list (root adds only $ws)."""
@@ -323,6 +490,125 @@ class TestModelConcordance(unittest.TestCase):
 
     for model in StatisticalModel:
       self.assertIn(model.value, content, f"Guide missing coverage for {model.value}")
+
+  def test_ws2_07_router_output_passes_validate_model_concordance_for_all_models_and_modes(self):
+    """WS2-07: Router build_query output must pass validate_model_concordance and PostFlightExecutionAuditor across all 18 models x modes."""
+    from scripts.preflight_validator import MalachiteASTValidator, PostFlightExecutionAuditor
+
+    representative_targets = [
+        ("network_bytes_outbound", EntityType.ASSET),
+        ("auth_attempts_total", EntityType.USER),
+        ("file_executions_total", EntityType.ASSET),
+        ("resource_read_total", EntityType.USER),
+        ("resource_read_total", EntityType.RESOURCE),
+    ]
+    for metric, entity_type in representative_targets:
+      for model in StatisticalModel:
+        if model in RETIRED_MODEL_CONTRACTS:
+          with self.assertRaisesRegex(ValueError, "retired"):
+            self.router.build_query(
+                target_metric=metric,
+                entity_type=entity_type,
+                statistical_model=model,
+            )
+          continue
+        if model == StatisticalModel.POISSON and metric == "network_bytes_outbound":
+          with self.assertRaisesRegex(ValueError, r"POISSON.*event_count_sum|value_sum|byte"):
+            self.router.build_query(
+                target_metric=metric,
+                entity_type=entity_type,
+                statistical_model=model,
+            )
+          continue
+        if model == StatisticalModel.BAYESIAN_BETA_BINOMIAL and metric == "network_bytes_outbound":
+          with self.assertRaisesRegex(ValueError, r"BAYESIAN_BETA_BINOMIAL.*paired|unpaired|_fail"):
+            self.router.build_query(
+                target_metric=metric,
+                entity_type=entity_type,
+                statistical_model=model,
+            )
+          continue
+        for mode in (MatchMode.TIMELINE_BREAKDOWN, MatchMode.FLEET_ROLLUP):
+          with self.subTest(metric=metric, entity_type=entity_type.value, model=model.value, mode=mode.value):
+            query = self.router.build_query(
+                target_metric=metric,
+                entity_type=entity_type,
+                statistical_model=model,
+                match_mode=mode,
+                scoring_end_date="2026-10-27",
+            )
+            concordance_errors = MalachiteASTValidator.validate_model_concordance(query, model)
+            self.assertEqual(
+                concordance_errors,
+                [],
+                f"Router output failed validate_model_concordance for {model.value}/{mode.value}: {concordance_errors}",
+            )
+            audit_res = PostFlightExecutionAuditor.audit_execution(
+                executed_query=query,
+                api_response={"stats": {"results": []}},
+                target_metric=metric,
+                entity_type=entity_type,
+                statistical_model=model,
+            )
+            self.assertTrue(
+                audit_res.is_valid,
+                f"PostFlightExecutionAuditor rejected router output for {model.value}/{mode.value}: {audit_res.errors}",
+            )
+
+  def test_ws2_07_validate_model_concordance_flags_topology_and_quantile_formula_mismatches(self):
+    """WS2-07: Dynamic template stage-topology check catches missing/extra stages and QUANTILE_IQR_SKEW formula drift."""
+    from scripts.preflight_validator import MalachiteASTValidator
+
+    z_query = self.router.build_query(
+        target_metric="network_bytes_outbound",
+        entity_type=EntityType.ASSET,
+        statistical_model=StatisticalModel.STANDARD_Z_SCORE,
+    )
+    cusum_query = self.router.build_query(
+        target_metric="network_bytes_outbound",
+        entity_type=EntityType.ASSET,
+        statistical_model=StatisticalModel.LONGITUDINAL_CUSUM,
+    )
+
+    # Multi-stage Stage-2 models must reject a 1-named-stage query
+    for multi_stage_model in (
+        StatisticalModel.LONGITUDINAL_CUSUM,
+        StatisticalModel.QUANTILE_IQR_SKEW,
+        StatisticalModel.MAD,
+    ):
+      with self.subTest(missing_stage_for=multi_stage_model.value):
+        errs = MalachiteASTValidator.validate_model_concordance(z_query, multi_stage_model)
+        self.assertTrue(
+            any("STAGE_TOPOLOGY_MISMATCH" in e for e in errs),
+            f"Expected STAGE_TOPOLOGY_MISMATCH for {multi_stage_model.value}, got {errs}",
+        )
+
+    # Single-stage Stage-2 models (including BAYESIAN_GAMMA / BAYESIAN_BETA_BINOMIAL) must reject extra stages
+    for single_stage_model in (
+        StatisticalModel.STANDARD_Z_SCORE,
+        StatisticalModel.BAYESIAN_GAMMA,
+        StatisticalModel.BAYESIAN_BETA_BINOMIAL,
+    ):
+      with self.subTest(extra_stage_for=single_stage_model.value):
+        errs = MalachiteASTValidator.validate_model_concordance(cusum_query, single_stage_model)
+        self.assertTrue(
+            any("STAGE_TOPOLOGY_MISMATCH" in e for e in errs),
+            f"Expected STAGE_TOPOLOGY_MISMATCH for {single_stage_model.value}, got {errs}",
+        )
+
+    # QUANTILE_IQR_SKEW without window.percentile(...) must trigger MODEL_FORMULA_MISMATCH
+    q_query = self.router.build_query(
+        target_metric="network_bytes_outbound",
+        entity_type=EntityType.ASSET,
+        statistical_model=StatisticalModel.QUANTILE_IQR_SKEW,
+        scoring_end_date="2026-10-27",
+    )
+    broken_quantile = q_query.replace("window.percentile(", "max(")
+    q_errs = MalachiteASTValidator.validate_model_concordance(broken_quantile, StatisticalModel.QUANTILE_IQR_SKEW)
+    self.assertTrue(
+        any("MODEL_FORMULA_MISMATCH" in e for e in q_errs),
+        f"Expected MODEL_FORMULA_MISMATCH when window.percentile is missing, got {q_errs}",
+    )
 
 
 if __name__ == "__main__":

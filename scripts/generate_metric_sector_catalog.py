@@ -78,8 +78,12 @@ elsewhere still fails if the combined set is not listed. Example: `auth_attempts
    most one sector per query may be a roll-up. Its Z is the largest per-key Z for the entity (per binary,
    product or rule), not a Z of the entity's total volume: no entity-only baseline exists. Add an
    `// ADVISORY:` line saying so. Its entity must be the only entity dimension of one listed roll-up set.
-5. Two metrics of the same family (e.g. `auth_attempts_fail` + `auth_attempts_total`) are allowed but
-   correlated; add an `// ADVISORY:` line to the query header saying so.
+5. **Inter-sector correlation (`WS7-03`).** Fusion carries no covariance matrix, so false-positive rates
+   depend on how correlated the sectors are: same-family pairs (e.g. `auth_attempts_fail` +
+   `auth_attempts_total`) and coupled network planes (`network_bytes_*` + `dns_queries_*` + `http_queries_*`)
+   exceed independent $\\chi^2_k$ tail rates; add an `// ADVISORY:` line to the query header saying so.
+   In roll-up fusion, `sqrt(2 * ln(K_eff))` approximates the Gaussian expected maximum across active
+   sub-keys — it is not a Bonferroni correction.
 6. `email_addresses`, `ip` and `mac` are repeated fields: one event can fan out to several entities.
 7. **Identifier coverage (probe first).** A field valid in the config can still be empty in a sector's
    data. Make the pre-flight probe do this check: probe the sector most likely to lack the field with
@@ -115,8 +119,9 @@ ECG_FILTERS = """\
 
 A graph stage narrows a metric hunt to rare entities. It is an inner join, so it is a **filter**:
 entities without a graph record drop out (absent is not the same as rare). It does not count against
-the two-UDM-stage limit. Freshness: in Mode A start the search window two days back at 00:00Z and put
-`timestamp.get_date(metadata.event_timestamp.seconds) = "<today, YYYY-MM-DD>"` (UTC) in every event stage
+the two-UDM-stage limit. Freshness: in Mode A start the search window at the scored UTC day minus 2 at `00:00:00Z`
+(`endTime` = `today 00:00:00Z` by default, or `now` in explicit `"Today So Far"` / `--today-so-far`) and put
+`timestamp.get_date(metadata.event_timestamp.seconds) = "<scored UTC day, YYYY-MM-DD>"` in every event stage
 (`references/entity-context-graph-guide.md`, Rule 5).
 
 | Rare entity | Graph stage predicates | Event join field(s) |
@@ -218,8 +223,9 @@ it would just recompute the fleet, so delete them and rank by `$d_vs_fleet_sq`. 
 peers without naming them ("vs his team"), resolve the team with the AD TEAM LOOKUP
 (`references/multi-stage-metrics-guide.md`, Peer group rule) and ask for the roster only if AD has no
 team; never drop the comparison. With a
-peer group the template also scores the group as a whole against the fleet (`$z*_team_vs_enterprise`,
-`$d_team_vs_fleet_sq`). Because one stage carries all three metrics:
+peer group `team_cohort_stats` stays decoupled from `enterprise_stats` so the 4-stage triad pipeline
+remains within Chronicle's `maxJoinCount = 4` ceiling (`$d_vs_team_sq` + `$d_vs_fleet_sq`). Because one
+stage carries all three metrics:
 
 1. **One entity field for all three.** It must be valid alone for every metric (listed per triad).
    Bind it once: `<entity field> = $user` (or `$host`) in the stage and `<entity field>: <entity field>` in all
@@ -237,11 +243,12 @@ peer group the template also scores the group as a whole against the fleet (`$z*
    have no entity-only baseline. For process execution use a per-(host, hash) pipeline or a roll-up
    sector. Do not mix families into a triad (e.g. `dns_bytes_outbound` with DNS query counts: it counts
    port-53 traffic, not DNS messages); use a sector fusion instead.
-5. **Math (as the template computes it).** Per metric: $Z_{personal}$ and $Z_{vs\\_enterprise}$ (plus
-   $Z_{vs\\_team}$ with a peer group). Composite: $D_{vs\\_fleet}^2 = \\sum_{m=1}^{3} Z_{vs\\_enterprise,m}^2$
-   ($D_{vs\\_team}^2$ likewise with a peer group). The terms are **two-sided**, so a collapse (e.g.
-   success drops while fail rises) also raises $D$. To score surges only, rectify each term in the root
-   outcome: `$z1_sq = if($z1_vs_enterprise > 0, $z1_vs_enterprise * $z1_vs_enterprise, 0)`.
+5. **Math (as the template computes it).** Per metric: $Z_{personal}$ and leave-one-out $Z_{vs\\_enterprise}$
+   (plus leave-one-out $Z_{vs\\_team}$ with a peer group; human user cohorts exclude `SYSTEM`,
+   `LOCAL SERVICE`, `NETWORK SERVICE`, and trailing-`$` machine accounts). Composite:
+   $D_{vs\\_fleet}^2 = \\sum_{m=1}^{3} \\max(0, Z_{vs\\_enterprise,m})^2$ ($D_{vs\\_team}^2$ likewise with a
+   peer group). Each term is **upper-tail rectified** (`if($z > 0.0, $z, 0.0)`) before squaring so quiet
+   peers with negative Z-scores never outrank surging outliers.
 6. Byte triads observe `sum(network.sent_bytes)` / `sum(network.received_bytes)` over the union of
    rows; the per-metric `< 1000000000000000` guard is not applied per metric, so a single corrupt
    row (>= 1e15 bytes) can inflate one observed value.

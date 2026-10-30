@@ -1,0 +1,89 @@
+// ============================================================================
+// ARCHITECTURE: 3-STAGE LONGITUDINAL CUSUM UNGATED SERIES EXTRACTOR (WS6-01)
+// Skill: secops-risk-metrics-multistage
+// Purpose: Emits the complete ungated active-day standardized series across up to 14 days
+//          (one start-anchored 30d pre-window baseline) ONLY for entities that survive the
+//          lossless Windowed Slack Sum prefilter W = sum(max(0, Z_t - 0.5)) >= h.
+// Theorem: Because Page's one-sided recursion S_t = max(0, S_{t-1} + Z_t - k) never exceeds
+//          W = sum(max(0, Z_t - k)) on any sequence (including quiet 0-event days where Z_t < 0),
+//          any entity with W < h is mathematically guaranteed to have max_t S_t < h.
+// Companion Helper: Mode A is blocked (single-day CUSUM raises an error). For <=14d, pass raw udm_search
+//          JSON output + query file to scripts/cusum_helper.py, which reconstructs silent 0-event calendar
+//          days (Z_t = (0 - mu)/safe_sigma < 0) and evaluates Page's exact recursion S_t against ARL-calibrated
+//          threshold h (4.0 BALANCED, 5.0 HIGH_PRECISION, 3.0 HIGH_RECALL). For >14d, run ungated candidate
+//          Mode C shards re-standardized against Shard 1's fixed calendar-day baseline in scripts/cusum_helper.py.
+// ============================================================================
+
+// Stage 1: Daily Standardized Deviation Extractor (1 metrics.* join)
+stage stage1_extract {
+    {{event_filter}}
+    {{entity_field}} = $entity
+    $entity != ""
+
+  match:
+    $entity by 1d
+
+  outcome:
+    $observed_val = {{observed_aggregation}}
+    $historical_avg = max(metrics.{{target_metric_name}}(
+        period: 1d, window: 30d, metric: {{metric_type_val}}, agg: avg,
+        {{dimension_key}}: {{dimension_key}} {{extra_dimensions}}
+    ))
+    $historical_stddev = max(metrics.{{target_metric_name}}(
+        period: 1d, window: 30d, metric: {{metric_type_val}}, agg: stddev,
+        {{dimension_key}}: {{dimension_key}} {{extra_dimensions}}
+    ))
+    $historical_active_days = max(metrics.{{target_metric_name}}(
+        period: 1d, window: 30d, metric: {{metric_type_val}}, agg: num_metric_periods,
+        {{dimension_key}}: {{dimension_key}} {{extra_dimensions}}
+    ))
+    $historical_sum = max(metrics.{{target_metric_name}}(
+        period: 1d, window: 30d, metric: {{metric_type_val}}, agg: sum,
+        {{dimension_key}}: {{dimension_key}} {{extra_dimensions}}
+    ))
+    $dispersion_floor = math.sqrt(if($historical_avg > 1.0, $historical_avg, 1.0))
+    $safe_stddev = if($historical_stddev > $dispersion_floor, $historical_stddev, $dispersion_floor)
+    $raw_daily_z = ($observed_val - $historical_avg) / $safe_stddev
+    $daily_z = if($historical_active_days >= {{min_baseline_days}}, $raw_daily_z, 0.0)
+    $deviation = $daily_z - 0.5
+    $daily_excess = if($historical_active_days >= {{min_baseline_days}} and $deviation > 0.0, $deviation, 0.0)
+}
+
+// Stage 2: Lossless Per-Entity Windowed Slack Sum Prefilter (0 joins)
+stage stage2_prefilter {
+    $entity = $stage1_extract.entity
+
+  match:
+    $entity
+
+  outcome:
+    $windowed_slack_sum = sum($stage1_extract.daily_excess)
+    $drift_days = sum(if($stage1_extract.daily_excess > 0.0, 1, 0))
+    $max_active_days = max($stage1_extract.historical_active_days)
+}
+
+// Root Stage: Ungated Active-Day Series Emission for Prefilter Survivors (1 stage-to-stage join; 2 total)
+$entity = $stage1_extract.entity
+$entity = $stage2_prefilter.entity
+$ws = $stage1_extract.window_start
+
+match:
+  $entity, $ws by 1d
+
+outcome:
+  $observed_val = max($stage1_extract.observed_val)
+  $baseline_mean = max($stage1_extract.historical_avg)
+  $baseline_stddev = max($stage1_extract.historical_stddev)
+  $active_days = max($stage1_extract.historical_active_days)
+  $historical_sum = max($stage1_extract.historical_sum)
+  $daily_z = max($stage1_extract.daily_z)
+  $windowed_slack_sum = max($stage2_prefilter.windowed_slack_sum)
+  $cusum_drift_score = $windowed_slack_sum
+  $drift_days = max($stage2_prefilter.drift_days)
+
+// Significance gate: lossless Windowed Slack Sum prefilter W >= h across >= 2 drift days on mature baselines.
+condition:
+  $active_days >= {{min_baseline_days}} and $windowed_slack_sum >= {{cusum_h}} and $drift_days >= 2
+
+order:
+  $windowed_slack_sum desc, $daily_z desc

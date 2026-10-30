@@ -71,8 +71,11 @@ outcome:
   $active_days = max($stage1_extract.historical_active_days)
   $events_count = max($stage1_extract.observed_events)
 
-  // 1. Parametric Standard Z-Score with Conditional Zero-Dispersion Safeguard
-  $personal_z = ($observed_val - $baseline_mean) / if($baseline_stddev > 0, $baseline_stddev, {{dispersion_floor}})
+  // 1. Parametric Standard Z-Score with D8 Maturity Gate & Dispersion Floor
+  $count_floor = math.sqrt(if($baseline_mean > 1.0, $baseline_mean, 1.0))
+  $dispersion_floor = if({{dispersion_floor}} > 1.0, {{dispersion_floor}}, $count_floor)
+  $safe_stddev = if($baseline_stddev > $dispersion_floor, $baseline_stddev, $dispersion_floor)
+  $personal_z = ($observed_val - $baseline_mean) / $safe_stddev
 
   // Model Concordance variable aliases
   $observed = $observed_val
@@ -82,7 +85,7 @@ outcome:
 
 // Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
 condition:
-  $personal_z >= {{anomaly_threshold}}
+  $active_days >= {{min_baseline_days}} and $personal_z >= {{anomaly_threshold}}
 
 order:
   $personal_z desc

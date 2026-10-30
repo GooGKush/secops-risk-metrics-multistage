@@ -67,6 +67,7 @@ Author: Greg Kushmerek
 Integration: Google SecOps UEBA
 """
 
+import json
 from SiemplifyAction import SiemplifyAction
 from SiemplifyUtils import output_handler
 from scripts.radar_collector import EntityRadarCollector, MetricSpoke
@@ -82,14 +83,23 @@ def main():
   entity_type = siemplify.extract_action_param("Entity Type", default_value="USER")
   threshold = float(siemplify.extract_action_param("Anomaly Threshold", default_value=3.0))
 
-  # 2. Initialize Collector & Parse Spoke Scores from Decoupled Sector Queries
+  # 2. Initialize Collector & Parse Raw udm_search Sector Payloads (D6-G1..G3)
   # (Sector micro-query templates are defined on EntityRadarCollector.USER_SECTOR_QUERIES / ASSET_SECTOR_QUERIES)
   collector = EntityRadarCollector(secops_client=siemplify)
-  scores_str = siemplify.extract_action_param("Sector Scores", default_value="auth=0.0,cloud=0.0,workspace=0.0,net=0.0,dns=0.0,web=0.0")
-  spokes = EntityRadarCollector.parse_scores_argument(scores_str, entity_type=entity_type)
+  raw_payloads_json = siemplify.extract_action_param("Raw Sector Payloads JSON")
+  sector_payloads = json.loads(raw_payloads_json)
+  spokes, provenance = EntityRadarCollector.parse_raw_sector_payloads(
+      sector_payloads,
+      entity_type=entity_type,
+  )
 
-  # 3. Build Complete Radar Payload (SVG, Markdown Table, Chart.js Spec, Composite Risk)
-  radar_data = collector.build_radar_payload(entity_id=entity_id, entity_type=entity_type, spokes=spokes)
+  # 3. Build Complete Radar Payload (SVG, Markdown Table, Chart.js Spec, Composite Risk, Provenance)
+  radar_data = collector.build_radar_payload(
+      entity_id=entity_id,
+      entity_type=entity_type,
+      spokes=spokes,
+      provenance=provenance,
+  )
 
   composite_d = radar_data["composite_distance_d"]
   cri = radar_data["calibrated_risk_index"]
@@ -203,11 +213,11 @@ This constructs two fatal failure modes:
 To guarantee zero compilation errors and prevent silent drops:
 * Execute 6 lightweight, independent sector micro-queries in parallel (each evaluating 1 sector against its 30-day baseline).
 * If a sector returns 0 events for the target entity, record nominal baseline ($Z = 0.00\sigma, \text{CRI} = 0$).
-* Feed the resulting vector scores into the deterministic CLI visualizer:
+* Feed the verbatim raw `udm_search` sector payload JSON into the deterministic CLI visualizer (D6-G1..G3):
   ```bash
   python3 scripts/radar_collector.py \
     --entity "<entity_id>" \
-    --scores "auth=<Z1>,cloud=<Z2>,workspace=<Z3>,net=<Z4>,dns=<Z5>,web=<Z6>" \
+    --raw-payload "<artifact_dir>/sector_payloads_<entity_id>.json" \
     --output "<artifact_dir>/radar_<entity_id>.html" \
     --format embed
   ```

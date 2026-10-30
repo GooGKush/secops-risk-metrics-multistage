@@ -41,8 +41,25 @@ class TestSubmissionCompilerPolicy(unittest.TestCase):
     cls.matrix = cls.suite.build_canonical_test_matrix()
 
   def test_canonical_matrix_size(self):
-    """Asserts that exactly 32 canonical test cases are defined (including all 16 math models)."""
+    """Asserts that exactly 32 canonical test cases are defined across active math models and pipelines."""
     self.assertEqual(len(self.matrix), 32)
+    ids = {tc.test_id for tc in self.matrix}
+    for retired_id in (
+        "PIPE-11-CIRCADIAN-VON-MISES",
+        "ROUTER-07-HOURLY-Z",
+        "ROUTER-16-CIRCADIAN-VON-MISES",
+        "ROUTER-12-PIECEWISE-CRI",
+        "ROUTER-13-FLEET-SHIELD",
+    ):
+      self.assertNotIn(retired_id, ids)
+    for active_id in (
+        "PIPE-11-QUANTILE-IQR-3STAGE",
+        "ROUTER-07-QUANTILE-IQR",
+        "ROUTER-16-RELATIVE-DEV",
+        "PIPE-13-FLEET-PREVALENCE-HYBRID",
+        "PIPE-14-PART-OF-WHOLE-TRIAD",
+    ):
+      self.assertIn(active_id, ids)
 
   def test_all_canonical_cases_pass_static_validation(self):
     """Validates that all 32 canonical test cases produce clean YARA-L 2.0."""

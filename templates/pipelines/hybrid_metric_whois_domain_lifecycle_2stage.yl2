@@ -12,8 +12,9 @@
 //   graph stage, GLOBAL_CONTEXT included, so the window shape is uniform):
 //   Daily graph records (every prevalence.* filter) are built once a day and lag about a
 //   day; a window starting today 00:00Z overlaps none of them, the inner join drops every
-//   row, and zero rows are structural, not a true negative. Start the search window two
-//   days back at 00:00Z; the today_date slot (today's UTC date, YYYY-MM-DD) keeps the event
+//   row, and zero rows are structural, not a true negative. Start the search window at the
+//   scored UTC day minus 2 at 00:00Z (endTime = today 00:00Z by default, or now in Today So Far);
+//   the today_date slot (the scored UTC day, YYYY-MM-DD — yesterday by default in Mode A) keeps the event
 //   stage on the analysis day. The graph stage matches by key only (no time predicate).
 //   Zero rows from a window starting today is a freshness gap: rerun, do not report clean.
 //
@@ -41,6 +42,7 @@ stage stage1_egress_baseline {
     {{domain_field}} = $domain
     $host != ""
     $domain != ""
+    not re.regex($domain, `(?i)\.(in-addr\.arpa|ip6\.arpa|local)$`)
 
   match:
     $host, $domain by 1d
@@ -86,7 +88,8 @@ outcome:
   $observed = max($stage1_egress_baseline.observed_val)
   $mean = max($stage1_egress_baseline.hist_mean)
   $stddev = max($stage1_egress_baseline.hist_stddev)
-  $z_score = ($observed - $mean) / if($stddev > 0, $stddev, 1.0)
+  $dispersion_floor = math.sqrt(if($mean > 1.0, $mean, 1.0))
+  $z_score = ($observed - $mean) / if($stddev > $dispersion_floor, $stddev, $dispersion_floor)
   $active_baseline_days = max($stage1_egress_baseline.hist_active_days)
 
   $obs_ts = max($stage1_egress_baseline.event_timestamp)
@@ -108,8 +111,9 @@ outcome:
   $fused_threat_score = $z_score * $whois_multiplier
 
 condition:
-  $z_score >= {{anomaly_threshold}}
-  and ($is_nrd = 1.0 or ($is_expired = 1.0 and $active_baseline_days >= {{min_baseline_days}}))
+  $active_baseline_days >= {{min_baseline_days}}
+  and $z_score >= {{anomaly_threshold}}
+  and ($is_nrd = 1.0 or $is_expired = 1.0)
 
 order:
   $fused_threat_score desc

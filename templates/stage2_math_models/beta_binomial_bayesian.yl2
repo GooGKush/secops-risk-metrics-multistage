@@ -1,6 +1,4 @@
-// Stage 2 (Root Stage): Beta-Binomial Empirical Bayes Proportion Shrinkage
-// Normalizes raw count/volume inputs into [0, 1] proportions when paired with count/volume extractors,
-// while preserving exact [0, 1] ratios when paired with proportion extractors.
+// Stage 2 (Root Stage): Empirical Bayes Paired Beta-Binomial Failure Rate & Predictive Z
 $entity = $stage1_extract.entity
 $ws = $stage1_extract.window_start
 
@@ -8,31 +6,32 @@ match:
   $entity, $ws by 1d
 
 outcome:
-  $observed = max($stage1_extract.observed_val)
-  $hist_avg = max($stage1_extract.historical_avg)
+  $obs_fail = sum($stage1_extract.obs_fail)
+  $obs_total = sum($stage1_extract.obs_total)
+  $observed = $obs_fail
+  $hist_fail_sum = max($stage1_extract.hist_fail_sum)
+  $hist_total_sum = max($stage1_extract.hist_total_sum)
   $active_days = max($stage1_extract.historical_active_days)
 
-  // Normalize to [0, 1] when inputs exceed 1.0 (e.g. count or volume Stage 1 extractors)
-  $denom_scale = $observed + $hist_avg + 1.0
-  $scaled_prior = $hist_avg / $denom_scale
-  $scaled_obs = $observed / $denom_scale
-  $prior_rate = if($hist_avg <= 1.0 and $observed <= 1.0, $hist_avg, $scaled_prior)
-  $obs_rate = if($hist_avg <= 1.0 and $observed <= 1.0, $observed, $scaled_obs)
+  // 1. Historical Successes & Pre-Observation Conjugate Beta(alpha_pre, beta_pre) Prior
+  $raw_hist_succ = $hist_total_sum - $hist_fail_sum
+  $hist_succ_sum = if($raw_hist_succ > 0.0, $raw_hist_succ, 0.0)
+  $alpha_pre = {{prior_alpha0}} + $hist_fail_sum
+  $beta_pre = {{prior_beta0}} + $hist_succ_sum
+  $ab = $alpha_pre + $beta_pre
+  $prior_fail_rate = $alpha_pre / $ab
 
-  // Beta Prior Parameters (M = 10 equivalent pseudo-trials, bounded in [0, 10])
-  $prior_alpha = $prior_rate * 10.0
-  $prior_beta = (1.0 - $prior_rate) * 10.0
-
-  // Posterior Mean Rate after N = 10 pseudo-trial observations
-  $post_alpha = $prior_alpha + ($obs_rate * 10.0)
-  $post_denom = $prior_alpha + $prior_beta + 10.0
-  $posterior_rate = $post_alpha / $post_denom
-  $safe_prior = if($prior_rate > 0.001, $prior_rate, 0.001)
-  $posterior_lift = $posterior_rate / $safe_prior
+  // 2. Conjugate Posterior Failure Rate & Beta-Binomial Posterior-Predictive Residual Z
+  $posterior_fail_rate = ($alpha_pre + $obs_fail) / ($ab + $obs_total)
+  $posterior_rate = $posterior_fail_rate
+  $pred_mean = $obs_total * $prior_fail_rate
+  $pred_var = $obs_total * $prior_fail_rate * ($beta_pre / $ab) * (($ab + $obs_total) / ($ab + 1.0))
+  $safe_pred_sd = math.sqrt(if($pred_var > 0.25, $pred_var, 0.25))
+  $beta_binomial_z = ($obs_fail - $pred_mean) / $safe_pred_sd
 
 // Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
 condition:
-  $posterior_lift >= {{fold_change_threshold}}
+  $beta_binomial_z >= {{anomaly_threshold}}
 
 order:
-  $posterior_lift desc
+  $beta_binomial_z desc

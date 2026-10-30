@@ -2,7 +2,7 @@
 // ARCHITECTURE: 3-STAGE DUAL-BASELINE POPULATION NORMALIZATION (DELTA-Z)
 // Skill: secops-risk-metrics-multistage
 // Purpose: Isolates targeted endpoint anomalies from company-wide surges (Patch Tuesday immunity)
-// Math: Delta-Z = Z_Personal - Z_Fleet_Today
+// Math: Delta-Z = Z_Personal - Z_Fleet_Today (mature fleet window.median, Winsorized [-6, 6] cross-check)
 //
 // CONCRETE FIELD BINDING & INSTANTIATION GUIDE:
 // entity_field slot: the entity key (default principal.asset.hostname); observed_agg slot: the metric's "Observed value".
@@ -34,14 +34,18 @@ stage host_extract {
     $hist_stddev = max({{target_metric_func_stddev}})
     $hist_active_days = max({{target_metric_func_active_days}})
 
-    // In-Stage Personal Historical Z-Score (Outcomes-in-Outcomes)
-    $personal_z = ($observed_24h - $hist_avg) / if($hist_stddev > 0, $hist_stddev, 1.0)
+    // In-Stage Personal Historical Z-Score (Outcomes-in-Outcomes) + Winsorized [-6.0, 6.0] copy
+    $dispersion_floor = math.sqrt(if($hist_avg > 1.0, $hist_avg, 1.0))
+    $personal_z = ($observed_24h - $hist_avg) / if($hist_stddev > $dispersion_floor, $hist_stddev, $dispersion_floor)
+    $personal_z_lo = if($personal_z < -6.0, -6.0, $personal_z)
+    $personal_z_winsor = if($personal_z_lo > 6.0, 6.0, $personal_z_lo)
 }
 
-// Stage 2: Concurrent Fleet-Wide Macro Baseline across all active endpoints today
+// Stage 2: Concurrent Fleet-Wide Macro Baseline across mature active endpoints today
 stage fleet_stats {
     $host = $host_extract.host
     $ws = $host_extract.window_start
+    $host_extract.hist_active_days >= {{min_baseline_days}}
 
   match:
     $ws by 1d
@@ -49,7 +53,8 @@ stage fleet_stats {
   outcome:
     $fleet_today_avg = avg($host_extract.observed_24h)
     $fleet_today_stddev = stddev($host_extract.observed_24h)
-    $fleet_z_avg = avg($host_extract.personal_z)
+    $fleet_z_median = window.median($host_extract.personal_z, false)
+    $fleet_z_winsor_avg = avg($host_extract.personal_z_winsor)
     $active_fleet_hosts = count_distinct($host_extract.host)
 }
 
@@ -65,16 +70,17 @@ outcome:
   $obs = max($host_extract.observed_24h)
   $personal_z = max($host_extract.personal_z)
   $active_days = max($host_extract.hist_active_days)
-  
+
   $fleet_avg = max($fleet_stats.fleet_today_avg)
   $fleet_stddev = max($fleet_stats.fleet_today_stddev)
   $fleet_size = max($fleet_stats.active_fleet_hosts)
 
-  // 1. Fleet Today Cross-Sectional Volume Z-Score & Common-Unit Fleet Mean Personal Z
+  // 1. Fleet Today Cross-Sectional Volume Z-Score & Robust Fleet Median Personal Z (immune to extreme single-host spikes)
   $raw_fleet_z = ($obs - $fleet_avg) / if($fleet_stddev > 0, $fleet_stddev, 1.0)
-  $fleet_z = max($fleet_stats.fleet_z_avg)
+  $fleet_z = max($fleet_stats.fleet_z_median)
+  $fleet_z_winsor = max($fleet_stats.fleet_z_winsor_avg)
 
-  // 3. Delta-Z Anomaly Isolation in common within-entity sigma units (Targeted anomaly score)
+  // 2. Delta-Z Anomaly Isolation in common within-entity sigma units (Targeted anomaly score)
   $delta_z = $personal_z - $fleet_z
 
 // Significance gate: the Pre-Flight card's threshold for this model (references/model-concordance-guide.md §2.1).
