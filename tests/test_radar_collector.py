@@ -831,13 +831,13 @@ stage stage_dns {
   def test_ws4_auth_spoke_single_stage_union_preserves_zero_success_bruteforce(self):
     """WS4-RADAR-COHORT: Auth radar spoke must use a single-stage union instead of inner-joining s1/s2."""
     auth_query = EntityRadarCollector.USER_SECTOR_QUERIES["IAM & Authentication"] % {"entity_id": "brute.target"}
-    self.assertIn("stage s1 {", auth_query)
+    self.assertIn("stage auth_risk {", auth_query)
     self.assertNotIn("stage s2", auth_query)
     self.assertNotIn("$s2.", auth_query)
     self.assertIn('sum(if(security_result.action = "ALLOW", 0, 1))', auth_query)
     self.assertIn('sum(if(security_result.action = "ALLOW", 1, 0))', auth_query)
-    self.assertIn("$fail_obs = max($s1.fail_obs)", auth_query)
-    self.assertIn("$succ_obs = max($s1.succ_obs)", auth_query)
+    self.assertIn("$fail_obs = max($auth_risk.fail_obs)", auth_query)
+    self.assertIn("$succ_obs = max($auth_risk.succ_obs)", auth_query)
     self.assertEqual(MalachiteASTValidator.validate_query("// Goal: Auth Spoke\n" + auth_query), [])
 
   def test_ws4_cloud_crud_spoke_no_million_divisor_and_maturity_floor(self):
